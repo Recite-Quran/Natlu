@@ -13,6 +13,10 @@ import '../services/quran_audio_service.dart';
 import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
 import 'widgets/mic_bar.dart';
+import '../services/prayer/prayer_session.dart';
+import '../services/prayer/recited_word.dart';
+import 'prayer/prayer_event_text.dart';
+import 'prayer/prayer_start_sheet.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
 import 'widgets/verse_row.dart';
@@ -35,6 +39,13 @@ class TrackingScreen extends StatefulWidget {
   final void Function(int surah, int ayah)? onSelectVoiceCandidate;
   final VoidCallback onClearBuffer;
 
+  /// Prayer mode (rehearsal): the current or last session, and how to
+  /// start, stop and close it.
+  final ValueListenable<PrayerSession?>? prayerSession;
+  final Future<void> Function(int surah, int ayah)? onStartPrayer;
+  final VoidCallback? onStopPrayer;
+  final VoidCallback? onClosePrayer;
+
   const TrackingScreen({
     super.key,
     required this.controller,
@@ -49,6 +60,10 @@ class TrackingScreen extends StatefulWidget {
     this.isLoadingEngine = false,
     this.isVoiceSearchLoading,
     required this.onClearBuffer,
+    this.prayerSession,
+    this.onStartPrayer,
+    this.onStopPrayer,
+    this.onClosePrayer,
   });
 
   @override
@@ -702,7 +717,44 @@ class _TrackingScreenState extends State<TrackingScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => SettingsDialog(controller: widget.controller),
+      builder: (_) => SettingsDialog(
+        controller: widget.controller,
+        onOpenPrayerMode: widget.onStartPrayer == null
+            ? null
+            : () {
+                Navigator.of(context).pop();
+                _showPrayerStart();
+              },
+      ),
+    );
+  }
+
+  String _surahName(int surah) {
+    final metadata = widget.controller.repository.surahMetadata;
+    if (surah < 1 || surah > metadata.length) return '';
+    final s = metadata[surah - 1];
+    return AppState.instance.isArabic ? s.surahName : s.surahNameEn;
+  }
+
+  /// Prayer mode starts at the current ayah.
+  void _showPrayerStart() {
+    final surah = widget.controller.targetSurah;
+    final ayah = widget.controller.activeAyah.value ?? 1;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => PrayerStartSheet(
+        startText: prayerPositionText(
+          MushafWord(surah, ayah, 0),
+          AppState.instance.isArabic,
+          _surahName,
+        ),
+        onStart: () {
+          Navigator.of(sheetContext).pop();
+          widget.onStartPrayer?.call(surah, ayah);
+        },
+      ),
     );
   }
 

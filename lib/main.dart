@@ -29,6 +29,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'package:recite_quran/recite_quran.dart';
+import 'services/prayer/highlighting_prayer_tracker.dart';
+import 'services/prayer/prayer_session.dart';
 import 'state/app_state.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
@@ -210,6 +212,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   QuranRepository? _repo;
   HighlightingController? _ctrl;
 
+  /// Prayer mode (rehearsal): the running session, or the last one until
+  /// its log is closed.
+  final ValueNotifier<PrayerSession?> _prayer = ValueNotifier(null);
+  HighlightingPrayerTracker? _prayerTracker;
+  StreamSubscription<TranscriptionResult>? _prayerSub;
+
   bool _isInit = true;
   bool _isRecording = false;
   String _initStatus = 'Starting…';
@@ -317,6 +325,9 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
     _transcriptionSub?.cancel();
     AppState.instance.stopVerseAudio();
+    _endPrayerSession();
+    _prayer.value?.dispose();
+    _prayer.dispose();
     _ctrl?.dispose();
     _voiceSearchAsrNotifier.dispose();
     super.dispose();
@@ -450,11 +461,18 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           // Software mute: drop mic frames while verse audio is playing
           // so the AI model never hears the phone speaker or accepts input!
           if (AppState.instance.isAudioPlaying.value) return;
-          _ctrl?.feed(chunk, isFinal: isFinal);
+          if (_prayer.value?.phase == PrayerPhase.waitingForFatiha) {
+            // Prayer mode isn't following the plan (the tracker is paused)
+            // but still listens, for the end of al-Fātiḥa.
+            _engine.transcribe(chunk, isFinal: isFinal);
+          } else {
+            _ctrl?.feed(chunk, isFinal: isFinal);
+          }
         },
       );
     } catch (e) {
       DebugLogger.logSimple('AUDIO', '❌ ERROR: $e');
+      _endPrayerSession();
       if (mounted) setState(() => _isRecording = false);
     }
   }
@@ -494,6 +512,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     try {
       if (_isRecording) {
+        _endPrayerSession();
         await _audio.stop();
         _engine.resetBuffer();
         _ctrl?.finalize();
@@ -546,6 +565,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       }
     } catch (e) {
       DebugLogger.logSimple('RECORD', '❌ ERROR: $e');
+      _endPrayerSession();
       if (mounted)
         setState(() {
           _isRecording = false;
@@ -553,6 +573,67 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     } finally {
       _isToggling = false;
     }
+  }
+
+  /// Starts prayer mode (rehearsal) following the recitation from [ayah] of
+  /// [surah]: starts recording, then lets the session take over the tracker.
+  Future<void> _startPrayer(int surah, int ayah) async {
+    final ctrl = _ctrl;
+    final repo = _repo;
+    if (ctrl == null || repo == null) return;
+    if (_prayer.value?.phase == PrayerPhase.waitingForFatiha ||
+        _prayer.value?.phase == PrayerPhase.following) {
+      return;
+    }
+    if (_isRecording) await _toggleRecord();
+    if (ctrl.targetSurah != surah) await ctrl.setTargetSurah(surah);
+    ctrl.setManualAyah(surah, ayah);
+    await _toggleRecord();
+    if (!_isRecording) return;
+
+    final tracker = HighlightingPrayerTracker(ctrl);
+    final session = await PrayerSession.create(
+      tracker: tracker,
+      repository: repo,
+      log: (m) => DebugLogger.logSimple('PRAYER', m),
+    );
+    _prayerTracker = tracker;
+    _prayerSub = _engine.transcriptionStream.listen((r) {
+      session.addTranscription(
+        tokens: r.tokens,
+        isFinal: r.isFinal,
+        epoch: r.streamEpoch,
+      );
+    });
+    _replacePrayerSession(session);
+    await session.start(surah, ayah);
+  }
+
+  /// Shows [session] (or nothing) instead of the current one, which is
+  /// disposed once the screen has let go of it.
+  void _replacePrayerSession(PrayerSession? session) {
+    final old = _prayer.value;
+    _prayer.value = session;
+    if (old != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
+  }
+
+  /// Stops prayer mode and recording. The session's log stays on screen.
+  Future<void> _stopPrayer() async {
+    if (_isRecording) {
+      await _toggleRecord(); // ends the prayer session too
+    } else {
+      _endPrayerSession();
+    }
+  }
+
+  void _endPrayerSession() {
+    _prayerSub?.cancel();
+    _prayerSub = null;
+    _prayer.value?.stop();
+    _prayerTracker?.restore();
+    _prayerTracker = null;
   }
 
   /// Toggles global voice search across the Quran
@@ -783,6 +864,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       onClearBuffer: () {
         _engine.resetBuffer();
         _audio.clearBuffer();
+      },
+      prayerSession: _prayer,
+      onStartPrayer: _startPrayer,
+      onStopPrayer: _stopPrayer,
+      onClosePrayer: () {
+        _endPrayerSession();
+        _replacePrayerSession(null);
       },
     );
   }
