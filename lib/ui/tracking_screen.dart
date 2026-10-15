@@ -17,6 +17,7 @@ import '../services/prayer/prayer_session.dart';
 import '../services/prayer/recited_word.dart';
 import 'prayer/prayer_event_text.dart';
 import 'prayer/prayer_start_sheet.dart';
+import 'prayer/prayer_status_card.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
 import 'widgets/verse_row.dart';
@@ -803,6 +804,25 @@ class _TrackingScreenState extends State<TrackingScreen>
                     child: _buildHeader(c, app, top),
                   ),
                 ),
+
+                // Prayer mode status, above the recitation controls
+                if (widget.prayerSession != null)
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: bottom + 96,
+                    child: ValueListenableBuilder<PrayerSession?>(
+                      valueListenable: widget.prayerSession!,
+                      builder: (context, session, _) => session == null
+                          ? const SizedBox.shrink()
+                          : PrayerStatusCard(
+                              session: session,
+                              surahName: _surahName,
+                              onStop: () => widget.onStopPrayer?.call(),
+                              onClose: () => widget.onClosePrayer?.call(),
+                            ),
+                    ),
+                  ),
 
                 // Bottom Action Bar
                 AnimatedPositioned(
