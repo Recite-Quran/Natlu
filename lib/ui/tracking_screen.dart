@@ -718,15 +718,7 @@ class _TrackingScreenState extends State<TrackingScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => SettingsDialog(
-        controller: widget.controller,
-        onOpenPrayerMode: widget.onStartPrayer == null
-            ? null
-            : () {
-                Navigator.of(context).pop();
-                _showPrayerStart();
-              },
-      ),
+      builder: (_) => SettingsDialog(controller: widget.controller),
     );
   }
 
@@ -847,54 +839,68 @@ class _TrackingScreenState extends State<TrackingScreen>
                         child: child,
                       );
                     },
-                    child: BottomActionBar(
+                    child: _PrayerRunning(
                       key: const ValueKey('word_checker_bar'),
-                      isRecording: widget.isRecording,
-                      isLoadingEngine: widget.isLoadingEngine,
-                      isAutoScrolling: _isAutoScrolling,
-                      c: c,
-                      onMic: () async {
-                        app.dismissBanner();
-                        if (widget.isVoiceSearching) {
-                          widget.onVoiceSearchToggle();
-                        } else {
-                          if (app.isMushafMode && !widget.isRecording) {
-                            await MushafView.ensureActiveAyahOnCurrentPage(
-                              controller: widget.controller,
-                              pageNumber: app.currentMushafPage.value,
-                            );
-                          }
-                          widget.onToggleRecord();
-                        }
-                      },
-                      onToggleAutoScroll: () {
-                        app.dismissBanner();
-                        _toggleAutoScroll();
-                      },
-                      onSettingsTap: _showSettingsDialog,
-                      isTajweed: app.currentMode == AppMode.tajweed,
-                      onToggleTajweed: () {
-                        final bool newIsTajweed =
-                            app.currentMode != AppMode.tajweed;
-                        if (newIsTajweed) {
-                          app.setMode(AppMode.tajweed);
-                          widget.controller.setTajweedMode(true);
-                          app.showTajweedBanner();
-                        } else {
-                          app.setMode(AppMode.wordChecker);
-                          widget.controller.setTajweedMode(false);
-                          app.dismissTajweedBanner();
-                        }
-                      },
-                      isBlur: app.isBlurMode,
-                      onToggleBlur: () {
-                        app.toggleBlurMode();
-                        if (app.isBlurMode && !widget.isRecording) {
-                          app.showBlurBanner(true);
-                        } else {
+                      session: widget.prayerSession,
+                      builder: (prayerRunning) => BottomActionBar(
+                        isRecording: widget.isRecording,
+                        isLoadingEngine: widget.isLoadingEngine,
+                        isAutoScrolling: _isAutoScrolling,
+                        c: c,
+                        onMic: () async {
                           app.dismissBanner();
-                        }
-                      },
+                          if (widget.isVoiceSearching) {
+                            widget.onVoiceSearchToggle();
+                          } else {
+                            if (app.isMushafMode && !widget.isRecording) {
+                              await MushafView.ensureActiveAyahOnCurrentPage(
+                                controller: widget.controller,
+                                pageNumber: app.currentMushafPage.value,
+                              );
+                            }
+                            widget.onToggleRecord();
+                          }
+                        },
+                        onToggleAutoScroll: () {
+                          app.dismissBanner();
+                          _toggleAutoScroll();
+                        },
+                        onSettingsTap: _showSettingsDialog,
+                        isTajweed: app.currentMode == AppMode.tajweed,
+                        onToggleTajweed: () {
+                          final bool newIsTajweed =
+                              app.currentMode != AppMode.tajweed;
+                          if (newIsTajweed) {
+                            app.setMode(AppMode.tajweed);
+                            widget.controller.setTajweedMode(true);
+                            app.showTajweedBanner();
+                          } else {
+                            app.setMode(AppMode.wordChecker);
+                            widget.controller.setTajweedMode(false);
+                            app.dismissTajweedBanner();
+                          }
+                        },
+                        isBlur: app.isBlurMode,
+                        onToggleBlur: () {
+                          app.toggleBlurMode();
+                          if (app.isBlurMode && !widget.isRecording) {
+                            app.showBlurBanner(true);
+                          } else {
+                            app.dismissBanner();
+                          }
+                        },
+                        isPrayer: prayerRunning,
+                        onPrayer: widget.onStartPrayer == null
+                            ? null
+                            : () {
+                                app.dismissBanner();
+                                if (prayerRunning) {
+                                  widget.onStopPrayer?.call();
+                                } else {
+                                  _showPrayerStart();
+                                }
+                              },
+                      ),
                     ),
                   ),
                 ),
@@ -1592,6 +1598,35 @@ class _TactileScaleButtonState extends State<_TactileScaleButton> {
         curve: _isDown ? Curves.easeOutQuad : Curves.easeOutCubic,
         child: widget.child,
       ),
+    );
+  }
+}
+
+/// Builds [builder] with whether prayer mode is running, rebuilding as it
+/// starts and stops.
+class _PrayerRunning extends StatelessWidget {
+  const _PrayerRunning({
+    super.key,
+    required this.session,
+    required this.builder,
+  });
+
+  final ValueListenable<PrayerSession?>? session;
+  final Widget Function(bool running) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    if (s == null) return builder(false);
+    return ValueListenableBuilder<PrayerSession?>(
+      valueListenable: s,
+      builder: (context, current, _) => current == null
+          ? builder(false)
+          : ListenableBuilder(
+              listenable: current,
+              builder: (context, _) =>
+                  builder(current.phase != PrayerPhase.idle),
+            ),
     );
   }
 }

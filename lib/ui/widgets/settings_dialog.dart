@@ -10,10 +10,7 @@ import 'settings/setting_tile.dart';
 class SettingsDialog extends StatelessWidget {
   final HighlightingController? controller;
 
-  /// Opens prayer mode (rehearsal); its entry is shown when set.
-  final VoidCallback? onOpenPrayerMode;
-
-  const SettingsDialog({super.key, this.controller, this.onOpenPrayerMode});
+  const SettingsDialog({super.key, this.controller});
 
   @override
   Widget build(BuildContext context) {
@@ -202,42 +199,6 @@ class SettingsDialog extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (onOpenPrayerMode != null) ...[
-                          const SizedBox(height: 16),
-                          // ── Prayer Mode ──
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            child: Material(
-                              color: c.surfaceHigh,
-                              borderRadius: BorderRadius.circular(20),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(20),
-                                onTap: onOpenPrayerMode,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color: c.border.withValues(alpha: 0.5),
-                                      width: 1,
-                                    ),
-                                  ),
-                                  child: SettingTile(
-                                    icon: Icons.mosque_rounded,
-                                    title:
-                                        isAr ? 'وضع الصلاة' : 'Prayer Mode',
-                                    c: c,
-                                    trailing: Icon(
-                                      isAr
-                                          ? Icons.chevron_left_rounded
-                                          : Icons.chevron_right_rounded,
-                                      color: c.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                         const SizedBox(height: 10),
 
                         // ── Bottom Reset Button (Compact Height) ──

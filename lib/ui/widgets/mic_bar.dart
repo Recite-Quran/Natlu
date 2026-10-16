@@ -26,6 +26,11 @@ class BottomActionBar extends StatefulWidget {
   final bool isBlur;
   final VoidCallback onToggleBlur;
 
+  /// Prayer mode's button (next to hide verses), if given; shown active
+  /// while prayer mode runs.
+  final bool isPrayer;
+  final VoidCallback? onPrayer;
+
   const BottomActionBar({
     super.key,
     required this.isRecording,
@@ -39,6 +44,8 @@ class BottomActionBar extends StatefulWidget {
     required this.onToggleTajweed,
     required this.isBlur,
     required this.onToggleBlur,
+    this.isPrayer = false,
+    this.onPrayer,
   });
 
   @override
@@ -272,6 +279,27 @@ class _BottomActionBarState extends State<BottomActionBar>
                                   widget.onToggleBlur();
                                 },
                               ),
+                              if (widget.onPrayer != null) ...[
+                                const SizedBox(width: 8),
+                                _buildSecondaryToggle(
+                                  icon: widget.isPrayer
+                                      ? Icons.mosque_rounded
+                                      : Icons.mosque_outlined,
+                                  tooltip: widget.isPrayer
+                                      ? (isAr
+                                          ? 'إيقاف وضع الصلاة'
+                                          : 'Stop Prayer Mode')
+                                      : (isAr ? 'وضع الصلاة' : 'Prayer Mode'),
+                                  isActive: widget.isPrayer,
+                                  c: c,
+                                  isDark: isDark,
+                                  isRecording: widget.isRecording,
+                                  onTap: () {
+                                    HapticFeedback.lightImpact();
+                                    widget.onPrayer!();
+                                  },
+                                ),
+                              ],
                             ],
                           ),
                         ),
