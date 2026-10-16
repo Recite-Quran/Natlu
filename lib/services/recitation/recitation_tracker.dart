@@ -16,6 +16,10 @@ abstract class RecitationTracker implements Listenable {
   int get surah;
   int? get activeAyah;
 
+  /// Changes whenever highlights are cleared (some or all of them) or it
+  /// moves to another surah: what it said about words may no longer hold.
+  int get revision;
+
   /// Stops following the recitation.
   void pause();
 

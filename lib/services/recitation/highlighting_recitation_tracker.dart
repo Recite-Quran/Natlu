@@ -54,6 +54,9 @@ class HighlightingRecitationTracker implements RecitationTracker {
   int? get activeAyah => controller.activeAyah.value;
 
   @override
+  int get revision => controller.globalRevision.value;
+
+  @override
   void pause() => controller.finalize();
 
   @override

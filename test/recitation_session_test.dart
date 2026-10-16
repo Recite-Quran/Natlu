@@ -34,6 +34,8 @@ class FakeTracker extends ChangeNotifier implements RecitationTracker {
   int surah = 1;
   @override
   int? activeAyah = 1;
+  @override
+  int revision = 0;
 
   @override
   RecitedWordState stateOf(MushafWord word) =>
@@ -56,7 +58,22 @@ class FakeTracker extends ChangeNotifier implements RecitationTracker {
     this.surah = surah;
     activeAyah = ayah;
     following = true;
+    revision++;
     resumes.add((surah, ayah));
+    notifyListeners();
+  }
+
+  /// The ayah is tapped: the tracker expects it next (from its first word
+  /// not yet recited), keeping what it shows.
+  void tap(int ayah) {
+    activeAyah = ayah;
+    notifyListeners();
+  }
+
+  /// Clears every highlight (the reciter starts over).
+  void clear() {
+    states.clear();
+    revision++;
     notifyListeners();
   }
 
@@ -137,6 +154,26 @@ void main() {
   late RecitationSession session;
   late DateTime clock;
   int epoch = 0;
+
+  /// Auto-correct alone, as in an ordinary recitation.
+  RecitationSession buildAlone() {
+    final log = RecitationLog();
+    return RecitationSession(
+      log: log,
+      autoCorrect: AutoCorrect(
+        tracker: tracker,
+        text: text,
+        settings: settings,
+        log: log,
+        extraPhrases: [
+          AutoCorrect.istiadhaPhonemes,
+          fatiha.where((w) => w.ref.ayah == 1).map((w) => w.skeleton).join(),
+        ],
+        now: () => clock,
+      ),
+      autoTick: false,
+    );
+  }
 
   /// Prayer mode with auto-correct.
   RecitationSession build({bool extras = true}) {
@@ -463,6 +500,120 @@ void main() {
     await reciteFatiha();
     expect(tracker.resumes, isEmpty);
     expect(log().first, startsWith('started'));
+  });
+
+  group('auto-correct alone', () {
+    late List<PlanWord> b;
+
+    setUp(() async {
+      b = await words(2);
+      session.dispose();
+      session = buildAlone();
+    });
+
+    /// The microphone is turned on with the tracker at [ayah] of [surah].
+    Future<void> startAt(int ayah, {int surah = 2}) async {
+      await tracker.resumeAt(surah, ayah);
+      await session.start();
+      await pumpEventQueue();
+    }
+
+    test('follows from where the tracker is, without al-Fātiḥa', () async {
+      await startAt(7);
+      expect(session.position, const MushafWord(2, 7, 0));
+      final missing = ayah(b, 7).elementAt(2);
+      await recite(ayah(b, 7).take(4),
+          marks: {missing.ref: RecitedWordState.mistake});
+      expect(of(RecitationEventKind.mistake).single.where, missing.ref);
+      wait(3);
+      expect(of(RecitationEventKind.prompt).single.where, missing.ref);
+      expect(of(RecitationEventKind.started), isEmpty);
+    });
+
+    test('an ayah tapped: it follows from there, with no mistake', () async {
+      await startAt(6);
+      await recite(ayah(b, 6).take(3));
+      tracker.tap(20);
+      await pumpEventQueue();
+      expect(session.position, const MushafWord(2, 20, 0));
+      await recite(ayah(b, 20));
+      expect(of(RecitationEventKind.mistake), isEmpty);
+      expect(session.position, const MushafWord(2, 21, 0));
+    });
+
+    test('the tracker going on from further on is no mistake', () async {
+      // As when it finds the reciter elsewhere in the surah.
+      await startAt(6);
+      await recite(ayah(b, 6).take(2));
+      await recite(ayah(b, 10).take(2));
+      expect(of(RecitationEventKind.mistake), isEmpty);
+      expect(session.position, ayah(b, 10).elementAt(2).ref);
+      await recite(ayah(b, 10).skip(2));
+      expect(of(RecitationEventKind.mistake), isEmpty);
+    });
+
+    test('an ayah recited again, over what is shown, is followed quietly',
+        () async {
+      await startAt(6);
+      final w7 = ayah(b, 7).toList();
+      await recite(ayah(b, 6));
+      await recite(w7, marks: {w7[2].ref: RecitedWordState.mistake});
+      wait(3);
+      await recite(ayah(b, 8));
+      final mistakes = of(RecitationEventKind.mistake).length;
+      final prompts = of(RecitationEventKind.prompt).length;
+      expect(mistakes, 1);
+
+      // Back to 2:7, and recites it again: the tracker matches the words
+      // it already shows (the word left out turns green).
+      tracker.tap(7);
+      await pumpEventQueue();
+      expect(session.position, const MushafWord(2, 7, 0));
+      for (final w in w7) {
+        say(w.skeleton);
+        wait(1);
+        tracker.mark(w.ref, RecitedWordState.recited);
+      }
+      await pumpEventQueue();
+      expect(of(RecitationEventKind.mistake), hasLength(mistakes));
+      expect(of(RecitationEventKind.prompt), hasLength(prompts));
+      expect(session.position, const MushafWord(2, 8, 0));
+    });
+
+    test('highlights cleared: it follows from the start again', () async {
+      await startAt(6);
+      await recite(ayah(b, 6));
+      await recite(ayah(b, 7).take(3));
+      tracker.clear();
+      tracker.tap(6);
+      await pumpEventQueue();
+      expect(session.position, const MushafWord(2, 6, 0));
+      await recite(ayah(b, 6));
+      expect(of(RecitationEventKind.mistake), isEmpty);
+    });
+
+    test('stopped and following again: no pause prompt before reciting',
+        () async {
+      await startAt(6);
+      await recite(ayah(b, 6));
+      tracker.pause();
+      await tracker.resumeAt(2, 7);
+      await pumpEventQueue();
+      wait(20);
+      expect(of(RecitationEventKind.prompt), isEmpty);
+      await recite(ayah(b, 7).take(2));
+      wait(4);
+      expect(of(RecitationEventKind.prompt).single.reason,
+          RecitationReason.pauseMidAyah);
+    });
+
+    test('at the end of the surah the tracker stops, and so does it', () async {
+      await startAt(4, surah: 112);
+      await recite(ayah(await words(112), 4));
+      wait(30);
+      expect(of(RecitationEventKind.prompt), isEmpty);
+      expect(tracker.resumes, [(112, 4)]);
+    });
   });
 
   group('sounds', () {
