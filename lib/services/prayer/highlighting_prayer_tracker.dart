@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:recite_quran/recite_quran.dart';
 
+import '../recitation/recited_word.dart';
 import 'prayer_session.dart';
-import 'recited_word.dart';
 
 /// [PrayerTracker] backed by the app's [HighlightingController].
 ///

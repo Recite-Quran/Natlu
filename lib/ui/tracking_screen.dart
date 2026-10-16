@@ -14,7 +14,7 @@ import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
 import 'widgets/mic_bar.dart';
 import '../services/prayer/prayer_session.dart';
-import '../services/prayer/recited_word.dart';
+import '../services/recitation/recited_word.dart';
 import 'prayer/prayer_event_text.dart';
 import 'prayer/prayer_start_sheet.dart';
 import 'prayer/prayer_status_card.dart';

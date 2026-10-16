@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:the_great_quran/services/prayer/phoneme_transcript.dart';
+import 'package:the_great_quran/services/recitation/phoneme_transcript.dart';
 
 void main() {
   late DateTime clock;

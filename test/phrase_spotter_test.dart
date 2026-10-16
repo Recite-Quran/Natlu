@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:recite_quran/recite_quran.dart';
-import 'package:the_great_quran/services/prayer/phrase_spotter.dart';
+import 'package:the_great_quran/services/recitation/phrase_spotter.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

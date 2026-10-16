@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/prayer/prayer_session.dart';
-import '../../services/prayer/recited_word.dart';
+import '../../services/recitation/recited_word.dart';
 
 /// [n] in Arabic-Indic digits when [arabic].
 String localizedNumber(int n, bool arabic) {

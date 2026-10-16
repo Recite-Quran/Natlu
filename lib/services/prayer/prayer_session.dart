@@ -4,10 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:recite_quran/recite_quran.dart' show QuranRepository;
 
-import 'recited_word.dart';
-import 'phoneme_transcript.dart';
-import 'phrase_spotter.dart';
-import 'plan_text.dart';
+import '../recitation/phoneme_transcript.dart';
+import '../recitation/phrase_spotter.dart';
+import '../recitation/plan_text.dart';
+import '../recitation/recited_word.dart';
 import 'prayer_settings.dart';
 
 /// What prayer mode needs from the word tracker.

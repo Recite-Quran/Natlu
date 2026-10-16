@@ -5,8 +5,8 @@ import 'package:just_audio/just_audio.dart';
 
 import '../audio/verse_audio_player.dart';
 import '../quran_timing_service.dart';
+import '../recitation/recited_word.dart';
 import 'prayer_session.dart';
-import 'recited_word.dart';
 
 /// What prayer mode is playing.
 enum PrayerSound {

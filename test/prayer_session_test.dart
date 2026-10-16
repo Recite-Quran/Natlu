@@ -4,12 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:recite_quran/recite_quran.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:the_great_quran/services/prayer/plan_text.dart';
-import 'package:the_great_quran/services/prayer/phrase_spotter.dart';
+import 'package:the_great_quran/services/recitation/plan_text.dart';
+import 'package:the_great_quran/services/recitation/phrase_spotter.dart';
 import 'package:the_great_quran/services/prayer/prayer_session.dart';
 import 'package:the_great_quran/services/prayer/prayer_settings.dart';
 import 'package:the_great_quran/services/prayer/prayer_voice.dart';
-import 'package:the_great_quran/services/prayer/recited_word.dart';
+import 'package:the_great_quran/services/recitation/recited_word.dart';
 
 /// Behaves like the app's tracker: words get states as the reciter reaches
 /// them, resuming at an ayah clears it and what follows, listeners hear
