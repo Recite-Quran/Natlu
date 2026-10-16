@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:recite_quran/recite_quran.dart';
@@ -6,6 +8,7 @@ import 'package:the_great_quran/services/prayer/plan_text.dart';
 import 'package:the_great_quran/services/prayer/phrase_spotter.dart';
 import 'package:the_great_quran/services/prayer/prayer_session.dart';
 import 'package:the_great_quran/services/prayer/prayer_settings.dart';
+import 'package:the_great_quran/services/prayer/prayer_voice.dart';
 import 'package:the_great_quran/services/prayer/recited_word.dart';
 
 /// Behaves like the app's tracker: words get states as the reciter reaches
@@ -39,6 +42,56 @@ class FakeTracker extends ChangeNotifier implements PrayerTracker {
     states[w] = s;
     notifyListeners();
   }
+}
+
+/// Records what prayer mode plays; each sound lasts until [finish].
+class FakeOutput implements PrayerAudioOutput {
+  final List<String> played = [];
+  final List<(int, int)> prepared = [];
+  bool canRead = true;
+  int stops = 0;
+
+  /// While set, words being read are still loading.
+  Completer<void>? loading;
+  Completer<void>? _current;
+
+  Future<void> _sound(String name) {
+    played.add(name);
+    return (_current = Completer<void>()).future;
+  }
+
+  /// The sound playing now ends.
+  Future<void> finish() async {
+    _current?.complete();
+    _current = null;
+    await pumpEventQueue();
+  }
+
+  @override
+  Future<void> beep() => _sound('beep');
+
+  @override
+  Future<bool> playWords(int surah, int ayah, int firstWord, int lastWord,
+      {void Function()? onAudible}) async {
+    if (!canRead) return false;
+    await loading?.future;
+    onAudible?.call();
+    await _sound('$surah:$ayah words $firstWord-$lastWord');
+    return true;
+  }
+
+  @override
+  Future<void> stop() async {
+    stops++;
+    _current?.complete();
+    _current = null;
+  }
+
+  @override
+  void prepare(int surah, int ayah) => prepared.add((surah, ayah));
+
+  @override
+  void dispose() {}
 }
 
 void main() {
@@ -260,6 +313,7 @@ void main() {
     final prompt = of(PrayerEventKind.prompt).single;
     expect(prompt.reason, PrayerReason.wrongWord);
     expect(prompt.words, ayah(b, 7).take(2).map((w) => w.uthmani).join(' '));
+    expect(prompt.wordRefs, ayah(b, 7).take(2).map((w) => w.ref).toList());
   });
 
   test('going back over the last ayah is not a mistake', () async {
@@ -353,5 +407,132 @@ void main() {
     await reciteFatiha();
     expect(tracker.resumes, isEmpty);
     expect(log().first, startsWith('started'));
+  });
+
+  group('sounds', () {
+    late FakeOutput out;
+    late PrayerVoice voice;
+
+    Future<void> startVoice(int surah, int ayah) async {
+      await session.start(surah, ayah);
+      out = FakeOutput();
+      voice = PrayerVoice(session: session, output: out);
+      addTearDown(voice.dispose);
+    }
+
+    Future<PlanWord> leaveOutAWord() async {
+      final b = await words(2);
+      await reciteFatiha();
+      final missing = ayah(b, 7).elementAt(2);
+      await recite(ayah(b, 7).take(4),
+          marks: {missing.ref: RecitedWordState.mistake});
+      await pumpEventQueue();
+      return missing;
+    }
+
+    test('a mistake beeps; the prompt reads the words', () async {
+      await startVoice(2, 7);
+      expect(out.prepared, containsAll([(2, 7), (2, 8)]));
+      final missing = await leaveOutAWord();
+      expect(out.played, ['beep']);
+      expect(voice.playing.value, PrayerSound.beep);
+      await out.finish();
+      expect(voice.playing.value, isNull);
+
+      wait(3);
+      await pumpEventQueue();
+      expect(
+          out.played.last,
+          '2:7 words ${missing.ref.wordIndex0}-'
+          '${missing.ref.wordIndex0}');
+      expect(voice.playing.value, PrayerSound.leftOutWords);
+      await out.finish();
+      expect(voice.playing.value, isNull);
+    });
+
+    test('only words being heard count as playing, not while loading',
+        () async {
+      await startVoice(2, 7);
+      out.loading = Completer<void>();
+      await leaveOutAWord();
+      expect(voice.playing.value, PrayerSound.beep);
+      await out.finish();
+      wait(3);
+      await pumpEventQueue();
+      expect(voice.playing.value, isNull, reason: 'still loading');
+      out.loading!.complete();
+      await pumpEventQueue();
+      expect(voice.playing.value, PrayerSound.leftOutWords);
+      await out.finish();
+      expect(voice.playing.value, isNull);
+    });
+
+    test('a prompt of several words reads them, within the ayah', () async {
+      await settings.set(PrayerSettings.promptWords, 3);
+      final b = await words(2);
+      await startVoice(2, 6);
+      await reciteFatiha();
+      await recite(ayah(b, 6));
+      wait(8);
+      await pumpEventQueue();
+      expect(out.played, ['2:7 words 0-2']);
+      expect(voice.playing.value, PrayerSound.words,
+          reason: 'the next words: the microphone is muted for them');
+
+      // Near the end of the ayah the prompt stops at the ayah's end.
+      await out.finish();
+      final n = ayah(b, 7).length;
+      await recite(ayah(b, 7).take(n - 1));
+      wait(4);
+      await pumpEventQueue();
+      expect(out.played.last, '2:7 words ${n - 1}-${n - 1}');
+    });
+
+    test('a prompt cuts a beep short; a beep waits for nothing', () async {
+      await startVoice(2, 7);
+      await leaveOutAWord();
+      expect(out.played, ['beep']);
+      wait(3); // not corrected: prompted while still beeping
+      await pumpEventQueue();
+      expect(out.stops, 1);
+      expect(out.played.last, startsWith('2:7 words'));
+      expect(voice.playing.value, PrayerSound.leftOutWords);
+    });
+
+    test('words that cannot be played are replaced by a double beep', () async {
+      await startVoice(2, 7);
+      out.canRead = false;
+      await leaveOutAWord();
+      await out.finish();
+      wait(3);
+      await pumpEventQueue();
+      expect(out.played, ['beep', 'beep']);
+      await out.finish();
+      expect(out.played, ['beep', 'beep', 'beep']);
+      expect(voice.playing.value, PrayerSound.beep);
+      await out.finish();
+      expect(voice.playing.value, isNull);
+    });
+
+    test('the takbīr and stopping silence it', () async {
+      await startVoice(2, 7);
+      await leaveOutAWord();
+      say(PrayerPhrases.takbirPhonemes);
+      await pumpEventQueue();
+      expect(out.stops, 1);
+      expect(voice.playing.value, isNull);
+      session.stop();
+      await pumpEventQueue();
+      expect(out.stops, 2);
+    });
+
+    test('keeps the ayahs ahead ready', () async {
+      final b = await words(2);
+      await startVoice(2, 6);
+      await reciteFatiha();
+      await recite(ayah(b, 6));
+      await recite(ayah(b, 7).take(1));
+      expect(out.prepared, containsAll([(2, 6), (2, 7), (2, 8)]));
+    });
   });
 }

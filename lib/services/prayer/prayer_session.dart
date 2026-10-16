@@ -77,7 +77,14 @@ enum PrayerReason {
 /// Something prayer mode noticed or would have done.
 @immutable
 class PrayerEvent {
-  const PrayerEvent(this.kind, this.at, {this.where, this.words, this.reason});
+  const PrayerEvent(
+    this.kind,
+    this.at, {
+    this.where,
+    this.words,
+    this.wordRefs = const [],
+    this.reason,
+  });
 
   final PrayerEventKind kind;
   final DateTime at;
@@ -87,6 +94,9 @@ class PrayerEvent {
 
   /// The words of a mistake or a prompt, as written.
   final String? words;
+
+  /// Where each of a prompt's words is, in order.
+  final List<MushafWord> wordRefs;
   final PrayerReason? reason;
 
   @override
@@ -497,10 +507,12 @@ class PrayerSession extends ChangeNotifier {
 
   void _prompt(PrayerReason reason, int first) {
     _lastPromptAt = _now();
+    final end = math.min(_words.length, first + settings.promptWordCount);
     _emit(PrayerEvent(PrayerEventKind.prompt, _now(),
         reason: reason,
         where: _words[first].ref,
-        words: _wordsText(first, settings.promptWordCount)));
+        words: _wordsText(first, settings.promptWordCount),
+        wordRefs: [for (int i = first; i < end; i++) _words[i].ref]));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────

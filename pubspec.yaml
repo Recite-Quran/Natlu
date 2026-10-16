@@ -51,6 +51,7 @@ flutter:
     - assets/model/zipformer_p_arabic_v3.int8.onnx
     - assets/icon/app_icon.png
     - assets/data/mushaf_pages.json
+    - assets/audio/prayer_beep.wav
 
 
   fonts:
