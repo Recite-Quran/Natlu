@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../state/app_state.dart';
+import '../recitation/recitation_settings_card.dart';
 import 'settings/autoscroll_slider_tile.dart';
 import 'settings/font_slider_tile.dart';
 import 'settings/setting_tile.dart';
@@ -199,6 +200,10 @@ class SettingsDialog extends StatelessWidget {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 16),
+
+                        // ── Recitation Card (auto-correct) ──
+                        const RecitationSettingsCard(),
                         const SizedBox(height: 10),
 
                         // ── Bottom Reset Button (Compact Height) ──
