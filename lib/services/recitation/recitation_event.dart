@@ -16,16 +16,16 @@ enum RecitationEventKind {
   /// The plan moved on to the next surah.
   nextSurah,
 
-  /// A mistake: prayer mode beeps (in silent mode, would beep).
+  /// A mistake: auto-correct beeps (when silent, would beep).
   mistake,
 
   /// The reciter corrected the mistake in time.
   corrected,
 
-  /// Prayer mode reads [RecitationEvent.words] aloud (in silent mode, would).
+  /// Auto-correct reads [RecitationEvent.words] aloud (when silent, would).
   prompt,
 
-  /// Prayer mode was stopped.
+  /// Stopped.
   stopped,
 }
 
@@ -74,4 +74,21 @@ class RecitationEvent {
       '${reason == null ? '' : ' (${reason!.name})'}'
       '${where == null ? '' : ' at $where'}'
       '${words == null ? '' : ': $words'}';
+}
+
+/// The events of one recitation, in order, as prayer mode and auto-correct
+/// add them: shown on screen and heard (see RecitationVoice).
+class RecitationLog extends ChangeNotifier {
+  RecitationLog({this.debugLog});
+
+  final void Function(String message)? debugLog;
+  final List<RecitationEvent> _events = [];
+
+  List<RecitationEvent> get events => List.unmodifiable(_events);
+
+  void add(RecitationEvent e) {
+    _events.add(e);
+    debugLog?.call(e.toString());
+    notifyListeners();
+  }
 }

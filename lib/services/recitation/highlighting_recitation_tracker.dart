@@ -1,20 +1,21 @@
 import 'package:flutter/foundation.dart';
 import 'package:recite_quran/recite_quran.dart';
 
-import 'recited_word.dart';
 import 'recitation_tracker.dart';
+import 'recited_word.dart';
 
 /// [RecitationTracker] backed by the app's [HighlightingController].
 ///
-/// While prayer mode runs, the controller works in plain word-checking
-/// mode (no tajweed) with its automatic re-anchoring off: prayer mode
-/// follows one continuous plan, so the tracker should wait at the expected
-/// word rather than search the surah for wherever the reciter might be.
-/// [restore] puts both back.
+/// For prayer mode ([followPlan]), the controller works in plain
+/// word-checking mode (no tajweed) with its automatic re-anchoring off:
+/// prayer mode follows one continuous plan, so the tracker should wait at
+/// the expected word rather than search the surah for wherever the reciter
+/// might be. [restore] puts both back.
 class HighlightingRecitationTracker implements RecitationTracker {
-  HighlightingRecitationTracker(this.controller)
+  HighlightingRecitationTracker(this.controller, {this.followPlan = false})
       : _savedConfig = controller.config,
         _savedTajweed = controller.isTajweed {
+    if (!followPlan) return;
     controller.updateConfig(TrackerConfig(
       recitationSpeed: _savedConfig.recitationSpeed,
       matchingStrictness: _savedConfig.matchingStrictness,
@@ -26,6 +27,7 @@ class HighlightingRecitationTracker implements RecitationTracker {
   }
 
   final HighlightingController controller;
+  final bool followPlan;
   final TrackerConfig _savedConfig;
   final bool _savedTajweed;
 
@@ -43,6 +45,15 @@ class HighlightingRecitationTracker implements RecitationTracker {
   }
 
   @override
+  bool get following => controller.state == TrackerState.tracking;
+
+  @override
+  int get surah => controller.targetSurah;
+
+  @override
+  int? get activeAyah => controller.activeAyah.value;
+
+  @override
   void pause() => controller.finalize();
 
   @override
@@ -56,6 +67,7 @@ class HighlightingRecitationTracker implements RecitationTracker {
 
   /// Gives the controller back its own settings.
   void restore() {
+    if (!followPlan) return;
     controller.updateConfig(_savedConfig);
     controller.setTajweedMode(_savedTajweed);
   }

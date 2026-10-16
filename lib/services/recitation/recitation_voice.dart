@@ -5,12 +5,12 @@ import 'package:just_audio/just_audio.dart';
 
 import '../audio/verse_audio_player.dart';
 import '../quran_timing_service.dart';
-import '../recitation/recitation_event.dart';
-import '../recitation/recited_word.dart';
-import 'prayer_session.dart';
+import 'recitation_event.dart';
+import 'recitation_session.dart';
+import 'recited_word.dart';
 
-/// What prayer mode is playing.
-enum PrayerSound {
+/// What auto-correct is playing.
+enum PromptSound {
   /// The mistake beep.
   beep,
 
@@ -25,8 +25,8 @@ enum PrayerSound {
   leftOutWords,
 }
 
-/// Plays prayer mode's sounds.
-abstract class PrayerAudioOutput {
+/// Plays auto-correct's sounds.
+abstract class PromptAudioOutput {
   /// Plays the mistake beep; completes when it has finished.
   Future<void> beep();
 
@@ -48,29 +48,29 @@ abstract class PrayerAudioOutput {
   void dispose();
 }
 
-/// Makes the sounds of a [PrayerSession]: a beep at each mistake, and the
-/// right words read aloud at each prompt.
+/// Makes the sounds of a [RecitationSession]'s auto-correct: a beep at each
+/// mistake, and the right words read aloud at each prompt.
 ///
 /// A prompt cuts a beep short; a beep while words are being read is left
 /// out (the words say more). If the words can't be played, a double beep
 /// stands in for them (they are shown on screen). It also keeps the
 /// recitation of the ayahs ahead ready, so a prompt plays without delay.
-class PrayerVoice {
-  PrayerVoice({required this.session, required this.output, this.log}) {
+class RecitationVoice {
+  RecitationVoice({required this.session, required this.output, this.log}) {
     _seen = session.events.length;
     session.addListener(_onSession);
     _prepareAround(session.position);
   }
 
-  final PrayerSession session;
-  final PrayerAudioOutput output;
+  final RecitationSession session;
+  final PromptAudioOutput output;
   final void Function(String message)? log;
 
   /// What can be heard now, if anything.
-  final ValueNotifier<PrayerSound?> playing = ValueNotifier(null);
+  final ValueNotifier<PromptSound?> playing = ValueNotifier(null);
 
   /// The sound in progress (still loading, or playing).
-  PrayerSound? _current;
+  PromptSound? _current;
   int _seen = 0;
   int _generation = 0;
   (int, int)? _prepared;
@@ -89,7 +89,7 @@ class PrayerVoice {
     switch (e.kind) {
       case RecitationEventKind.mistake:
         if (_current == null) {
-          unawaited(_play(PrayerSound.beep, (_) => output.beep(), 'beep'));
+          unawaited(_play(PromptSound.beep, (_) => output.beep(), 'beep'));
         }
       case RecitationEventKind.prompt:
         final refs = e.wordRefs;
@@ -102,14 +102,14 @@ class PrayerVoice {
         final what = '${first.surah}:${first.ayah} words '
             '${first.wordIndex0}-${last.wordIndex0}';
         final sound = e.reason == RecitationReason.skipped
-            ? PrayerSound.leftOutWords
-            : PrayerSound.words;
+            ? PromptSound.leftOutWords
+            : PromptSound.words;
         unawaited(_play(sound, (heard) async {
           final read = await output.playWords(
               first.surah, first.ayah, first.wordIndex0, last.wordIndex0,
               onAudible: () => heard(sound));
           if (!read) {
-            heard(PrayerSound.beep);
+            heard(PromptSound.beep);
             log?.call('sound: $what unavailable, double beep instead');
             await output.beep();
             await output.beep();
@@ -129,8 +129,8 @@ class PrayerVoice {
   /// Plays [sound] by running [body], which calls the function it is given
   /// with what starts to be heard.
   Future<void> _play(
-      PrayerSound sound,
-      Future<void> Function(void Function(PrayerSound heard) heard) body,
+      PromptSound sound,
+      Future<void> Function(void Function(PromptSound heard) heard) body,
       String what) async {
     final generation = ++_generation;
     if (_current != null) {
@@ -140,7 +140,7 @@ class PrayerVoice {
     }
     if (_disposed || generation != _generation) return;
     _current = sound;
-    playing.value = sound == PrayerSound.beep ? sound : null;
+    playing.value = sound == PromptSound.beep ? sound : null;
     final started = DateTime.now();
     log?.call('sound: $what');
     try {
@@ -190,9 +190,9 @@ class PrayerVoice {
   }
 }
 
-/// [PrayerAudioOutput] with the app's recitation (Al-Ḥuṣarī, one file per
+/// [PromptAudioOutput] with the app's recitation (Al-Ḥuṣarī, one file per
 /// ayah, cached on the device) and word timings, on its own player.
-class JustAudioPrayerOutput implements PrayerAudioOutput {
+class JustAudioPromptOutput implements PromptAudioOutput {
   static const String beepAsset = 'assets/audio/prayer_beep.wav';
 
   /// Taken from before and after the words' timings, so their first and last
@@ -276,7 +276,7 @@ class JustAudioPrayerOutput implements PrayerAudioOutput {
         return true;
       } catch (e) {
         if (stopped.isCompleted) return true;
-        debugPrint('[PRAYER] could not play: $e');
+        debugPrint('[AUTOCORRECT] could not play: $e');
         return false;
       } finally {
         try {

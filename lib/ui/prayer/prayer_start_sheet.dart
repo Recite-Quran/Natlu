@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../services/prayer/prayer_settings.dart';
+import '../../services/recitation/auto_correct_settings.dart';
 import '../../state/app_state.dart';
 import 'prayer_event_text.dart' show localizedNumber;
-import '../widgets/settings/setting_tile.dart' show PremiumPillSelector;
 
-/// Explains prayer mode, shows where it will start, lets it be made silent
-/// (rehearsal) and its timings tuned, and starts it.
+/// Explains prayer mode, shows where it will start, lets auto-correct be
+/// turned on or off and its timings tuned, and starts it.
 class PrayerStartSheet extends StatefulWidget {
   const PrayerStartSheet({
     super.key,
@@ -23,7 +22,7 @@ class PrayerStartSheet extends StatefulWidget {
 }
 
 class _PrayerStartSheetState extends State<PrayerStartSheet> {
-  final PrayerSettings _settings = PrayerSettings.instance;
+  final AutoCorrectSettings _settings = AutoCorrectSettings.instance;
 
   @override
   void initState() {
@@ -31,7 +30,7 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
     _settings.load();
   }
 
-  String _label(PrayerSetting s, bool ar) => switch (s.key) {
+  String _label(AutoCorrectSetting s, bool ar) => switch (s.key) {
         'prayer_pause_mid_ayah' =>
           ar ? 'تذكير بعد توقف وسط الآية' : 'Prompt after a pause mid-ayah',
         'prayer_pause_between_ayahs' => ar
@@ -42,9 +41,9 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
         _ => ar ? 'عدد الكلمات المقروءة' : 'Words read in a prompt',
       };
 
-  String _value(PrayerSetting s, int v, bool ar) {
+  String _value(AutoCorrectSetting s, int v, bool ar) {
     final n = localizedNumber(v, ar);
-    if (s.key == PrayerSettings.promptWords.key) {
+    if (s.key == AutoCorrectSettings.promptWords.key) {
       return ar ? n : (v == 1 ? '1 word' : '$v words');
     }
     return ar ? '$n ث' : '$v s';
@@ -58,7 +57,7 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
       builder: (context, _) {
         final c = app.colors;
         final ar = app.isArabic;
-        final silent = _settings.silent;
+        final silent = !_settings.enabled;
         return Directionality(
           textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
           child: Container(
@@ -106,25 +105,18 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    PremiumPillSelector(
-                      labels: [
-                        ar ? 'بصوت' : 'Aloud',
-                        ar ? 'صامت (تجربة)' : 'Silent (rehearsal)',
-                      ],
-                      icons: const [
-                        Icons.volume_up_rounded,
-                        Icons.volume_off_rounded,
-                      ],
-                      selected: silent ? 1 : 0,
+                    _Toggle(
+                      label: ar ? 'التصحيح التلقائي' : 'Auto-correct',
+                      value: _settings.enabled,
                       c: c,
-                      onSelected: (i) => _settings.setSilent(i == 1),
+                      onChanged: _settings.setEnabled,
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     Text(
                       silent
                           ? (ar
-                              ? 'يتابع تلاوتك في الصلاة تلاوةً متصلة، ويعرض على الشاشة ما كان سيفعله — تنبيه عند الخطأ، وقراءة الكلمة الصحيحة بصوت مسموع — دون أن يُصدر أي صوت. مناسب للتجربة وضبط الإعدادات.'
-                              : 'Follows your recitation through the prayer as one continuous plan, and shows on screen what it would do — beep at a mistake, read the right words aloud — without making a sound. For trying it out and tuning the settings.')
+                              ? 'يتابع تلاوتك في الصلاة تلاوةً متصلة، ويعرض على الشاشة ما كان التصحيح التلقائي سيفعله — تنبيه عند الخطأ، وقراءة الكلمة الصحيحة بصوت مسموع — دون أن يُصدر أي صوت.'
+                              : 'Follows your recitation through the prayer as one continuous plan, and shows on screen what auto-correct would do — beep at a mistake, read the right words aloud — without making a sound.')
                           : (ar
                               ? 'يتابع تلاوتك في الصلاة تلاوةً متصلة. يُصدر تنبيهاً عند الخطأ، وإن لم تصحّحه، أو توقفت طويلاً، يقرأ الكلمة الصحيحة بصوت الحصري.'
                               : 'Follows your recitation through the prayer as one continuous plan. It beeps at a mistake and, if you don\'t correct it or you pause too long, reads the right words aloud (al-Ḥuṣarī).'),
@@ -171,7 +163,7 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    for (final s in PrayerSettings.all)
+                    for (final s in AutoCorrectSettings.all)
                       _Stepper(
                         label: _label(s, ar),
                         value: _value(s, _settings[s], ar),
@@ -215,6 +207,40 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
           ),
         );
       },
+    );
+  }
+}
+
+class _Toggle extends StatelessWidget {
+  const _Toggle({
+    required this.label,
+    required this.value,
+    required this.c,
+    required this.onChanged,
+  });
+
+  final String label;
+  final bool value;
+  final ThemeColors c;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: TextStyle(color: c.text, fontSize: 14)),
+          ),
+          Switch(
+            value: value,
+            activeThumbColor: Colors.white,
+            activeTrackColor: c.primary,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
     );
   }
 }

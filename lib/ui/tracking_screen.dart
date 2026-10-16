@@ -13,7 +13,8 @@ import '../services/quran_audio_service.dart';
 import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
 import 'widgets/mic_bar.dart';
-import '../services/prayer/prayer_session.dart';
+import '../services/prayer/prayer_mode.dart';
+import '../services/recitation/recitation_session.dart';
 import '../services/recitation/recited_word.dart';
 import 'prayer/prayer_event_text.dart';
 import 'prayer/prayer_start_sheet.dart';
@@ -42,7 +43,7 @@ class TrackingScreen extends StatefulWidget {
 
   /// Prayer mode (rehearsal): the current or last session, and how to
   /// start, stop and close it.
-  final ValueListenable<PrayerSession?>? prayerSession;
+  final ValueListenable<RecitationSession?>? prayerSession;
   final Future<void> Function(int surah, int ayah)? onStartPrayer;
   final VoidCallback? onStopPrayer;
   final VoidCallback? onClosePrayer;
@@ -803,7 +804,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                     left: 12,
                     right: 12,
                     bottom: bottom + 96,
-                    child: ValueListenableBuilder<PrayerSession?>(
+                    child: ValueListenableBuilder<RecitationSession?>(
                       valueListenable: widget.prayerSession!,
                       builder: (context, session, _) => session == null
                           ? const SizedBox.shrink()
@@ -1611,21 +1612,22 @@ class _PrayerRunning extends StatelessWidget {
     required this.builder,
   });
 
-  final ValueListenable<PrayerSession?>? session;
+  final ValueListenable<RecitationSession?>? session;
   final Widget Function(bool running) builder;
 
   @override
   Widget build(BuildContext context) {
     final s = session;
     if (s == null) return builder(false);
-    return ValueListenableBuilder<PrayerSession?>(
+    return ValueListenableBuilder<RecitationSession?>(
       valueListenable: s,
       builder: (context, current, _) => current == null
           ? builder(false)
           : ListenableBuilder(
               listenable: current,
               builder: (context, _) =>
-                  builder(current.phase != PrayerPhase.idle),
+                  builder((current.prayer?.phase ?? PrayerPhase.idle) !=
+                      PrayerPhase.idle),
             ),
     );
   }

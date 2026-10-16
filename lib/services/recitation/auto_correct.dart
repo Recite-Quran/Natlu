@@ -4,24 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:recite_quran/recite_quran.dart' show QuranRepository;
 
-import '../recitation/phoneme_transcript.dart';
-import '../recitation/phrase_spotter.dart';
-import '../recitation/plan_text.dart';
-import '../recitation/recitation_event.dart';
-import '../recitation/recitation_tracker.dart';
-import '../recitation/recited_word.dart';
-import 'prayer_settings.dart';
-
-enum PrayerPhase {
-  /// Not started, or stopped.
-  idle,
-
-  /// Not following: waiting for the end of al-Fātiḥa.
-  waitingForFatiha,
-
-  /// Following the plan.
-  following,
-}
+import 'auto_correct_settings.dart';
+import 'phoneme_transcript.dart';
+import 'phrase_spotter.dart';
+import 'plan_text.dart';
+import 'recitation_event.dart';
+import 'recitation_tracker.dart';
+import 'recited_word.dart';
 
 class _Mistake {
   _Mistake(this.reason, this.first, this.count, this.at, this.mark);
@@ -37,60 +26,61 @@ class _Mistake {
   final int mark;
 }
 
-/// Prayer mode: follows a continuous recitation plan through the prayer and
-/// records what it does about it (beep at a mistake, read the right words
-/// aloud). The sounds themselves are made by a PrayerVoice listening to the
-/// session, unless it is [silent].
+/// Auto-correct: while the tracker follows the recitation, it notices
+/// mistakes and long pauses, and adds what it does about them to [log]
+/// (beep at a mistake, read the right words aloud). The sounds themselves
+/// are made by a RecitationVoice, unless it is [silent] (prayer mode
+/// without auto-correct: what it would do is only shown).
 ///
-/// - It starts waiting for al-Fātiḥa. When the end of al-Fātiḥa is heard it
-///   follows the plan from where it left off; "Allāhu akbar" stops it until
-///   the next al-Fātiḥa ends. The plan carries on into the next surah.
 /// - A word the tracker marks as a mistake (left out, or wrong enough to be
 ///   skipped over), or speech that doesn't move the tracker on, is a
 ///   mistake. If the reciter doesn't correct it within the correction time,
 ///   the right words are prompted.
 /// - A long pause (separate limits part way through an ayah and at its end)
-///   prompts the next words, once the reciter has recited something of the
-///   plan in this rakʿah.
-class PrayerSession extends ChangeNotifier {
-  PrayerSession({
+///   prompts the next words, once the reciter has recited something since
+///   the tracker started following (in prayer mode: in this rakʿah).
+///
+/// It follows wherever the tracker goes: from the ayah the tracker expects
+/// when it starts following, and on into the next surah.
+class AutoCorrect extends ChangeNotifier {
+  AutoCorrect({
     required this.tracker,
     required this.text,
     required this.settings,
-    required PhraseSpotter fatihaEnd,
+    required this.log,
     required List<String> extraPhrases,
     DateTime Function()? now,
-    this.log,
-    this.autoTick = true,
+    this.debugLog,
     this.silent = false,
-  })  : _fatihaEnd = fatihaEnd,
-        _extras = extraPhrases.map(phonemeSkeleton).join(),
+  })  : _extras = extraPhrases.map(phonemeSkeleton).join(),
         _now = now ?? DateTime.now {
     transcript = PhonemeTranscript(now: _now);
   }
 
-  /// Creates a session for the app's Quran data.
-  static Future<PrayerSession> create({
+  /// Creates auto-correct for the app's Quran data and saved settings.
+  static Future<AutoCorrect> create({
     required RecitationTracker tracker,
     required QuranRepository repository,
-    void Function(String message)? log,
+    required RecitationLog log,
+    bool silent = false,
+    void Function(String message)? debugLog,
   }) async {
     final text = QuranPlanText(repository);
     final fatiha = await text.wordsOf(1);
-    await PrayerSettings.instance.load();
-    return PrayerSession(
+    await AutoCorrectSettings.instance.load();
+    return AutoCorrect(
       tracker: tracker,
       text: text,
-      settings: PrayerSettings.instance,
-      fatihaEnd: PrayerPhrases.fatihaEnd(repository.getVerse(1, 7)!),
+      settings: AutoCorrectSettings.instance,
+      log: log,
       extraPhrases: [
         istiadhaPhonemes,
         // The basmala as recited at the start of a surah (al-Fātiḥa 1:1).
         fatiha.where((w) => w.ref.ayah == 1).map((w) => w.skeleton).join(),
         aminPhonemes,
       ],
-      log: log,
-      silent: PrayerSettings.instance.silent,
+      debugLog: debugLog,
+      silent: silent,
     );
   }
 
@@ -102,81 +92,62 @@ class PrayerSession extends ChangeNotifier {
 
   final RecitationTracker tracker;
   final PlanText text;
-  final PrayerSettings settings;
-  final void Function(String message)? log;
+  final AutoCorrectSettings settings;
+  final RecitationLog log;
+  final void Function(String message)? debugLog;
 
-  /// Whether the session runs its own timer; tests call [tick] instead.
-  final bool autoTick;
-
-  /// Silent mode (rehearsal): what it does is only shown, not heard.
+  /// What it does is only shown, not heard (prayer mode without
+  /// auto-correct).
   final bool silent;
 
-  final PhraseSpotter _fatihaEnd;
-  final PhraseSpotter _takbir = PrayerPhrases.takbir();
-  final PhraseSpotter _takbirLookalike = PhraseSpotter(
-      PrayerPhrases.takbirPhonemes,
-      maxDistance: 3,
-      mustContain: const ['ك']);
-
-  /// Skeleton of what may be said before the plan in a rakʿah
-  /// (taʿawwudh, basmala, āmīn).
+  /// Skeleton of what may be said before the Quran words (taʿawwudh,
+  /// basmala, āmīn).
   final String _extras;
   final DateTime Function() _now;
 
   late final PhonemeTranscript transcript;
 
-  PrayerPhase _phase = PrayerPhase.idle;
-  final List<RecitationEvent> _events = [];
-  Timer? _timer;
+  bool _started = false;
+  bool _following = false;
+  bool _busy = false;
 
   int _surah = 0;
   List<PlanWord> _words = const [];
   int _cursor = 0;
-  MushafWord? _resume;
 
-  int _phaseMark = 0;
   int _progressMark = 0;
   DateTime _lastProgressAt = DateTime(0);
   DateTime _lastPromptAt = DateTime(0);
-  int _wordsThisRakah = 0;
+
+  /// Words recited since the tracker started following (in prayer mode,
+  /// in this rakʿah: it carries on into the next surah).
+  int _wordsThisRun = 0;
   bool _pausePrompted = false;
   _Mistake? _mistake;
-  bool _busy = false;
 
-  PrayerPhase get phase => _phase;
-  List<RecitationEvent> get events => List.unmodifiable(_events);
+  /// Whether it is following the recitation (the tracker is).
+  bool get following => _following;
 
-  /// Where the plan resumes after the next al-Fātiḥa (while waiting), or
-  /// the next expected word (while following).
+  /// The next word expected.
   MushafWord? get position =>
-      _phase == PrayerPhase.following && _cursor < _words.length
-          ? _words[_cursor].ref
-          : _resume;
+      _cursor < _words.length ? _words[_cursor].ref : null;
 
-  /// Starts prayer mode with the plan beginning at [ayah] of [surah].
-  Future<void> start(int surah, int ayah) async {
-    if (_phase != PrayerPhase.idle) return;
-    await _loadSurah(surah);
-    _resume = MushafWord(surah, ayah, 0);
+  /// Starts following the tracker.
+  void start() {
+    if (_started) return;
+    _started = true;
     tracker.addListener(_onTrackerChanged);
-    tracker.pause();
-    transcript.clear();
-    _enterWaiting();
-    _emit(RecitationEvent(RecitationEventKind.started, _now(), where: _resume));
-    if (autoTick) {
-      _timer = Timer.periodic(const Duration(milliseconds: 250), (_) => tick());
-    }
+    _onTrackerChanged();
   }
 
-  /// Stops prayer mode.
+  /// Stops following the tracker.
   void stop() {
-    if (_phase == PrayerPhase.idle) return;
-    _timer?.cancel();
-    _timer = null;
+    if (!_started) return;
+    _started = false;
     tracker.removeListener(_onTrackerChanged);
-    _phase = PrayerPhase.idle;
-    _emit(
-        RecitationEvent(RecitationEventKind.stopped, _now(), where: position));
+    _following = false;
+    _mistake = null;
+    notifyListeners();
   }
 
   @override
@@ -185,94 +156,84 @@ class PrayerSession extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Feeds one speech recognizer result.
+  /// Feeds one speech recognizer result (then [tick]).
   void addTranscription({
     required List<String> tokens,
     bool isFinal = false,
     int epoch = 0,
   }) {
-    if (_phase == PrayerPhase.idle) return;
+    if (!_started) return;
     transcript.addResult(tokens: tokens, isFinal: isFinal, epoch: epoch);
-    tick();
   }
 
   /// Re-checks everything time-based. Called every 250 ms while running.
   void tick() {
-    if (_busy) return;
-    switch (_phase) {
-      case PrayerPhase.idle:
-        return;
-      case PrayerPhase.waitingForFatiha:
-        if (_fatihaEnd.foundIn(transcript.since(_phaseMark))) {
-          unawaited(_startFollowing());
-        }
-      case PrayerPhase.following:
-        if (_takbirHeard()) {
-          _stopFollowing();
-          return;
-        }
-        _checkMistake();
-        _checkWrongWord();
-        _checkPause();
+    if (!_started || !_following || _busy || _cursor >= _words.length) {
+      return;
     }
+    _checkMistake();
+    _checkWrongWord();
+    _checkPause();
   }
 
-  // ── Phases ────────────────────────────────────────────────────────────
+  // ── Following the tracker ─────────────────────────────────────────────
 
-  void _enterWaiting() {
-    _phase = PrayerPhase.waitingForFatiha;
-    _phaseMark = transcript.length;
-    _mistake = null;
-    notifyListeners();
+  void _onTrackerChanged() {
+    if (!_started || _busy) return;
+    final following = tracker.following;
+    if (following != _following) {
+      _following = following;
+      if (!following) {
+        _mistake = null;
+        notifyListeners();
+        return;
+      }
+      unawaited(_resync());
+      return;
+    }
+    if (!following) return;
+    if (tracker.surah != _surah) {
+      unawaited(_resync());
+      return;
+    }
+    _advance();
   }
 
-  Future<void> _startFollowing() async {
+  /// Takes up the recitation where the tracker expects it: the first word
+  /// not yet recited in its ayah. Words recited start counting again,
+  /// unless the tracker has moved on to the start of the next surah.
+  Future<void> _resync() async {
     _busy = true;
     try {
-      final resume = _resume!;
-      if (resume.surah != _surah) await _loadSurah(resume.surah);
-      _cursor = _words.indexWhere((w) => w.ref.ayah == resume.ayah);
-      if (_cursor < 0) _cursor = 0;
-      await tracker.resumeAt(resume.surah, resume.ayah);
-      _phase = PrayerPhase.following;
-      _wordsThisRakah = 0;
-      _markProgress();
-      _phaseMark = transcript.length;
+      final surah = tracker.surah;
+      final ayah = tracker.activeAyah ?? 1;
+      final continues = surah == _surah + 1 && ayah == 1;
+      if (surah != _surah) {
+        _words = await text.wordsOf(surah);
+        _surah = surah;
+      }
+      int start = _words.indexWhere((w) => w.ref.ayah == ayah);
+      if (start < 0) start = 0;
+      int i = start;
+      while (i < _words.length &&
+          _words[i].ref.ayah == ayah &&
+          tracker.stateOf(_words[i].ref) != RecitedWordState.unspoken) {
+        i++;
+      }
+      _cursor = i < _words.length && _words[i].ref.ayah == ayah ? i : start;
       _mistake = null;
-      _emit(RecitationEvent(RecitationEventKind.fatihaEnded, _now(),
-          where: _words[_cursor].ref));
+      if (!continues) _wordsThisRun = 0;
+      _markProgress();
     } finally {
       _busy = false;
     }
+    notifyListeners();
+    // What the tracker did meanwhile.
+    _onTrackerChanged();
   }
 
-  void _stopFollowing() {
-    tracker.pause();
-    // Resume from the start of the ayah the reciter was in: normally the
-    // next ayah, as recitation ends at the end of an ayah.
-    final next = _cursor < _words.length ? _words[_cursor].ref : null;
-    _resume = next == null
-        ? MushafWord(math.min(_surah + 1, 114), 1, 0)
-        : MushafWord(next.surah, next.ayah, 0);
-    _enterWaiting();
-    _emit(RecitationEvent(RecitationEventKind.takbir, _now(), where: _resume));
-  }
-
-  bool _takbirHeard() {
-    final from = math.max(_phaseMark, transcript.length - 60);
-    if (!_takbir.foundIn(transcript.since(from))) return false;
-    // A few ayahs contain "اللَّهِ أَكْبَرُ" (9:72, 29:45, 40:10): reciting
-    // them isn't the takbīr of the prayer.
-    final lo = math.max(0, _cursor - 8);
-    final hi = math.min(_words.length, _cursor + 8);
-    final nearby = _words.sublist(lo, hi).map((w) => w.skeleton).join();
-    return !_takbirLookalike.foundIn(nearby);
-  }
-
-  // ── Following the words ───────────────────────────────────────────────
-
-  void _onTrackerChanged() {
-    if (_phase != PrayerPhase.following || _busy) return;
+  /// Moves the cursor over the words the tracker has dealt with.
+  void _advance() {
     final skipped = <int>[];
     int advanced = 0;
     while (_cursor < _words.length) {
@@ -283,7 +244,7 @@ class PrayerSession extends ChangeNotifier {
       advanced++;
     }
     if (advanced == 0) return;
-    _wordsThisRakah += advanced;
+    _wordsThisRun += advanced;
     _markProgress();
 
     final open = _mistake;
@@ -308,24 +269,7 @@ class PrayerSession extends ChangeNotifier {
       _emit(RecitationEvent(RecitationEventKind.corrected, _now(),
           where: _words[open.first].ref));
     }
-
-    if (_cursor >= _words.length) unawaited(_nextSurah());
     notifyListeners();
-  }
-
-  Future<void> _nextSurah() async {
-    if (_surah >= 114) return;
-    _busy = true;
-    try {
-      await _loadSurah(_surah + 1);
-      _cursor = 0;
-      await tracker.resumeAt(_surah, 1);
-      _markProgress();
-      _emit(RecitationEvent(RecitationEventKind.nextSurah, _now(),
-          where: _words.first.ref));
-    } finally {
-      _busy = false;
-    }
   }
 
   void _markProgress() {
@@ -387,7 +331,7 @@ class PrayerSession extends ChangeNotifier {
     final query = unmatched.substring(math.max(0, unmatched.length - 40));
     final lo = math.max(0, _cursor - 40);
     final reference = [
-      if (_wordsThisRakah == 0 || _words[_cursor].ref.ayah == 1) _extras,
+      if (_wordsThisRun == 0 || _words[_cursor].ref.ayah == 1) _extras,
       _words
           .sublist(lo, math.min(_words.length, _cursor + 2))
           .map((w) => w.skeleton)
@@ -409,7 +353,7 @@ class PrayerSession extends ChangeNotifier {
   }
 
   void _checkPause() {
-    if (_mistake != null || _pausePrompted || _wordsThisRakah == 0) return;
+    if (_mistake != null || _pausePrompted || _wordsThisRun == 0) return;
     if (_cursor >= _words.length) return;
     final lastSound = transcript.lastGrowth;
     DateTime quietSince = _lastProgressAt;
@@ -443,19 +387,10 @@ class PrayerSession extends ChangeNotifier {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  Future<void> _loadSurah(int surah) async {
-    _words = await text.wordsOf(surah);
-    _surah = surah;
-  }
-
   String _wordsText(int first, int count) => _words
       .sublist(first, math.min(_words.length, first + count))
       .map((w) => w.uthmani)
       .join(' ');
 
-  void _emit(RecitationEvent e) {
-    _events.add(e);
-    log?.call(e.toString());
-    notifyListeners();
-  }
+  void _emit(RecitationEvent e) => log.add(e);
 }

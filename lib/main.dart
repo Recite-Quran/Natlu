@@ -29,9 +29,11 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'package:recite_quran/recite_quran.dart';
+import 'services/prayer/prayer_mode.dart';
+import 'services/recitation/auto_correct_settings.dart';
 import 'services/recitation/highlighting_recitation_tracker.dart';
-import 'services/prayer/prayer_session.dart';
-import 'services/prayer/prayer_voice.dart';
+import 'services/recitation/recitation_session.dart';
+import 'services/recitation/recitation_voice.dart';
 import 'state/app_state.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
@@ -213,15 +215,15 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   QuranRepository? _repo;
   HighlightingController? _ctrl;
 
-  /// Prayer mode (rehearsal): the running session, or the last one until
-  /// its log is closed.
-  final ValueNotifier<PrayerSession?> _prayer = ValueNotifier(null);
+  /// Prayer mode: the running session, or the last one until its log is
+  /// closed.
+  final ValueNotifier<RecitationSession?> _prayer = ValueNotifier(null);
   HighlightingRecitationTracker? _prayerTracker;
   StreamSubscription<TranscriptionResult>? _prayerSub;
 
-  /// Prayer mode's sounds (none in silent mode).
-  PrayerVoice? _prayerVoice;
-  PrayerSound? _prayerSound;
+  /// Auto-correct's sounds (none when it is silent).
+  RecitationVoice? _prayerVoice;
+  PromptSound? _prayerSound;
 
   /// The microphone was let go of on Android while prayer mode read words.
   bool _micReleasedForPrayer = false;
@@ -471,8 +473,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           if (AppState.instance.isAudioPlaying.value) return;
           // Prayer mode mustn't take the words it reads out for the
           // reciter's.
-          if (_prayerSound == PrayerSound.words) return;
-          if (_prayer.value?.phase == PrayerPhase.waitingForFatiha) {
+          if (_prayerSound == PromptSound.words) return;
+          if (_prayer.value?.prayer?.phase == PrayerPhase.waitingForFatiha) {
             // Prayer mode isn't following the plan (the tracker is paused)
             // but still listens, for the end of al-Fātiḥa.
             _engine.transcribe(chunk, isFinal: isFinal);
@@ -592,30 +594,32 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final ctrl = _ctrl;
     final repo = _repo;
     if (ctrl == null || repo == null) return;
-    if (_prayer.value?.phase == PrayerPhase.waitingForFatiha ||
-        _prayer.value?.phase == PrayerPhase.following) {
-      return;
-    }
+    if (_prayer.value?.running ?? false) return;
     if (_isRecording) await _toggleRecord();
     if (ctrl.targetSurah != surah) await ctrl.setTargetSurah(surah);
     ctrl.setManualAyah(surah, ayah);
     await _toggleRecord();
     if (!_isRecording) return;
 
-    final tracker = HighlightingRecitationTracker(ctrl);
-    final session = await PrayerSession.create(
+    final tracker = HighlightingRecitationTracker(ctrl, followPlan: true);
+    final settings = AutoCorrectSettings.instance;
+    await settings.load();
+    final session = await RecitationSession.create(
       tracker: tracker,
       repository: repo,
-      log: (m) => DebugLogger.logSimple('PRAYER', m),
+      prayer: true,
+      // Without auto-correct, prayer mode shows what it would have done.
+      autoCorrectSilent: !settings.enabled,
+      debugLog: (m) => DebugLogger.logSimple('PRAYER', m),
     );
     _prayerTracker = tracker;
-    if (!session.silent) {
-      final voice = PrayerVoice(
+    if (!session.autoCorrect!.silent) {
+      final voice = RecitationVoice(
         session: session,
-        output: JustAudioPrayerOutput(),
+        output: JustAudioPromptOutput(),
         log: (m) => DebugLogger.logSimple('PRAYER', m),
       );
-      voice.playing.addListener(_onPrayerSoundChanged);
+      voice.playing.addListener(_onPromptSoundChanged);
       _prayerVoice = voice;
     }
     _prayerSub = _engine.transcriptionStream.listen((r) {
@@ -626,12 +630,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       );
     });
     _replacePrayerSession(session);
-    await session.start(surah, ayah);
+    await session.start(surah: surah, ayah: ayah);
   }
 
   /// Shows [session] (or nothing) instead of the current one, which is
   /// disposed once the screen has let go of it.
-  void _replacePrayerSession(PrayerSession? session) {
+  void _replacePrayerSession(RecitationSession? session) {
     final old = _prayer.value;
     _prayer.value = session;
     if (old != null) {
@@ -657,25 +661,25 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final voice = _prayerVoice;
     _prayerVoice = null;
     if (voice != null) {
-      voice.playing.removeListener(_onPrayerSoundChanged);
+      voice.playing.removeListener(_onPromptSoundChanged);
       voice.dispose();
       // Prayer mode ends with recording: don't take the microphone back.
       _micReleasedForPrayer = false;
-      _setPrayerSound(null);
+      _setPromptSound(null);
     }
   }
 
-  void _onPrayerSoundChanged() =>
-      _setPrayerSound(_prayerVoice?.playing.value);
+  void _onPromptSoundChanged() =>
+      _setPromptSound(_prayerVoice?.playing.value);
 
   /// Mutes the microphone while prayer mode reads words aloud (on Android
   /// it also lets go of it, as for verse audio, and takes it back after).
   /// The beep is short and no word: the microphone stays on for it.
-  void _setPrayerSound(PrayerSound? sound) {
+  void _setPromptSound(PromptSound? sound) {
     if (_prayerSound == sound) return;
     _prayerSound = sound;
     final android = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    if (sound == PrayerSound.words && android && _isRecording) {
+    if (sound == PromptSound.words && android && _isRecording) {
       _micReleasedForPrayer = true;
       _audio.stop().catchError((_) {});
     } else if (sound == null) {

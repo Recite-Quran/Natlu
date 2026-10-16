@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../services/prayer/prayer_session.dart';
+import '../../services/prayer/prayer_mode.dart';
 import '../../services/recitation/recitation_event.dart';
 import '../../services/recitation/recited_word.dart';
 
@@ -37,7 +37,8 @@ String prayerPhaseText(PrayerPhase phase, bool ar) => switch (phase) {
       PrayerPhase.following => ar ? 'يتابع التلاوة' : 'Following',
     };
 
-/// [silent]: the session only shows what it would do (rehearsal).
+/// [silent]: auto-correct only shows what it would do (prayer mode without
+/// auto-correct).
 RecitationEventText describeRecitationEvent(RecitationEvent e, bool ar,
     String Function(int surah) surahName, Color accent, Color warning,
     {bool silent = false}) {
