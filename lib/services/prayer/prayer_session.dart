@@ -47,13 +47,13 @@ enum PrayerEventKind {
   /// The plan moved on to the next surah.
   nextSurah,
 
-  /// A mistake: prayer mode would beep.
+  /// A mistake: prayer mode beeps (in silent mode, would beep).
   mistake,
 
   /// The reciter corrected the mistake in time.
   corrected,
 
-  /// Prayer mode would read [PrayerEvent.words] aloud.
+  /// Prayer mode reads [PrayerEvent.words] aloud (in silent mode, would).
   prompt,
 
   /// Prayer mode was stopped.
@@ -120,9 +120,10 @@ class _Mistake {
   final int mark;
 }
 
-/// Prayer mode, rehearsal version: follows a continuous recitation plan
-/// through the prayer and records what it would do (beep at a mistake, read
-/// the right words aloud) without making a sound.
+/// Prayer mode: follows a continuous recitation plan through the prayer and
+/// records what it does about it (beep at a mistake, read the right words
+/// aloud). The sounds themselves are made by a PrayerVoice listening to the
+/// session, unless it is [silent].
 ///
 /// - It starts waiting for al-Fātiḥa. When the end of al-Fātiḥa is heard it
 ///   follows the plan from where it left off; "Allāhu akbar" stops it until
@@ -144,6 +145,7 @@ class PrayerSession extends ChangeNotifier {
     DateTime Function()? now,
     this.log,
     this.autoTick = true,
+    this.silent = false,
   })  : _fatihaEnd = fatihaEnd,
         _extras = extraPhrases.map(phonemeSkeleton).join(),
         _now = now ?? DateTime.now {
@@ -171,6 +173,7 @@ class PrayerSession extends ChangeNotifier {
         aminPhonemes,
       ],
       log: log,
+      silent: PrayerSettings.instance.silent,
     );
   }
 
@@ -187,6 +190,9 @@ class PrayerSession extends ChangeNotifier {
 
   /// Whether the session runs its own timer; tests call [tick] instead.
   final bool autoTick;
+
+  /// Silent mode (rehearsal): what it does is only shown, not heard.
+  final bool silent;
 
   final PhraseSpotter _fatihaEnd;
   final PhraseSpotter _takbir = PrayerPhrases.takbir();

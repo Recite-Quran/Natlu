@@ -204,7 +204,7 @@ class SettingsDialog extends StatelessWidget {
                         ),
                         if (onOpenPrayerMode != null) ...[
                           const SizedBox(height: 16),
-                          // ── Prayer Mode (rehearsal) ──
+                          // ── Prayer Mode ──
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 20),
                             child: Material(
@@ -223,9 +223,8 @@ class SettingsDialog extends StatelessWidget {
                                   ),
                                   child: SettingTile(
                                     icon: Icons.mosque_rounded,
-                                    title: isAr
-                                        ? 'وضع الصلاة (تجربة)'
-                                        : 'Prayer Mode (Rehearsal)',
+                                    title:
+                                        isAr ? 'وضع الصلاة' : 'Prayer Mode',
                                     c: c,
                                     trailing: Icon(
                                       isAr

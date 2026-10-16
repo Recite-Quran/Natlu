@@ -66,6 +66,14 @@ class PrayerStatusCard extends StatelessWidget {
                   Row(
                     children: [
                       Icon(Icons.mosque_rounded, size: 18, color: c.primary),
+                      if (session.silent) ...[
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: ar ? 'صامت (تجربة)' : 'Silent (rehearsal)',
+                          child: Icon(Icons.volume_off_rounded,
+                              size: 16, color: c.textSecondary),
+                        ),
+                      ],
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -92,7 +100,12 @@ class PrayerStatusCard extends StatelessWidget {
                     ],
                   ),
                   for (final e in latest)
-                    _EventLine(event: e, surahName: surahName, compact: true),
+                    _EventLine(
+                      event: e,
+                      surahName: surahName,
+                      silent: session.silent,
+                      compact: true,
+                    ),
                 ],
               ),
             ),
@@ -107,11 +120,13 @@ class _EventLine extends StatelessWidget {
   const _EventLine({
     required this.event,
     required this.surahName,
+    required this.silent,
     this.compact = false,
   });
 
   final PrayerEvent event;
   final String Function(int surah) surahName;
+  final bool silent;
   final bool compact;
 
   @override
@@ -119,7 +134,8 @@ class _EventLine extends StatelessWidget {
     final app = AppState.instance;
     final c = app.colors;
     final ar = app.isArabic;
-    final t = describePrayerEvent(event, ar, surahName, c.primary, c.gold);
+    final t = describePrayerEvent(event, ar, surahName, c.primary, c.gold,
+        silent: silent);
     return Padding(
       padding: EdgeInsets.symmetric(vertical: compact ? 2 : 6),
       child: Row(
@@ -216,9 +232,11 @@ class _PrayerLogSheet extends StatelessWidget {
                   Text(
                     ar
                         ? 'تنبيهات: ${localizedNumber(mistakes, true)} · قراءات: ${localizedNumber(prompts, true)}'
-                        : 'Would have beeped $mistakes '
-                            '${mistakes == 1 ? 'time' : 'times'} and read '
-                            '$prompts ${prompts == 1 ? 'time' : 'times'}',
+                            '${session.silent ? ' (صامت)' : ''}'
+                        : '${session.silent ? 'Would have beeped' : 'Beeped'} '
+                            '$mistakes ${mistakes == 1 ? 'time' : 'times'} '
+                            'and read $prompts '
+                            '${prompts == 1 ? 'time' : 'times'}',
                     style: TextStyle(color: c.textSecondary, fontSize: 12.5),
                   ),
                   const SizedBox(height: 8),
@@ -228,8 +246,11 @@ class _PrayerLogSheet extends StatelessWidget {
                       itemCount: events.length,
                       separatorBuilder: (_, __) => Divider(
                           height: 1, color: c.border.withValues(alpha: 0.4)),
-                      itemBuilder: (_, i) =>
-                          _EventLine(event: events[i], surahName: surahName),
+                      itemBuilder: (_, i) => _EventLine(
+                        event: events[i],
+                        surahName: surahName,
+                        silent: session.silent,
+                      ),
                     ),
                   ),
                 ],

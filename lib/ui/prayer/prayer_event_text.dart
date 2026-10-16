@@ -36,8 +36,10 @@ String prayerPhaseText(PrayerPhase phase, bool ar) => switch (phase) {
       PrayerPhase.following => ar ? 'يتابع التلاوة' : 'Following',
     };
 
+/// [silent]: the session only shows what it would do (rehearsal).
 PrayerEventText describePrayerEvent(PrayerEvent e, bool ar,
-    String Function(int surah) surahName, Color accent, Color warning) {
+    String Function(int surah) surahName, Color accent, Color warning,
+    {bool silent = false}) {
   final at = prayerPositionText(e.where, ar, surahName);
   const red = Color(0xFFE24B4A);
   switch (e.kind) {
@@ -76,10 +78,11 @@ PrayerEventText describePrayerEvent(PrayerEvent e, bool ar,
         e.reason == PrayerReason.skipped
             ? (ar
                 ? 'تنبيه: كلمة ناقصة ($at)'
-                : 'Would beep: word left out ($at)')
+                : '${silent ? 'Would beep' : 'Beeped'}: word left out ($at)')
             : (ar
                 ? 'تنبيه: كلمة خاطئة، المتوقع ($at)'
-                : 'Would beep: wrong word, expected ($at)'),
+                : '${silent ? 'Would beep' : 'Beeped'}: wrong word, '
+                    'expected ($at)'),
         words: e.words,
       );
     case PrayerEventKind.corrected:
@@ -92,8 +95,12 @@ PrayerEventText describePrayerEvent(PrayerEvent e, bool ar,
           ar ? 'بعد توقف بين آيتين' : 'after a pause between ayahs',
         _ => ar ? 'بعد خطأ' : 'after a mistake',
       };
-      return PrayerEventText(Icons.record_voice_over_outlined, warning,
-          ar ? 'سيقرأ ($why، $at)' : 'Would read ($why, $at)',
+      return PrayerEventText(
+          Icons.record_voice_over_outlined,
+          warning,
+          ar
+              ? '${silent ? 'سيقرأ' : 'قرأ'} ($why، $at)'
+              : '${silent ? 'Would read' : 'Read'} ($why, $at)',
           words: e.words);
     case PrayerEventKind.stopped:
       return PrayerEventText(

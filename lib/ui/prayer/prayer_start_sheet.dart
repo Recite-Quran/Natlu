@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import '../../services/prayer/prayer_settings.dart';
 import '../../state/app_state.dart';
 import 'prayer_event_text.dart' show localizedNumber;
+import '../widgets/settings/setting_tile.dart' show PremiumPillSelector;
 
-/// Explains prayer mode (rehearsal), shows where it will start, lets the
-/// timings be tuned, and starts it.
+/// Explains prayer mode, shows where it will start, lets it be made silent
+/// (rehearsal) and its timings tuned, and starts it.
 class PrayerStartSheet extends StatefulWidget {
   const PrayerStartSheet({
     super.key,
@@ -57,6 +58,7 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
       builder: (context, _) {
         final c = app.colors;
         final ar = app.isArabic;
+        final silent = _settings.silent;
         return Directionality(
           textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
           child: Container(
@@ -93,9 +95,7 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            ar
-                                ? 'وضع الصلاة (تجربة)'
-                                : 'Prayer Mode (Rehearsal)',
+                            ar ? 'وضع الصلاة' : 'Prayer Mode',
                             style: TextStyle(
                               color: c.text,
                               fontSize: 18,
@@ -105,11 +105,37 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 14),
+                    PremiumPillSelector(
+                      labels: [
+                        ar ? 'بصوت' : 'Aloud',
+                        ar ? 'صامت (تجربة)' : 'Silent (rehearsal)',
+                      ],
+                      icons: const [
+                        Icons.volume_up_rounded,
+                        Icons.volume_off_rounded,
+                      ],
+                      selected: silent ? 1 : 0,
+                      c: c,
+                      onSelected: (i) => _settings.setSilent(i == 1),
+                    ),
                     const SizedBox(height: 10),
                     Text(
+                      silent
+                          ? (ar
+                              ? 'يتابع تلاوتك في الصلاة تلاوةً متصلة، ويعرض على الشاشة ما كان سيفعله — تنبيه عند الخطأ، وقراءة الكلمة الصحيحة بصوت مسموع — دون أن يُصدر أي صوت. مناسب للتجربة وضبط الإعدادات.'
+                              : 'Follows your recitation through the prayer as one continuous plan, and shows on screen what it would do — beep at a mistake, read the right words aloud — without making a sound. For trying it out and tuning the settings.')
+                          : (ar
+                              ? 'يتابع تلاوتك في الصلاة تلاوةً متصلة. يُصدر تنبيهاً عند الخطأ، وإن لم تصحّحه، أو توقفت طويلاً، يقرأ الكلمة الصحيحة بصوت الحصري.'
+                              : 'Follows your recitation through the prayer as one continuous plan. It beeps at a mistake and, if you don\'t correct it or you pause too long, reads the right words aloud (al-Ḥuṣarī).'),
+                      style: TextStyle(
+                          color: c.textSecondary, fontSize: 13.5, height: 1.5),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
                       ar
-                          ? 'يتابع تلاوتك في الصلاة تلاوةً متصلة، ويعرض على الشاشة ما كان سيفعله — تنبيه عند الخطأ، وقراءة الكلمة الصحيحة بصوت مسموع — دون أن يُصدر أي صوت. يبدأ المتابعة بعد سماع نهاية الفاتحة، ويتوقف عند «الله أكبر»، ثم يكمل من حيث توقف بعد الفاتحة التالية.'
-                          : 'Follows your recitation through the prayer as one continuous plan, and shows on screen what it would do — beep at a mistake, read the right words aloud — without making a sound. It starts following once it hears the end of al-Fātiḥa, stops at "Allāhu akbar", and carries on from where it stopped after the next al-Fātiḥa.',
+                          ? 'يبدأ المتابعة بعد سماع نهاية الفاتحة، ويتوقف عند «الله أكبر»، ثم يكمل من حيث توقف بعد الفاتحة التالية.'
+                          : 'It starts following once it hears the end of al-Fātiḥa, stops at "Allāhu akbar", and carries on from where it stopped after the next al-Fātiḥa.',
                       style: TextStyle(
                           color: c.textSecondary, fontSize: 13.5, height: 1.5),
                     ),
@@ -160,7 +186,7 @@ class _PrayerStartSheetState extends State<PrayerStartSheet> {
                     Align(
                       alignment: AlignmentDirectional.centerEnd,
                       child: TextButton(
-                        onPressed: _settings.reset,
+                        onPressed: _settings.resetTimings,
                         child: Text(
                           ar ? 'القيم الافتراضية' : 'Defaults',
                           style: TextStyle(color: c.textSecondary),
