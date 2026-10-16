@@ -31,6 +31,12 @@ class BottomActionBar extends StatefulWidget {
   final bool isPrayer;
   final VoidCallback? onPrayer;
 
+  /// Auto-correct's button (between hide verses and Prayer Mode), if given:
+  /// a tap turns it on or off, holding it opens its settings.
+  final bool isAutoCorrect;
+  final VoidCallback? onAutoCorrect;
+  final VoidCallback? onAutoCorrectSettings;
+
   const BottomActionBar({
     super.key,
     required this.isRecording,
@@ -46,6 +52,9 @@ class BottomActionBar extends StatefulWidget {
     required this.onToggleBlur,
     this.isPrayer = false,
     this.onPrayer,
+    this.isAutoCorrect = false,
+    this.onAutoCorrect,
+    this.onAutoCorrectSettings,
   });
 
   @override
@@ -279,6 +288,28 @@ class _BottomActionBarState extends State<BottomActionBar>
                                   widget.onToggleBlur();
                                 },
                               ),
+                              if (widget.onAutoCorrect != null) ...[
+                                const SizedBox(width: 8),
+                                _buildSecondaryToggle(
+                                  icon: Icons.spellcheck_rounded,
+                                  tooltip: widget.isAutoCorrect
+                                      ? (isAr
+                                          ? 'التصحيح التلقائي مفعّل (اضغط مطولاً للإعدادات)'
+                                          : 'Auto-correct on (hold for settings)')
+                                      : (isAr
+                                          ? 'التصحيح التلقائي متوقف (اضغط مطولاً للإعدادات)'
+                                          : 'Auto-correct off (hold for settings)'),
+                                  isActive: widget.isAutoCorrect,
+                                  c: c,
+                                  isDark: isDark,
+                                  isRecording: widget.isRecording,
+                                  onTap: () {
+                                    HapticFeedback.lightImpact();
+                                    widget.onAutoCorrect!();
+                                  },
+                                  onLongPress: widget.onAutoCorrectSettings,
+                                ),
+                              ],
                               if (widget.onPrayer != null) ...[
                                 const SizedBox(width: 8),
                                 _buildSecondaryToggle(
@@ -329,6 +360,7 @@ class _BottomActionBarState extends State<BottomActionBar>
     required bool isDark,
     required bool isRecording,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     final double size = isRecording ? 28.0 : 34.0;
     final double iconSize = isRecording ? 15.0 : 18.0;
@@ -341,8 +373,11 @@ class _BottomActionBarState extends State<BottomActionBar>
     return Tooltip(
       message: tooltip,
       waitDuration: const Duration(milliseconds: 500),
+      // Holding the button does something else then.
+      triggerMode: onLongPress != null ? TooltipTriggerMode.manual : null,
       child: _TactileScaleButton(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
@@ -621,7 +656,9 @@ class _WaveformBarsPainter extends CustomPainter {
 class _TactileScaleButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
-  const _TactileScaleButton({required this.child, required this.onTap});
+  final VoidCallback? onLongPress;
+  const _TactileScaleButton(
+      {required this.child, required this.onTap, this.onLongPress});
 
   @override
   State<_TactileScaleButton> createState() => _TactileScaleButtonState();
@@ -637,6 +674,7 @@ class _TactileScaleButtonState extends State<_TactileScaleButton> {
       onTapUp: (_) => setState(() => _isDown = false),
       onTapCancel: () => setState(() => _isDown = false),
       onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
       behavior: HitTestBehavior.opaque,
       child: AnimatedScale(
         scale: _isDown ? 0.93 : 1.0,

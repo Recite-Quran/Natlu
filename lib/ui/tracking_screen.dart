@@ -14,11 +14,13 @@ import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
 import 'widgets/mic_bar.dart';
 import '../services/prayer/prayer_mode.dart';
+import '../services/recitation/auto_correct_settings.dart';
 import '../services/recitation/recitation_session.dart';
 import '../services/recitation/recited_word.dart';
 import 'prayer/prayer_event_text.dart';
 import 'prayer/prayer_start_sheet.dart';
-import 'prayer/prayer_status_card.dart';
+import 'recitation/auto_correct_sheet.dart';
+import 'recitation/recitation_status_card.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
 import 'widgets/verse_row.dart';
@@ -798,7 +800,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                   ),
                 ),
 
-                // Prayer mode status, above the recitation controls
+                // Prayer mode / auto-correct status, above the recitation
+                // controls
                 if (widget.prayerSession != null)
                   Positioned(
                     left: 12,
@@ -808,7 +811,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                       valueListenable: widget.prayerSession!,
                       builder: (context, session, _) => session == null
                           ? const SizedBox.shrink()
-                          : PrayerStatusCard(
+                          : RecitationStatusCard(
+                              key: ObjectKey(session),
                               session: session,
                               surahName: _surahName,
                               onStop: () => widget.onStopPrayer?.call(),
@@ -890,6 +894,14 @@ class _TrackingScreenState extends State<TrackingScreen>
                             app.dismissBanner();
                           }
                         },
+                        isAutoCorrect: AutoCorrectSettings.instance.enabled,
+                        onAutoCorrect: () {
+                          app.dismissBanner();
+                          final settings = AutoCorrectSettings.instance;
+                          settings.setEnabled(!settings.enabled);
+                        },
+                        onAutoCorrectSettings: () =>
+                            showAutoCorrectSheet(context),
                         isPrayer: prayerRunning,
                         onPrayer: widget.onStartPrayer == null
                             ? null
@@ -1604,7 +1616,7 @@ class _TactileScaleButtonState extends State<_TactileScaleButton> {
 }
 
 /// Builds [builder] with whether prayer mode is running, rebuilding as it
-/// starts and stops.
+/// starts and stops, and as auto-correct is turned on or off.
 class _PrayerRunning extends StatelessWidget {
   const _PrayerRunning({
     super.key,
@@ -1618,17 +1630,18 @@ class _PrayerRunning extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = session;
-    if (s == null) return builder(false);
+    final autoCorrect = AutoCorrectSettings.instance;
+    if (s == null) {
+      return ListenableBuilder(
+          listenable: autoCorrect, builder: (context, _) => builder(false));
+    }
     return ValueListenableBuilder<RecitationSession?>(
       valueListenable: s,
-      builder: (context, current, _) => current == null
-          ? builder(false)
-          : ListenableBuilder(
-              listenable: current,
-              builder: (context, _) =>
-                  builder((current.prayer?.phase ?? PrayerPhase.idle) !=
-                      PrayerPhase.idle),
-            ),
+      builder: (context, current, _) => ListenableBuilder(
+        listenable: Listenable.merge([autoCorrect, if (current != null) current]),
+        builder: (context, _) => builder(
+            (current?.prayer?.phase ?? PrayerPhase.idle) != PrayerPhase.idle),
+      ),
     );
   }
 }

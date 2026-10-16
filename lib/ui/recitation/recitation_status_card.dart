@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../services/prayer/prayer_mode.dart';
-import '../../services/recitation/recitation_session.dart';
 import '../../services/recitation/recitation_event.dart';
+import '../../services/recitation/recitation_session.dart';
 import '../../state/app_state.dart';
-import 'prayer_event_text.dart';
+import '../prayer/prayer_event_text.dart';
+import 'auto_correct_sheet.dart' show autoCorrectIcon;
 
-/// Shows prayer mode's state and its latest events above the recitation
-/// controls; tap for the whole log.
-class PrayerStatusCard extends StatelessWidget {
-  const PrayerStatusCard({
+/// Shows prayer mode's state, or auto-correct's, and the latest events
+/// above the recitation controls; tap for the whole log.
+///
+/// Auto-correct on its own shows only once it has something to say, and
+/// can be put away until it has more.
+class RecitationStatusCard extends StatefulWidget {
+  const RecitationStatusCard({
     super.key,
     required this.session,
     required this.surahName,
@@ -19,15 +22,30 @@ class PrayerStatusCard extends StatelessWidget {
 
   final RecitationSession session;
   final String Function(int surah) surahName;
+
+  /// Stops prayer mode (and recording).
   final VoidCallback onStop;
+
+  /// Closes the log of a session that has ended.
   final VoidCallback onClose;
+
+  @override
+  State<RecitationStatusCard> createState() => _RecitationStatusCardState();
+}
+
+class _RecitationStatusCardState extends State<RecitationStatusCard> {
+  /// How many events there were when auto-correct's card was put away.
+  int _hiddenAt = 0;
+
+  RecitationSession get session => widget.session;
 
   void _showLog(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _PrayerLogSheet(session: session, surahName: surahName),
+      builder: (_) =>
+          _RecitationLogSheet(session: session, surahName: widget.surahName),
     );
   }
 
@@ -39,9 +57,20 @@ class PrayerStatusCard extends StatelessWidget {
       builder: (context, _) {
         final c = app.colors;
         final ar = app.isArabic;
+        final prayer = session.prayer;
+        final events = session.events;
+        if (prayer == null && events.length <= _hiddenAt) {
+          return const SizedBox.shrink();
+        }
         final running = session.running;
         final silent = session.autoCorrect?.silent ?? true;
-        final latest = session.events.reversed.take(3).toList();
+        final latest = events.reversed.take(3).toList();
+        final where = session.position == null
+            ? ''
+            : ' · ${prayerPositionText(session.position, ar, widget.surahName)}';
+        final title = prayer != null
+            ? prayerPhaseText(prayer.phase, ar)
+            : (ar ? 'التصحيح التلقائي' : 'Auto-correct');
         return Material(
           color: Colors.transparent,
           child: InkWell(
@@ -68,8 +97,13 @@ class PrayerStatusCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.mosque_rounded, size: 18, color: c.primary),
-                      if (silent) ...[
+                      Icon(
+                          prayer != null
+                              ? Icons.mosque_rounded
+                              : autoCorrectIcon,
+                          size: 18,
+                          color: c.primary),
+                      if (prayer != null && silent) ...[
                         const SizedBox(width: 4),
                         Tooltip(
                           message: ar
@@ -82,8 +116,7 @@ class PrayerStatusCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '${prayerPhaseText(session.prayer?.phase ?? PrayerPhase.idle, ar)}'
-                          '${session.position == null ? '' : ' · ${prayerPositionText(session.position, ar, surahName)}'}',
+                          '$title$where',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -93,21 +126,31 @@ class PrayerStatusCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      TextButton(
-                        onPressed: running ? onStop : onClose,
-                        child: Text(
-                          running
-                              ? (ar ? 'إيقاف' : 'Stop')
-                              : (ar ? 'إغلاق' : 'Close'),
-                          style: TextStyle(color: c.primary),
+                      if (running && prayer == null)
+                        IconButton(
+                          onPressed: () =>
+                              setState(() => _hiddenAt = events.length),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          color: c.textSecondary,
+                          tooltip: ar ? 'إخفاء' : 'Hide',
+                          visualDensity: VisualDensity.compact,
+                        )
+                      else
+                        TextButton(
+                          onPressed: running ? widget.onStop : widget.onClose,
+                          child: Text(
+                            running
+                                ? (ar ? 'إيقاف' : 'Stop')
+                                : (ar ? 'إغلاق' : 'Close'),
+                            style: TextStyle(color: c.primary),
+                          ),
                         ),
-                      ),
                     ],
                   ),
                   for (final e in latest)
                     _EventLine(
                       event: e,
-                      surahName: surahName,
+                      surahName: widget.surahName,
                       silent: silent,
                       compact: true,
                     ),
@@ -188,8 +231,8 @@ class _EventLine extends StatelessWidget {
   }
 }
 
-class _PrayerLogSheet extends StatelessWidget {
-  const _PrayerLogSheet({required this.session, required this.surahName});
+class _RecitationLogSheet extends StatelessWidget {
+  const _RecitationLogSheet({required this.session, required this.surahName});
 
   final RecitationSession session;
   final String Function(int surah) surahName;
@@ -227,7 +270,9 @@ class _PrayerLogSheet extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    ar ? 'سجل وضع الصلاة' : 'Prayer Mode Log',
+                    session.prayer != null
+                        ? (ar ? 'سجل وضع الصلاة' : 'Prayer Mode Log')
+                        : (ar ? 'سجل التصحيح التلقائي' : 'Auto-correct Log'),
                     style: TextStyle(
                       color: c.text,
                       fontSize: 18,

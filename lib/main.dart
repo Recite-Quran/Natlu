@@ -30,10 +30,12 @@ import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'package:recite_quran/recite_quran.dart';
 import 'services/prayer/prayer_mode.dart';
+import 'services/recitation/auto_correct.dart';
 import 'services/recitation/auto_correct_settings.dart';
 import 'services/recitation/highlighting_recitation_tracker.dart';
 import 'services/recitation/recitation_session.dart';
 import 'services/recitation/recitation_voice.dart';
+import 'services/recitation/recited_word.dart';
 import 'state/app_state.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
@@ -215,18 +217,25 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   QuranRepository? _repo;
   HighlightingController? _ctrl;
 
-  /// Prayer mode: the running session, or the last one until its log is
+  /// What runs alongside the tracker while recording (prayer mode and/or
+  /// auto-correct): the running session, or the last one until its log is
   /// closed.
-  final ValueNotifier<RecitationSession?> _prayer = ValueNotifier(null);
-  HighlightingRecitationTracker? _prayerTracker;
-  StreamSubscription<TranscriptionResult>? _prayerSub;
+  final ValueNotifier<RecitationSession?> _session = ValueNotifier(null);
+  HighlightingRecitationTracker? _sessionTracker;
+  StreamSubscription<TranscriptionResult>? _sessionSub;
+
+  /// Where prayer mode starts, while [_startPrayer] starts recording.
+  MushafWord? _prayerStart;
+
+  /// Whether auto-correct is on, as last applied to the session.
+  bool _autoCorrectOn = false;
 
   /// Auto-correct's sounds (none when it is silent).
-  RecitationVoice? _prayerVoice;
-  PromptSound? _prayerSound;
+  RecitationVoice? _voice;
+  PromptSound? _promptSound;
 
-  /// The microphone was let go of on Android while prayer mode read words.
-  bool _micReleasedForPrayer = false;
+  /// The microphone was let go of on Android while auto-correct read words.
+  bool _micReleasedForPrompt = false;
 
   bool _isInit = true;
   bool _isRecording = false;
@@ -248,6 +257,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       WidgetsBinding.instance.addObserver(this);
     }
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
+    AutoCorrectSettings.instance.addListener(_onAutoCorrectSettings);
+    unawaited(AutoCorrectSettings.instance.load());
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
 
     // Global subscription for Voice Search text and Endpoint auto-stopping
@@ -335,9 +346,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
     _transcriptionSub?.cancel();
     AppState.instance.stopVerseAudio();
-    _endPrayerSession();
-    _prayer.value?.dispose();
-    _prayer.dispose();
+    AutoCorrectSettings.instance.removeListener(_onAutoCorrectSettings);
+    _endSession();
+    _session.value?.dispose();
+    _session.dispose();
     _ctrl?.dispose();
     _voiceSearchAsrNotifier.dispose();
     super.dispose();
@@ -471,10 +483,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           // Software mute: drop mic frames while verse audio is playing
           // so the AI model never hears the phone speaker or accepts input!
           if (AppState.instance.isAudioPlaying.value) return;
-          // Prayer mode mustn't take the words it reads out for the
+          // Auto-correct mustn't take the words it reads out for the
           // reciter's.
-          if (_prayerSound == PromptSound.words) return;
-          if (_prayer.value?.prayer?.phase == PrayerPhase.waitingForFatiha) {
+          if (_promptSound == PromptSound.words) return;
+          if (_session.value?.prayer?.phase == PrayerPhase.waitingForFatiha) {
             // Prayer mode isn't following the plan (the tracker is paused)
             // but still listens, for the end of al-Fātiḥa.
             _engine.transcribe(chunk, isFinal: isFinal);
@@ -485,7 +497,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       );
     } catch (e) {
       DebugLogger.logSimple('AUDIO', '❌ ERROR: $e');
-      _endPrayerSession();
+      _endSession();
       if (mounted) setState(() => _isRecording = false);
     }
   }
@@ -525,7 +537,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     try {
       if (_isRecording) {
-        _endPrayerSession();
+        _endSession();
         await _audio.stop();
         _engine.resetBuffer();
         _ctrl?.finalize();
@@ -573,12 +585,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           }
           _ctrl!.startRecordingSession();
           if (mounted) setState(() => _isRecording = true);
+          await _beginSession();
           await _startAudioRecordingStream();
         }
       }
     } catch (e) {
       DebugLogger.logSimple('RECORD', '❌ ERROR: $e');
-      _endPrayerSession();
+      _endSession();
       if (mounted)
         setState(() {
           _isRecording = false;
@@ -588,57 +601,116 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     }
   }
 
-  /// Starts prayer mode (rehearsal) following the recitation from [ayah] of
-  /// [surah]: starts recording, then lets the session take over the tracker.
+  /// Starts prayer mode following the recitation from [ayah] of [surah]:
+  /// starts recording with it.
   Future<void> _startPrayer(int surah, int ayah) async {
     final ctrl = _ctrl;
-    final repo = _repo;
-    if (ctrl == null || repo == null) return;
-    if (_prayer.value?.running ?? false) return;
+    if (ctrl == null || _repo == null) return;
+    final current = _session.value;
+    if (current != null && current.running && current.prayer != null) return;
     if (_isRecording) await _toggleRecord();
     if (ctrl.targetSurah != surah) await ctrl.setTargetSurah(surah);
     ctrl.setManualAyah(surah, ayah);
-    await _toggleRecord();
-    if (!_isRecording) return;
+    _prayerStart = MushafWord(surah, ayah, 0);
+    try {
+      await _toggleRecord();
+    } finally {
+      _prayerStart = null;
+    }
+  }
 
-    final tracker = HighlightingRecitationTracker(ctrl, followPlan: true);
+  /// Starts what runs alongside the tracker as recording starts: prayer
+  /// mode (when [_startPrayer] is starting it), and auto-correct when it is
+  /// on (in prayer mode it runs silently when off).
+  Future<void> _beginSession() async {
+    final ctrl = _ctrl;
+    final repo = _repo;
+    final prayerAt = _prayerStart;
+    if (ctrl == null || repo == null) return;
     final settings = AutoCorrectSettings.instance;
     await settings.load();
-    final session = await RecitationSession.create(
-      tracker: tracker,
-      repository: repo,
-      prayer: true,
-      // Without auto-correct, prayer mode shows what it would have done.
-      autoCorrectSilent: !settings.enabled,
-      debugLog: (m) => DebugLogger.logSimple('PRAYER', m),
-    );
-    _prayerTracker = tracker;
-    if (!session.autoCorrect!.silent) {
-      final voice = RecitationVoice(
-        session: session,
-        output: JustAudioPromptOutput(),
-        log: (m) => DebugLogger.logSimple('PRAYER', m),
+    _autoCorrectOn = settings.enabled;
+    if (prayerAt == null && !settings.enabled) return;
+    final tag = prayerAt != null ? 'PRAYER' : 'AUTOCORRECT';
+    final tracker =
+        HighlightingRecitationTracker(ctrl, followPlan: prayerAt != null);
+    final RecitationSession session;
+    try {
+      session = await RecitationSession.create(
+        tracker: tracker,
+        repository: repo,
+        prayer: prayerAt != null,
+        // Without auto-correct, prayer mode shows what it would have done.
+        autoCorrectSilent: !settings.enabled,
+        debugLog: (m) => DebugLogger.logSimple(tag, m),
       );
-      voice.playing.addListener(_onPromptSoundChanged);
-      _prayerVoice = voice;
+    } catch (e) {
+      tracker.restore();
+      DebugLogger.logSimple(tag, '❌ Could not start: $e');
+      return;
     }
-    _prayerSub = _engine.transcriptionStream.listen((r) {
+    _sessionTracker = tracker;
+    _attachVoice(session);
+    _sessionSub = _engine.transcriptionStream.listen((r) {
       session.addTranscription(
         tokens: r.tokens,
         isFinal: r.isFinal,
         epoch: r.streamEpoch,
       );
     });
-    _replacePrayerSession(session);
-    await session.start(surah: surah, ayah: ayah);
+    _replaceSession(session);
+    await session.start(surah: prayerAt?.surah, ayah: prayerAt?.ayah);
+  }
+
+  /// Auto-correct was turned on or off: the recitation under way follows.
+  void _onAutoCorrectSettings() {
+    final on = AutoCorrectSettings.instance.enabled;
+    if (on == _autoCorrectOn) return;
+    _autoCorrectOn = on;
+    unawaited(_applyAutoCorrect(on));
+  }
+
+  Future<void> _applyAutoCorrect(bool on) async {
+    if (!_isRecording || _isToggling) return;
+    final session = _session.value;
+    if (session == null || !session.running) {
+      if (on) await _beginSession();
+      return;
+    }
+    if (session.prayer == null) {
+      if (on) return;
+      // Auto-correct alone, turned off: its log stays on screen if it has
+      // anything to show.
+      _endSession(takeMicBack: true);
+      if (session.events.isEmpty) _replaceSession(null);
+      return;
+    }
+    // Prayer mode: auto-correct carries on silently, or aloud.
+    final repo = _repo;
+    final tracker = _sessionTracker;
+    if (repo == null || tracker == null) return;
+    final next = await AutoCorrect.create(
+      tracker: tracker,
+      repository: repo,
+      log: session.log,
+      silent: !on,
+      debugLog: (m) => DebugLogger.logSimple('PRAYER', m),
+    );
+    if (!identical(_session.value, session) || !session.running) {
+      next.dispose();
+      return;
+    }
+    _detachVoice(takeMicBack: true);
+    session.replaceAutoCorrect(next);
+    _attachVoice(session);
   }
 
   /// Shows [session] (or nothing) instead of the current one, which is
   /// disposed once the screen has let go of it.
-  void _replacePrayerSession(RecitationSession? session) {
-    final old = _prayer.value;
-    _prayer.value = session;
-    if (old != null) {
+  void _replaceSession(RecitationSession? session) {
+    final old = _session.value;
+    _session.value = session;
+    if (old != null && !identical(old, session)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
     }
   }
@@ -646,46 +718,64 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   /// Stops prayer mode and recording. The session's log stays on screen.
   Future<void> _stopPrayer() async {
     if (_isRecording) {
-      await _toggleRecord(); // ends the prayer session too
+      await _toggleRecord(); // ends the session too
     } else {
-      _endPrayerSession();
+      _endSession();
     }
   }
 
-  void _endPrayerSession() {
-    _prayerSub?.cancel();
-    _prayerSub = null;
-    _prayer.value?.stop();
-    _prayerTracker?.restore();
-    _prayerTracker = null;
-    final voice = _prayerVoice;
-    _prayerVoice = null;
-    if (voice != null) {
-      voice.playing.removeListener(_onPromptSoundChanged);
-      voice.dispose();
-      // Prayer mode ends with recording: don't take the microphone back.
-      _micReleasedForPrayer = false;
-      _setPromptSound(null);
-    }
+  /// Ends the session (its log stays on screen); [takeMicBack]: recording
+  /// carries on (see [_detachVoice]).
+  void _endSession({bool takeMicBack = false}) {
+    _sessionSub?.cancel();
+    _sessionSub = null;
+    _session.value?.stop();
+    _sessionTracker?.restore();
+    _sessionTracker = null;
+    _detachVoice(takeMicBack: takeMicBack);
   }
 
-  void _onPromptSoundChanged() =>
-      _setPromptSound(_prayerVoice?.playing.value);
+  /// Gives [session]'s auto-correct a voice, unless it is silent.
+  void _attachVoice(RecitationSession session) {
+    final ac = session.autoCorrect;
+    if (ac == null || ac.silent) return;
+    final voice = RecitationVoice(
+      session: session,
+      output: JustAudioPromptOutput(),
+      log: (m) => DebugLogger.logSimple('AUTOCORRECT', m),
+    );
+    voice.playing.addListener(_onPromptSoundChanged);
+    _voice = voice;
+  }
 
-  /// Mutes the microphone while prayer mode reads words aloud (on Android
+  /// Silences auto-correct's voice; the microphone is taken back if it was
+  /// let go of for it and [takeMicBack] (not as recording stops).
+  void _detachVoice({bool takeMicBack = false}) {
+    final voice = _voice;
+    _voice = null;
+    if (voice == null) return;
+    voice.playing.removeListener(_onPromptSoundChanged);
+    voice.dispose();
+    if (!takeMicBack) _micReleasedForPrompt = false;
+    _setPromptSound(null);
+  }
+
+  void _onPromptSoundChanged() => _setPromptSound(_voice?.playing.value);
+
+  /// Mutes the microphone while auto-correct reads words aloud (on Android
   /// it also lets go of it, as for verse audio, and takes it back after).
   /// The beep is short and no word: the microphone stays on for it.
   void _setPromptSound(PromptSound? sound) {
-    if (_prayerSound == sound) return;
-    _prayerSound = sound;
+    if (_promptSound == sound) return;
+    _promptSound = sound;
     final android = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     if (sound == PromptSound.words && android && _isRecording) {
-      _micReleasedForPrayer = true;
+      _micReleasedForPrompt = true;
       _audio.stop().catchError((_) {});
     } else if (sound == null) {
       _audio.clearBuffer();
-      if (_micReleasedForPrayer) {
-        _micReleasedForPrayer = false;
+      if (_micReleasedForPrompt) {
+        _micReleasedForPrompt = false;
         if (_isRecording) _startAudioRecordingStream();
       }
     }
@@ -920,12 +1010,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         _engine.resetBuffer();
         _audio.clearBuffer();
       },
-      prayerSession: _prayer,
+      prayerSession: _session,
       onStartPrayer: _startPrayer,
       onStopPrayer: _stopPrayer,
       onClosePrayer: () {
-        _endPrayerSession();
-        _replacePrayerSession(null);
+        _endSession();
+        _replaceSession(null);
       },
     );
   }

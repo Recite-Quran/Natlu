@@ -502,6 +502,31 @@ void main() {
     expect(log().first, startsWith('started'));
   });
 
+  test('auto-correct turned off during the prayer: silent from the tracker on',
+      () async {
+    final b = await words(2);
+    await session.start(surah: 2, ayah: 6);
+    await reciteFatiha();
+    await recite(ayah(b, 6));
+    session.replaceAutoCorrect(AutoCorrect(
+      tracker: tracker,
+      text: text,
+      settings: settings,
+      log: session.log,
+      extraPhrases: const [],
+      now: () => clock,
+      silent: true,
+    ));
+    await pumpEventQueue();
+    expect(session.autoCorrect!.silent, isTrue);
+    expect(session.position, const MushafWord(2, 7, 0));
+    final missing = ayah(b, 7).elementAt(2);
+    await recite(ayah(b, 7).take(4),
+        marks: {missing.ref: RecitedWordState.mistake});
+    expect(of(RecitationEventKind.mistake).single.where, missing.ref);
+    expect(log().first, startsWith('started'), reason: 'the same log');
+  });
+
   group('auto-correct alone', () {
     late List<PlanWord> b;
 

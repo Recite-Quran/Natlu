@@ -20,9 +20,9 @@ class RecitationSession extends ChangeNotifier {
   RecitationSession({
     required this.log,
     this.prayer,
-    this.autoCorrect,
+    AutoCorrect? autoCorrect,
     this.autoTick = true,
-  }) {
+  }) : _autoCorrect = autoCorrect {
     log.addListener(notifyListeners);
     prayer?.addListener(notifyListeners);
     autoCorrect?.addListener(notifyListeners);
@@ -60,7 +60,11 @@ class RecitationSession extends ChangeNotifier {
 
   final RecitationLog log;
   final PrayerMode? prayer;
-  final AutoCorrect? autoCorrect;
+  AutoCorrect? _autoCorrect;
+
+  /// Auto-correct, if it runs (in prayer mode it always does: silent when
+  /// auto-correct is off).
+  AutoCorrect? get autoCorrect => _autoCorrect;
 
   /// Whether the session runs its own timer; tests call [tick] instead.
   final bool autoTick;
@@ -100,6 +104,20 @@ class RecitationSession extends ChangeNotifier {
     _timer = null;
     prayer?.stop();
     autoCorrect?.stop();
+    notifyListeners();
+  }
+
+  /// Puts [next] (or nothing) in place of auto-correct, as it is turned on
+  /// or off during the recitation. The new one follows from where the
+  /// tracker is.
+  void replaceAutoCorrect(AutoCorrect? next) {
+    final old = _autoCorrect;
+    if (identical(old, next)) return;
+    old?.removeListener(notifyListeners);
+    old?.dispose();
+    _autoCorrect = next;
+    next?.addListener(notifyListeners);
+    if (_running) next?.start();
     notifyListeners();
   }
 
