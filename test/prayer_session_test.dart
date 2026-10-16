@@ -9,12 +9,14 @@ import 'package:the_great_quran/services/recitation/phrase_spotter.dart';
 import 'package:the_great_quran/services/prayer/prayer_session.dart';
 import 'package:the_great_quran/services/prayer/prayer_settings.dart';
 import 'package:the_great_quran/services/prayer/prayer_voice.dart';
+import 'package:the_great_quran/services/recitation/recitation_event.dart';
+import 'package:the_great_quran/services/recitation/recitation_tracker.dart';
 import 'package:the_great_quran/services/recitation/recited_word.dart';
 
 /// Behaves like the app's tracker: words get states as the reciter reaches
 /// them, resuming at an ayah clears it and what follows, listeners hear
 /// about every word.
-class FakeTracker extends ChangeNotifier implements PrayerTracker {
+class FakeTracker extends ChangeNotifier implements RecitationTracker {
   final Map<MushafWord, RecitedWordState> states = {};
   bool following = false;
   final List<(int, int)> resumes = [];
@@ -173,7 +175,7 @@ void main() {
 
   List<String> log() => session.events.map((e) => e.toString()).toList();
 
-  Iterable<PrayerEvent> of(PrayerEventKind k) =>
+  Iterable<RecitationEvent> of(RecitationEventKind k) =>
       session.events.where((e) => e.kind == k);
 
   test('waits for al-Fātiḥa, then follows the plan from its start', () async {
@@ -185,7 +187,7 @@ void main() {
     await reciteFatiha();
     expect(session.phase, PrayerPhase.following);
     expect(tracker.resumes, [(2, 6)]);
-    expect(of(PrayerEventKind.fatihaEnded).single.where,
+    expect(of(RecitationEventKind.fatihaEnded).single.where,
         const MushafWord(2, 6, 0));
     expect(session.position, const MushafWord(2, 6, 0));
   });
@@ -202,17 +204,18 @@ void main() {
     say(PrayerPhrases.takbirPhonemes);
     expect(session.phase, PrayerPhase.waitingForFatiha);
     expect(tracker.pauses, 2);
-    expect(of(PrayerEventKind.takbir).single.where, const MushafWord(2, 9, 0));
+    expect(
+        of(RecitationEventKind.takbir).single.where, const MushafWord(2, 9, 0));
 
     // Rukūʿ, sujūd... nothing is followed or prompted.
     say('سُبحَاانَرَببِيَلعَظِۦۦم');
     wait(30);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
 
     await reciteFatiha();
     expect(tracker.resumes, [(2, 6), (2, 9)]);
     await recite(ayah(b, 9));
-    expect(of(PrayerEventKind.mistake), isEmpty);
+    expect(of(RecitationEventKind.mistake), isEmpty);
     expect(session.position, const MushafWord(2, 10, 0));
   });
 
@@ -226,8 +229,8 @@ void main() {
     say('ءَللَااهُ');
     tracker.mark(const MushafWord(2, 255, 0), RecitedWordState.recited);
     say('ءَكبَر');
-    expect(
-        of(PrayerEventKind.takbir).single.where, const MushafWord(2, 255, 0));
+    expect(of(RecitationEventKind.takbir).single.where,
+        const MushafWord(2, 255, 0));
   });
 
   test('reciting "مِنَ اللَّهِ أَكْبَرُ" (9:72) is not the takbīr', () async {
@@ -236,7 +239,7 @@ void main() {
     await reciteFatiha();
     await recite(ayah(t, 72));
     expect(session.phase, PrayerPhase.following);
-    expect(of(PrayerEventKind.takbir), isEmpty);
+    expect(of(RecitationEventKind.takbir), isEmpty);
   });
 
   test('a left-out word: beep, then prompted if not corrected', () async {
@@ -249,13 +252,13 @@ void main() {
     await recite(ayah(b, 7).take(4),
         marks: {missing.ref: RecitedWordState.mistake});
 
-    final mistake = of(PrayerEventKind.mistake).single;
-    expect(mistake.reason, PrayerReason.skipped);
+    final mistake = of(RecitationEventKind.mistake).single;
+    expect(mistake.reason, RecitationReason.skipped);
     expect(mistake.words, missing.uthmani);
     wait(2);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
     wait(1);
-    final prompt = of(PrayerEventKind.prompt).single;
+    final prompt = of(RecitationEventKind.prompt).single;
     expect(prompt.words, missing.uthmani);
     expect(prompt.where, missing.ref);
   });
@@ -270,10 +273,10 @@ void main() {
         marks: {missing.ref: RecitedWordState.mistake});
     say(missing.skeleton + ayah(b, 7).elementAt(4).skeleton);
     wait(1);
-    expect(of(PrayerEventKind.corrected), hasLength(1));
+    expect(of(RecitationEventKind.corrected), hasLength(1));
     await recite(ayah(b, 7).skip(5));
     wait(5);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
   });
 
   test('the same word further on is not a correction', () async {
@@ -283,8 +286,8 @@ void main() {
     final missing = ayah(b, 7).elementAt(2); // عَلَىٰ
     await recite(ayah(b, 7), marks: {missing.ref: RecitedWordState.mistake});
     wait(3);
-    expect(of(PrayerEventKind.corrected), isEmpty);
-    expect(of(PrayerEventKind.prompt).single.words, missing.uthmani);
+    expect(of(RecitationEventKind.corrected), isEmpty);
+    expect(of(RecitationEventKind.prompt).single.words, missing.uthmani);
   });
 
   test('a wrong word: beep; moving on again corrects it', () async {
@@ -293,13 +296,15 @@ void main() {
     await reciteFatiha();
     await recite(ayah(b, 6));
     say('فَبِءَييِءَاالَااءِرَببِكُمَاتُكَذذِبَاان'); // 55:13, not 2:7
-    expect(of(PrayerEventKind.mistake).single.reason, PrayerReason.wrongWord);
-    expect(of(PrayerEventKind.mistake).single.where, const MushafWord(2, 7, 0));
+    expect(of(RecitationEventKind.mistake).single.reason,
+        RecitationReason.wrongWord);
+    expect(of(RecitationEventKind.mistake).single.where,
+        const MushafWord(2, 7, 0));
     await recite(ayah(b, 7).take(2));
-    expect(of(PrayerEventKind.corrected), hasLength(1));
+    expect(of(RecitationEventKind.corrected), hasLength(1));
     await recite(ayah(b, 7).skip(2));
     wait(5);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
   });
 
   test('a wrong word not corrected prompts the expected words', () async {
@@ -310,8 +315,8 @@ void main() {
     await recite(ayah(b, 6));
     say('فَبِءَييِءَاالَااءِرَببِكُمَاتُكَذذِبَاان');
     wait(3);
-    final prompt = of(PrayerEventKind.prompt).single;
-    expect(prompt.reason, PrayerReason.wrongWord);
+    final prompt = of(RecitationEventKind.prompt).single;
+    expect(prompt.reason, RecitationReason.wrongWord);
     expect(prompt.words, ayah(b, 7).take(2).map((w) => w.uthmani).join(' '));
     expect(prompt.wordRefs, ayah(b, 7).take(2).map((w) => w.ref).toList());
   });
@@ -326,7 +331,7 @@ void main() {
       say(w.skeleton); // repeated: heard, nothing new matched
     }
     wait(1);
-    expect(of(PrayerEventKind.mistake), isEmpty);
+    expect(of(RecitationEventKind.mistake), isEmpty);
   });
 
   test('āmīn, taʿawwudh and basmala before the plan are not mistakes',
@@ -339,7 +344,7 @@ void main() {
     say(fatiha.where((w) => w.ref.ayah == 1).map((w) => w.skeleton).join());
     wait(1);
     await recite(ayah(b, 6));
-    expect(of(PrayerEventKind.mistake), isEmpty);
+    expect(of(RecitationEventKind.mistake), isEmpty);
   });
 
   test('a long pause part way through an ayah prompts the next word once',
@@ -349,18 +354,18 @@ void main() {
     await reciteFatiha();
     await recite(ayah(b, 6).take(3));
     wait(3);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
     wait(1);
-    final prompt = of(PrayerEventKind.prompt).single;
-    expect(prompt.reason, PrayerReason.pauseMidAyah);
+    final prompt = of(RecitationEventKind.prompt).single;
+    expect(prompt.reason, RecitationReason.pauseMidAyah);
     expect(prompt.words, ayah(b, 6).elementAt(3).uthmani);
     wait(20);
-    expect(of(PrayerEventKind.prompt), hasLength(1));
+    expect(of(RecitationEventKind.prompt), hasLength(1));
 
     // Carrying on and stopping again prompts again.
     await recite(ayah(b, 6).skip(3).take(1));
     wait(4);
-    expect(of(PrayerEventKind.prompt), hasLength(2));
+    expect(of(RecitationEventKind.prompt), hasLength(2));
   });
 
   test('a pause at the end of an ayah waits longer', () async {
@@ -369,10 +374,10 @@ void main() {
     await reciteFatiha();
     await recite(ayah(b, 6));
     wait(7);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
     wait(1);
-    final prompt = of(PrayerEventKind.prompt).single;
-    expect(prompt.reason, PrayerReason.pauseBetweenAyahs);
+    final prompt = of(RecitationEventKind.prompt).single;
+    expect(prompt.reason, RecitationReason.pauseBetweenAyahs);
     expect(prompt.where, const MushafWord(2, 7, 0));
   });
 
@@ -381,7 +386,7 @@ void main() {
     await session.start(2, 6);
     await reciteFatiha();
     wait(60);
-    expect(of(PrayerEventKind.prompt), isEmpty);
+    expect(of(RecitationEventKind.prompt), isEmpty);
   });
 
   test('the plan carries on into the next surah', () async {
@@ -390,20 +395,20 @@ void main() {
     await session.start(112, 4);
     await reciteFatiha();
     await recite(ayah(ikhlas, 4));
-    expect(of(PrayerEventKind.nextSurah).single.where,
+    expect(of(RecitationEventKind.nextSurah).single.where,
         const MushafWord(113, 1, 0));
     expect(tracker.resumes.last, (113, 1));
     say(fatiha.where((w) => w.ref.ayah == 1).map((w) => w.skeleton).join());
     wait(1);
     await recite(ayah(falaq, 1));
-    expect(of(PrayerEventKind.mistake), isEmpty);
+    expect(of(RecitationEventKind.mistake), isEmpty);
   });
 
   test('stop ends the session', () async {
     await session.start(2, 6);
     session.stop();
     expect(session.phase, PrayerPhase.idle);
-    expect(of(PrayerEventKind.stopped), hasLength(1));
+    expect(of(RecitationEventKind.stopped), hasLength(1));
     await reciteFatiha();
     expect(tracker.resumes, isEmpty);
     expect(log().first, startsWith('started'));

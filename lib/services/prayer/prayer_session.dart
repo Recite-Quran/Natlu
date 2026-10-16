@@ -7,21 +7,10 @@ import 'package:recite_quran/recite_quran.dart' show QuranRepository;
 import '../recitation/phoneme_transcript.dart';
 import '../recitation/phrase_spotter.dart';
 import '../recitation/plan_text.dart';
+import '../recitation/recitation_event.dart';
+import '../recitation/recitation_tracker.dart';
 import '../recitation/recited_word.dart';
 import 'prayer_settings.dart';
-
-/// What prayer mode needs from the word tracker.
-abstract class PrayerTracker implements Listenable {
-  /// What the tracker says about [word] (notifies after every word).
-  RecitedWordState stateOf(MushafWord word);
-
-  /// Stops following the recitation.
-  void pause();
-
-  /// Follows the recitation again, expecting [ayah] of [surah] from its
-  /// first word.
-  Future<void> resumeAt(int surah, int ayah);
-}
 
 enum PrayerPhase {
   /// Not started, or stopped.
@@ -34,84 +23,12 @@ enum PrayerPhase {
   following,
 }
 
-enum PrayerEventKind {
-  /// Prayer mode started; [PrayerEvent.where] is where the plan starts.
-  started,
-
-  /// The end of al-Fātiḥa was heard; following from [PrayerEvent.where].
-  fatihaEnded,
-
-  /// "Allāhu akbar" was heard; the plan will resume at [PrayerEvent.where].
-  takbir,
-
-  /// The plan moved on to the next surah.
-  nextSurah,
-
-  /// A mistake: prayer mode beeps (in silent mode, would beep).
-  mistake,
-
-  /// The reciter corrected the mistake in time.
-  corrected,
-
-  /// Prayer mode reads [PrayerEvent.words] aloud (in silent mode, would).
-  prompt,
-
-  /// Prayer mode was stopped.
-  stopped,
-}
-
-enum PrayerReason {
-  /// Word(s) left out (the tracker marked them as mistakes).
-  skipped,
-
-  /// Speech that doesn't match the expected word.
-  wrongWord,
-
-  /// A long pause part way through an ayah.
-  pauseMidAyah,
-
-  /// A long pause at the end of an ayah.
-  pauseBetweenAyahs,
-}
-
-/// Something prayer mode noticed or would have done.
-@immutable
-class PrayerEvent {
-  const PrayerEvent(
-    this.kind,
-    this.at, {
-    this.where,
-    this.words,
-    this.wordRefs = const [],
-    this.reason,
-  });
-
-  final PrayerEventKind kind;
-  final DateTime at;
-
-  /// The plan position the event is about.
-  final MushafWord? where;
-
-  /// The words of a mistake or a prompt, as written.
-  final String? words;
-
-  /// Where each of a prompt's words is, in order.
-  final List<MushafWord> wordRefs;
-  final PrayerReason? reason;
-
-  @override
-  String toString() => '${kind.name}'
-      '${reason == null ? '' : ' (${reason!.name})'}'
-      '${where == null ? '' : ' at $where'}'
-      '${words == null ? '' : ': $words'}';
-}
-
 class _Mistake {
   _Mistake(this.reason, this.first, this.count, this.at, this.mark);
-  final PrayerReason reason;
+  final RecitationReason reason;
 
   /// Index in the surah's words of the first word to prompt, and how many
-  /// words were left out (for [PrayerReason.skipped]).
+  /// words were left out (for [RecitationReason.skipped]).
   final int first;
   final int count;
   final DateTime at;
@@ -154,7 +71,7 @@ class PrayerSession extends ChangeNotifier {
 
   /// Creates a session for the app's Quran data.
   static Future<PrayerSession> create({
-    required PrayerTracker tracker,
+    required RecitationTracker tracker,
     required QuranRepository repository,
     void Function(String message)? log,
   }) async {
@@ -183,7 +100,7 @@ class PrayerSession extends ChangeNotifier {
   /// "آمين".
   static const aminPhonemes = 'ءَاامِۦۦن';
 
-  final PrayerTracker tracker;
+  final RecitationTracker tracker;
   final PlanText text;
   final PrayerSettings settings;
   final void Function(String message)? log;
@@ -209,7 +126,7 @@ class PrayerSession extends ChangeNotifier {
   late final PhonemeTranscript transcript;
 
   PrayerPhase _phase = PrayerPhase.idle;
-  final List<PrayerEvent> _events = [];
+  final List<RecitationEvent> _events = [];
   Timer? _timer;
 
   int _surah = 0;
@@ -227,7 +144,7 @@ class PrayerSession extends ChangeNotifier {
   bool _busy = false;
 
   PrayerPhase get phase => _phase;
-  List<PrayerEvent> get events => List.unmodifiable(_events);
+  List<RecitationEvent> get events => List.unmodifiable(_events);
 
   /// Where the plan resumes after the next al-Fātiḥa (while waiting), or
   /// the next expected word (while following).
@@ -245,7 +162,7 @@ class PrayerSession extends ChangeNotifier {
     tracker.pause();
     transcript.clear();
     _enterWaiting();
-    _emit(PrayerEvent(PrayerEventKind.started, _now(), where: _resume));
+    _emit(RecitationEvent(RecitationEventKind.started, _now(), where: _resume));
     if (autoTick) {
       _timer = Timer.periodic(const Duration(milliseconds: 250), (_) => tick());
     }
@@ -258,7 +175,8 @@ class PrayerSession extends ChangeNotifier {
     _timer = null;
     tracker.removeListener(_onTrackerChanged);
     _phase = PrayerPhase.idle;
-    _emit(PrayerEvent(PrayerEventKind.stopped, _now(), where: position));
+    _emit(
+        RecitationEvent(RecitationEventKind.stopped, _now(), where: position));
   }
 
   @override
@@ -321,7 +239,7 @@ class PrayerSession extends ChangeNotifier {
       _markProgress();
       _phaseMark = transcript.length;
       _mistake = null;
-      _emit(PrayerEvent(PrayerEventKind.fatihaEnded, _now(),
+      _emit(RecitationEvent(RecitationEventKind.fatihaEnded, _now(),
           where: _words[_cursor].ref));
     } finally {
       _busy = false;
@@ -337,7 +255,7 @@ class PrayerSession extends ChangeNotifier {
         ? MushafWord(math.min(_surah + 1, 114), 1, 0)
         : MushafWord(next.surah, next.ayah, 0);
     _enterWaiting();
-    _emit(PrayerEvent(PrayerEventKind.takbir, _now(), where: _resume));
+    _emit(RecitationEvent(RecitationEventKind.takbir, _now(), where: _resume));
   }
 
   bool _takbirHeard() {
@@ -376,18 +294,18 @@ class PrayerSession extends ChangeNotifier {
       final count = skipped.last - first + 1;
       if (open == null) {
         _mistake = _Mistake(
-            PrayerReason.skipped, first, count, _now(), transcript.length);
-        _emit(PrayerEvent(PrayerEventKind.mistake, _now(),
-            reason: PrayerReason.skipped,
+            RecitationReason.skipped, first, count, _now(), transcript.length);
+        _emit(RecitationEvent(RecitationEventKind.mistake, _now(),
+            reason: RecitationReason.skipped,
             where: _words[first].ref,
             words: _wordsText(first, count)));
       } else {
-        _mistake =
-            _Mistake(PrayerReason.skipped, first, count, open.at, open.mark);
+        _mistake = _Mistake(
+            RecitationReason.skipped, first, count, open.at, open.mark);
       }
-    } else if (open != null && open.reason == PrayerReason.wrongWord) {
+    } else if (open != null && open.reason == RecitationReason.wrongWord) {
       _mistake = null;
-      _emit(PrayerEvent(PrayerEventKind.corrected, _now(),
+      _emit(RecitationEvent(RecitationEventKind.corrected, _now(),
           where: _words[open.first].ref));
     }
 
@@ -403,7 +321,7 @@ class PrayerSession extends ChangeNotifier {
       _cursor = 0;
       await tracker.resumeAt(_surah, 1);
       _markProgress();
-      _emit(PrayerEvent(PrayerEventKind.nextSurah, _now(),
+      _emit(RecitationEvent(RecitationEventKind.nextSurah, _now(),
           where: _words.first.ref));
     } finally {
       _busy = false;
@@ -421,9 +339,9 @@ class PrayerSession extends ChangeNotifier {
   void _checkMistake() {
     final m = _mistake;
     if (m == null) return;
-    if (m.reason == PrayerReason.skipped && _skippedCorrected(m)) {
+    if (m.reason == RecitationReason.skipped && _skippedCorrected(m)) {
       _mistake = null;
-      _emit(PrayerEvent(PrayerEventKind.corrected, _now(),
+      _emit(RecitationEvent(RecitationEventKind.corrected, _now(),
           where: _words[m.first].ref));
       return;
     }
@@ -482,10 +400,10 @@ class PrayerSession extends ChangeNotifier {
       _progressMark = transcript.length;
       return;
     }
-    _mistake =
-        _Mistake(PrayerReason.wrongWord, _cursor, 0, _now(), transcript.length);
-    _emit(PrayerEvent(PrayerEventKind.mistake, _now(),
-        reason: PrayerReason.wrongWord,
+    _mistake = _Mistake(
+        RecitationReason.wrongWord, _cursor, 0, _now(), transcript.length);
+    _emit(RecitationEvent(RecitationEventKind.mistake, _now(),
+        reason: RecitationReason.wrongWord,
         where: _words[_cursor].ref,
         words: _wordsText(_cursor, 1)));
   }
@@ -506,15 +424,17 @@ class PrayerSession extends ChangeNotifier {
     if (_now().difference(quietSince) < limit) return;
     _pausePrompted = true;
     _prompt(
-      atAyahStart ? PrayerReason.pauseBetweenAyahs : PrayerReason.pauseMidAyah,
+      atAyahStart
+          ? RecitationReason.pauseBetweenAyahs
+          : RecitationReason.pauseMidAyah,
       _cursor,
     );
   }
 
-  void _prompt(PrayerReason reason, int first) {
+  void _prompt(RecitationReason reason, int first) {
     _lastPromptAt = _now();
     final end = math.min(_words.length, first + settings.promptWordCount);
-    _emit(PrayerEvent(PrayerEventKind.prompt, _now(),
+    _emit(RecitationEvent(RecitationEventKind.prompt, _now(),
         reason: reason,
         where: _words[first].ref,
         words: _wordsText(first, settings.promptWordCount),
@@ -533,7 +453,7 @@ class PrayerSession extends ChangeNotifier {
       .map((w) => w.uthmani)
       .join(' ');
 
-  void _emit(PrayerEvent e) {
+  void _emit(RecitationEvent e) {
     _events.add(e);
     log?.call(e.toString());
     notifyListeners();

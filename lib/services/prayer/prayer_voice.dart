@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../audio/verse_audio_player.dart';
 import '../quran_timing_service.dart';
+import '../recitation/recitation_event.dart';
 import '../recitation/recited_word.dart';
 import 'prayer_session.dart';
 
@@ -84,13 +85,13 @@ class PrayerVoice {
     _prepareAround(session.position);
   }
 
-  void _handle(PrayerEvent e) {
+  void _handle(RecitationEvent e) {
     switch (e.kind) {
-      case PrayerEventKind.mistake:
+      case RecitationEventKind.mistake:
         if (_current == null) {
           unawaited(_play(PrayerSound.beep, (_) => output.beep(), 'beep'));
         }
-      case PrayerEventKind.prompt:
+      case RecitationEventKind.prompt:
         final refs = e.wordRefs;
         if (refs.isEmpty) return;
         final first = refs.first;
@@ -100,7 +101,7 @@ class PrayerVoice {
             .lastWhere((w) => w.surah == first.surah && w.ayah == first.ayah);
         final what = '${first.surah}:${first.ayah} words '
             '${first.wordIndex0}-${last.wordIndex0}';
-        final sound = e.reason == PrayerReason.skipped
+        final sound = e.reason == RecitationReason.skipped
             ? PrayerSound.leftOutWords
             : PrayerSound.words;
         unawaited(_play(sound, (heard) async {
@@ -114,13 +115,13 @@ class PrayerVoice {
             await output.beep();
           }
         }, what));
-      case PrayerEventKind.takbir:
-      case PrayerEventKind.stopped:
+      case RecitationEventKind.takbir:
+      case RecitationEventKind.stopped:
         unawaited(stop());
-      case PrayerEventKind.started:
-      case PrayerEventKind.fatihaEnded:
-      case PrayerEventKind.nextSurah:
-      case PrayerEventKind.corrected:
+      case RecitationEventKind.started:
+      case RecitationEventKind.fatihaEnded:
+      case RecitationEventKind.nextSurah:
+      case RecitationEventKind.corrected:
         break;
     }
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/prayer/prayer_session.dart';
+import '../../services/recitation/recitation_event.dart';
 import '../../services/recitation/recited_word.dart';
 
 /// [n] in Arabic-Indic digits when [arabic].
@@ -11,8 +12,8 @@ String localizedNumber(int n, bool arabic) {
 }
 
 /// How a prayer-mode event is shown.
-class PrayerEventText {
-  const PrayerEventText(this.icon, this.color, this.title, {this.words});
+class RecitationEventText {
+  const RecitationEventText(this.icon, this.color, this.title, {this.words});
   final IconData icon;
   final Color color;
   final String title;
@@ -37,45 +38,45 @@ String prayerPhaseText(PrayerPhase phase, bool ar) => switch (phase) {
     };
 
 /// [silent]: the session only shows what it would do (rehearsal).
-PrayerEventText describePrayerEvent(PrayerEvent e, bool ar,
+RecitationEventText describeRecitationEvent(RecitationEvent e, bool ar,
     String Function(int surah) surahName, Color accent, Color warning,
     {bool silent = false}) {
   final at = prayerPositionText(e.where, ar, surahName);
   const red = Color(0xFFE24B4A);
   switch (e.kind) {
-    case PrayerEventKind.started:
-      return PrayerEventText(
+    case RecitationEventKind.started:
+      return RecitationEventText(
           Icons.play_arrow_rounded,
           accent,
           ar
               ? 'بدأ من $at — في انتظار الفاتحة'
               : 'Started at $at — waiting for al-Fātiḥa');
-    case PrayerEventKind.fatihaEnded:
-      return PrayerEventText(
+    case RecitationEventKind.fatihaEnded:
+      return RecitationEventText(
           Icons.hearing_rounded,
           accent,
           ar
               ? 'سُمعت الفاتحة — المتابعة من $at'
               : 'Al-Fātiḥa heard — following from $at');
-    case PrayerEventKind.takbir:
-      return PrayerEventText(
+    case RecitationEventKind.takbir:
+      return RecitationEventText(
           Icons.pause_circle_outline_rounded,
           accent,
           ar
               ? 'سُمع التكبير — الاستئناف من $at بعد الفاتحة'
               : 'Allāhu akbar heard — resuming at $at after al-Fātiḥa');
-    case PrayerEventKind.nextSurah:
-      return PrayerEventText(
+    case RecitationEventKind.nextSurah:
+      return RecitationEventText(
           Icons.arrow_forward_rounded,
           accent,
           ar
               ? 'المتابعة بسورة ${surahName(e.where?.surah ?? 0)}'
               : 'Continuing with ${surahName(e.where?.surah ?? 0)}');
-    case PrayerEventKind.mistake:
-      return PrayerEventText(
+    case RecitationEventKind.mistake:
+      return RecitationEventText(
         Icons.notifications_active_outlined,
         red,
-        e.reason == PrayerReason.skipped
+        e.reason == RecitationReason.skipped
             ? (ar
                 ? 'تنبيه: كلمة ناقصة ($at)'
                 : '${silent ? 'Would beep' : 'Beeped'}: word left out ($at)')
@@ -85,25 +86,25 @@ PrayerEventText describePrayerEvent(PrayerEvent e, bool ar,
                     'expected ($at)'),
         words: e.words,
       );
-    case PrayerEventKind.corrected:
-      return PrayerEventText(Icons.check_circle_outline_rounded, accent,
+    case RecitationEventKind.corrected:
+      return RecitationEventText(Icons.check_circle_outline_rounded, accent,
           ar ? 'صحّح القارئ ($at)' : 'Corrected by the reciter ($at)');
-    case PrayerEventKind.prompt:
+    case RecitationEventKind.prompt:
       final why = switch (e.reason) {
-        PrayerReason.pauseMidAyah => ar ? 'بعد توقف' : 'after a pause',
-        PrayerReason.pauseBetweenAyahs =>
+        RecitationReason.pauseMidAyah => ar ? 'بعد توقف' : 'after a pause',
+        RecitationReason.pauseBetweenAyahs =>
           ar ? 'بعد توقف بين آيتين' : 'after a pause between ayahs',
         _ => ar ? 'بعد خطأ' : 'after a mistake',
       };
-      return PrayerEventText(
+      return RecitationEventText(
           Icons.record_voice_over_outlined,
           warning,
           ar
               ? '${silent ? 'سيقرأ' : 'قرأ'} ($why، $at)'
               : '${silent ? 'Would read' : 'Read'} ($why, $at)',
           words: e.words);
-    case PrayerEventKind.stopped:
-      return PrayerEventText(
+    case RecitationEventKind.stopped:
+      return RecitationEventText(
           Icons.stop_circle_outlined, accent, ar ? 'توقف' : 'Stopped');
   }
 }

@@ -1,18 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:recite_quran/recite_quran.dart';
 
-import '../recitation/recited_word.dart';
-import 'prayer_session.dart';
+import 'recited_word.dart';
+import 'recitation_tracker.dart';
 
-/// [PrayerTracker] backed by the app's [HighlightingController].
+/// [RecitationTracker] backed by the app's [HighlightingController].
 ///
 /// While prayer mode runs, the controller works in plain word-checking
 /// mode (no tajweed) with its automatic re-anchoring off: prayer mode
 /// follows one continuous plan, so the tracker should wait at the expected
 /// word rather than search the surah for wherever the reciter might be.
 /// [restore] puts both back.
-class HighlightingPrayerTracker implements PrayerTracker {
-  HighlightingPrayerTracker(this.controller)
+class HighlightingRecitationTracker implements RecitationTracker {
+  HighlightingRecitationTracker(this.controller)
       : _savedConfig = controller.config,
         _savedTajweed = controller.isTajweed {
     controller.updateConfig(TrackerConfig(

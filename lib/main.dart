@@ -29,7 +29,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'package:recite_quran/recite_quran.dart';
-import 'services/prayer/highlighting_prayer_tracker.dart';
+import 'services/recitation/highlighting_recitation_tracker.dart';
 import 'services/prayer/prayer_session.dart';
 import 'services/prayer/prayer_voice.dart';
 import 'state/app_state.dart';
@@ -216,7 +216,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   /// Prayer mode (rehearsal): the running session, or the last one until
   /// its log is closed.
   final ValueNotifier<PrayerSession?> _prayer = ValueNotifier(null);
-  HighlightingPrayerTracker? _prayerTracker;
+  HighlightingRecitationTracker? _prayerTracker;
   StreamSubscription<TranscriptionResult>? _prayerSub;
 
   /// Prayer mode's sounds (none in silent mode).
@@ -602,7 +602,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     await _toggleRecord();
     if (!_isRecording) return;
 
-    final tracker = HighlightingPrayerTracker(ctrl);
+    final tracker = HighlightingRecitationTracker(ctrl);
     final session = await PrayerSession.create(
       tracker: tracker,
       repository: repo,

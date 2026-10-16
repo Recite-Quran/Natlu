@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/prayer/prayer_session.dart';
+import '../../services/recitation/recitation_event.dart';
 import '../../state/app_state.dart';
 import 'prayer_event_text.dart';
 
@@ -124,7 +125,7 @@ class _EventLine extends StatelessWidget {
     this.compact = false,
   });
 
-  final PrayerEvent event;
+  final RecitationEvent event;
   final String Function(int surah) surahName;
   final bool silent;
   final bool compact;
@@ -134,7 +135,7 @@ class _EventLine extends StatelessWidget {
     final app = AppState.instance;
     final c = app.colors;
     final ar = app.isArabic;
-    final t = describePrayerEvent(event, ar, surahName, c.primary, c.gold,
+    final t = describeRecitationEvent(event, ar, surahName, c.primary, c.gold,
         silent: silent);
     return Padding(
       padding: EdgeInsets.symmetric(vertical: compact ? 2 : 6),
@@ -199,9 +200,9 @@ class _PrayerLogSheet extends StatelessWidget {
         final ar = app.isArabic;
         final events = session.events.reversed.toList();
         final mistakes =
-            events.where((e) => e.kind == PrayerEventKind.mistake).length;
+            events.where((e) => e.kind == RecitationEventKind.mistake).length;
         final prompts =
-            events.where((e) => e.kind == PrayerEventKind.prompt).length;
+            events.where((e) => e.kind == RecitationEventKind.prompt).length;
         return Directionality(
           textDirection: ar ? TextDirection.rtl : TextDirection.ltr,
           child: Container(
