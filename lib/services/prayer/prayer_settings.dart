@@ -43,10 +43,18 @@ class PrayerSettings extends ChangeNotifier {
     promptWords,
   ];
 
+  /// Saved key of [silent].
+  static const String silentKey = 'prayer_silent';
+
   final Map<String, int> _values = {};
+  bool _silent = false;
   Future<void>? _loading;
 
   int operator [](PrayerSetting s) => _values[s.key] ?? s.defaultValue;
+
+  /// Silent mode (rehearsal): show on screen what prayer mode would do,
+  /// without making a sound. Off by default.
+  bool get silent => _silent;
 
   Duration get pauseMidAyahDuration => Duration(seconds: this[pauseMidAyah]);
   Duration get pauseBetweenAyahsDuration =>
@@ -65,6 +73,11 @@ class PrayerSettings extends ChangeNotifier {
             debugPrint('PrayerSettings: could not read ${s.key}: $e');
           }
         }
+        try {
+          _silent = prefs.getBool(silentKey) ?? false;
+        } catch (e) {
+          debugPrint('PrayerSettings: could not read $silentKey: $e');
+        }
         notifyListeners();
       }();
 
@@ -79,8 +92,18 @@ class PrayerSettings extends ChangeNotifier {
     await prefs.setInt(s.key, v);
   }
 
-  /// Puts every setting back to its default.
-  Future<void> reset() async {
+  /// Turns silent mode on or off, and saves it.
+  Future<void> setSilent(bool value) async {
+    await load();
+    if (_silent == value) return;
+    _silent = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(silentKey, value);
+  }
+
+  /// Puts the timings and word count ([all]) back to their defaults.
+  Future<void> resetTimings() async {
     await load();
     _values.clear();
     notifyListeners();
@@ -88,5 +111,13 @@ class PrayerSettings extends ChangeNotifier {
     for (final s in all) {
       await prefs.remove(s.key);
     }
+  }
+
+  /// Puts every setting back to its default, silent mode included.
+  Future<void> reset() async {
+    await resetTimings();
+    await setSilent(false);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(silentKey);
   }
 }

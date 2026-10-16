@@ -59,4 +59,33 @@ void main() {
     await s.set(PrayerSettings.pauseMidAyah, 5); // unchanged
     expect(calls, 1);
   });
+
+  test('silent mode: off by default, saved, and reset by reset()', () async {
+    final s = PrayerSettings.forTest();
+    await s.load();
+    expect(s.silent, isFalse);
+    await s.setSilent(true);
+    await s.set(PrayerSettings.pauseMidAyah, 7);
+
+    final reloaded = PrayerSettings.forTest();
+    await reloaded.load();
+    expect(reloaded.silent, isTrue);
+
+    await reloaded.resetTimings();
+    expect(reloaded.silent, isTrue, reason: 'only the timings');
+    expect(reloaded[PrayerSettings.pauseMidAyah], 4);
+
+    await reloaded.reset();
+    expect(reloaded.silent, isFalse);
+    final again = PrayerSettings.forTest();
+    await again.load();
+    expect(again.silent, isFalse);
+  });
+
+  test('an unreadable silent setting means sound on', () async {
+    SharedPreferences.setMockInitialValues({'prayer_silent': 'yes'});
+    final s = PrayerSettings.forTest();
+    await s.load();
+    expect(s.silent, isFalse);
+  });
 }
