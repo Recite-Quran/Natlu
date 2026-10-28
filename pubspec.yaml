@@ -1,0 +1,77 @@
+name: the_great_quran
+description: "The Great Quran — Real-time recitation tracker"
+publish_to: 'none'
+version: 1.1.0+19
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  recite_quran: ^1.0.5
+  qvp_flutter:
+    path: packages/qvp_flutter
+
+  audio_session: ^0.2.4
+  flutter_displaymode: ^0.7.0
+  http: ^1.2.2
+  in_app_update: ^5.0.0
+  path_provider: ^2.1.5
+  permission_handler: ^13.0.1
+  record: ^7.1.1
+  shared_preferences: ^2.2.0
+  # PINNED, do not loosen to ^1.13.5 without testing an iOS archive.
+  # sherpa_onnx_ios 1.13.6 renamed the bundle to sherpa-onnx.xcframework but left
+  # the framework inside it called SherpaOnnxC.framework. CocoaPods derives the
+  # linker flag from the bundle name, so it emits `-framework "sherpa-onnx"` and
+  # the archive dies with "Framework 'sherpa-onnx' not found". 1.13.5 ships
+  # SherpaOnnxC.xcframework, where the two names agree.
+  sherpa_onnx: 1.13.5
+  wakelock_plus: ^1.6.1
+  archive: ^4.0.0
+  just_audio: ^0.10.6
+  just_audio_media_kit: ^2.1.0
+  media_kit_libs_windows_video: ^1.0.11
+
+# sherpa_onnx 1.13.5 still allows sherpa_onnx_ios ^1.13.5, so the broken 1.13.6
+# iOS package gets pulled in transitively unless it is pinned here as well.
+# See the note on `sherpa_onnx` above for why 1.13.6 cannot link.
+dependency_overrides:
+  sherpa_onnx_ios: 1.13.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/model/zipformer_p_arabic_v3.int8.onnx
+    - assets/icon/app_icon.png
+    - assets/pages.tar.xz
+
+
+  fonts:
+    - family: cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+        - asset: assets/fonts/Cairo-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Cairo-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 900
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  # The 2048x2048 source is RGBA, and App Store icons must be opaque -- an alpha
+  # channel is an automatic upload rejection. Flatten it for iOS only.
+  remove_alpha_ios: true
+  image_path: "assets/icon/app_icon.png"

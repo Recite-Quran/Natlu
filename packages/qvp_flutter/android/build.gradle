@@ -1,0 +1,49 @@
+// qvp_flutter: FFI plugin. No Java/Kotlin code; this module only ships the
+// prebuilt libqvp_ffi.so per ABI (src/main/jniLibs/<abi>/libqvp_ffi.so) so
+// the engine ends up inside the AAR / APK and dart:ffi can dlopen it.
+//
+// The .so files are produced from the repo root with
+//   cargo ndk -t arm64-v8a -t x86_64 -t armeabi-v7a -o dist/android/jniLibs build -p qvp-ffi --release
+// and copied into src/main/jniLibs.
+
+group = "ws.quran.qvp_flutter"
+version = "0.7.0"
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:9.1.0")
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace = "ws.quran.qvp_flutter"
+    compileSdk = 35
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        minSdk = 24
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["src/main/jniLibs"]
+        }
+    }
+}

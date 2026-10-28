@@ -1,0 +1,42 @@
+name: qvp_flutter
+description: "Flutter wrapper for the QVP vector mushaf engine (dart:ffi over libqvp_ffi)."
+version: 0.7.0
+homepage: https://quran.ws/blocks/quran-engine
+repository: https://github.com/quran-ws/quran-engine/tree/main/packages/flutter/qvp_flutter
+issue_tracker: https://github.com/quran-ws/quran-engine/issues
+
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  ffi: ^2.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
+      web:
+        pluginClass: QvpFlutterWeb
+        fileName: src/web/qvp_flutter_web.dart
+  assets:
+    - assets/wasm/qvp_ffi.wasm
+    - assets/js/qvp.js
