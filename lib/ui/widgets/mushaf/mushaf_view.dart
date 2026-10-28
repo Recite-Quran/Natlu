@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
 
@@ -26,6 +27,111 @@ class MushafScrollBehavior extends MaterialScrollBehavior {
       };
 }
 
+
+/// Exact replica of PatchedPreloadPageView from quran_library (alquranalkareem).
+/// Uses Viewport with CacheExtentStyle.viewport to ensure 2 pages ahead and behind are always
+/// fully mounted and rasterized in GPU layers before any swipe gesture begins.
+class PatchedPreloadPageView extends StatefulWidget {
+  PatchedPreloadPageView.builder({
+    super.key,
+    this.scrollDirection = Axis.horizontal,
+    this.reverse = false,
+    required this.controller,
+    this.physics,
+    this.pageSnapping = true,
+    this.onPageChanged,
+    required IndexedWidgetBuilder itemBuilder,
+    int? itemCount,
+    this.preloadPagesCount = 2,
+    this.padEnds = false,
+  }) : childrenDelegate =
+            SliverChildBuilderDelegate(itemBuilder, childCount: itemCount);
+
+  final Axis scrollDirection;
+  final bool reverse;
+  final PageController controller;
+  final ScrollPhysics? physics;
+  final bool pageSnapping;
+  final ValueChanged<int>? onPageChanged;
+  final SliverChildDelegate childrenDelegate;
+  final int preloadPagesCount;
+  final bool padEnds;
+
+  @override
+  State<PatchedPreloadPageView> createState() => _PatchedPreloadPageViewState();
+}
+
+class _PatchedPreloadPageViewState extends State<PatchedPreloadPageView> {
+  int _lastReportedPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastReportedPage = widget.controller.initialPage;
+  }
+
+  AxisDirection _getDirection(BuildContext context) {
+    switch (widget.scrollDirection) {
+      case Axis.horizontal:
+        assert(debugCheckHasDirectionality(context));
+        final TextDirection textDirection = Directionality.of(context);
+        final AxisDirection axisDirection =
+            textDirectionToAxisDirection(textDirection);
+        return widget.reverse
+            ? flipAxisDirection(axisDirection)
+            : axisDirection;
+      case Axis.vertical:
+        return widget.reverse ? AxisDirection.up : AxisDirection.down;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AxisDirection axisDirection = _getDirection(context);
+    final ScrollPhysics? physics = widget.pageSnapping
+        ? const PageScrollPhysics().applyTo(widget.physics)
+        : widget.physics;
+
+    final int preload = widget.preloadPagesCount;
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification notification) {
+        if (notification.depth == 0 &&
+            widget.onPageChanged != null &&
+            notification is ScrollUpdateNotification) {
+          final int currentPage =
+              widget.controller.page?.round() ?? _lastReportedPage;
+          if (currentPage != _lastReportedPage) {
+            _lastReportedPage = currentPage;
+            widget.onPageChanged!(currentPage);
+          }
+        }
+        return false;
+      },
+      child: Scrollable(
+        axisDirection: axisDirection,
+        controller: widget.controller,
+        physics: physics,
+        viewportBuilder: (BuildContext context, ViewportOffset position) {
+          return Viewport(
+            scrollCacheExtent: ScrollCacheExtent.viewport(
+              preload < 1 ? 0.0 : preload.toDouble(),
+            ),
+            axisDirection: axisDirection,
+            offset: position,
+            slivers: <Widget>[
+              SliverFillViewport(
+                viewportFraction: widget.controller.viewportFraction,
+                padEnds: widget.padEnds,
+                delegate: widget.childrenDelegate,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
 
 /// High-performance Mushaf View layout backed by qvp_flutter.
 class MushafView extends StatefulWidget {
@@ -87,6 +193,7 @@ class _MushafViewState extends State<MushafView> {
   Timer? _savePositionDebounce;
   int? _lastAutoAdvancedFromPage;
   bool _isAutoAdvancingPage = false;
+
   KeyEventResult _controlRLByKeyboard(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (!_pageController.hasClients) return KeyEventResult.ignored;
@@ -307,7 +414,7 @@ class _MushafViewState extends State<MushafView> {
     } catch (e) {
       debugPrint('Error advancing page on last word: $e');
     } finally {
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 300));
       _isAutoAdvancingPage = false;
     }
   }
@@ -396,7 +503,7 @@ class _MushafViewState extends State<MushafView> {
       } else {
         _pageController.animateToPage(
           clamped - 1,
-          duration: const Duration(milliseconds: 600),
+          duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
         );
       }
@@ -456,18 +563,16 @@ class _MushafViewState extends State<MushafView> {
 
             return Stack(
               children: [
-                AnimatedPadding(
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeOutCubic,
+                Padding(
                   padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
                   child: ScrollConfiguration(
                     behavior: const MushafScrollBehavior(),
-                    child: PageView.builder(
+                    child: PatchedPreloadPageView.builder(
                       key: const ValueKey('mushaf_single_page_view'),
                       controller: _pageController,
                       itemCount: 604,
                       padEnds: false,
-                      allowImplicitScrolling: true,
+                      preloadPagesCount: 2,
                       physics: physics,
                       onPageChanged: (index) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {

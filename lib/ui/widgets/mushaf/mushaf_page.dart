@@ -118,7 +118,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _attachListeners() {
     final app = AppState.instance;
-    app.addListener(_syncVisuals);
     app.currentMushafPage.addListener(_syncVisuals);
     app.activeAudioWordIndex.addListener(_syncVisuals);
     app.activeAudioAyah.addListener(_syncVisuals);
@@ -132,7 +131,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _detachListeners() {
     final app = AppState.instance;
-    app.removeListener(_syncVisuals);
     app.currentMushafPage.removeListener(_syncVisuals);
     app.activeAudioWordIndex.removeListener(_syncVisuals);
     app.activeAudioAyah.removeListener(_syncVisuals);
