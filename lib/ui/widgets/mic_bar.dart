@@ -2,25 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../state/app_state.dart';
 
-/// 2026 Unified Glassmorphic Floating Command Dock (Dynamic Floating Island)
+/// 2026 Unified Glassmorphic Floating Command Dock
 ///
-/// Design Architecture:
-/// - Single unified frosted capsule dock with 20px backdrop blur (ImageFilter).
-/// - Prominent Hero Recite action centerpiece with stacked icon + micro-label ("اتلو" / "قف"),
-///   vibrant emerald-to-teal / ruby gradient, ambient bloom glow, and animated audio equalizer.
-/// - Symmetrical, clean iconographic secondary toggles for Tajweed and Hide (Hifz memorization),
-///   featuring dynamic state icons (e.g. visibility / visibility_off), micro-labels,
-///   luminous active state indicator pips, and tactile spring feedback.
-/// - Adaptive light (warm linen velvet) and dark (OLED obsidian glass) palettes.
-class BottomActionBar extends StatefulWidget {
+/// Responsive single-toolbar design (Right-to-Left):
+/// [Record (Tarteel-AI Squircle)] -> [Hide Verses] -> [Tajweed] -> [Auto Search] -> [Surah Selector] -> [Settings]
+class BottomActionBar extends StatelessWidget {
   final bool isRecording;
   final bool isLoadingEngine;
   final ThemeColors c;
   final VoidCallback onMic;
-  final bool isTajweed;
-  final VoidCallback onToggleTajweed;
   final bool isBlur;
   final VoidCallback onToggleBlur;
+  final bool isTajweed;
+  final VoidCallback onToggleTajweed;
+  final String surahName;
+  final VoidCallback onSurahTap;
+  final bool isVoiceSearching;
+  final VoidCallback onVoiceSearchToggle;
+  final VoidCallback onSettingsTap;
 
   const BottomActionBar({
     super.key,
@@ -28,173 +27,132 @@ class BottomActionBar extends StatefulWidget {
     this.isLoadingEngine = false,
     required this.c,
     required this.onMic,
-    required this.isTajweed,
-    required this.onToggleTajweed,
     required this.isBlur,
     required this.onToggleBlur,
+    required this.isTajweed,
+    required this.onToggleTajweed,
+    required this.surahName,
+    required this.onSurahTap,
+    required this.isVoiceSearching,
+    required this.onVoiceSearchToggle,
+    required this.onSettingsTap,
   });
 
   @override
-  State<BottomActionBar> createState() => _BottomActionBarState();
-}
-
-class _BottomActionBarState extends State<BottomActionBar>
-    with TickerProviderStateMixin {
-  AnimationController? _tajweedController;
-  Animation<double>? _tajweedAnim;
-
-  void _ensureAnimation() {
-    final bool tajweedVisible = !widget.isRecording;
-
-    _tajweedController ??= AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 320),
-      value: tajweedVisible ? 1.0 : 0.0,
-    );
-    _tajweedAnim ??= CurvedAnimation(
-      parent: _tajweedController!,
-      curve: Curves.easeInOutCubic,
-      reverseCurve: Curves.easeInOutCubic,
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _ensureAnimation();
-  }
-
-  @override
-  void reassemble() {
-    super.reassemble();
-    _ensureAnimation();
-  }
-
-  @override
-  void didUpdateWidget(covariant BottomActionBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _ensureAnimation();
-
-    final bool oldTajweedVisible = !oldWidget.isRecording;
-    final bool newTajweedVisible = !widget.isRecording;
-    if (oldTajweedVisible != newTajweedVisible) {
-      if (newTajweedVisible) {
-        _tajweedController?.forward();
-      } else {
-        _tajweedController?.reverse();
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _tajweedController?.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    _ensureAnimation();
-    final tajweedAnim = _tajweedAnim!;
-    final c = widget.c;
     final app = AppState.instance;
-    final isAr = app.isArabic;
-    final isDark = app.isDarkMode;
+    final bool isDark = app.isDarkMode;
+    final bool isAr = app.isArabic;
 
-    // ── Unified Floating Island Dock ──
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.only(bottom: 16, left: 16, right: 16),
+        padding: const EdgeInsets.only(bottom: 14.0, left: 12.0, right: 12.0),
         child: Center(
           child: Container(
+            constraints: const BoxConstraints(maxWidth: 520.0),
             height: 56.0,
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+            padding: const EdgeInsets.symmetric(horizontal: 7.0, vertical: 5.0),
             decoration: BoxDecoration(
               color: isDark ? c.surfaceHigh : c.surface,
               borderRadius: BorderRadius.circular(20.0),
               border: Border.all(
                 color: isDark
-                    ? Colors.white.withValues(alpha: 0.16)
+                    ? Colors.white.withValues(alpha: 0.15)
                     : Colors.black.withValues(alpha: 0.12),
                 width: 0.9,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
+                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.07),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
               ],
             ),
-            child: Directionality(
-              textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // ── Subordinate Satellite 1: Tajweed Toggle (Collapsible on recording) ──
-                  SizeTransition(
-                    axis: Axis.horizontal,
-                    alignment: Alignment.center,
-                    sizeFactor: tajweedAnim,
-                    child: FadeTransition(
-                      opacity: tajweedAnim,
-                      child: ScaleTransition(
-                        scale: tajweedAnim,
-                        child: IgnorePointer(
-                          ignoring: widget.isRecording,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildSecondaryToggle(
-                                icon: widget.isTajweed
-                                    ? Icons.record_voice_over_rounded
-                                    : Icons.record_voice_over_outlined,
-                                tooltip: isAr
-                                    ? 'أحكام التجويد ومخارج الحروف'
-                                    : 'Tajweed & Pronunciation Rules',
-                                isActive: widget.isTajweed,
-                                c: c,
-                                isDark: isDark,
-                                isRecording: widget.isRecording,
-                                onTap: () {
-                                  HapticFeedback.lightImpact();
-                                  widget.onToggleTajweed();
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                          ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final bool isNarrow = constraints.maxWidth < 345.0;
+                final double btnSize = isNarrow ? 32.0 : 36.0;
+                final double iconSize = isNarrow ? 16.0 : 18.0;
+                final double gap = isNarrow ? 3.0 : 5.0;
+
+                return Directionality(
+                  // Enforce RTL: Record on the right, Settings on the left
+                  textDirection: TextDirection.rtl,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // 1. Squared rounded Tarteel AI like Record Button (Rightmost)
+                      _buildTarteelRecordButton(isDark, isNarrow),
+                      SizedBox(width: gap),
+
+                      // 2. Hide Verses Button
+                      _buildDockButton(
+                        icon: isBlur
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        tooltip: isAr
+                            ? 'إخفاء الآيات للتسميع'
+                            : 'Hide Verses for Memorization',
+                        isActive: isBlur,
+                        isDark: isDark,
+                        size: btnSize,
+                        iconSize: iconSize,
+                        onTap: onToggleBlur,
+                      ),
+                      SizedBox(width: gap),
+
+                      // 3. Tajweed Button
+                      _buildDockButton(
+                        icon: isTajweed
+                            ? Icons.record_voice_over_rounded
+                            : Icons.record_voice_over_outlined,
+                        tooltip: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
+                        isActive: isTajweed,
+                        isDark: isDark,
+                        size: btnSize,
+                        iconSize: iconSize,
+                        onTap: onToggleTajweed,
+                      ),
+                      SizedBox(width: gap),
+
+                      // 4. Auto Search Button (Voice Search - beside Tajweed at its left)
+                      _buildDockButton(
+                        icon: Icons.graphic_eq_rounded,
+                        tooltip: isAr ? 'بحث صوتي' : 'Voice Search',
+                        isActive: isVoiceSearching,
+                        isDark: isDark,
+                        size: btnSize,
+                        iconSize: iconSize,
+                        onTap: onVoiceSearchToggle,
+                      ),
+                      SizedBox(width: gap),
+
+                      // 5. Surah Selector Button (Expanded Center Pill)
+                      Expanded(
+                        child: _buildSurahSelector(
+                          isDark,
+                          isAr,
+                          isNarrow,
                         ),
                       ),
-                    ),
-                  ),
+                      SizedBox(width: gap),
 
-                  // ── Dominant Hero Centerpiece: Recite / Stop / Pause ──
-                  _buildHeroReciteButton(c, app, isDark, isAr),
-
-                  // ── Subordinate Satellite 2: Hide Verses Toggle ──
-                  const SizedBox(width: 8),
-                  _buildSecondaryToggle(
-                    icon: widget.isBlur
-                        ? Icons.visibility_off_rounded
-                        : Icons.visibility_rounded,
-                    tooltip: isAr
-                        ? 'إخفاء الآيات للتسميع'
-                        : 'Hide Verses for Memorization',
-                    isActive: widget.isBlur,
-                    c: c,
-                    isDark: isDark,
-                    isRecording: widget.isRecording,
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      widget.onToggleBlur();
-                    },
+                      // 6. Settings Button (Leftmost)
+                      _buildDockButton(
+                        icon: Icons.settings_rounded,
+                        tooltip: isAr ? 'الإعدادات' : 'Settings',
+                        isActive: false,
+                        isDark: isDark,
+                        size: btnSize,
+                        iconSize: iconSize,
+                        onTap: onSettingsTap,
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ),
@@ -202,180 +160,204 @@ class _BottomActionBarState extends State<BottomActionBar>
     );
   }
 
-  /// Compact Eye-Comfortable Secondary Utility Toggle Button:
-  /// - Minimalist 34x34dp circular/squircle satellite footprint.
-  /// - Refined 18dp icon with zero text clutter.
-  /// - Soft illuminated tint & border when active.
-  Widget _buildSecondaryToggle({
-    required IconData icon,
-    required String tooltip,
-    required bool isActive,
-    required ThemeColors c,
-    required bool isDark,
-    required bool isRecording,
-    required VoidCallback onTap,
-  }) {
-    final double size = isRecording ? 28.0 : 34.0;
-    final double iconSize = isRecording ? 15.0 : 18.0;
-    const double opacity = 1.0;
-    final Color activeColor = c.primary;
-    final Color contentColor = isActive
-        ? activeColor
-        : (isDark ? c.text.withValues(alpha: 0.60) : c.text.withValues(alpha: 0.65));
-
-    return Tooltip(
-      message: tooltip,
-      waitDuration: const Duration(milliseconds: 500),
-      child: _TactileScaleButton(
-        onTap: onTap,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          opacity: opacity,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: isActive
-                  ? activeColor.withValues(alpha: isDark ? 0.22 : 0.12)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(isRecording ? 9 : 11),
-              border: Border.all(
-                color: isActive
-                    ? activeColor.withValues(alpha: isDark ? 0.45 : 0.35)
-                    : Colors.transparent,
-                width: 0.75,
-              ),
-            ),
-            alignment: Alignment.center,
-            child: Icon(
-              icon,
-              color: contentColor,
-              size: iconSize,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// 2026 Hero Recite / Stop Action Centerpiece:
-  /// - Streamlined 86x46dp capsule with vibrant gradients and ambient bloom.
-  /// - Idle: Glowing mic + "اتلو" / "Recite".
-  /// - Recording: ONLY dancing audio wave + "قف" / "Stop" (no square icon).
-  /// - Auto-scroll: Pause icon + "إيقاف" / "Pause".
-  Widget _buildHeroReciteButton(
-    ThemeColors c,
-    AppState app,
-    bool isDark,
-    bool isAr,
-  ) {
-    final bool isRec = widget.isRecording;
-
-    final Color gradientStart;
-    final Color gradientEnd;
-    final String label;
-    final IconData icon;
-    final VoidCallback onTap;
-
-    if (isRec) {
-      gradientStart = isDark
-          ? const Color(0xFFF43F5E) // Dark mode: Soft Ruby Rose (zero halation)
-          : const Color(0xFFE11D48); // White mode: Persian Rose Carmine
-      gradientEnd = isDark
-          ? const Color(0xFFE11D48)
-          : const Color(0xFFBE123C);
-      label = isAr ? 'قف' : 'Stop';
-      icon = Icons.stop_rounded;
-      onTap = widget.onMic;
-    } else {
-      gradientStart = isDark
-          ? const Color(0xFF10B981) // Dark mode: Luminous Aurora Emerald
-          : const Color(0xFF047857); // White mode: Deep Royal Forest Emerald
-      gradientEnd = isDark
-          ? const Color(0xFF059669) // Dark mode: Calm Jade Mint
-          : const Color(0xFF065F46); // White mode: Deep Pine Jade
-      label = isAr ? 'اتلو' : 'Recite';
-      icon = Icons.mic_rounded;
-      onTap = widget.onMic;
-    }
+  /// Squared rounded Tarteel AI like Record Button:
+  /// - Squircle shape with vibrant Emerald (idle) or Ruby (recording) gradient
+  /// - Integrated animated soundwave / stop equalizer while recording
+  Widget _buildTarteelRecordButton(bool isDark, bool isNarrow) {
+    final double size = isNarrow ? 40.0 : 44.0;
+    final List<Color> colors = isRecording
+        ? (isDark
+            ? const [Color(0xFFF43F5E), Color(0xFFE11D48)]
+            : const [Color(0xFFE11D48), Color(0xFFBE123C)])
+        : (isDark
+            ? const [Color(0xFF10B981), Color(0xFF059669)]
+            : const [Color(0xFF059669), Color(0xFF047857)]);
 
     return _TactileScaleButton(
       onTap: () {
         HapticFeedback.heavyImpact();
-        onTap();
+        onMic();
       },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        width: 86,
-        height: 46,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [gradientStart, gradientEnd],
+            colors: colors,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(isNarrow ? 12.0 : 14.0),
           border: Border.all(
-            color: Colors.white.withValues(alpha: isDark ? 0.24 : 0.40),
+            color: Colors.white.withValues(alpha: isDark ? 0.28 : 0.40),
             width: 0.9,
           ),
           boxShadow: [
             BoxShadow(
-              color: isDark
-                  ? Colors.black.withValues(alpha: 0.35)
-                  : gradientStart.withValues(alpha: 0.22),
-              blurRadius: 6,
+              color: colors.first.withValues(alpha: isDark ? 0.35 : 0.25),
+              blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Top: Fixed 18dp slot so button and label stay 100% rock-solid and static!
-            SizedBox(
-              height: 18,
-              child: Center(
-                child: isRec
-                    ? const _AnimatedAudioWaveform(color: Colors.white)
-                    : (widget.isLoadingEngine
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.0,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : Icon(
-                            icon,
-                            color: Colors.white,
-                            size: 20,
-                          )),
-              ),
+        alignment: Alignment.center,
+        child: isLoadingEngine
+            ? const SizedBox(
+                width: 17,
+                height: 17,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : (isRecording
+                ? const _AnimatedAudioWaveform(color: Colors.white)
+                : Icon(
+                    Icons.mic_rounded,
+                    color: Colors.white,
+                    size: isNarrow ? 20.0 : 22.0,
+                  )),
+      ),
+    );
+  }
+
+  /// Standardized satellite button for Hide, Tajweed, Auto-Search, and Settings.
+  Widget _buildDockButton({
+    required IconData icon,
+    required String tooltip,
+    required bool isActive,
+    required bool isDark,
+    required double size,
+    required double iconSize,
+    required VoidCallback onTap,
+  }) {
+    final Color activeColor = c.primary;
+    final Color iconColor = isActive
+        ? activeColor
+        : (isDark
+            ? c.text.withValues(alpha: 0.65)
+            : c.text.withValues(alpha: 0.70));
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 400),
+      child: _TactileScaleButton(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: isActive
+                ? activeColor.withValues(alpha: isDark ? 0.22 : 0.12)
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.black.withValues(alpha: 0.03)),
+            borderRadius: BorderRadius.circular(isDark ? 10.0 : 11.0),
+            border: Border.all(
+              color: isActive
+                  ? activeColor.withValues(alpha: isDark ? 0.50 : 0.38)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.black.withValues(alpha: 0.05)),
+              width: 0.8,
             ),
-            const SizedBox(height: 2),
-            // Bottom: Crisp Micro-Label (completely stationary)
-            Text(
-              label,
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: null,
-                color: Colors.white,
-                fontSize: isAr ? 12.0 : 10.5,
-                fontWeight: FontWeight.w700,
-                letterSpacing: isAr ? 0.0 : 0.3,
-                height: isAr ? 1.2 : 1.1,
-              ),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: activeColor.withValues(alpha: isDark ? 0.28 : 0.15),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            icon,
+            color: iconColor,
+            size: iconSize,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Surah Selector Capsule placed in the middle.
+  Widget _buildSurahSelector(
+    bool isDark,
+    bool isAr,
+    bool isNarrow,
+  ) {
+    return Tooltip(
+      message: isAr ? 'اختيار السورة' : 'Select Surah',
+      waitDuration: const Duration(milliseconds: 400),
+      child: _TactileScaleButton(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onSurahTap();
+        },
+        child: Container(
+          height: isNarrow ? 34.0 : 38.0,
+          padding: EdgeInsets.symmetric(horizontal: isNarrow ? 5.0 : 7.0),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.06)
+                : c.surfaceHigh.withValues(alpha: 0.90),
+            borderRadius: BorderRadius.circular(11.0),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : c.border.withValues(alpha: 0.55),
+              width: 0.8,
             ),
-          ],
+          ),
+          child: Row(
+            children: [
+              // Mini Quran Icon Badge
+              Container(
+                width: isNarrow ? 20.0 : 23.0,
+                height: isNarrow ? 20.0 : 23.0,
+                decoration: BoxDecoration(
+                  color: c.primary.withValues(alpha: isDark ? 0.18 : 0.10),
+                  borderRadius: BorderRadius.circular(7.0),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.menu_book_rounded,
+                  color: c.primary,
+                  size: isNarrow ? 11.0 : 13.0,
+                ),
+              ),
+              SizedBox(width: isNarrow ? 4.0 : 6.0),
+              // Surah Name
+              Expanded(
+                child: Text(
+                  surahName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: c.text,
+                    fontSize: isNarrow ? 12.0 : (isAr ? 14.0 : 12.5),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              SizedBox(width: isNarrow ? 2.0 : 4.0),
+              Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: c.textSecondary.withValues(alpha: 0.65),
+                size: isNarrow ? 14.0 : 16.0,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -414,7 +396,7 @@ class _AnimatedAudioWaveformState extends State<_AnimatedAudioWaveform>
   Widget build(BuildContext context) {
     return RepaintBoundary(
       child: SizedBox(
-        width: 24,
+        width: 22,
         height: 18,
         child: AnimatedBuilder(
           animation: _ctrl,
@@ -453,8 +435,8 @@ class _WaveformBarsPainter extends CustomPainter {
       (4.0 + 5.5 * (1.0 - v)).clamp(3.0, 13.0),
     ];
 
-    const double barWidth = 2.2;
-    const double spacing = 2.2;
+    const double barWidth = 2.0;
+    const double spacing = 2.0;
     const double totalWidth = (5 * barWidth) + (4 * spacing);
     double startX = (size.width - totalWidth) / 2;
     final double centerY = size.height / 2;
@@ -473,11 +455,12 @@ class _WaveformBarsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _WaveformBarsPainter oldDelegate) {
-    return oldDelegate.animationValue != animationValue || oldDelegate.color != color;
+    return oldDelegate.animationValue != animationValue ||
+        oldDelegate.color != color;
   }
 }
 
-/// 2026 Spring-scale tactile feedback button wrapper.
+/// Spring-scale tactile feedback button wrapper.
 class _TactileScaleButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
@@ -499,8 +482,8 @@ class _TactileScaleButtonState extends State<_TactileScaleButton> {
       onTap: widget.onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedScale(
-        scale: _isDown ? 0.93 : 1.0,
-        duration: const Duration(milliseconds: 110),
+        scale: _isDown ? 0.92 : 1.0,
+        duration: const Duration(milliseconds: 100),
         curve: _isDown ? Curves.easeOutQuad : Curves.easeOutCubic,
         child: widget.child,
       ),

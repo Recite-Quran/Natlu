@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
@@ -27,53 +26,6 @@ class MushafScrollBehavior extends MaterialScrollBehavior {
       };
 }
 
-/// Ultra-fluid page scroll physics with lower drag threshold (15% vs default 50%)
-/// and smooth ballistic spring simulation, making page turns light and effortless on desktop and touch.
-class MushafPageScrollPhysics extends PageScrollPhysics {
-  const MushafPageScrollPhysics({super.parent = const BouncingScrollPhysics()});
-
-  @override
-  MushafPageScrollPhysics applyTo(ScrollPhysics? ancestor) {
-    return MushafPageScrollPhysics(parent: buildParent(ancestor));
-  }
-
-  @override
-  SpringDescription get spring => const SpringDescription(
-        mass: 50,
-        stiffness: 140,
-        damping: 1.1,
-      );
-
-  @override
-  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
-    if ((velocity <= 0.0 && position.pixels <= position.minScrollExtent) ||
-        (velocity >= 0.0 && position.pixels >= position.maxScrollExtent)) {
-      return super.createBallisticSimulation(position, velocity);
-    }
-    final Tolerance tolerance = toleranceFor(position);
-    final double page = position.pixels / position.viewportDimension;
-    double targetPage;
-
-    if (velocity.abs() > tolerance.velocity) {
-      targetPage = velocity > 0 ? (page + 0.5).roundToDouble() : (page - 0.5).roundToDouble();
-    } else {
-      // In low-velocity drag (e.g. mouse release or gentle touch flick):
-      // A small drag (> 15% of page width) is enough to turn the page smoothly!
-      final double fraction = page - page.floorToDouble();
-      if (fraction > 0.15) {
-        targetPage = page.ceilToDouble();
-      } else {
-        targetPage = page.floorToDouble();
-      }
-    }
-
-    final double targetPixels = targetPage * position.viewportDimension;
-    if (targetPixels != position.pixels) {
-      return ScrollSpringSimulation(spring, position.pixels, targetPixels, velocity, tolerance: tolerance);
-    }
-    return null;
-  }
-}
 
 /// High-performance Mushaf View layout backed by qvp_flutter.
 class MushafView extends StatefulWidget {
@@ -135,22 +87,18 @@ class _MushafViewState extends State<MushafView> {
   Timer? _savePositionDebounce;
   int? _lastAutoAdvancedFromPage;
   bool _isAutoAdvancingPage = false;
-  DateTime _lastWheelTime = DateTime.fromMillisecondsSinceEpoch(0);
+  KeyEventResult _controlRLByKeyboard(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (!_pageController.hasClients) return KeyEventResult.ignored;
 
-  void _onPointerSignal(PointerSignalEvent event) {
-    if (event is PointerScrollEvent) {
-      final now = DateTime.now();
-      if (now.difference(_lastWheelTime).inMilliseconds < 220) return;
-      final delta = event.scrollDelta.dy != 0 ? event.scrollDelta.dy : event.scrollDelta.dx;
-      if (delta.abs() > 10) {
-        _lastWheelTime = now;
-        if (delta > 0) {
-          _nextPage();
-        } else {
-          _prevPage();
-        }
-      }
+    if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      _nextPage();
+      return KeyEventResult.handled;
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      _prevPage();
+      return KeyEventResult.handled;
     }
+    return KeyEventResult.ignored;
   }
 
   @override
@@ -448,8 +396,8 @@ class _MushafViewState extends State<MushafView> {
       } else {
         _pageController.animateToPage(
           clamped - 1,
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
         );
       }
     }
@@ -485,29 +433,19 @@ class _MushafViewState extends State<MushafView> {
     final media = MediaQuery.of(context);
     final safeTop = math.max(media.padding.top, media.viewPadding.top);
     final safeBottom = math.max(media.padding.bottom, media.viewPadding.bottom);
-    final bool isFullscreenMode = widget.isRecording;
-
-    final double topPadding = isFullscreenMode ? (safeTop + 20.0) : (safeTop + 74.0);
+    final double topPadding = safeTop + 14.0;
     final double bottomPadding = safeBottom + 78.0;
 
-    const ScrollPhysics physics = MushafPageScrollPhysics();
+    const ScrollPhysics physics = ClampingScrollPhysics();
 
-    final double pageLabelBottom = safeBottom + (isFullscreenMode ? 14.0 : 18.0);
+    final double pageLabelBottom = safeBottom + 78.0;
 
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: KeyboardListener(
+      child: Focus(
         focusNode: _focusNode,
         autofocus: true,
-        onKeyEvent: (event) {
-          if (event is KeyDownEvent) {
-            if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-              _nextPage();
-            } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-              _prevPage();
-            }
-          }
-        },
+        onKeyEvent: _controlRLByKeyboard,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final viewportSize = Size(
@@ -522,25 +460,26 @@ class _MushafViewState extends State<MushafView> {
                   duration: const Duration(milliseconds: 280),
                   curve: Curves.easeOutCubic,
                   padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
-                  child: Listener(
-                    onPointerSignal: _onPointerSignal,
-                    child: ScrollConfiguration(
-                      behavior: const MushafScrollBehavior(),
-                      child: PageView.builder(
-                        key: const ValueKey('mushaf_single_page_view'),
-                        controller: _pageController,
-                        itemCount: 604,
-                        padEnds: false,
-                        allowImplicitScrolling: true,
-                        physics: physics,
-                        onPageChanged: (index) {
+                  child: ScrollConfiguration(
+                    behavior: const MushafScrollBehavior(),
+                    child: PageView.builder(
+                      key: const ValueKey('mushaf_single_page_view'),
+                      controller: _pageController,
+                      itemCount: 604,
+                      padEnds: false,
+                      allowImplicitScrolling: true,
+                      physics: physics,
+                      onPageChanged: (index) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
                           final newPage = index + 1;
                           if (_currentPage == newPage) return;
                           _currentPage = newPage;
                           AppState.instance.currentMushafPage.value = newPage;
                           _syncPageSelection(newPage);
                           MushafProvider.instance.preloadAdjacentPages(newPage, viewportSize);
-                        },
+                        });
+                      },
                       itemBuilder: (context, index) {
                         final pageNumber = index + 1;
                         return MushafPageWidget(
@@ -554,7 +493,6 @@ class _MushafViewState extends State<MushafView> {
                     ),
                   ),
                 ),
-              ),
                 if (widget.showBottomPageNumber)
                   Positioned(
                     left: 14.0,
