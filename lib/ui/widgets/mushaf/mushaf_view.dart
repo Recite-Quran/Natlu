@@ -482,12 +482,15 @@ class _MushafViewState extends State<MushafView> {
                       },
                       itemBuilder: (context, index) {
                         final pageNumber = index + 1;
-                        return MushafPageWidget(
-                          key: ValueKey('mushaf_page_$pageNumber'),
-                          pageNumber: pageNumber,
-                          controller: widget.controller,
-                          isRecording: widget.isRecording,
-                          onStateChangeRequested: () {},
+                        return RepaintBoundary(
+                          key: ValueKey('mushaf_page_boundary_$pageNumber'),
+                          child: MushafPageWidget(
+                            key: ValueKey('mushaf_page_$pageNumber'),
+                            pageNumber: pageNumber,
+                            controller: widget.controller,
+                            isRecording: widget.isRecording,
+                            onStateChangeRequested: () {},
+                          ),
                         );
                       },
                     ),

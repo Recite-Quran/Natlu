@@ -27,7 +27,11 @@ class MushafPageWidget extends StatefulWidget {
   State<MushafPageWidget> createState() => _MushafPageWidgetState();
 }
 
-class _MushafPageWidgetState extends State<MushafPageWidget> {
+class _MushafPageWidgetState extends State<MushafPageWidget>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   QvpPage? _page;
   bool _isLoading = true;
 
@@ -457,14 +461,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {
       if (!_isLoading) _loadPage();
-      return Center(
-        child: CircularProgressIndicator.adaptive(
-          valueColor: AlwaysStoppedAnimation<Color>(c.gold),
-        ),
+      return ColoredBox(
+        color: c.surface,
+        child: const SizedBox.expand(),
       );
     }
 

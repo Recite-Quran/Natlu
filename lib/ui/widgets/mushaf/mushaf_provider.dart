@@ -48,40 +48,41 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
-  static const int _maxCachedPages = 32;
-  Timer? _preloadTimer;
+  static const int _maxCachedPages = 64;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
-    _preloadTimer?.cancel();
-    _preloadTimer = Timer(const Duration(milliseconds: 200), () async {
-      final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
-          ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
-          : 1.0;
-      final inkColor = AppState.instance.colors.text;
-      const layout = QvpViewLayout(
-        padTop: 0,
-        padBottom: 0,
-        padSide: 4,
-        lineSpacing: 1.0,
-        fillHeight: true,
-        surahFrames: true,
-      );
+    if (size == null || size.width <= 0 || size.height <= 0) return;
+    unawaited(_doPreloadAdjacentPages(pageNumber, size));
+  }
 
-      for (final target in [pageNumber + 1, pageNumber - 1]) {
-        if (target >= 1 && target <= 604) {
-          final p = await getPage(target);
-          if (p != null && !p.isDisposed) {
-            if (p.currentLayout == null && size != null && size.width > 0 && size.height > 0) {
-              p.layout(layout.toSpec(size.width, size.height));
-            }
-            if (p.currentLayout != null) {
-              QvpPageView.prepare(p, scale: p.currentLayout!.scale, dpr: dpr, inkColor: inkColor);
-            }
+  Future<void> _doPreloadAdjacentPages(int pageNumber, Size size) async {
+    final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
+        ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
+        : 1.0;
+    final inkColor = AppState.instance.colors.text;
+    const layout = QvpViewLayout(
+      padTop: 0,
+      padBottom: 0,
+      padSide: 4,
+      lineSpacing: 1.0,
+      fillHeight: true,
+      surahFrames: true,
+    );
+
+    for (final target in [pageNumber + 1, pageNumber - 1, pageNumber + 2, pageNumber - 2]) {
+      if (target >= 1 && target <= 604) {
+        final p = await getPage(target);
+        if (p != null && !p.isDisposed) {
+          if (p.currentLayout == null) {
+            p.layout(layout.toSpec(size.width, size.height));
+          }
+          if (p.currentLayout != null) {
+            QvpPageView.prepare(p, scale: p.currentLayout!.scale, dpr: dpr, inkColor: inkColor);
           }
         }
       }
-    });
+    }
   }
 
   void preloadData({bool force = false}) {
