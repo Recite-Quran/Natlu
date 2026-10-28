@@ -477,17 +477,17 @@ class _MushafViewState extends State<MushafView> {
         ayah: target.$2,
       )) {
         _navigationTargetAyah = null;
-        AppState.instance.saveLastPosition(target.$1, target.$2);
+        _debouncedSavePosition(pageNum, target.$1, target.$2);
         return;
       }
     }
 
     final first = provider.getFirstAyahOnPage(pageNum);
-    if (first != null) {
-      _debouncedSavePosition(pageNum, first.$1, first.$2);
-    } else {
-      AppState.instance.saveMushafPage(pageNum);
-    }
+    _debouncedSavePosition(
+      pageNum,
+      first?.$1 ?? AppState.instance.lastSurah,
+      first?.$2 ?? AppState.instance.lastAyah,
+    );
   }
 
   void _goToPage(int page) {

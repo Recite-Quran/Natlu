@@ -70,17 +70,27 @@ class MushafProvider {
       surahFrames: true,
     );
 
-    for (final target in [pageNumber + 1, pageNumber - 1, pageNumber + 2, pageNumber - 2]) {
-      if (target >= 1 && target <= 604) {
-        final p = await getPage(target);
-        if (p != null && !p.isDisposed) {
-          if (p.currentLayout == null) {
-            p.layout(layout.toSpec(size.width, size.height));
-          }
-          if (p.currentLayout != null) {
-            QvpPageView.prepare(p, scale: p.currentLayout!.scale, dpr: dpr, inkColor: inkColor);
-          }
-        }
+    await Future.wait([
+      for (final target in [pageNumber + 1, pageNumber - 1, pageNumber + 2, pageNumber - 2])
+        if (target >= 1 && target <= 604)
+          _preloadSinglePage(target, size, dpr, inkColor, layout),
+    ]);
+  }
+
+  Future<void> _preloadSinglePage(
+    int target,
+    Size size,
+    double dpr,
+    Color inkColor,
+    QvpViewLayout layout,
+  ) async {
+    final p = await getPage(target);
+    if (p != null && !p.isDisposed) {
+      if (p.currentLayout == null) {
+        p.layout(layout.toSpec(size.width, size.height));
+      }
+      if (p.currentLayout != null) {
+        QvpPageView.prepare(p, scale: p.currentLayout!.scale, dpr: dpr, inkColor: inkColor);
       }
     }
   }
