@@ -312,7 +312,10 @@ class QvpPageViewState extends State<QvpPageView> with SingleTickerProviderState
   void _ensureTicking() {
     if (!_ticker.isActive && mounted && !page.isDisposed) {
       final more = page.tick(nowMs);
-      if (more) _ticker.start();
+      if (more) {
+        _cache._bands = null;
+        _ticker.start();
+      }
     }
   }
 
@@ -324,6 +327,7 @@ class QvpPageViewState extends State<QvpPageView> with SingleTickerProviderState
       return;
     }
     final more = page.tick(nowMs);
+    _cache._bands = null;
     _frame.value++;
     if (!more) _ticker.stop();
   }

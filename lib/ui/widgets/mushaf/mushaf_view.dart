@@ -540,12 +540,31 @@ class _MushafViewState extends State<MushafView> {
     final media = MediaQuery.of(context);
     final safeTop = math.max(media.padding.top, media.viewPadding.top);
     final safeBottom = math.max(media.padding.bottom, media.viewPadding.bottom);
-    final double topPadding = safeTop + 14.0;
-    final double bottomPadding = safeBottom + 78.0;
+    final safeLeft = math.max(media.padding.left, media.viewPadding.left);
+
+    // Stretch to the top: on notch/cutout devices, safeTop protects the notch/status bar.
+    // Adding a tight 4.0dp buffer (or 8.0dp when safeTop == 0 on desktop/immersive) prevents
+    // collision while maximizing vertical screen space.
+    final double topPadding = safeTop > 0 ? safeTop + 4.0 : 8.0;
+
+    // Bottom command dock is at safeBottom + 14.0 (margin) + 56.0 (height) = safeBottom + 70.0.
+    // When idle: page number sits snugly 1.5dp above the dock at the bottom-left (safeBottom + 71.5).
+    // When recording: toolbar collapses to the center, so page number drops down to be
+    // vertically centered with the 56dp bottom bar at the left:
+    // safeBottom + 14.0 + (56.0 - 10.5) / 2 = safeBottom + 36.75 ~ safeBottom + 36.5.
+    final double pageLabelBottom = widget.isRecording
+        ? (safeBottom + 36.5)
+        : (safeBottom + 71.5);
+
+    // Constrain the mushaf content:
+    // When idle: stops just above the page number (safeBottom + 84.5).
+    // When recording: page number drops down to the bottom bar row, allowing the ayahs to
+    // stretch down right to the top of the collapsed dock (safeBottom + 71.0).
+    final double bottomPadding = widget.isRecording
+        ? (safeBottom + 71.0)
+        : (safeBottom + 84.5);
 
     const ScrollPhysics physics = ClampingScrollPhysics();
-
-    final double pageLabelBottom = safeBottom + 78.0;
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -563,7 +582,9 @@ class _MushafViewState extends State<MushafView> {
 
             return Stack(
               children: [
-                Padding(
+                AnimatedPadding(
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeInOutCubic,
                   padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
                   child: ScrollConfiguration(
                     behavior: const MushafScrollBehavior(),
@@ -602,8 +623,10 @@ class _MushafViewState extends State<MushafView> {
                   ),
                 ),
                 if (widget.showBottomPageNumber)
-                  Positioned(
-                    left: 14.0,
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeInOutCubic,
+                    left: safeLeft + 16.0,
                     bottom: pageLabelBottom,
                     child: ValueListenableBuilder<int>(
                       valueListenable: AppState.instance.currentMushafPage,
@@ -615,7 +638,7 @@ class _MushafViewState extends State<MushafView> {
                           textScaler: TextScaler.noScaling,
                           style: TextStyle(
                             fontFamily: 'cairo',
-                            fontSize: 11.0,
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w600,
                             color: c.textSecondary,
                             height: 1.0,

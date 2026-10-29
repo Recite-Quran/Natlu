@@ -44,6 +44,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   (int, int)? _lastActiveAyah;
   int? _lastActiveWord;
+  bool? _lastIsDark;
   List<int> _lastGreenWords = const [];
   List<int> _lastYellowWords = const [];
   List<int> _lastRedWords = const [];
@@ -83,6 +84,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     if (oldWidget.pageNumber != widget.pageNumber || _page == null || _page!.isDisposed) {
       _lastActiveAyah = null;
       _lastActiveWord = null;
+      _lastIsDark = null;
       _lastGreenWords = const [];
       _lastYellowWords = const [];
       _lastRedWords = const [];
@@ -124,6 +126,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     app.activeAudioSurah.addListener(_syncVisuals);
     app.isAudioPlaying.addListener(_syncVisuals);
     app.blurModeNotifier.addListener(_syncVisuals);
+    app.themeNotifier.addListener(_syncVisuals);
     widget.controller.addListener(_syncVisuals);
     widget.controller.activeAyah.addListener(_syncVisuals);
     widget.controller.globalRevision.addListener(_syncVisuals);
@@ -137,6 +140,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     app.activeAudioSurah.removeListener(_syncVisuals);
     app.isAudioPlaying.removeListener(_syncVisuals);
     app.blurModeNotifier.removeListener(_syncVisuals);
+    app.themeNotifier.removeListener(_syncVisuals);
     widget.controller.removeListener(_syncVisuals);
     widget.controller.activeAyah.removeListener(_syncVisuals);
     widget.controller.globalRevision.removeListener(_syncVisuals);
@@ -159,8 +163,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final audioSurah = app.activeAudioSurah.value;
     final audioAyah = app.activeAudioAyah.value;
     final audioWordIdx = app.activeAudioWordIndex.value;
-    final bool isAudioActive = (app.isAudioPlaying.value || app.isAudioBuffering.value) &&
-        audioSurah != null &&
+    final bool isAudioActive = audioSurah != null &&
         audioAyah != null &&
         audioWordIdx != null;
 
@@ -187,6 +190,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           }
           _lastActiveAyah = null;
           _lastActiveWord = null;
+          _lastIsDark = null;
         });
       }
       return;
@@ -195,6 +199,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     page.batch(() {
       final c = app.colors;
       final isDark = app.isDarkMode;
+      final bool themeChanged = (_lastIsDark != isDark);
 
       // 1. ACTIVE AYAH HIGHLIGHT
       (int, int)? targetAyah;
@@ -206,7 +211,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         targetAyah = (audioSurah, audioAyah);
       }
 
-      if (targetAyah != _lastActiveAyah) {
+      if (targetAyah != _lastActiveAyah || themeChanged) {
         _lastActiveAyah = targetAyah;
         if (targetAyah != null) {
           final Color ayahColor = isDark
@@ -218,17 +223,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             band: ayahColor,
             padX: 1.2,
             radius: 4.0,
+            ms: 0,
             layer: QvpLayer.highlight - 2,
           );
           if (_ayahHighlightHandle != 0) {
-            page.moveHighlight(_ayahHighlightHandle, T.ayah(targetAyah.$1, targetAyah.$2));
-            page.restyleHighlight(_ayahHighlightHandle, style);
-          } else {
-            _ayahHighlightHandle = page.highlight(
-              T.ayah(targetAyah.$1, targetAyah.$2),
-              style,
-            );
+            page.removeHighlight(_ayahHighlightHandle);
+            _ayahHighlightHandle = 0;
           }
+          _ayahHighlightHandle = page.highlight(
+            T.ayah(targetAyah.$1, targetAyah.$2),
+            style,
+          );
         } else if (_ayahHighlightHandle != 0) {
           page.removeHighlight(_ayahHighlightHandle);
           _ayahHighlightHandle = 0;
@@ -257,22 +262,24 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         }
       }
 
-      if (activeWord != _lastActiveWord) {
+      if (activeWord != _lastActiveWord || themeChanged) {
         _lastActiveWord = activeWord;
         if (activeWord != null) {
-          final Color wordColor = c.wordHighlight.withValues(alpha: isDark ? 0.32 : 0.22);
+          final Color wordColor = c.wordHighlight.withValues(alpha: isDark ? 0.35 : 0.25);
+
           final style = QvpHighlightStyle(
             mode: 'band',
             height: 'lineSpacing',
             band: wordColor,
-            padX: 2.0,
+            padX: 1.0,
             radius: 4.0,
-            ms: isAudioActive ? 180 : 0,
+            ms: 0,
             layer: QvpLayer.highlight - 1,
           );
+
           if (_wordHighlightHandle != 0) {
-            page.moveHighlight(_wordHighlightHandle, T.word(activeWord));
             page.restyleHighlight(_wordHighlightHandle, style);
+            page.moveHighlight(_wordHighlightHandle, T.word(activeWord));
           } else {
             _wordHighlightHandle = page.highlight(
               T.word(activeWord),
@@ -285,7 +292,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         }
       }
 
-      // 3. RECITATION FEEDBACK (TEXT INK + BACKGROUND BANDS) & HIFZ CONCEALING
+      // 3. RECITATION FEEDBACK (TEXT INK ONLY - NO HIGHLIGHTING BANDS) & HIFZ CONCEALING
       // Bypassed completely during normal reading and audio playback for zero-lag 120fps scrolling
       final bool needsWordEvaluation = widget.isRecording ||
           app.isBlurMode ||
@@ -321,38 +328,35 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           }
         }
 
-        if (!listEquals(green, _lastGreenWords)) {
+        if (!listEquals(green, _lastGreenWords) || themeChanged) {
           _lastGreenWords = green;
           _updateHighlightGroup(
             page,
             green,
             ref: _recitationGreenHandle,
             inkColor: c.green,
-            bandColor: c.green.withValues(alpha: isDark ? 0.22 : 0.14),
             onHandleChanged: (h) => _recitationGreenHandle = h,
           );
         }
 
-        if (!listEquals(yellow, _lastYellowWords)) {
+        if (!listEquals(yellow, _lastYellowWords) || themeChanged) {
           _lastYellowWords = yellow;
           _updateHighlightGroup(
             page,
             yellow,
             ref: _recitationYellowHandle,
             inkColor: c.warning,
-            bandColor: c.warning.withValues(alpha: isDark ? 0.25 : 0.16),
             onHandleChanged: (h) => _recitationYellowHandle = h,
           );
         }
 
-        if (!listEquals(red, _lastRedWords)) {
+        if (!listEquals(red, _lastRedWords) || themeChanged) {
           _lastRedWords = red;
           _updateHighlightGroup(
             page,
             red,
             ref: _recitationRedHandle,
             inkColor: c.red,
-            bandColor: c.red.withValues(alpha: isDark ? 0.25 : 0.16),
             onHandleChanged: (h) => _recitationRedHandle = h,
           );
         }
@@ -368,6 +372,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           }
         }
       }
+
+      _lastIsDark = isDark;
     });
   }
 
@@ -376,28 +382,23 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     List<int> words, {
     required int ref,
     required Color inkColor,
-    required Color bandColor,
     required ValueChanged<int> onHandleChanged,
   }) {
     if (words.isNotEmpty) {
       final style = QvpHighlightStyle(
-        mode: 'both',
+        mode: 'ink',
         ink: inkColor,
-        band: bandColor,
-        radius: 4.0,
-        padX: 1.0,
+        ms: 0,
         layer: QvpLayer.highlight,
       );
       if (ref != 0) {
-        page.moveHighlight(ref, T.words(words));
-        page.restyleHighlight(ref, style);
-      } else {
-        final h = page.highlight(
-          T.words(words),
-          style,
-        );
-        onHandleChanged(h);
+        page.removeHighlight(ref);
       }
+      final h = page.highlight(
+        T.words(words),
+        style,
+      );
+      onHandleChanged(h);
     } else if (ref != 0) {
       page.removeHighlight(ref);
       onHandleChanged(0);

@@ -342,6 +342,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                   right: 0,
                   child: AnimatedBuilder(
                     animation: Listenable.merge([
+                      app,
                       app.currentMushafPage,
                       widget.controller.activeAyah,
                       widget.controller,
@@ -389,13 +390,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                         },
                         surahName: surahName,
                         onSurahTap: _showSurahPicker,
-                        isVoiceSearching: widget.isVoiceSearching,
-                        onVoiceSearchToggle: () {
-                          AppHaptics.lightImpact();
-                          app.dismissBanner();
-                          AppState.instance.stopVerseAudio();
-                          widget.onVoiceSearchToggle();
-                        },
                         onSettingsTap: () {
                           AppHaptics.lightImpact();
                           _showSettingsDialog();

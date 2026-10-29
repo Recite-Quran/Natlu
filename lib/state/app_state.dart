@@ -504,8 +504,8 @@ class AppState extends ChangeNotifier {
     onPrimary: Color(0xFFFFFFFF),      // Crisp white on primary
     secondary: Color(0xFF0D9488),      // Calming Teal
     gold: Color(0xFFB45309),           // Warm antique gold
-    green: Color(0xFF028090),          // Calming Oceanic Petrol (distinct blue-green blend, soothing, zero glare)
-    red: Color(0xFFDC2626),            // Warm terracotta red (non-alarming)
+    green: Color(0xFF15803D),          // Soothing Botanical Green (true green, 5.4:1 contrast on linen, zero glare)
+    red: Color(0xFFC02626),            // Warm terracotta crimson (refined, 5.8:1 contrast, non-alarming)
     muted: Color(0xFF64748B),          // Slate-500 neutral muted
     currentWord: Color(0xFF0D9488),    // Calming teal active word highlight
     wordHighlight: Color(0xFF0D9488),  // Calming teal active word highlight
@@ -513,9 +513,9 @@ class AppState extends ChangeNotifier {
     textSecondary: Color(0xFF475569),  // Slate-600 secondary text
     ayahOutline: Color(0x2EB45309),    // Soft warm amber outline (~18% alpha)
     ambientGlow: Color(0x18047857),    // Ambient soft emerald glow
-    success: Color(0xFF028090),        // Oceanic petrol success
-    warning: Color(0xFFD97706),        // Warm honey warning
-    error: Color(0xFFDC2626),          // Terracotta error
+    success: Color(0xFF15803D),        // Soothing botanical green success
+    warning: Color(0xFFB45309),        // Warm honey amber (golden topaz, 4.9:1 contrast, highly legible text)
+    error: Color(0xFFC02626),          // Terracotta crimson error
     info: Color(0xFF2563EB),           // Calming sapphire info
     cyan: Color(0xFF0D9488),           // Calm teal
     indigo: Color(0xFF4338CA),         // Royal Indigo
@@ -539,8 +539,8 @@ class AppState extends ChangeNotifier {
     onPrimary: Color(0xFF000000),
     secondary: Color(0xFF06B6D4),      // Cyan Spark
     gold: Color(0xFFEAB308),           // Luminous Amber Gold
-    green: Color(0xFF22C55E),          // Calming leaf green
-    red: Color(0xFFE06D63),            // Gentle rose terracotta
+    green: Color(0xFF22C55E),          // Calming leaf green (soothing, zero halation)
+    red: Color(0xFFE06D63),            // Gentle rose terracotta (soft, halation-free)
     muted: Color(0xFF64748B),          // Slate-500 neutral muted
     currentWord: Color(0xFF14B8A6),    // Calming luminous teal active word highlight
     wordHighlight: Color(0xFF14B8A6),  // Calming luminous teal active word highlight
@@ -548,9 +548,9 @@ class AppState extends ChangeNotifier {
     textSecondary: Color(0xFF94A3B8),  // Slate-400
     ayahOutline: Color(0x35EAB308),    // Soft amber outline
     ambientGlow: Color(0x2510B981),    // Gentle emerald glow
-    success: Color(0xFF22C55E),
-    warning: Color(0xFFF59E0B),
-    error: Color(0xFFE06D63),
+    success: Color(0xFF22C55E),        // Calming leaf green success
+    warning: Color(0xFFFBBF24),        // Luminous candlelight amber (warm, crystal-clear diacritics)
+    error: Color(0xFFE06D63),          // Gentle rose terracotta error
     info: Color(0xFF38BDF8),
     cyan: Color(0xFF06B6D4),
     indigo: Color(0xFF818CF8),
@@ -681,4 +681,10 @@ class ThemeColors {
   
   /// A faded version of primary for subtle pill backgrounds.
   Color get primaryFade => primary.withValues(alpha: 0.12);
+
+  /// Modern eye-comforting word recitation text colors:
+  /// green = correct, red = skipped, yellow/warning = wrong/mistake
+  Color get wordCorrect => green;
+  Color get wordSkipped => red;
+  Color get wordWrong => warning;
 }

@@ -339,9 +339,6 @@ class VerseAudioPlayer {
         }
       } else if (!state.playing && !isBuffering) {
         app.isAudioPlaying.value = false;
-        if (!_isSingleWordMode) {
-          app.activeAudioWordIndex.value = null;
-        }
       }
     });
   }
@@ -534,7 +531,7 @@ class VerseAudioPlayer {
     app.activeAudioSurah.value = surah;
     app.activeAudioAyah.value = ayah;
     app.saveLastPosition(surah, ayah);
-    app.activeAudioWordIndex.value = null;
+    app.activeAudioWordIndex.value = _targetWordIndex ?? 0;
     app.isContinuousPlayback.value = continuous;
     app.isAudioBuffering.value = true;
     app.isAudioPlaying.value = false;
@@ -676,7 +673,6 @@ class VerseAudioPlayer {
     final app = AppState.instance;
     app.isAudioPlaying.value = false;
     app.isAudioBuffering.value = false;
-    app.activeAudioWordIndex.value = null;
   }
 
   /// Resumes playback from the exact paused position.
