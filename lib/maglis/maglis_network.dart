@@ -281,8 +281,14 @@ class MaglisNetworkEngine {
   /// Automatically wakes up if a peer leaves or network renegotiation is needed.
   void _checkSocketSleepState() {
     if (_disposed) return;
-    final bool isFullAndStable = _peers.isNotEmpty &&
+    final bool allIceConnected = _peers.isNotEmpty &&
+        _peers.keys.every((id) =>
+            _peerStates[id] == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+            _peerStates[id] == RTCIceConnectionState.RTCIceConnectionStateCompleted);
+
+    final bool isFullAndStable = allIceConnected &&
         _peers.length >= maxRemotePeers &&
+        _channels.values.length >= maxRemotePeers &&
         _channels.values.every(
             (dc) => dc.state == RTCDataChannelState.RTCDataChannelOpen);
 
@@ -604,6 +610,7 @@ class MaglisNetworkEngine {
         _checkSocketSleepState();
       } else if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _checkSocketSleepState(); // Ensure Nostr relays are awake for renegotiation on both sides
         // Debounce ICE restart: only initiator triggers restart after a grace period (3s for failed, 6s for disconnected)
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         if (isInitiator) {
@@ -768,8 +775,14 @@ class MaglisNetworkEngine {
       }
       if (pkt.type == MaglisPacketType.pong) return;
 
+      if (pkt.type == MaglisPacketType.floorClaim) {
+        _lastSeq.remove(pkt.senderId);
+      }
+
       final prev = _lastSeq[pkt.senderId] ?? -1;
-      if (pkt.type == MaglisPacketType.recitationUpdate && pkt.seq <= prev) {
+      if (pkt.type == MaglisPacketType.recitationUpdate &&
+          pkt.seq <= prev &&
+          (prev - pkt.seq) < 50000) {
         return;
       }
       _lastSeq[pkt.senderId] = pkt.seq;
@@ -949,6 +962,7 @@ class MaglisNetworkEngine {
     _roomParticipants.remove(peerId);
     _answerInFlight.remove(peerId);
     _negotiatingPeers.remove(peerId);
+    _lastSeq.remove(peerId);
     _participantCountCtrl.add(_roomParticipants.length + 1);
     final remoteTracks = _remoteTracks.remove(peerId);
     if (remoteTracks != null) {
