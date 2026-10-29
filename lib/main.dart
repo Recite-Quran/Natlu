@@ -188,6 +188,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   bool _isEngineLoading =
       false; // Tracks if ASR is compiling/extracting when user presses record
   bool _isVoiceSearching = false;
+  bool _isVoiceSearchPaused = false;
   final ValueNotifier<String> _voiceSearchAsrNotifier = ValueNotifier('');
   String get _voiceSearchAsrText => _voiceSearchAsrNotifier.value;
   StreamSubscription? _transcriptionSub;
@@ -203,7 +204,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     // Global subscription for Voice Search text and Endpoint auto-stopping
     _transcriptionSub = _engine.transcriptionStream.listen((res) {
-      if (_isVoiceSearching && mounted) {
+      if (_isVoiceSearching && !_isVoiceSearchPaused && mounted) {
         _voiceSearchAsrNotifier.value = res.text;
 
         // REAL-TIME SEARCH EVALUATION
@@ -542,10 +543,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       await _voiceSearchCtrl.startSearch();
       try { await WakelockPlus.enable(); } catch (_) {}
 
+      _isVoiceSearchPaused = false;
       _audio
           .start(
             onChunk: (chunk, isFinal) {
-              _engine.transcribe(chunk, isFinal: isFinal);
+              if (!_isVoiceSearchPaused) {
+                _engine.transcribe(chunk, isFinal: isFinal);
+              }
             },
           )
           .catchError((e) {
@@ -563,6 +567,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   Future<void> _stopVoiceSearch({AnchorResult? precalculatedResult}) async {
     if (!_isVoiceSearching || _isToggling) return;
     _isToggling = true;
+    _isVoiceSearchPaused = false;
 
     try {
       await _audio.stop();
@@ -598,6 +603,14 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       DebugLogger.logSimple('VOICE_SEARCH', '❌ STOP ERROR: $e');
     } finally {
       _isToggling = false;
+    }
+  }
+
+  void _onVoiceSearchHoldChanged(bool isPaused) {
+    _isVoiceSearchPaused = isPaused;
+    if (!isPaused) {
+      _engine.resetBuffer();
+      _audio.clearBuffer();
     }
   }
 
@@ -704,6 +717,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       onToggleRecord: _toggleRecord,
       onVoiceSearchToggle: _toggleVoiceSearch,
       isVoiceSearchLoading: _voiceSearchCtrl.isIndexLoading,
+      onVoiceSearchHoldChanged: _onVoiceSearchHoldChanged,
       onSelectVoiceCandidate: (surah, ayah) {
         _stopVoiceSearch(
           precalculatedResult: AnchorResult(surah: surah, ayah: ayah),

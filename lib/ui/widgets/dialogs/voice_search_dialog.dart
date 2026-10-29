@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../../state/app_state.dart';
+import '../mushaf/mushaf_ayah_preview.dart';
+import '../mushaf/mushaf_provider.dart';
 
 /// Production-ready Voice Search modal dialog for reciting any Ayah across the Quran.
 ///
@@ -19,6 +21,7 @@ class VoiceSearchDialog extends StatefulWidget {
   final ValueListenable<String>? asrTextNotifier;
   final ValueListenable<VoiceSearchResult?>? searchResultNotifier;
   final void Function(int surah, int ayah)? onSelectCandidate;
+  final ValueChanged<bool>? onHoldChanged;
 
   const VoiceSearchDialog({
     super.key,
@@ -27,6 +30,7 @@ class VoiceSearchDialog extends StatefulWidget {
     this.asrTextNotifier,
     this.searchResultNotifier,
     this.onSelectCandidate,
+    this.onHoldChanged,
   });
 
   /// Displays the VoiceSearchDialog modal.
@@ -37,6 +41,7 @@ class VoiceSearchDialog extends StatefulWidget {
     ValueListenable<String>? asrTextNotifier,
     ValueListenable<VoiceSearchResult?>? searchResultNotifier,
     void Function(int surah, int ayah)? onSelectCandidate,
+    ValueChanged<bool>? onHoldChanged,
   }) {
     showDialog(
       context: context,
@@ -48,6 +53,7 @@ class VoiceSearchDialog extends StatefulWidget {
         asrTextNotifier: asrTextNotifier,
         searchResultNotifier: searchResultNotifier,
         onSelectCandidate: onSelectCandidate,
+        onHoldChanged: onHoldChanged,
       ),
     );
   }
@@ -130,7 +136,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
   }
 
   void _onSearchResultChanged() {
-    if (!mounted || _hasSelected) return;
+    if (!mounted || _hasSelected || _isCountdownPaused) return;
     final res = widget.searchResultNotifier?.value;
     setState(() => _currentResult = res);
 
@@ -175,7 +181,9 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
       _isCountdownPaused = !_isCountdownPaused;
       if (_isCountdownPaused) {
         _countdownCtrl.stop();
+        _pulseCtrl.stop();
       } else {
+        _pulseCtrl.repeat(reverse: true);
         if (_countdownCtrl.value < 1.0) {
           _countdownCtrl.forward();
         } else {
@@ -183,6 +191,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
         }
       }
     });
+    widget.onHoldChanged?.call(_isCountdownPaused);
   }
 
   void _autoNavigateToTopMatch() {
@@ -528,8 +537,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                       if (_isCountdownPaused) {
                         return Text(
                           isAr
-                              ? 'تم إيقاف المؤقت • تصفح واختر الآية'
-                              : 'Countdown paused • Select an Ayah',
+                              ? 'تم إيقاف المؤقت والميكروفون مؤقتاً'
+                              : 'Paused • Microphone stopped',
                           style: TextStyle(
                             color: c.text.withValues(alpha: 0.9),
                             fontSize: 11.5,
@@ -554,27 +563,39 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                     },
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 10),
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: _togglePauseCountdown,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3.5,
+                        horizontal: 17,
+                        vertical: 8.5,
                       ),
                       decoration: BoxDecoration(
-                        color: _isCountdownPaused
-                            ? c.primary.withValues(alpha: 0.14)
-                            : c.red.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: _isCountdownPaused
-                              ? c.primary.withValues(alpha: 0.3)
-                              : c.red.withValues(alpha: 0.3),
+                        gradient: LinearGradient(
+                          colors: _isCountdownPaused
+                              ? [c.green, c.green.withValues(alpha: 0.85)]
+                              : [c.red, c.red.withValues(alpha: 0.85)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.3),
+                          width: 1.2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_isCountdownPaused ? c.green : c.red)
+                                .withValues(alpha: 0.45),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                            offset: const Offset(0, 2.5),
+                          ),
+                        ],
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -583,18 +604,20 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                             _isCountdownPaused
                                 ? Icons.play_arrow_rounded
                                 : Icons.pause_rounded,
-                            size: 13,
-                            color: _isCountdownPaused ? c.primary : c.red,
+                            size: 19,
+                            color: Colors.white,
                           ),
-                          const SizedBox(width: 3),
+                          const SizedBox(width: 5),
                           Text(
                             _isCountdownPaused
                                 ? (isAr ? 'استئناف' : 'Resume')
                                 : (isAr ? 'إيقاف' : 'Hold'),
-                            style: TextStyle(
-                              color: _isCountdownPaused ? c.primary : c.red,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                            style: const TextStyle(
+                              fontFamily: 'cairo',
+                              color: Colors.white,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3,
                             ),
                           ),
                         ],
@@ -658,18 +681,10 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
     required ThemeColors c,
     required bool isAr,
   }) {
-    final percentage = (match.score * 100).toInt().clamp(0, 100);
+    final surahMeta = MushafProvider.instance.atlas.surah(match.surah);
     final surahTitle = isAr
-        ? (match.surahNameAr ?? 'سورة ${match.surah}')
-        : (match.surahNameEn ?? 'Surah ${match.surah}');
-
-    // Harmonized score colors adhering to Natlu 2026 design system:
-    // - High confidence (>= 85%): Quranic leaf green
-    // - Good confidence (>= 70%): Serene primary emerald
-    // - Fair confidence (< 70%): Antique amber gold
-    final Color scoreColor = percentage >= 85
-        ? c.green
-        : (percentage >= 70 ? c.primary : c.gold);
+        ? (surahMeta?.arabic ?? '${match.surah}')
+        : (surahMeta?.latin.isNotEmpty == true ? surahMeta!.latin : (match.surahNameEn ?? '${match.surah}'));
 
     return Material(
       color: Colors.transparent,
@@ -679,7 +694,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
         hoverColor: c.primary.withValues(alpha: 0.08),
         splashColor: c.primary.withValues(alpha: 0.15),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           decoration: BoxDecoration(
             color: isTop
                 ? c.surfaceHigh.withValues(alpha: 0.6)
@@ -702,18 +717,19 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                       surahTitle,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
+                        fontFamily: 'cairo',
                         fontWeight: FontWeight.bold,
-                        fontSize: isAr ? 16 : 14,
+                        fontSize: isAr ? 13.5 : 12,
                         color: c.primary,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                     decoration: BoxDecoration(
                       color: c.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(5),
                       border: Border.all(
                         color: c.primary.withValues(alpha: 0.22),
                         width: 0.8,
@@ -722,52 +738,24 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                     child: Text(
                       isAr ? 'آية ${match.ayah}' : 'Ayah ${match.ayah}',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontFamily: 'cairo',
+                        fontSize: 9.5,
                         fontWeight: FontWeight.bold,
                         color: c.primary,
                       ),
                     ),
                   ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: scoreColor.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: scoreColor.withValues(alpha: 0.30),
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      '$percentage%',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: scoreColor,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
                 ],
               ),
-              if (match.textUthmani != null && match.textUthmani!.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(
-                  match.textUthmani!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textDirection: TextDirection.rtl,
-                  style: TextStyle(
-                    fontSize: 16.5,
-                    height: 1.5,
-                    color: c.text.withValues(alpha: 0.88),
-                  ),
-                ),
-              ],
+              const SizedBox(height: 4),
+              MushafAyahPreview(
+                surah: match.surah,
+                ayah: match.ayah,
+                color: c.text.withValues(alpha: 0.92),
+                highlightStartWord: match.startWordIdx,
+                highlightEndWord: match.endWordIdx,
+                highlightColor: c.green,
+              ),
             ],
           ),
         ),
