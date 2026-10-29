@@ -5,6 +5,7 @@ import '../../../services/app_haptics.dart';
 
 import '../../../services/quran_audio_service.dart';
 import '../../../state/app_state.dart';
+import '../../../maglis/maglis_controller.dart';
 import '../dialogs/error_detail_dialog.dart';
 
 /// Core interactive actions for the Mushaf vector layout.
@@ -133,9 +134,43 @@ abstract final class MushafActions {
     int? surah,
   }) {
     if (wordIndex < 0) return colors.text;
-    if (controller.isWordGreen(ayah, wordIndex, surah: surah)) return colors.green;
-    if (controller.isWordRed(ayah, wordIndex, surah: surah)) return colors.red;
-    if (controller.isWordYellow(ayah, wordIndex, surah: surah)) return colors.warning;
+    final int s = surah ??
+        (controller.targetSurah != 0
+            ? controller.targetSurah
+            : AppState.instance.lastSurah);
+
+    // 1. Check Maglis persistent cumulative highlights
+    if (MaglisController.instance.inSession) {
+      final maglisH =
+          MaglisController.instance.getWordHighlight(s, ayah, wordIndex);
+      if (maglisH != null) {
+        if (maglisH == 1) return colors.green;
+        if (maglisH == 2) return colors.warning;
+        if (maglisH == 3) return colors.red;
+      }
+    }
+
+    // 2. Check AppState persistent highlights
+    final appH = AppState.instance.getWordHighlight(s, ayah, wordIndex);
+    if (appH != null) {
+      if (appH == 1) return colors.green;
+      if (appH == 2) return colors.warning;
+      if (appH == 3) return colors.red;
+    }
+
+    // 3. Check live controller state and persist
+    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
+      AppState.instance.recordWordHighlight(s, ayah, wordIndex, 1);
+      return colors.green;
+    }
+    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
+      AppState.instance.recordWordHighlight(s, ayah, wordIndex, 3);
+      return colors.red;
+    }
+    if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
+      AppState.instance.recordWordHighlight(s, ayah, wordIndex, 2);
+      return colors.warning;
+    }
     return colors.text;
   }
 

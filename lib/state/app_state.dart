@@ -73,6 +73,22 @@ class AppState extends ChangeNotifier {
 
   SharedPreferences? _prefs;
 
+  /// Persistent session word highlights: key = "${surah}_${ayah}_$word0", value = 1 (green), 2 (yellow), 3 (red)
+  final Map<String, int> _persistentWordHighlights = {};
+  Map<String, int> get persistentWordHighlights => _persistentWordHighlights;
+
+  int? getWordHighlight(int surah, int ayah, int word0) =>
+      _persistentWordHighlights['${surah}_${ayah}_$word0'];
+
+  void recordWordHighlight(int surah, int ayah, int word0, int colorType) {
+    _persistentWordHighlights['${surah}_${ayah}_$word0'] = colorType;
+  }
+
+  void clearPersistentWordHighlights() {
+    _persistentWordHighlights.clear();
+    notifyListeners();
+  }
+
   Future<SharedPreferences> _getPrefs() async {
     return _prefs ??= await SharedPreferences.getInstance();
   }
@@ -376,6 +392,28 @@ class AppState extends ChangeNotifier {
         isWarning: false,
       ));
     }
+  }
+
+  /// Dispatches the modern Maglis peer joined banner.
+  void showMaglisPeerJoinedBanner() {
+    showBanner(const AppBannerInfo(
+      id: 'maglis_peer_joined',
+      messageAr: 'انضم مشارك جديد إلى المجلس',
+      messageEn: 'A participant joined the Maglis',
+      icon: Icons.person_add_rounded,
+      isWarning: false,
+    ));
+  }
+
+  /// Dispatches the modern Maglis peer left banner.
+  void showMaglisPeerLeftBanner() {
+    showBanner(const AppBannerInfo(
+      id: 'maglis_peer_left',
+      messageAr: 'غادر أحد المشاركين المجلس',
+      messageEn: 'A participant left the Maglis',
+      icon: Icons.person_remove_rounded,
+      isWarning: false,
+    ));
   }
 
   /// Dispatches the Mushaf Ayah audio hint banner (shows until user clicks ayah audio 10 times).

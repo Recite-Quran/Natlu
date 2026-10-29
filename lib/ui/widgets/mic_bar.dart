@@ -23,6 +23,12 @@ class BottomActionBar extends StatelessWidget {
   final String surahName;
   final VoidCallback onSurahTap;
   final VoidCallback onSettingsTap;
+  final bool isInMaglis;
+  final VoidCallback? onMaglisTap;
+  final VoidCallback? onMaglisExitTap;
+  final String? maglisRoomCode;
+  final int maglisPeerCount;
+  final bool isRemoteReciting;
 
   const BottomActionBar({
     super.key,
@@ -37,6 +43,12 @@ class BottomActionBar extends StatelessWidget {
     required this.surahName,
     required this.onSurahTap,
     required this.onSettingsTap,
+    this.isInMaglis = false,
+    this.onMaglisTap,
+    this.onMaglisExitTap,
+    this.maglisRoomCode,
+    this.maglisPeerCount = 0,
+    this.isRemoteReciting = false,
   });
 
   @override
@@ -64,11 +76,14 @@ class BottomActionBar extends StatelessWidget {
           // Full & Collapsed widths
           final double fullDockWidth = math.min(maxW - 24.0, 520.0);
           final double collapsedDockWidth = (padH * 2) + recBtnSize + gap + btnSize;
-          final double targetDockWidth = isRecording ? collapsedDockWidth : fullDockWidth;
+          final double maglisDockWidth = math.min(maxW - 24.0, 240.0);
+          final double targetDockWidth = isInMaglis
+              ? maglisDockWidth
+              : (isRecording ? collapsedDockWidth : fullDockWidth);
 
           // Stationary right margin: locks right buttons to exact screen coordinates!
-          final double rightMargin = math.max(12.0, (maxW - fullDockWidth) / 2.0);
-          final double fullContentWidth = fullDockWidth - (padH * 2);
+          final double rightMargin = math.max(12.0, (maxW - (isInMaglis ? maglisDockWidth : fullDockWidth)) / 2.0);
+          final double fullContentWidth = (isInMaglis ? maglisDockWidth : fullDockWidth) - (padH * 2);
 
           // Clean, consistent dock styling (Zero red tint/shadow on the bar itself)
           final Color dockBg = isDark ? c.surfaceHigh : c.surface;
@@ -117,64 +132,84 @@ class BottomActionBar extends StatelessWidget {
                             width: fullContentWidth,
                             child: Directionality(
                               textDirection: TextDirection.rtl,
-                              child: Row(
-                                children: [
-                                  // Transparent horizontal slot reserved for the Hero Record Orb
-                                  SizedBox(width: recBtnSize),
-                                  SizedBox(width: gap),
+                              child: isInMaglis
+                                  ? _buildMaglisDockContent(
+                                      recBtnSize: recBtnSize,
+                                      btnSize: btnSize,
+                                      gap: gap,
+                                      iconSize: iconSize,
+                                      isDark: isDark,
+                                      isAr: isAr,
+                                    )
+                                  : Row(
+                                      children: [
+                                        // Transparent horizontal slot reserved for the Hero Record Orb
+                                        SizedBox(width: recBtnSize),
+                                        SizedBox(width: gap),
 
-                                  // 2. Hide Verses Button (Persistent)
-                                  _buildButton(
-                                    icon: isBlur ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                                    tooltip: isAr ? 'إخفاء الآيات للتسميع' : 'Hide Verses for Memorization',
-                                    isActive: isBlur,
-                                    isDark: isDark,
-                                    size: btnSize,
-                                    iconSize: iconSize,
-                                    onTap: onToggleBlur,
-                                  ),
-
-                                  // 3. Collapsible Left Actions
-                                  Expanded(
-                                    child: ClipRect(
-                                      child: AnimatedOpacity(
-                                        duration: const Duration(milliseconds: 180),
-                                        opacity: isRecording ? 0.0 : 1.0,
-                                        child: Row(
-                                          children: [
-                                            SizedBox(width: gap),
-                                            _buildButton(
-                                              icon: isTajweed
-                                                  ? Icons.record_voice_over_rounded
-                                                  : Icons.record_voice_over_outlined,
-                                              tooltip: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
-                                              isActive: isTajweed,
-                                              isDark: isDark,
-                                              size: btnSize,
-                                              iconSize: iconSize,
-                                              onTap: onToggleTajweed,
-                                            ),
-                                            SizedBox(width: gap),
-                                            Expanded(
-                                              child: _buildSurahSelector(isDark, isAr, isNarrow, btnSize),
-                                            ),
-                                            SizedBox(width: gap),
-                                            _buildButton(
-                                              icon: Icons.tune_rounded,
-                                              tooltip: isAr ? 'الإعدادات' : 'Settings',
-                                              isActive: false,
-                                              isDark: isDark,
-                                              size: settingsBtnSize,
-                                              iconSize: settingsIconSize,
-                                              onTap: onSettingsTap,
-                                            ),
-                                          ],
+                                        // 2. Hide Verses Button (Persistent)
+                                        _buildButton(
+                                          icon: isBlur ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                                          tooltip: isAr ? 'إخفاء الآيات للتسميع' : 'Hide Verses for Memorization',
+                                          isActive: isBlur,
+                                          isDark: isDark,
+                                          size: btnSize,
+                                          iconSize: iconSize,
+                                          onTap: onToggleBlur,
                                         ),
-                                      ),
+
+                                        // 3. Collapsible Left Actions
+                                        Expanded(
+                                          child: ClipRect(
+                                            child: AnimatedOpacity(
+                                              duration: const Duration(milliseconds: 180),
+                                              opacity: isRecording ? 0.0 : 1.0,
+                                              child: Row(
+                                                children: [
+                                                  SizedBox(width: gap),
+                                                  _buildButton(
+                                                    icon: isTajweed
+                                                        ? Icons.record_voice_over_rounded
+                                                        : Icons.record_voice_over_outlined,
+                                                    tooltip: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
+                                                    isActive: isTajweed,
+                                                    isDark: isDark,
+                                                    size: btnSize,
+                                                    iconSize: iconSize,
+                                                    onTap: onToggleTajweed,
+                                                  ),
+                                                  SizedBox(width: gap),
+                                                  Expanded(
+                                                    child: _buildSurahSelector(isDark, isAr, isNarrow, btnSize),
+                                                  ),
+                                                  SizedBox(width: gap),
+                                                  // Maglis Community Icon Button
+                                                  _buildButton(
+                                                    icon: Icons.groups_rounded,
+                                                    tooltip: isAr ? 'مجلس التلاوة التشاركي' : 'Maglis P2P',
+                                                    isActive: false,
+                                                    isDark: isDark,
+                                                    size: btnSize,
+                                                    iconSize: iconSize + 1,
+                                                    onTap: onMaglisTap ?? () {},
+                                                  ),
+                                                  SizedBox(width: gap),
+                                                  _buildButton(
+                                                    icon: Icons.tune_rounded,
+                                                    tooltip: isAr ? 'الإعدادات' : 'Settings',
+                                                    isActive: false,
+                                                    isDark: isDark,
+                                                    size: settingsBtnSize,
+                                                    iconSize: settingsIconSize,
+                                                    onTap: onSettingsTap,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                ],
-                              ),
                             ),
                           ),
                         ),
@@ -201,6 +236,130 @@ class BottomActionBar extends StatelessWidget {
     );
   }
 
+  /// Compact, focused dock row when in Maglis P2P Session
+  Widget _buildMaglisDockContent({
+    required double recBtnSize,
+    required double btnSize,
+    required double gap,
+    required double iconSize,
+    required bool isDark,
+    required bool isAr,
+  }) {
+    return Row(
+      children: [
+        // 1. Transparent slot for Hero Record Orb (Right side in RTL)
+        SizedBox(width: recBtnSize),
+        SizedBox(width: gap),
+
+        // 2. Maglis Room Badge (Room code + Active Reciter wave / Peers count)
+        Expanded(
+          child: Container(
+            height: btnSize,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.06)
+                  : Colors.black.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(btnSize * 0.34),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.08),
+                width: 1.0,
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Glowing dot indicating active session
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    color: isRemoteReciting
+                        ? const Color(0xFF38BDF8) // Sky blue when remote is reciting
+                        : const Color(0xFF10B981), // Emerald green
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: (isRemoteReciting
+                                ? const Color(0xFF38BDF8)
+                                : const Color(0xFF10B981))
+                            .withValues(alpha: 0.6),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  maglisRoomCode ?? '',
+                  style: const TextStyle(
+                    color: Color(0xFF10B981),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                if (isRemoteReciting) ...[
+                  const SizedBox(width: 5),
+                  const Icon(
+                    Icons.volume_up_rounded,
+                    color: Color(0xFF38BDF8),
+                    size: 15,
+                  ),
+                ] else if (maglisPeerCount > 1) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white12 : Colors.black12,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.person_rounded,
+                          size: 11,
+                          color: isDark ? Colors.white70 : Colors.black54,
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '$maglisPeerCount',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white70 : Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        SizedBox(width: gap),
+
+        // 3. Close / Exit Maglis Button (Far Left of the dock)
+        _buildButton(
+          icon: Icons.close_rounded,
+          tooltip: isAr ? 'مغادرة المجلس' : 'Leave Maglis',
+          isActive: true,
+          isDark: isDark,
+          size: btnSize,
+          iconSize: 18.0,
+          customActiveColor: const Color(0xFFF43F5E),
+          onTap: onMaglisExitTap ?? () {},
+        ),
+      ],
+    );
+  }
+
   /// Modern Circular Hero Record Orb with multi-stop gradient, specular highlight, and neon aura
   Widget _buildRecButton({
     required bool isDark,
@@ -209,7 +368,9 @@ class BottomActionBar extends StatelessWidget {
   }) {
     final colors = isRecording
         ? const [Color(0xFFFB7185), Color(0xFFE11D48), Color(0xFF881337)]
-        : const [Color(0xFF34D399), Color(0xFF059669), Color(0xFF065F46)];
+        : (isRemoteReciting
+            ? const [Color(0xFF38BDF8), Color(0xFF0284C7), Color(0xFF0369A1)]
+            : const [Color(0xFF34D399), Color(0xFF059669), Color(0xFF065F46)]);
 
     return _TapScale(
       onTapDown: () {
@@ -233,7 +394,7 @@ class BottomActionBar extends StatelessWidget {
           boxShadow: [
             BoxShadow(
               color: colors[1].withValues(alpha: isDark ? 0.50 : 0.35),
-              blurRadius: isRecording ? 20 : 14,
+              blurRadius: (isRecording || isRemoteReciting) ? 20 : 14,
               offset: const Offset(0, 4),
             ),
             BoxShadow(
@@ -274,11 +435,17 @@ class BottomActionBar extends StatelessWidget {
                     )
                   : (isRecording
                       ? const _AudioWaveform()
-                      : Icon(
-                          Icons.mic_rounded,
-                          color: Colors.white,
-                          size: isNarrow ? 25.0 : 28.0,
-                        )),
+                      : (isRemoteReciting
+                          ? Icon(
+                              Icons.volume_up_rounded,
+                              color: Colors.white,
+                              size: isNarrow ? 23.0 : 26.0,
+                            )
+                          : Icon(
+                              Icons.mic_rounded,
+                              color: Colors.white,
+                              size: isNarrow ? 25.0 : 28.0,
+                            ))),
             ),
           ],
         ),
@@ -295,8 +462,9 @@ class BottomActionBar extends StatelessWidget {
     required double size,
     required double iconSize,
     required VoidCallback onTap,
+    Color? customActiveColor,
   }) {
-    const greenAccent = Color(0xFF10B981);
+    final activeAccent = customActiveColor ?? const Color(0xFF10B981);
 
     return Tooltip(
       message: tooltip,
@@ -313,22 +481,22 @@ class BottomActionBar extends StatelessWidget {
           height: size,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(size * 0.34),
-            // Green overlay on the button itself when active
+            // Accent overlay on the button itself when active
             color: isActive
-                ? greenAccent.withValues(alpha: isDark ? 0.20 : 0.14)
+                ? activeAccent.withValues(alpha: isDark ? 0.20 : 0.14)
                 : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04)),
-            // Radiant green highlight border when ON
+            // Radiant highlight border when ON
             border: Border.all(
               color: isActive
-                  ? (isDark ? const Color(0xFF10B981) : const Color(0xFF047857))
+                  ? activeAccent
                   : (isDark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.08)),
               width: isActive ? 1.4 : 0.9,
             ),
-            // Soft green ambient glow when ON
+            // Soft ambient glow when ON
             boxShadow: isActive
                 ? [
                     BoxShadow(
-                      color: greenAccent.withValues(alpha: isDark ? 0.36 : 0.22),
+                      color: activeAccent.withValues(alpha: isDark ? 0.36 : 0.22),
                       blurRadius: 10,
                       offset: const Offset(0, 2),
                     ),
@@ -340,7 +508,7 @@ class BottomActionBar extends StatelessWidget {
             icon,
             size: iconSize,
             color: isActive
-                ? (isDark ? const Color(0xFF34D399) : const Color(0xFF047857))
+                ? activeAccent
                 : (isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155)),
           ),
         ),

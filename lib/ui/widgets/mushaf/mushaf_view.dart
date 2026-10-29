@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
 
 import '../../../state/app_state.dart';
+import '../../../maglis/maglis_controller.dart';
 import 'mushaf_actions.dart';
 import 'mushaf_page.dart';
 import 'mushaf_provider.dart';
@@ -221,6 +222,13 @@ class _MushafViewState extends State<MushafView> {
     AppState.instance.activeAudioAyah.addListener(_onAudioAyahChanged);
     AppState.instance.activeAudioSurah.addListener(_onAudioAyahChanged);
 
+    MaglisController.instance.onSyncMushafUI = (page, surah, ayah) {
+      if (!mounted) return;
+      if (page != _currentPage && page >= 1 && page <= 604) {
+        _goToPage(page);
+      }
+    };
+
     if (provider.isReady) {
       _isLoading = false;
     } else {
@@ -313,6 +321,7 @@ class _MushafViewState extends State<MushafView> {
 
   @override
   void dispose() {
+    MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
     widget.controller.removeListener(_onControllerProgress);

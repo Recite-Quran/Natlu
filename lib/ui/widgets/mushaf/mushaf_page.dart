@@ -5,6 +5,7 @@ import 'package:recite_quran/recite_quran.dart';
 
 import '../../../services/app_haptics.dart';
 import '../../../state/app_state.dart';
+import '../../../maglis/maglis_controller.dart';
 import 'mushaf_actions.dart';
 import 'mushaf_overlays.dart';
 import 'mushaf_provider.dart';
@@ -141,6 +142,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     widget.controller.addListener(_syncVisuals);
     widget.controller.activeAyah.addListener(_syncVisuals);
     widget.controller.globalRevision.addListener(_syncVisuals);
+    MaglisController.instance.addListener(_syncVisuals);
   }
 
   void _detachListeners() {
@@ -156,6 +158,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     widget.controller.removeListener(_syncVisuals);
     widget.controller.activeAyah.removeListener(_syncVisuals);
     widget.controller.globalRevision.removeListener(_syncVisuals);
+    MaglisController.instance.removeListener(_syncVisuals);
   }
 
   void _onAudioStateChanged() {
@@ -214,6 +217,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     final provider = MushafProvider.instance;
 
+    final maglis = MaglisController.instance;
+    final bool isMaglisRemote = maglis.isRemoteReciting;
+    final int maglisSurah = maglis.remoteSurah;
+    final int maglisAyah = maglis.remoteAyah;
+    final int? maglisWord = maglis.remoteWord;
+    final bool hasMaglisAyah = isMaglisRemote &&
+        provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: maglisSurah, ayah: maglisAyah);
+
     final bool hasRecitingAyah = activeAyah != null &&
         provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: targetSurah, ayah: activeAyah);
     final bool hasMatchedAyah = activeMatch != null &&
@@ -228,7 +239,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
       // 1. ACTIVE AYAH HIGHLIGHT
       (int, int)? targetAyah;
-      if (hasMatchedAyah) {
+      if (isMaglisRemote && hasMaglisAyah) {
+        targetAyah = (maglisSurah, maglisAyah);
+      } else if (hasMatchedAyah) {
         targetAyah = (activeMatch.verse.surah, activeMatch.verse.ayah);
       } else if (hasRecitingAyah) {
         targetAyah = (targetSurah, activeAyah);
@@ -265,9 +278,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         }
       }
 
-      // 2. ACTIVE WORD HIGHLIGHT (Audio Word or Reciting Word cursor)
+      // 2. ACTIVE WORD HIGHLIGHT (Audio Word, Reciting Word cursor, or Remote Maglis cursor)
       int? activeWord;
-      if (hasAudioAyah) {
+      if (isMaglisRemote && hasMaglisAyah && maglisWord != null) {
+        final idx = page.findWord(maglisSurah, maglisAyah, maglisWord + 1);
+        if (idx >= 0) activeWord = idx;
+      } else if (hasAudioAyah) {
         final idx = page.findWord(audioSurah, audioAyah, audioWordIdx + 1);
         if (idx >= 0) activeWord = idx;
       } else if (widget.isRecording && (hasMatchedAyah || hasRecitingAyah)) {
@@ -317,9 +333,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         }
       }
 
-      // 3. RECITATION FEEDBACK (TEXT INK ONLY - NO HIGHLIGHTING BANDS) & HIFZ CONCEALING
-      // Bypassed completely during normal reading and audio playback for zero-lag 120fps scrolling
+      // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
       final bool needsWordEvaluation = widget.isRecording ||
+          isMaglisRemote ||
           app.isBlurMode ||
           _lastGreenWords.isNotEmpty ||
           _lastYellowWords.isNotEmpty ||
@@ -334,14 +350,41 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
         for (final w in page.words) {
           final w0 = w.word - 1;
-          final color = MushafActions.resolveWordDisplayColor(
-            ayah: w.ayah,
-            wordIndex: w0,
-            controller: ctrl,
-            app: app,
-            colors: c,
-            surah: w.surah,
-          );
+          Color color;
+          final int? maglisColor =
+              MaglisController.instance.getWordHighlight(w.surah, w.ayah, w0);
+          if (maglisColor != null) {
+            if (maglisColor == 1) {
+              color = c.green;
+            } else if (maglisColor == 2) {
+              color = c.warning;
+            } else if (maglisColor == 3) {
+              color = c.red;
+            } else {
+              color = c.text;
+            }
+          } else if (isMaglisRemote &&
+              w.surah == maglisSurah &&
+              w.ayah == maglisAyah) {
+            if (maglis.remoteGreenWords.contains(w0)) {
+              color = c.green;
+            } else if (maglis.remoteYellowWords.contains(w0)) {
+              color = c.warning;
+            } else if (maglis.remoteRedWords.contains(w0)) {
+              color = c.red;
+            } else {
+              color = c.text;
+            }
+          } else {
+            color = MushafActions.resolveWordDisplayColor(
+              ayah: w.ayah,
+              wordIndex: w0,
+              controller: ctrl,
+              app: app,
+              colors: c,
+              surah: w.surah,
+            );
+          }
           if (color == Colors.transparent) {
             hidden.add(w.index);
           } else if (color == c.green) {

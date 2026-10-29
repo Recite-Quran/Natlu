@@ -15,6 +15,8 @@ import 'widgets/mic_bar.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
 import 'widgets/mushaf/mushaf_view.dart';
+import '../maglis/maglis_controller.dart';
+import '../maglis/maglis_entry_dialog.dart';
 
 /// Main interactive screen for real-time recitation tracking and reading.
 /// Powered by the high-performance Mushaf vector layout.
@@ -349,11 +351,14 @@ class _TrackingScreenState extends State<TrackingScreen>
                       app.currentMushafPage,
                       widget.controller.activeAyah,
                       widget.controller,
+                      MaglisController.instance,
                     ]),
                     builder: (context, _) {
                       final effectiveSurah = _effectiveSurah;
                       final surahName =
                           _getSurahName(effectiveSurah, app.isArabic);
+                      final maglis = MaglisController.instance;
+                      final int peerCount = maglis.participantCount;
 
                       return BottomActionBar(
                         key: const ValueKey('unified_dock_bar'),
@@ -396,6 +401,27 @@ class _TrackingScreenState extends State<TrackingScreen>
                         onSettingsTap: () {
                           AppHaptics.lightImpact();
                           _showSettingsDialog();
+                        },
+                        isInMaglis: maglis.inSession,
+                        maglisRoomCode: maglis.roomCode,
+                        maglisPeerCount: peerCount,
+                        isRemoteReciting: maglis.isRemoteReciting,
+                        onMaglisTap: () {
+                          AppHaptics.lightImpact();
+                          MaglisEntryDialog.show(context);
+                        },
+                        onMaglisExitTap: () async {
+                          AppHaptics.heavyImpact();
+                          if (widget.isRecording) {
+                            widget.onToggleRecord();
+                          }
+                          await maglis.leaveSession();
+                          app.showBanner(AppBannerInfo(
+                            id: 'maglis_left',
+                            messageAr: 'تمت مغادرة المجلس بنجاح',
+                            messageEn: 'Left Maglis session',
+                            icon: Icons.exit_to_app_rounded,
+                          ));
                         },
                       );
                     },

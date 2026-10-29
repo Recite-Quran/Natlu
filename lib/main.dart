@@ -35,6 +35,8 @@ import 'ui/widgets/dialogs/theme_selection_dialog.dart';
 import 'ui/widgets/dialogs/permission_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
+import 'maglis/maglis_controller.dart';
+import 'services/app_audio_processor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -175,7 +177,7 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserver {
   final SherpaEngine _engine = SherpaEngine();
-  final AudioProcessor _audio = AudioProcessor();
+  final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
 
   QuranRepository? _repo;
@@ -201,6 +203,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
+
+    MaglisController.instance.onRemoteFloorClaimed = () {
+      if (_isRecording && mounted) {
+        _toggleRecord();
+      }
+    };
 
     // Global subscription for Voice Search text and Endpoint auto-stopping
     _transcriptionSub = _engine.transcriptionStream.listen((res) {
@@ -281,6 +289,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   @override
   void dispose() {
+    MaglisController.instance.onRemoteFloorClaimed = null;
+    _ctrl?.removeListener(_broadcastMaglisProgress);
     WidgetsBinding.instance.removeObserver(this);
     AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
     _transcriptionSub?.cancel();
@@ -326,6 +336,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           // silently discarding the final word's right-context tail every ayah.
         },
       );
+      _ctrl!.addListener(_broadcastMaglisProgress);
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
       try {
@@ -454,6 +465,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         await _audio.stop();
         _engine.resetBuffer();
         _ctrl?.finalize();
+        if (MaglisController.instance.inSession) {
+          unawaited(MaglisController.instance.releaseFloor(
+            page: AppState.instance.currentMushafPage.value,
+            surah: _ctrl?.targetSurah ?? AppState.instance.lastSurah,
+            ayah: _ctrl?.activeAyah.value ?? AppState.instance.lastAyah,
+          ));
+        }
         if (!AppState.instance.isAudioPlaying.value) {
           try { await WakelockPlus.disable(); } catch (_) {}
         }
@@ -483,6 +501,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
             controller: _ctrl!,
           );
           _ctrl!.startRecordingSession();
+          if (MaglisController.instance.inSession) {
+            unawaited(MaglisController.instance.claimFloor(
+              page: AppState.instance.currentMushafPage.value,
+              surah: _ctrl!.targetSurah,
+              ayah: _ctrl!.activeAyah.value ?? 1,
+            ));
+          }
           if (mounted) setState(() => _isRecording = true);
           await _startAudioRecordingStream();
         }
@@ -496,6 +521,55 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     } finally {
       _isToggling = false;
     }
+  }
+
+  void _broadcastMaglisProgress() {
+    final maglis = MaglisController.instance;
+    if (!maglis.isLocalReciting || !_isRecording || _ctrl == null) return;
+
+    final int targetSurah = _ctrl!.targetSurah;
+    final int? activeAyah = _ctrl!.activeAyah.value;
+    if (activeAyah == null) return;
+
+    final int page = AppState.instance.currentMushafPage.value;
+
+    final greenWords = <int>[];
+    final yellowWords = <int>[];
+    final redWords = <int>[];
+    int? activeWord;
+
+    final pageWords =
+        MushafProvider.instance.getCachedPage(page)?.words ?? const [];
+
+    for (final w in pageWords) {
+      if (w.surah == targetSurah && w.ayah == activeAyah) {
+        final w0 = w.word - 1;
+        if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah)) {
+          greenWords.add(w0);
+        } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
+          yellowWords.add(w0);
+        } else if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
+          redWords.add(w0);
+        } else if (activeWord == null &&
+            !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
+          activeWord = w0;
+        }
+      }
+    }
+
+    if (activeWord == null && greenWords.isNotEmpty) {
+      activeWord = greenWords.last + 1;
+    }
+
+    maglis.broadcastRecitation(
+      page: page,
+      surah: targetSurah,
+      ayah: activeAyah,
+      activeWord: activeWord,
+      greenWords: greenWords,
+      yellowWords: yellowWords,
+      redWords: redWords,
+    );
   }
 
   /// Toggles global voice search across the Quran
