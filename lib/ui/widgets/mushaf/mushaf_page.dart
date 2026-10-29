@@ -198,7 +198,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     final app = AppState.instance;
     final int currentPage = app.currentMushafPage.value;
-    final bool isThisPage = (widget.pageNumber == currentPage);
     if (currentPage > 0 && (widget.pageNumber - currentPage).abs() > 1) return;
 
     final ctrl = widget.controller;
@@ -221,26 +220,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: activeMatch.verse.surah, ayah: activeMatch.verse.ayah);
     final bool hasAudioAyah = isAudioActive &&
         provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: audioSurah, ayah: audioAyah);
-
-    // If no active element is on this page and this is not the current page, clear and bail out
-    if (!hasRecitingAyah && !hasMatchedAyah && !hasAudioAyah && !isThisPage) {
-      if (_ayahHighlightHandle != 0 || _wordHighlightHandle != 0) {
-        page.batch(() {
-          if (_ayahHighlightHandle != 0) {
-            page.removeHighlight(_ayahHighlightHandle);
-            _ayahHighlightHandle = 0;
-          }
-          if (_wordHighlightHandle != 0) {
-            page.removeHighlight(_wordHighlightHandle);
-            _wordHighlightHandle = 0;
-          }
-          _lastActiveAyah = null;
-          _lastActiveWord = null;
-          _lastIsDark = null;
-        });
-      }
-      return;
-    }
 
     page.batch(() {
       final c = app.colors;
@@ -453,10 +432,42 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _onWordTap(BuildContext context, QvpPage page, int wordIndex) {
     if (wordIndex < 0 || wordIndex >= page.words.length) return;
-    final w = page.words[wordIndex];
-    final surah = w.surah;
-    final ayah = w.ayah;
-    final wordIndex0 = w.word - 1;
+    int effectiveIndex = wordIndex;
+    var w = page.words[effectiveIndex];
+    var surah = w.surah;
+    var ayah = w.ayah;
+    var wordIndex0 = w.word - 1;
+
+    // Smart yellow word magnetism:
+    // If the hit word is not yellow, check if an immediately adjacent neighbor on the same line is yellow.
+    // Small Arabic words often result in touch points landing on the neighboring word or gap.
+    if (!widget.controller.isWordYellow(ayah, wordIndex0, surah: surah)) {
+      if (effectiveIndex > 0 &&
+          page.words[effectiveIndex - 1].line == w.line &&
+          widget.controller.isWordYellow(
+            page.words[effectiveIndex - 1].ayah,
+            page.words[effectiveIndex - 1].word - 1,
+            surah: page.words[effectiveIndex - 1].surah,
+          )) {
+        effectiveIndex = effectiveIndex - 1;
+        w = page.words[effectiveIndex];
+        surah = w.surah;
+        ayah = w.ayah;
+        wordIndex0 = w.word - 1;
+      } else if (effectiveIndex + 1 < page.words.length &&
+          page.words[effectiveIndex + 1].line == w.line &&
+          widget.controller.isWordYellow(
+            page.words[effectiveIndex + 1].ayah,
+            page.words[effectiveIndex + 1].word - 1,
+            surah: page.words[effectiveIndex + 1].surah,
+          )) {
+        effectiveIndex = effectiveIndex + 1;
+        w = page.words[effectiveIndex];
+        surah = w.surah;
+        ayah = w.ayah;
+        wordIndex0 = w.word - 1;
+      }
+    }
 
     if (widget.controller.isWordYellow(ayah, wordIndex0, surah: surah)) {
       MushafActions.handleWordTap(
@@ -561,6 +572,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               fillHeight: true,
               surahFrames: false,
             ),
+            hitMaxDistance: 28.0,
             paper: null,
             paperShadow: false,
             defaultInk: c.text,

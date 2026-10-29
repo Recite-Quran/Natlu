@@ -52,8 +52,10 @@ class BottomActionBar extends StatelessWidget {
           final double maxW = constraints.maxWidth;
           final bool isNarrow = maxW < 360.0;
 
-          final double recBtnSize = isNarrow ? 40.0 : 44.0;
+          final double recBtnSize = isNarrow ? 56.0 : 62.0;
           final double btnSize = isNarrow ? 34.0 : 38.0;
+          final double settingsBtnSize = isNarrow ? 26.0 : 30.0;
+          final double settingsIconSize = isNarrow ? 14.0 : 16.0;
           final double iconSize = isNarrow ? 17.0 : 19.0;
           final double gap = isNarrow ? 4.0 : 6.0;
           const double padH = 8.0;
@@ -75,94 +77,121 @@ class BottomActionBar extends StatelessWidget {
               : Colors.black.withValues(alpha: 0.08);
 
           return Padding(
-            padding: EdgeInsets.only(bottom: 14.0, right: rightMargin, left: 12.0),
+            padding: EdgeInsets.only(bottom: 11.0, right: rightMargin, left: 12.0),
             child: Align(
               alignment: Alignment.bottomRight,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOutCubic,
+              child: SizedBox(
                 width: targetDockWidth,
-                height: dockHeight,
-                padding: const EdgeInsets.symmetric(horizontal: padH, vertical: 6.0),
-                decoration: BoxDecoration(
-                  color: dockBg,
-                  borderRadius: BorderRadius.circular(22.0),
-                  border: Border.all(color: dockBorder, width: 1.0),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: OverflowBox(
-                  minWidth: fullContentWidth,
-                  maxWidth: fullContentWidth,
+                height: recBtnSize,
+                child: Stack(
+                  clipBehavior: Clip.none,
                   alignment: Alignment.centerRight,
-                  child: SizedBox(
-                    width: fullContentWidth,
-                    child: Directionality(
-                      textDirection: TextDirection.rtl,
-                      child: Row(
-                        children: [
-                          // 1. Hero Record Button (Persistent Rightmost)
-                          _buildRecButton(isDark, isNarrow, recBtnSize),
-                          SizedBox(width: gap),
-
-                          // 2. Hide Verses Button (Persistent)
-                          _buildButton(
-                            icon: isBlur ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                            tooltip: isAr ? 'إخفاء الآيات للتسميع' : 'Hide Verses for Memorization',
-                            isActive: isBlur,
-                            isDark: isDark,
-                            size: btnSize,
-                            iconSize: iconSize,
-                            onTap: onToggleBlur,
-                          ),
-
-                          // 3. Collapsible Left Actions (Collapses Smoothly Left-to-Right)
-                          Expanded(
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 180),
-                              opacity: isRecording ? 0.0 : 1.0,
+                  children: [
+                    // 1. Dock Pillar Container (stays strictly at dockHeight = 56.0, bottom: 3.0)
+                    Positioned(
+                      bottom: 3.0,
+                      right: 0,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOutCubic,
+                        width: targetDockWidth,
+                        height: dockHeight,
+                        padding: const EdgeInsets.symmetric(horizontal: padH, vertical: 6.0),
+                        decoration: BoxDecoration(
+                          color: dockBg,
+                          borderRadius: BorderRadius.circular(22.0),
+                          border: Border.all(color: dockBorder, width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: OverflowBox(
+                          minWidth: fullContentWidth,
+                          maxWidth: fullContentWidth,
+                          alignment: Alignment.centerRight,
+                          child: SizedBox(
+                            width: fullContentWidth,
+                            child: Directionality(
+                              textDirection: TextDirection.rtl,
                               child: Row(
                                 children: [
+                                  // Transparent horizontal slot reserved for the Hero Record Orb
+                                  SizedBox(width: recBtnSize),
                                   SizedBox(width: gap),
+
+                                  // 2. Hide Verses Button (Persistent)
                                   _buildButton(
-                                    icon: isTajweed
-                                        ? Icons.record_voice_over_rounded
-                                        : Icons.record_voice_over_outlined,
-                                    tooltip: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
-                                    isActive: isTajweed,
+                                    icon: isBlur ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                                    tooltip: isAr ? 'إخفاء الآيات للتسميع' : 'Hide Verses for Memorization',
+                                    isActive: isBlur,
                                     isDark: isDark,
                                     size: btnSize,
                                     iconSize: iconSize,
-                                    onTap: onToggleTajweed,
+                                    onTap: onToggleBlur,
                                   ),
-                                  SizedBox(width: gap),
+
+                                  // 3. Collapsible Left Actions
                                   Expanded(
-                                    child: _buildSurahSelector(isDark, isAr, isNarrow, btnSize),
-                                  ),
-                                  SizedBox(width: gap),
-                                  _buildButton(
-                                    icon: Icons.tune_rounded,
-                                    tooltip: isAr ? 'الإعدادات' : 'Settings',
-                                    isActive: false,
-                                    isDark: isDark,
-                                    size: btnSize,
-                                    iconSize: iconSize,
-                                    onTap: onSettingsTap,
+                                    child: ClipRect(
+                                      child: AnimatedOpacity(
+                                        duration: const Duration(milliseconds: 180),
+                                        opacity: isRecording ? 0.0 : 1.0,
+                                        child: Row(
+                                          children: [
+                                            SizedBox(width: gap),
+                                            _buildButton(
+                                              icon: isTajweed
+                                                  ? Icons.record_voice_over_rounded
+                                                  : Icons.record_voice_over_outlined,
+                                              tooltip: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
+                                              isActive: isTajweed,
+                                              isDark: isDark,
+                                              size: btnSize,
+                                              iconSize: iconSize,
+                                              onTap: onToggleTajweed,
+                                            ),
+                                            SizedBox(width: gap),
+                                            Expanded(
+                                              child: _buildSurahSelector(isDark, isAr, isNarrow, btnSize),
+                                            ),
+                                            SizedBox(width: gap),
+                                            _buildButton(
+                                              icon: Icons.tune_rounded,
+                                              tooltip: isAr ? 'الإعدادات' : 'Settings',
+                                              isActive: false,
+                                              isDark: isDark,
+                                              size: settingsBtnSize,
+                                              iconSize: settingsIconSize,
+                                              onTap: onSettingsTap,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+
+                    // 2. Elevated Circular Hero Record Orb (Geometrically perfect, protruding floating action)
+                    Positioned(
+                      bottom: 0,
+                      right: padH,
+                      child: _buildRecButton(
+                        isDark: isDark,
+                        isNarrow: isNarrow,
+                        size: recBtnSize,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -172,42 +201,87 @@ class BottomActionBar extends StatelessWidget {
     );
   }
 
-  /// Hero Record Button with dynamic audio equalizer waveform
-  Widget _buildRecButton(bool isDark, bool isNarrow, double size) {
+  /// Modern Circular Hero Record Orb with multi-stop gradient, specular highlight, and neon aura
+  Widget _buildRecButton({
+    required bool isDark,
+    required bool isNarrow,
+    required double size,
+  }) {
     final colors = isRecording
-        ? const [Color(0xFFFB7185), Color(0xFFE11D48), Color(0xFF9F1239)]
-        : const [Color(0xFF10B981), Color(0xFF059669), Color(0xFF047857)];
+        ? const [Color(0xFFFB7185), Color(0xFFE11D48), Color(0xFF881337)]
+        : const [Color(0xFF34D399), Color(0xFF059669), Color(0xFF065F46)];
 
     return _TapScale(
-      onTap: () {
+      onTapDown: () {
         AppHaptics.heavyImpact();
-        onMic();
       },
+      onTap: onMic,
       child: Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
-          borderRadius: BorderRadius.circular(isNarrow ? 13.0 : 15.0),
-          border: Border.all(color: Colors.white.withValues(alpha: isDark ? 0.40 : 0.50), width: 1.1),
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            colors: colors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: isDark ? 0.50 : 0.65),
+            width: 1.5,
+          ),
           boxShadow: [
             BoxShadow(
-              color: colors[1].withValues(alpha: isDark ? 0.45 : 0.30),
-              blurRadius: isRecording ? 16 : 12,
-              offset: const Offset(0, 3),
+              color: colors[1].withValues(alpha: isDark ? 0.50 : 0.35),
+              blurRadius: isRecording ? 20 : 14,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.12),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        alignment: Alignment.center,
-        child: isLoadingEngine
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
-              )
-            : (isRecording
-                ? const _AudioWaveform()
-                : Icon(Icons.mic_rounded, color: Colors.white, size: isNarrow ? 20.0 : 23.0)),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Top-left radial specular shine for 3D glass orb finish
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.35, -0.45),
+                    radius: 0.65,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.35),
+                      Colors.white.withValues(alpha: 0.0),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Center Action Icon / Audio Waveform
+            Center(
+              child: isLoadingEngine
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : (isRecording
+                      ? const _AudioWaveform()
+                      : Icon(
+                          Icons.mic_rounded,
+                          color: Colors.white,
+                          size: isNarrow ? 25.0 : 28.0,
+                        )),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -228,17 +302,17 @@ class BottomActionBar extends StatelessWidget {
       message: tooltip,
       waitDuration: const Duration(milliseconds: 350),
       child: _TapScale(
-        onTap: () {
+        onTapDown: () {
           AppHaptics.lightImpact();
-          onTap();
         },
+        onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           width: size,
           height: size,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(13.0),
+            borderRadius: BorderRadius.circular(size * 0.34),
             // Green overlay on the button itself when active
             color: isActive
                 ? greenAccent.withValues(alpha: isDark ? 0.20 : 0.14)
@@ -432,7 +506,8 @@ class _SmoothWaveformPainter extends CustomPainter {
 class _TapScale extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
-  const _TapScale({required this.child, required this.onTap});
+  final VoidCallback? onTapDown;
+  const _TapScale({required this.child, required this.onTap, this.onTapDown});
 
   @override
   State<_TapScale> createState() => _TapScaleState();
@@ -444,13 +519,16 @@ class _TapScaleState extends State<_TapScale> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _down = true),
+      onTapDown: (_) {
+        widget.onTapDown?.call();
+        setState(() => _down = true);
+      },
       onTapUp: (_) => setState(() => _down = false),
       onTapCancel: () => setState(() => _down = false),
       onTap: widget.onTap,
       behavior: HitTestBehavior.opaque,
       child: AnimatedScale(
-        scale: _down ? 0.92 : 1.0,
+        scale: _down ? 0.93 : 1.0,
         duration: const Duration(milliseconds: 100),
         curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
         child: widget.child,
