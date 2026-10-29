@@ -54,6 +54,20 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
 
+  Map<int, List<int>> _ayahWordMap = {};
+  int _lastIndexedPage = -1;
+
+  void _ensurePageWordsIndexed(QvpPage page) {
+    if (_lastIndexedPage == widget.pageNumber && _ayahWordMap.isNotEmpty) return;
+    final map = <int, List<int>>{};
+    for (final w in page.words) {
+      final key = (w.surah << 16) | w.ayah;
+      map.putIfAbsent(key, () => []).add(w.index);
+    }
+    _ayahWordMap = map;
+    _lastIndexedPage = widget.pageNumber;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -94,6 +108,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _lastActiveAyah = null;
       _lastActiveWord = null;
       _lastIsDark = null;
+      _lastIndexedPage = -1;
+      _ayahWordMap.clear();
       _lastGreenWords = const [];
       _lastYellowWords = const [];
       _lastRedWords = const [];
@@ -232,6 +248,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final bool hasAudioAyah = isAudioActive &&
         provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: audioSurah, ayah: audioAyah);
 
+    // Fast early exit: if this is an adjacent pre-cached page and not the reciter's page,
+    // and has no stale cursors to clear, exit immediately with zero allocations.
+    if (widget.pageNumber != currentPage &&
+        !hasMaglisAyah &&
+        !hasRecitingAyah &&
+        !hasAudioAyah &&
+        !hasMatchedAyah &&
+        _lastActiveAyah == null &&
+        _lastActiveWord == null &&
+        _lastIsDark == app.isDarkMode) {
+      return;
+    }
+
     page.batch(() {
       final c = app.colors;
       final isDark = app.isDarkMode;
@@ -335,13 +364,25 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
       // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
       final bool hasRemoteReciterOnPage = isMaglisRemote && hasMaglisAyah;
-      final bool needsWordEvaluation = widget.isRecording ||
-          hasRemoteReciterOnPage ||
-          app.isBlurMode ||
-          _lastGreenWords.isNotEmpty ||
-          _lastYellowWords.isNotEmpty ||
-          _lastRedWords.isNotEmpty ||
-          _lastHiddenWords.isNotEmpty;
+
+      // Smart guard: If remote user is reciting on another page and local device is not recording,
+      // words on this page have not changed. Skip scanning all words on this page.
+      final bool skipRemoteWordScan = isMaglisRemote &&
+          !hasRemoteReciterOnPage &&
+          !widget.isRecording &&
+          !isAudioActive &&
+          !app.isBlurMode &&
+          !themeChanged;
+
+      final bool needsWordEvaluation = !skipRemoteWordScan &&
+          (widget.isRecording ||
+              hasRemoteReciterOnPage ||
+              app.isBlurMode ||
+              themeChanged ||
+              _lastGreenWords.isNotEmpty ||
+              _lastYellowWords.isNotEmpty ||
+              _lastRedWords.isNotEmpty ||
+              _lastHiddenWords.isNotEmpty);
 
       if (needsWordEvaluation) {
         final green = <int>[];
@@ -349,55 +390,92 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         final red = <int>[];
         final hidden = <int>[];
 
-        for (final w in page.words) {
-          final w0 = w.word - 1;
-          Color color;
-          final int? maglisColor =
-              MaglisController.instance.getWordHighlight(w.surah, w.ayah, w0);
-          if (maglisColor != null) {
-            if (maglisColor == 1) {
-              color = c.green;
-            } else if (maglisColor == 2) {
-              color = c.warning;
-            } else if (maglisColor == 3) {
-              color = c.red;
-            } else {
-              color = c.text;
+        _ensurePageWordsIndexed(page);
+
+        // Fast O(1) Path for Maglis remote recitation: direct Ayah mapping with zero scanning
+        if (isMaglisRemote && hasRemoteReciterOnPage && !widget.isRecording && !app.isBlurMode) {
+          final int activeAyahKey = (maglisSurah << 16) | maglisAyah;
+          final bool hasCumulative = maglis.hasCumulativeHighlights;
+
+          _ayahWordMap.forEach((ayahKey, wordIndices) {
+            final int s = (ayahKey >> 16) & 0xFFFF;
+            final int a = ayahKey & 0xFFFF;
+
+            if (ayahKey == activeAyahKey) {
+              // Direct O(1) array mapping for live reciting Ayah words
+              for (final w0 in maglis.remoteGreenWords) {
+                if (w0 < wordIndices.length) green.add(wordIndices[w0]);
+              }
+              for (final w0 in maglis.remoteYellowWords) {
+                if (w0 < wordIndices.length) yellow.add(wordIndices[w0]);
+              }
+              for (final w0 in maglis.remoteRedWords) {
+                if (w0 < wordIndices.length) red.add(wordIndices[w0]);
+              }
+            } else if (hasCumulative) {
+              // Non-active Ayahs: direct lookup from cumulative highlights without controller overhead
+              for (int w0 = 0; w0 < wordIndices.length; w0++) {
+                final int? h = maglis.getWordHighlight(s, a, w0);
+                if (h == 1) {
+                  green.add(wordIndices[w0]);
+                } else if (h == 2) {
+                  yellow.add(wordIndices[w0]);
+                } else if (h == 3) {
+                  red.add(wordIndices[w0]);
+                }
+              }
             }
-          } else if (isMaglisRemote &&
-              w.surah == maglisSurah &&
-              w.ayah == maglisAyah) {
-            if (maglis.remoteGreenWords.contains(w0)) {
-              color = c.green;
-            } else if (maglis.remoteYellowWords.contains(w0)) {
-              color = c.warning;
-            } else if (maglis.remoteRedWords.contains(w0)) {
-              color = c.red;
+          });
+        } else {
+          // Standard full-page evaluation for local recording / blur mode / theme changes
+          final bool hasCumulative = maglis.hasCumulativeHighlights;
+
+          for (final w in page.words) {
+            final w0 = w.word - 1;
+            Color color;
+            final int? maglisColor = hasCumulative
+                ? maglis.getWordHighlight(w.surah, w.ayah, w0)
+                : null;
+            if (maglisColor != null) {
+              if (maglisColor == 1) {
+                color = c.green;
+              } else if (maglisColor == 2) {
+                color = c.warning;
+              } else if (maglisColor == 3) {
+                color = c.red;
+              } else {
+                color = c.text;
+              }
             } else {
-              color = c.text;
+              color = MushafActions.resolveWordDisplayColor(
+                ayah: w.ayah,
+                wordIndex: w0,
+                controller: ctrl,
+                app: app,
+                colors: c,
+                surah: w.surah,
+              );
             }
-          } else {
-            color = MushafActions.resolveWordDisplayColor(
-              ayah: w.ayah,
-              wordIndex: w0,
-              controller: ctrl,
-              app: app,
-              colors: c,
-              surah: w.surah,
-            );
-          }
-          if (color == Colors.transparent) {
-            hidden.add(w.index);
-          } else if (color == c.green) {
-            green.add(w.index);
-          } else if (color == c.warning) {
-            yellow.add(w.index);
-          } else if (color == c.red) {
-            red.add(w.index);
+            if (color == Colors.transparent) {
+              hidden.add(w.index);
+            } else if (color == c.green) {
+              green.add(w.index);
+            } else if (color == c.warning) {
+              yellow.add(w.index);
+            } else if (color == c.red) {
+              red.add(w.index);
+            }
           }
         }
 
-        if (!listEquals(green, _lastGreenWords) || themeChanged) {
+        bool listsDiffer(List<int> a, List<int> b) {
+          if (a.length != b.length) return true;
+          if (a.isEmpty) return false;
+          if (a.first != b.first || a.last != b.last) return true;
+          return !listEquals(a, b);
+        }
+
+        if (themeChanged || listsDiffer(green, _lastGreenWords)) {
           _lastGreenWords = green;
           _updateHighlightGroup(
             page,
@@ -408,7 +486,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           );
         }
 
-        if (!listEquals(yellow, _lastYellowWords) || themeChanged) {
+        if (themeChanged || listsDiffer(yellow, _lastYellowWords)) {
           _lastYellowWords = yellow;
           _updateHighlightGroup(
             page,
@@ -419,7 +497,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           );
         }
 
-        if (!listEquals(red, _lastRedWords) || themeChanged) {
+        if (themeChanged || listsDiffer(red, _lastRedWords)) {
           _lastRedWords = red;
           _updateHighlightGroup(
             page,

@@ -36,6 +36,7 @@ import 'ui/widgets/dialogs/permission_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
+import 'services/app_audio_processor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -176,7 +177,7 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserver {
   final SherpaEngine _engine = SherpaEngine();
-  final AudioProcessor _audio = AudioProcessor();
+  final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
 
   QuranRepository? _repo;
@@ -289,7 +290,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   @override
   void dispose() {
     MaglisController.instance.onRemoteFloorClaimed = null;
-    _ctrl?.removeListener(_broadcastMaglisProgress);
+    _maglisBroadcastThrottle?.cancel();
+    _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
     WidgetsBinding.instance.removeObserver(this);
     AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
     _transcriptionSub?.cancel();
@@ -335,7 +337,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           // silently discarding the final word's right-context tail every ayah.
         },
       );
-      _ctrl!.addListener(_broadcastMaglisProgress);
+      _ctrl!.addListener(_throttledBroadcastMaglisProgress);
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
       try {
@@ -461,6 +463,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     try {
       if (_isRecording) {
+        _maglisBroadcastThrottle?.cancel();
         await _audio.stop();
         _engine.resetBuffer();
         _ctrl?.finalize();
@@ -522,6 +525,16 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     }
   }
 
+  Timer? _maglisBroadcastThrottle;
+
+  void _throttledBroadcastMaglisProgress() {
+    if (!MaglisController.instance.isLocalReciting || !_isRecording) return;
+    if (_maglisBroadcastThrottle?.isActive ?? false) return;
+    _maglisBroadcastThrottle = Timer(const Duration(milliseconds: 70), () {
+      _broadcastMaglisProgress();
+    });
+  }
+
   void _broadcastMaglisProgress() {
     final maglis = MaglisController.instance;
     if (!maglis.isLocalReciting || !_isRecording || _ctrl == null) return;
@@ -540,8 +553,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final pageWords =
         MushafProvider.instance.getCachedPage(page)?.words ?? const [];
 
+    bool foundAyah = false;
     for (final w in pageWords) {
       if (w.surah == targetSurah && w.ayah == activeAyah) {
+        foundAyah = true;
         final w0 = w.word - 1;
         if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah)) {
           greenWords.add(w0);
@@ -553,6 +568,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
             !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
           activeWord = w0;
         }
+      } else if (foundAyah) {
+        break; // Mushaf page words are sequential: break early once finished with target ayah
       }
     }
 

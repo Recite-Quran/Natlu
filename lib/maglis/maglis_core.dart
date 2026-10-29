@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -179,18 +180,25 @@ class MaglisCrypto {
     }
   }
 
+  static final Map<String, String> _pubKeyCache = {};
+
+  static String getPublicKey(String privHex) {
+    return _pubKeyCache.putIfAbsent(privHex, () => bip340.getPublicKey(privHex));
+  }
+
   static String signNostrEvent({
     required String privHex,
+    String? pubHex,
     required String tag,
     required String content,
   }) {
-    final pubHex = bip340.getPublicKey(privHex);
+    final pub = pubHex ?? getPublicKey(privHex);
     final createdAt = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     const kind = 20000; // Ephemeral Nostr Event
     final tags = <List<String>>[
       ['t', tag],
     ];
-    final serialized = jsonEncode([0, pubHex, createdAt, kind, tags, content]);
+    final serialized = jsonEncode([0, pub, createdAt, kind, tags, content]);
     final idHex = sha256.convert(utf8.encode(serialized)).toString();
     final sigHex = bip340.sign(privHex, idHex, randomHex32());
 
@@ -198,7 +206,7 @@ class MaglisCrypto {
       'EVENT',
       {
         'id': idHex,
-        'pubkey': pubHex,
+        'pubkey': pub,
         'created_at': createdAt,
         'kind': kind,
         'tags': tags,
@@ -207,9 +215,53 @@ class MaglisCrypto {
       }
     ]);
   }
+
+  /// Asynchronously signs Nostr event in background isolate so UI thread never drops frames
+  static Future<String> signNostrEventAsync({
+    required String privHex,
+    String? pubHex,
+    required String tag,
+    required String content,
+  }) {
+    return compute(
+      _signNostrEventWorker,
+      _NostrSignParams(
+        privHex: privHex,
+        pubHex: pubHex,
+        tag: tag,
+        content: content,
+      ),
+    );
+  }
+}
+
+class _NostrSignParams {
+  final String privHex;
+  final String? pubHex;
+  final String tag;
+  final String content;
+
+  const _NostrSignParams({
+    required this.privHex,
+    this.pubHex,
+    required this.tag,
+    required this.content,
+  });
+}
+
+String _signNostrEventWorker(_NostrSignParams p) {
+  return MaglisCrypto.signNostrEvent(
+    privHex: p.privHex,
+    pubHex: p.pubHex,
+    tag: p.tag,
+    content: p.content,
+  );
 }
 
 class MaglisPlatform {
+  static StreamSubscription? _deviceChangeSub;
+  static StreamSubscription? _interruptionSub;
+
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return true;
     try {
@@ -247,11 +299,27 @@ class MaglisPlatform {
               contentType: AndroidAudioContentType.speech,
               usage: AndroidAudioUsage.voiceCommunication,
             ),
-            androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransient,
+            androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
             androidWillPauseWhenDucked: false,
           ),
         );
         await session.setActive(true);
+
+        // Auto-switch to bluetooth or speakerphone when devices are plugged or unplugged
+        _deviceChangeSub?.cancel();
+        _deviceChangeSub = session.devicesChangedEventStream.listen((_) {
+          setSpeaker(true);
+        });
+
+        // Recover audio route if interrupted by incoming phone call or system alarm
+        _interruptionSub?.cancel();
+        _interruptionSub = session.interruptionEventStream.listen((event) {
+          if (!event.begin) {
+            session.setActive(true).then((_) {
+              setSpeaker(true);
+            }).catchError((_) {});
+          }
+        });
       }
 
       // 3. Configure platform audio routing for voice communication (WhatsApp-grade loud speakerphone)
@@ -259,7 +327,6 @@ class MaglisPlatform {
         await Helper.setAndroidAudioConfiguration(
           AndroidAudioConfiguration.communication,
         );
-        await Helper.setSpeakerphoneOn(true);
         await Helper.setSpeakerphoneOnButPreferBluetooth();
       } else if (Platform.isIOS) {
         await Helper.setAppleAudioConfiguration(
@@ -273,7 +340,6 @@ class MaglisPlatform {
             },
           ),
         );
-        await Helper.setSpeakerphoneOn(true);
         await Helper.setSpeakerphoneOnButPreferBluetooth();
       }
     } catch (e) {
@@ -298,6 +364,11 @@ class MaglisPlatform {
   static Future<void> resetAudio() async {
     if (kIsWeb) return;
     try {
+      _deviceChangeSub?.cancel();
+      _deviceChangeSub = null;
+      _interruptionSub?.cancel();
+      _interruptionSub = null;
+
       if (Platform.isAndroid) {
         await Helper.setAndroidAudioConfiguration(
           AndroidAudioConfiguration.media,

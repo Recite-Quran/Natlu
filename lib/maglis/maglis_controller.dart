@@ -45,6 +45,7 @@ class MaglisController extends ChangeNotifier {
 
   Map<String, RTCIceConnectionState> _peers = {};
   final Set<String> _connectedPeers = <String>{};
+  final Map<String, Timer> _peerDisconnectTimers = {};
 
   final ChangeNotifier _sessionNotifier = ChangeNotifier();
   Listenable get sessionListenable => _sessionNotifier;
@@ -63,23 +64,28 @@ class MaglisController extends ChangeNotifier {
   int? getWordHighlight(int surah, int ayah, int word0) =>
       _cumulativeHighlights[wordKey(surah, ayah, word0)];
 
+  bool get hasCumulativeHighlights => _cumulativeHighlights.isNotEmpty;
+
   void _onPeerJoined(String peerId) {
     if (_connectedPeers.add(peerId)) {
       AppState.instance.showMaglisPeerJoinedBanner();
       _notifySessionChanged();
-      notifyListeners();
     }
   }
 
   void _onPeerLeft(String peerId) {
+    bool reciterLeft = false;
     if (_activeReciterId == peerId) {
       _activeReciterId = null;
       _remoteWord = null;
+      reciterLeft = true;
     }
     if (_connectedPeers.remove(peerId)) {
       AppState.instance.showMaglisPeerLeftBanner();
       _notifySessionChanged();
-      notifyListeners();
+      if (reciterLeft) {
+        notifyListeners();
+      }
     }
   }
 
@@ -135,6 +141,7 @@ class MaglisController extends ChangeNotifier {
 
     _pktSub = _net!.onPacket.listen(_handleIncomingPacket);
     _stateSub = _net!.onPeerStates.listen((map) {
+      bool peersChanged = false;
       final currentConnected = map.entries
           .where((e) =>
               e.value == RTCIceConnectionState.RTCIceConnectionStateConnected ||
@@ -143,31 +150,57 @@ class MaglisController extends ChangeNotifier {
           .toSet();
 
       for (final peerId in currentConnected) {
+        _peerDisconnectTimers.remove(peerId)?.cancel();
         if (!_connectedPeers.contains(peerId)) {
           _onPeerJoined(peerId);
+          peersChanged = true;
         }
       }
 
       for (final peerId in _connectedPeers.toList()) {
-        if (!map.containsKey(peerId) ||
-            map[peerId] == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-            map[peerId] == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-            map[peerId] == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+        final state = map[peerId];
+        final bool isExplicitlyGone = !map.containsKey(peerId) ||
+            state == RTCIceConnectionState.RTCIceConnectionStateClosed;
+        final bool isUnstable =
+            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+            state == RTCIceConnectionState.RTCIceConnectionStateFailed;
+
+        if (isExplicitlyGone) {
+          _peerDisconnectTimers.remove(peerId)?.cancel();
           _onPeerLeft(peerId);
+          peersChanged = true;
+        } else if (isUnstable) {
+          if (!_peerDisconnectTimers.containsKey(peerId)) {
+            // Give a 5-second grace period for ICE to recover or renegotiate
+            // before considering the peer departed. Eliminates banner/state flapping!
+            _peerDisconnectTimers[peerId] =
+                Timer(const Duration(seconds: 5), () {
+              _peerDisconnectTimers.remove(peerId);
+              if (_connectedPeers.contains(peerId)) {
+                _onPeerLeft(peerId);
+                _notifySessionChanged();
+              }
+            });
+          }
         }
       }
 
       _peers = map;
-      notifyListeners();
+      if (peersChanged) {
+        _notifySessionChanged();
+      }
     });
     _natSub = _net!.onNatFailure.listen((peerId) {
-      _natFailedPeer = peerId;
-      notifyListeners();
+      if (_natFailedPeer != peerId) {
+        _natFailedPeer = peerId;
+        _notifySessionChanged();
+      }
     });
     _participantSub = _net!.onParticipantCount.listen((count) {
-      _participantCount = count;
-      _notifySessionChanged();
-      notifyListeners();
+      if (_participantCount != count) {
+        _participantCount = count;
+        _notifySessionChanged();
+      }
     });
     _participantCount = _net!.participantCount;
 
@@ -181,10 +214,7 @@ class MaglisController extends ChangeNotifier {
   MaglisPacket _buildSnapshot() {
     final stringMap = <String, int>{};
     _cumulativeHighlights.forEach((k, v) {
-      final s = (k >> 20) & 0xFFF;
-      final a = (k >> 8) & 0xFFF;
-      final w = k & 0xFF;
-      stringMap['${s}_${a}_$w'] = v;
+      stringMap[k.toRadixString(16)] = v;
     });
 
     return MaglisPacket(
@@ -209,16 +239,21 @@ class MaglisController extends ChangeNotifier {
       _onPeerJoined(pkt.senderId);
     }
 
-    // Merge cumulative and live words into persistent room highlights with zero string allocation
+    // Merge cumulative and live words into persistent room highlights with fast radix decoding
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
       pkt.cumulative!.forEach((k, v) {
-        final parts = k.split('_');
-        if (parts.length == 3) {
-          final s = int.tryParse(parts[0]);
-          final a = int.tryParse(parts[1]);
-          final w = int.tryParse(parts[2]);
-          if (s != null && a != null && w != null) {
-            _cumulativeHighlights[wordKey(s, a, w)] = v;
+        final parsed = int.tryParse(k, radix: 16);
+        if (parsed != null) {
+          _cumulativeHighlights[parsed] = v;
+        } else if (k.contains('_')) {
+          final parts = k.split('_');
+          if (parts.length == 3) {
+            final s = int.tryParse(parts[0]);
+            final a = int.tryParse(parts[1]);
+            final w = int.tryParse(parts[2]);
+            if (s != null && a != null && w != null) {
+              _cumulativeHighlights[wordKey(s, a, w)] = v;
+            }
           }
         }
       });
@@ -231,6 +266,11 @@ class MaglisController extends ChangeNotifier {
     }
     for (final w in pkt.redWords) {
       _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 3;
+    }
+
+    if (isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
+      // Local reciter drives their own UI from local engine. Do not let incoming packets stutter local screen.
+      return;
     }
 
     switch (pkt.type) {
@@ -250,6 +290,7 @@ class MaglisController extends ChangeNotifier {
           onRemoteFloorClaimed?.call();
         }
         _notifySessionChanged();
+        notifyListeners();
         onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         break;
 
@@ -258,10 +299,34 @@ class MaglisController extends ChangeNotifier {
           _activeReciterId = null;
           _remoteWord = null;
           _notifySessionChanged();
+          notifyListeners();
         }
         break;
 
       case MaglisPacketType.recitationUpdate:
+        final bool pageChanged = _remotePage != pkt.page;
+        final bool posChanged = pageChanged ||
+            _remoteSurah != pkt.surah ||
+            _remoteAyah != pkt.ayah ||
+            _remoteWord != pkt.activeWord;
+
+        bool wordsMatch(List<int> a, List<int> b) {
+          if (identical(a, b)) return true;
+          if (a.length != b.length) return false;
+          if (a.isEmpty) return true;
+          if (a.first != b.first || a.last != b.last) return false;
+          return listEquals(a, b);
+        }
+
+        final bool wordsChanged =
+            !wordsMatch(_remoteGreenWords, pkt.greenWords) ||
+            !wordsMatch(_remoteYellowWords, pkt.yellowWords) ||
+            !wordsMatch(_remoteRedWords, pkt.redWords);
+
+        if (!posChanged && !wordsChanged && _activeReciterId == pkt.senderId) {
+          return;
+        }
+
         _activeReciterId = pkt.senderId;
         _remotePage = pkt.page;
         _remoteSurah = pkt.surah;
@@ -271,7 +336,10 @@ class MaglisController extends ChangeNotifier {
         _remoteYellowWords = pkt.yellowWords;
         _remoteRedWords = pkt.redWords;
 
-        onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
+        notifyListeners();
+        if (pageChanged) {
+          onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
+        }
         break;
 
       case MaglisPacketType.snapshot:
@@ -285,7 +353,10 @@ class MaglisController extends ChangeNotifier {
           _remoteYellowWords = pkt.yellowWords;
           _remoteRedWords = pkt.redWords;
           _notifySessionChanged();
+          notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
+        } else if (_cumulativeHighlights.isNotEmpty) {
+          notifyListeners();
         }
         break;
 
@@ -293,7 +364,6 @@ class MaglisController extends ChangeNotifier {
       case MaglisPacketType.pong:
         return;
     }
-    notifyListeners();
   }
 
   /// Called when the local user presses Record to start reciting
@@ -447,6 +517,10 @@ class MaglisController extends ChangeNotifier {
     _lastGreenCount = -1;
     _lastYellowCount = -1;
     _lastRedCount = -1;
+    for (final t in _peerDisconnectTimers.values) {
+      t.cancel();
+    }
+    _peerDisconnectTimers.clear();
     await MaglisPlatform.resetAudio();
     _notifySessionChanged();
     notifyListeners();

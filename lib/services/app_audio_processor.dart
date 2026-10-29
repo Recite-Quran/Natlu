@@ -47,17 +47,11 @@ class AppAudioProcessor {
       autoGain: false,
       echoCancel: false,
       noiseSuppress: false,
-      androidConfig: inMaglis
-          ? const AndroidRecordConfig(
-              audioSource: AndroidAudioSource.voiceCommunication,
-              audioManagerMode: AudioManagerMode.modeInCommunication,
-              manageBluetooth: false,
-            )
-          : const AndroidRecordConfig(
-              audioSource: AndroidAudioSource.mic,
-              audioManagerMode: AudioManagerMode.modeNormal,
-              manageBluetooth: true,
-            ),
+      androidConfig: AndroidRecordConfig(
+        audioSource: AndroidAudioSource.mic,
+        audioManagerMode: AudioManagerMode.modeNormal,
+        manageBluetooth: !inMaglis,
+      ),
     );
 
     final recordStream = await _recorder!.startStream(config);

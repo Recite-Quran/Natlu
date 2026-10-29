@@ -5,6 +5,8 @@ import '../services/app_haptics.dart';
 import '../state/app_state.dart';
 import 'maglis_controller.dart';
 
+/// Ultra-lightweight, high-performance modal for creating or joining a Maglis session.
+/// Operates with zero UI-thread blocking: dismisses immediately and connects asynchronously.
 class MaglisEntryDialog extends StatefulWidget {
   final int initialTab;
   const MaglisEntryDialog({super.key, this.initialTab = 0});
@@ -16,9 +18,9 @@ class MaglisEntryDialog extends StatefulWidget {
         context: context,
         builder: (_) => Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          insetPadding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
+            constraints: const BoxConstraints(maxWidth: 380),
             child: MaglisEntryDialog(initialTab: initialTab),
           ),
         ),
@@ -27,7 +29,6 @@ class MaglisEntryDialog extends StatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => MaglisEntryDialog(initialTab: initialTab),
     );
@@ -41,29 +42,13 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   late int _selectedTab;
   late final String _newCode;
   final TextEditingController _codeCtrl = TextEditingController();
-  bool _isBusy = false;
-  String? _errorMsg;
-  String? _clipboardCode;
+  bool _canJoin = false;
 
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab;
     _newCode = (100000 + Random().nextInt(900000)).toString();
-    _checkClipboard();
-    _codeCtrl.addListener(() {
-      if (mounted) setState(() {});
-    });
-  }
-
-  Future<void> _checkClipboard() async {
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      final text = data?.text?.trim() ?? '';
-      if (RegExp(r'^\d{6}$').hasMatch(text) && mounted) {
-        setState(() => _clipboardCode = text);
-      }
-    } catch (_) {}
   }
 
   @override
@@ -72,58 +57,69 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     super.dispose();
   }
 
-  Future<void> _startSession(String code) async {
-    final trimmed = code.trim();
-    if (trimmed.length != 6) return;
-
-    setState(() {
-      _isBusy = true;
-      _errorMsg = null;
-    });
-
-    final app = AppState.instance;
-    final page = app.currentMushafPage.value;
-    final surah = app.lastSurah;
-    final ayah = app.lastAyah;
-
-    final success = await MaglisController.instance.startSession(
-      code: trimmed,
-      page: page,
-      surah: surah,
-      ayah: ayah,
-    );
-
-    if (!mounted) return;
-    setState(() => _isBusy = false);
-
-    if (success) {
-      Navigator.of(context).pop();
-      app.showBanner(AppBannerInfo(
-        id: 'maglis_joined',
-        messageAr: 'تم الانضمام إلى المجلس $trimmed • اضغط على الميكروفون للتلاوة',
-        messageEn: 'Joined Maglis $trimmed • Tap mic to recite',
-        icon: Icons.groups_rounded,
-        customDuration: const Duration(seconds: 4),
-      ));
-    } else {
-      setState(() {
-        _errorMsg = app.isArabic
-            ? 'تعذر بدء المجلس. يرجى التأكد من إذن الميكروفون والاتصال.'
-            : 'Could not connect. Please check mic permissions and connection.';
-      });
+  void _onCodeChanged(String text) {
+    final isValid = text.trim().length == 6;
+    if (_canJoin != isValid) {
+      setState(() => _canJoin = isValid);
     }
   }
 
-  void _pasteFromClipboard() async {
+  void _submitSession(String code) {
+    final trimmed = code.trim();
+    if (trimmed.length != 6) return;
+
+    AppHaptics.lightImpact();
+    // 1. Immediately dismiss modal so animations are fluid at 60/120fps with zero frame drop
+    Navigator.of(context).pop();
+
+    final app = AppState.instance;
+
+    // 2. Immediate feedback banner
+    app.showBanner(AppBannerInfo(
+      id: 'maglis_connecting',
+      messageAr: 'جاري الاتصال بالمجلس $trimmed...',
+      messageEn: 'Connecting to Maglis $trimmed...',
+      icon: Icons.wifi_calling_3_rounded,
+      customDuration: const Duration(seconds: 2),
+    ));
+
+    // 3. Connect asynchronously in background without blocking UI
+    MaglisController.instance
+        .startSession(
+      code: trimmed,
+      page: app.currentMushafPage.value,
+      surah: app.lastSurah,
+      ayah: app.lastAyah,
+    )
+        .then((success) {
+      if (success) {
+        app.showBanner(AppBannerInfo(
+          id: 'maglis_joined',
+          messageAr: 'تم الانضمام إلى المجلس $trimmed • اضغط على الميكروفون للتلاوة',
+          messageEn: 'Joined Maglis $trimmed • Tap mic to recite',
+          icon: Icons.groups_rounded,
+          customDuration: const Duration(seconds: 4),
+        ));
+      } else {
+        app.showBanner(AppBannerInfo(
+          id: 'maglis_error',
+          messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
+          messageEn: 'Could not connect. Check mic permissions and network.',
+          icon: Icons.error_outline_rounded,
+          customDuration: const Duration(seconds: 4),
+        ));
+      }
+    });
+  }
+
+  Future<void> _pasteFromClipboard() async {
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text?.trim() ?? '';
       final match = RegExp(r'\d{6}').firstMatch(text);
       if (match != null) {
         _codeCtrl.text = match.group(0)!;
-        AppHaptics.lightImpact();
-      } else if (text.isNotEmpty && RegExp(r'^\d+$').hasMatch(text)) {
-        _codeCtrl.text = text.substring(0, min(6, text.length));
+        _onCodeChanged(_codeCtrl.text);
         AppHaptics.lightImpact();
       }
     } catch (_) {}
@@ -142,41 +138,32 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         ? Colors.white.withValues(alpha: 0.10)
         : Colors.black.withValues(alpha: 0.08);
 
-    return Directionality(
-      textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
-      child: Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
+    return RepaintBoundary(
+      child: Directionality(
+        textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
           child: Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
             decoration: BoxDecoration(
               color: surfaceColor,
               borderRadius: isWide
-                  ? BorderRadius.circular(24)
-                  : const BorderRadius.vertical(top: Radius.circular(24)),
-              border: Border.all(color: borderColor, width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
-                  blurRadius: 18,
-                  offset: const Offset(0, -3),
-                ),
-              ],
+                  ? BorderRadius.circular(20)
+                  : const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border.all(color: borderColor),
             ),
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Top Pill for Mobile Drag Handle
                 if (!isWide)
                   Center(
                     child: Container(
-                      width: 36,
+                      width: 32,
                       height: 4,
-                      margin: const EdgeInsets.only(bottom: 14),
+                      margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
                         color: isDark ? Colors.white24 : Colors.black12,
                         borderRadius: BorderRadius.circular(2),
@@ -184,18 +171,18 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     ),
                   ),
 
-                // Header Row
+                // Header
                 Row(
                   children: [
                     Container(
-                      width: 36,
-                      height: 36,
+                      width: 34,
+                      height: 34,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(10),
+                        color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(9),
                       ),
                       child: const Icon(Icons.groups_rounded,
-                          color: Color(0xFF10B981), size: 20),
+                          color: Color(0xFF10B981), size: 19),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -207,17 +194,14 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                             style: TextStyle(
                               color: c.text,
                               fontWeight: FontWeight.w700,
-                              fontSize: 15,
+                              fontSize: 14,
                             ),
                           ),
                           Text(
                             isAr
-                                ? 'تلاوة جماعية متزامنة ومباشرة'
-                                : 'Peer-to-peer audio & live mushaf sync',
-                            style: TextStyle(
-                              color: c.muted,
-                              fontSize: 11,
-                            ),
+                                ? 'صوت مفتوح للجميع وتزامن شاشة للقارئ فقط'
+                                : 'Open mic for all, mushaf sync for active reciter',
+                            style: TextStyle(color: c.muted, fontSize: 11),
                           ),
                         ],
                       ),
@@ -229,76 +213,60 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
 
-                // Segmented Tab Selector [ Join | Create ]
+                // Segmented Tab Picker
                 Container(
-                  padding: const EdgeInsets.all(3),
+                  height: 36,
+                  padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     color: isDark
                         ? Colors.white.withValues(alpha: 0.05)
                         : Colors.black.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
                     children: [
                       Expanded(
-                        child: _buildTabButton(
-                          title: isAr ? 'انضمام لمجلس' : 'Join Room',
+                        child: _tabButton(
+                          title: isAr ? 'انضمام' : 'Join',
                           icon: Icons.login_rounded,
                           isSelected: _selectedTab == 0,
                           isDark: isDark,
                           c: c,
                           onTap: () {
-                            AppHaptics.selectionClick();
-                            setState(() {
-                              _selectedTab = 0;
-                              _errorMsg = null;
-                            });
+                            if (_selectedTab != 0) {
+                              AppHaptics.selectionClick();
+                              setState(() => _selectedTab = 0);
+                            }
                           },
                         ),
                       ),
                       Expanded(
-                        child: _buildTabButton(
+                        child: _tabButton(
                           title: isAr ? 'إنشاء مجلس' : 'Create Room',
                           icon: Icons.add_rounded,
                           isSelected: _selectedTab == 1,
                           isDark: isDark,
                           c: c,
                           onTap: () {
-                            AppHaptics.selectionClick();
-                            setState(() {
-                              _selectedTab = 1;
-                              _errorMsg = null;
-                            });
+                            if (_selectedTab != 1) {
+                              AppHaptics.selectionClick();
+                              setState(() => _selectedTab = 1);
+                            }
                           },
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
 
-                // Active Tab Content
+                // Tab Body
                 if (_selectedTab == 0)
-                  _buildJoinView(isDark, isAr, c, borderColor)
+                  _buildJoinBody(isDark, isAr, c, borderColor)
                 else
-                  _buildCreateView(isDark, isAr, c, borderColor),
-
-                // Error Message
-                if (_errorMsg != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: Text(
-                      _errorMsg!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Color(0xFFF43F5E),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
+                  _buildCreateBody(isDark, isAr, c, borderColor),
               ],
             ),
           ),
@@ -307,7 +275,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  Widget _buildTabButton({
+  Widget _tabButton({
     required String title,
     required IconData icon,
     required bool isSelected,
@@ -315,27 +283,17 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     required dynamic c,
     required VoidCallback onTap,
   }) {
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(9),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 8),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
         decoration: BoxDecoration(
           color: isSelected
               ? (isDark ? const Color(0xFF22293F) : Colors.white)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.05),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
-                  ),
-                ]
-              : null,
+          borderRadius: BorderRadius.circular(8),
         ),
+        alignment: Alignment.center,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -344,7 +302,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
               size: 15,
               color: isSelected ? const Color(0xFF10B981) : c.muted,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
             Text(
               title,
               style: TextStyle(
@@ -359,57 +317,18 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  /// Compact Join View (6-Digit input with quick paste)
-  Widget _buildJoinView(
+  Widget _buildJoinBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
-    final bool canJoin = _codeCtrl.text.trim().length == 6 && !_isBusy;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Quick clipboard suggestion pill
-        if (_clipboardCode != null && _codeCtrl.text.trim() != _clipboardCode)
-          InkWell(
-            onTap: () {
-              _codeCtrl.text = _clipboardCode!;
-              AppHaptics.lightImpact();
-            },
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: const Color(0xFF10B981).withValues(alpha: 0.25),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.content_paste_go_rounded,
-                      size: 14, color: Color(0xFF10B981)),
-                  const SizedBox(width: 6),
-                  Text(
-                    isAr
-                        ? 'رمز منسوخ: $_clipboardCode (اضغط للصق)'
-                        : 'Clipboard code: $_clipboardCode (Tap to paste)',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF10B981),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-        // 6-Digit TextField
         TextField(
           controller: _codeCtrl,
           keyboardType: TextInputType.number,
+          autofocus: false,
+          onChanged: _onCodeChanged,
+          onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
           inputFormatters: [
             FilteringTextInputFormatter.digitsOnly,
             LengthLimitingTextInputFormatter(6),
@@ -425,7 +344,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             counterText: '',
             hintText: '• • • • • •',
             hintStyle: TextStyle(
-              color: c.muted.withValues(alpha: 0.4),
+              color: c.muted.withValues(alpha: 0.35),
               letterSpacing: 6.0,
               fontSize: 18,
             ),
@@ -434,9 +353,9 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 ? Colors.white.withValues(alpha: 0.04)
                 : Colors.black.withValues(alpha: 0.03),
             contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             prefixIcon: IconButton(
-              tooltip: isAr ? 'لصق الرمز' : 'Paste Code',
+              tooltip: isAr ? 'لصق' : 'Paste',
               icon: const Icon(Icons.paste_rounded, size: 18),
               color: c.muted,
               onPressed: _pasteFromClipboard,
@@ -447,6 +366,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     color: c.muted,
                     onPressed: () {
                       _codeCtrl.clear();
+                      _onCodeChanged('');
                       AppHaptics.selectionClick();
                     },
                   )
@@ -466,52 +386,43 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           ),
         ),
         const SizedBox(height: 12),
-
-        // Join Action Button
         FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF10B981),
             foregroundColor: Colors.white,
             disabledBackgroundColor: isDark
-                ? Colors.white.withValues(alpha: 0.08)
-                : Colors.black.withValues(alpha: 0.06),
+                ? Colors.white.withValues(alpha: 0.07)
+                : Colors.black.withValues(alpha: 0.05),
             disabledForegroundColor: c.muted,
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 11),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
             ),
           ),
-          onPressed: canJoin ? () => _startSession(_codeCtrl.text) : null,
-          icon: _isBusy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.login_rounded, size: 18),
+          onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
+          icon: const Icon(Icons.login_rounded, size: 18),
           label: Text(
             isAr ? 'انضمام إلى المجلس' : 'Join Maglis',
-            style: const TextStyle(fontWeight: FontWeight.w700),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
           ),
         ),
       ],
     );
   }
 
-  /// Compact Create View (Generate & Start)
-  Widget _buildCreateView(
+  Widget _buildCreateBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
             color: isDark
                 ? Colors.white.withValues(alpha: 0.04)
                 : Colors.black.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: borderColor),
           ),
           child: Row(
@@ -534,7 +445,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                       style: const TextStyle(
                         letterSpacing: 4.0,
                         fontWeight: FontWeight.w800,
-                        fontSize: 22,
+                        fontSize: 21,
                         color: Color(0xFF10B981),
                       ),
                     ),
@@ -543,49 +454,38 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
               ),
               IconButton.filledTonal(
                 tooltip: isAr ? 'نسخ الرمز' : 'Copy Code',
+                visualDensity: VisualDensity.compact,
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: _newCode));
                   AppHaptics.lightImpact();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        isAr
-                            ? 'تم نسخ رمز المجلس: $_newCode'
-                            : 'Maglis code copied: $_newCode',
-                      ),
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
+                  AppState.instance.showBanner(AppBannerInfo(
+                    id: 'maglis_code_copied',
+                    messageAr: 'تم نسخ رمز المجلس: $_newCode',
+                    messageEn: 'Maglis code copied: $_newCode',
+                    icon: Icons.copy_rounded,
+                    customDuration: const Duration(seconds: 2),
+                  ));
                 },
-                icon: const Icon(Icons.copy_rounded, size: 18),
+                icon: const Icon(Icons.copy_rounded, size: 17),
               ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-
-        // Start Maglis Button
         FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF10B981),
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.symmetric(vertical: 11),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
             ),
           ),
-          onPressed: _isBusy ? null : () => _startSession(_newCode),
-          icon: _isBusy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.play_arrow_rounded, size: 20),
+          onPressed: () => _submitSession(_newCode),
+          icon: const Icon(Icons.play_arrow_rounded, size: 19),
           label: Text(
             isAr ? 'بدء هذا المجلس' : 'Start This Maglis',
-            style: const TextStyle(fontWeight: FontWeight.w700),
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
           ),
         ),
       ],
