@@ -6,6 +6,7 @@ import 'package:recite_quran/recite_quran.dart';
 import '../../../services/app_haptics.dart';
 import '../../../state/app_state.dart';
 import 'mushaf_actions.dart';
+import 'mushaf_overlays.dart';
 import 'mushaf_provider.dart';
 
 /// High-performance Mushaf vector page backed directly by [QvpPageView].
@@ -28,12 +29,13 @@ class MushafPageWidget extends StatefulWidget {
 }
 
 class _MushafPageWidgetState extends State<MushafPageWidget>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   @override
   bool get wantKeepAlive => false;
 
   QvpPage? _page;
   bool _isLoading = true;
+  late final AnimationController _spinnerController;
 
   // Native highlight handles (zero cache invalidation, drawn in GPU band batches)
   int _ayahHighlightHandle = 0;
@@ -54,12 +56,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   @override
   void initState() {
     super.initState();
+    _spinnerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
     _attachListeners();
 
     final cached = MushafProvider.instance.getCachedPage(widget.pageNumber);
     if (cached != null && !cached.isDisposed) {
       _page = cached;
       _isLoading = false;
+      _checkSpinnerAnimation();
       _syncVisuals();
     } else {
       _loadPage();
@@ -74,6 +81,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _isLoading = false;
     });
     if (page != null && !page.isDisposed) {
+      _checkSpinnerAnimation();
       _syncVisuals();
     }
   }
@@ -104,12 +112,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       widget.controller.activeAyah.addListener(_syncVisuals);
       widget.controller.globalRevision.addListener(_syncVisuals);
     }
+    _checkSpinnerAnimation();
     _syncVisuals();
   }
 
   @override
   void dispose() {
     _detachListeners();
+    _spinnerController.dispose();
     final page = _page;
     if (page != null && !page.isDisposed) {
       page.clearHighlights();
@@ -122,9 +132,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final app = AppState.instance;
     app.currentMushafPage.addListener(_syncVisuals);
     app.activeAudioWordIndex.addListener(_syncVisuals);
-    app.activeAudioAyah.addListener(_syncVisuals);
-    app.activeAudioSurah.addListener(_syncVisuals);
-    app.isAudioPlaying.addListener(_syncVisuals);
+    app.activeAudioAyah.addListener(_onAudioStateChanged);
+    app.activeAudioSurah.addListener(_onAudioStateChanged);
+    app.isAudioPlaying.addListener(_onAudioStateChanged);
+    app.isAudioBuffering.addListener(_onAudioStateChanged);
     app.blurModeNotifier.addListener(_syncVisuals);
     app.themeNotifier.addListener(_syncVisuals);
     widget.controller.addListener(_syncVisuals);
@@ -136,14 +147,49 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final app = AppState.instance;
     app.currentMushafPage.removeListener(_syncVisuals);
     app.activeAudioWordIndex.removeListener(_syncVisuals);
-    app.activeAudioAyah.removeListener(_syncVisuals);
-    app.activeAudioSurah.removeListener(_syncVisuals);
-    app.isAudioPlaying.removeListener(_syncVisuals);
+    app.activeAudioAyah.removeListener(_onAudioStateChanged);
+    app.activeAudioSurah.removeListener(_onAudioStateChanged);
+    app.isAudioPlaying.removeListener(_onAudioStateChanged);
+    app.isAudioBuffering.removeListener(_onAudioStateChanged);
     app.blurModeNotifier.removeListener(_syncVisuals);
     app.themeNotifier.removeListener(_syncVisuals);
     widget.controller.removeListener(_syncVisuals);
     widget.controller.activeAyah.removeListener(_syncVisuals);
     widget.controller.globalRevision.removeListener(_syncVisuals);
+  }
+
+  void _onAudioStateChanged() {
+    _checkSpinnerAnimation();
+    _syncVisuals();
+  }
+
+  void _checkSpinnerAnimation() {
+    if (!mounted) return;
+    final app = AppState.instance;
+    final bool isBuffering = app.isAudioBuffering.value;
+    final surah = app.activeAudioSurah.value;
+    final ayah = app.activeAudioAyah.value;
+    final page = _page;
+    final bool isBufferingOnThisPage = isBuffering &&
+        surah != null &&
+        ayah != null &&
+        page != null &&
+        !page.isDisposed &&
+        MushafProvider.instance.isAyahOnPage(
+          pageNumber: widget.pageNumber,
+          surah: surah,
+          ayah: ayah,
+        );
+
+    if (isBufferingOnThisPage) {
+      if (!_spinnerController.isAnimating) {
+        _spinnerController.repeat();
+      }
+    } else {
+      if (_spinnerController.isAnimating) {
+        _spinnerController.stop();
+      }
+    }
   }
 
   void _syncVisuals() {
@@ -482,26 +528,63 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
 
     final page = _page!;
+    final app = AppState.instance;
+    final isDark = app.isDarkMode;
+    final neutralRingColor = isDark
+        ? Colors.white.withValues(alpha: 0.25)
+        : const Color(0xFF64748B).withValues(alpha: 0.35);
+
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: QvpPageView(
-        key: ValueKey('qvp_page_view_${widget.pageNumber}'),
-        page: page,
-        panZoomEnabled: false,
-        selectionEnabled: false,
-        layout: const QvpViewLayout(
-          padTop: 0,
-          padBottom: 0,
-          padSide: 4,
-          lineSpacing: 1.0,
-          fillHeight: true,
-          surahFrames: true,
-        ),
-        paper: null,
-        paperShadow: false,
-        defaultInk: c.text,
-        onWordTap: (wordIndex, _) => _onWordTap(context, page, wordIndex),
-        onDecorationTap: _onDecorationTap,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          IgnorePointer(
+            child: CustomPaint(
+              painter: SurahHeaderPainter(
+                page: page,
+                isDark: isDark,
+                colors: c,
+              ),
+            ),
+          ),
+          QvpPageView(
+            key: ValueKey('qvp_page_view_${widget.pageNumber}'),
+            page: page,
+            panZoomEnabled: false,
+            selectionEnabled: false,
+            layout: const QvpViewLayout(
+              padTop: 0,
+              padBottom: 0,
+              padSide: 4,
+              lineSpacing: 1.0,
+              fillHeight: true,
+              surahFrames: false,
+            ),
+            paper: null,
+            paperShadow: false,
+            defaultInk: c.text,
+            onWordTap: (wordIndex, _) => _onWordTap(context, page, wordIndex),
+            onDecorationTap: _onDecorationTap,
+          ),
+          IgnorePointer(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: AyahMarkPainter(
+                  page: page,
+                  app: app,
+                  spinnerAnimation: _spinnerController,
+                  surfaceColor: c.surface,
+                  goldColor: c.gold,
+                  neutralRingColor: neutralRingColor,
+                  ayahHighlightColor: isDark
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : const Color(0xFF64748B).withValues(alpha: 0.09),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

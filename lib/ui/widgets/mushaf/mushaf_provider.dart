@@ -220,6 +220,7 @@ class MushafProvider {
         throw StateError('Mushaf page $pageNumber not found at ${localPage?.path}');
       }
       final page = _engine!.loadPage(pageBytes);
+      page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
 
       if (_pageCache.length >= _maxCachedPages) {
         final currentPage = AppState.instance.currentMushafPage.value;
