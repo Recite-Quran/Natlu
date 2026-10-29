@@ -254,7 +254,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
           child: Directionality(
             textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
               child: widget.isLoading != null
                   ? ValueListenableBuilder<bool>(
                       valueListenable: widget.isLoading!,
@@ -317,7 +317,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
             constraints: const BoxConstraints(),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 6),
 
         // ── Hero Section (Listening or Candidates) ──
         if (!hasCandidates) ...[
@@ -326,11 +326,11 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
           const SizedBox(height: 8),
         ] else ...[
           _buildCompactHeader(c, isAr),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           _buildCountdownGraceBanner(c, isAr),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           _buildCandidatesList(c, isAr),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
         ],
       ],
     );
@@ -462,12 +462,12 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
             isAr ? 'الآيات المتطابقة' : 'Matching Ayahs',
             style: TextStyle(
               color: c.primary,
-              fontSize: 15,
+              fontSize: 13.5,
               fontWeight: FontWeight.bold,
             ),
           ),
         ),
-        _buildWaveBars(count: 4, baseHeight: 6, maxHeight: 16, c: c),
+        _buildWaveBars(count: 4, baseHeight: 5, maxHeight: 13, c: c),
       ],
     );
   }
@@ -507,41 +507,39 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
       decoration: BoxDecoration(
         color: _isCountdownPaused
             ? c.surfaceHigh.withValues(alpha: 0.5)
-            : c.primary.withValues(alpha: 0.09),
-        borderRadius: BorderRadius.circular(14),
+            : c.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: _isCountdownPaused
-              ? c.border.withValues(alpha: 0.3)
-              : c.primary.withValues(alpha: 0.22),
+              ? c.border.withValues(alpha: 0.25)
+              : c.primary.withValues(alpha: 0.18),
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
             child: Row(
               children: [
                 Icon(
                   _isCountdownPaused
                       ? Icons.pause_circle_outline_rounded
                       : Icons.timer_outlined,
-                  size: 16,
+                  size: 14,
                   color: _isCountdownPaused ? c.muted : c.primary,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: AnimatedBuilder(
                     animation: _countdownCtrl,
                     builder: (_, __) {
                       if (_isCountdownPaused) {
                         return Text(
-                          isAr
-                              ? 'تم إيقاف المؤقت والميكروفون مؤقتاً'
-                              : 'Paused • Microphone stopped',
+                          isAr ? 'موقوف' : 'Paused',
                           style: TextStyle(
-                            color: c.text.withValues(alpha: 0.9),
-                            fontSize: 11.5,
+                            color: c.text.withValues(alpha: 0.85),
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                           ),
                         );
@@ -552,27 +550,27 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                               .clamp(1, _activeGraceSeconds);
                       return Text(
                         isAr
-                            ? 'الانتقال لأقرب تطابق خلال $secRemaining ثوانٍ'
-                            : 'Auto-jumping to top match in ${secRemaining}s',
+                            ? 'الانتقال: ${secRemaining}ث'
+                            : 'Jump: ${secRemaining}s',
                         style: TextStyle(
                           color: c.primary,
-                          fontSize: 11.5,
+                          fontSize: 11,
                           fontWeight: FontWeight.w600,
                         ),
                       );
                     },
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Material(
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: _togglePauseCountdown,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 17,
-                        vertical: 8.5,
+                        horizontal: 10,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -582,18 +580,18 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: Colors.white.withValues(alpha: 0.3),
-                          width: 1.2,
+                          width: 0.9,
                         ),
                         boxShadow: [
                           BoxShadow(
                             color: (_isCountdownPaused ? c.green : c.red)
-                                .withValues(alpha: 0.45),
-                            blurRadius: 10,
-                            spreadRadius: 1,
-                            offset: const Offset(0, 2.5),
+                                .withValues(alpha: 0.35),
+                            blurRadius: 5,
+                            spreadRadius: 0.5,
+                            offset: const Offset(0, 1.5),
                           ),
                         ],
                       ),
@@ -604,10 +602,10 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                             _isCountdownPaused
                                 ? Icons.play_arrow_rounded
                                 : Icons.pause_rounded,
-                            size: 19,
+                            size: 14,
                             color: Colors.white,
                           ),
-                          const SizedBox(width: 5),
+                          const SizedBox(width: 3.5),
                           Text(
                             _isCountdownPaused
                                 ? (isAr ? 'استئناف' : 'Resume')
@@ -615,9 +613,9 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                             style: const TextStyle(
                               fontFamily: 'cairo',
                               color: Colors.white,
-                              fontSize: 13.5,
+                              fontSize: 11.5,
                               fontWeight: FontWeight.w800,
-                              letterSpacing: 0.3,
+                              letterSpacing: 0.2,
                             ),
                           ),
                         ],
@@ -632,10 +630,10 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
             animation: _countdownCtrl,
             builder: (_, __) {
               return ClipRRect(
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(13)),
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(9)),
                 child: LinearProgressIndicator(
                   value: (1.0 - _countdownCtrl.value).clamp(0.0, 1.0),
-                  minHeight: 3,
+                  minHeight: 2,
                   backgroundColor: _isCountdownPaused
                       ? c.border.withValues(alpha: 0.15)
                       : c.primary.withValues(alpha: 0.12),
@@ -710,10 +708,32 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Flexible(
-                    child: Text(
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: c.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                          color: c.primary.withValues(alpha: 0.22),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        isAr ? 'آية ${match.ayah}' : 'Ayah ${match.ayah}',
+                        style: TextStyle(
+                          fontFamily: 'cairo',
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          color: c.primary,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
                       surahTitle,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -723,34 +743,15 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                         color: c.primary,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: c.primary.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(
-                        color: c.primary.withValues(alpha: 0.22),
-                        width: 0.8,
-                      ),
-                    ),
-                    child: Text(
-                      isAr ? 'آية ${match.ayah}' : 'Ayah ${match.ayah}',
-                      style: TextStyle(
-                        fontFamily: 'cairo',
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.bold,
-                        color: c.primary,
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: 4),
               MushafAyahPreview(
                 surah: match.surah,
                 ayah: match.ayah,
+                startAyah: match.startAyah,
+                endAyah: match.endAyah,
                 color: c.text.withValues(alpha: 0.92),
                 highlightStartWord: match.startWordIdx,
                 highlightEndWord: match.endWordIdx,

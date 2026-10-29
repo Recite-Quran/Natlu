@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'mushaf_provider.dart';
@@ -7,6 +8,8 @@ import 'mushaf_provider.dart';
 class MushafAyahPreview extends StatefulWidget {
   final int surah;
   final int ayah;
+  final int? startAyah;
+  final int? endAyah;
   final Color color;
   final double scale;
   final double lineSpacing;
@@ -19,6 +22,8 @@ class MushafAyahPreview extends StatefulWidget {
     super.key,
     required this.surah,
     required this.ayah,
+    this.startAyah,
+    this.endAyah,
     required this.color,
     this.scale = 0.68,
     this.lineSpacing = 1.0,
@@ -120,6 +125,8 @@ class _MushafAyahPreviewState extends State<MushafAyahPreview> {
           return const SizedBox.shrink();
         }
 
+        final highlightedWords = _computeHighlightedWords(_page!);
+
         return SizedBox(
           width: w,
           height: layout.height,
@@ -130,14 +137,48 @@ class _MushafAyahPreviewState extends State<MushafAyahPreview> {
               page: _page!,
               pageNum: _pageNum!,
               color: widget.color,
-              highlightStartWord: widget.highlightStartWord,
-              highlightEndWord: widget.highlightEndWord,
+              highlightedWords: highlightedWords,
               highlightColor: widget.highlightColor,
             ),
           ),
         );
       },
     );
+  }
+
+  Set<int> _computeHighlightedWords(QvpPage page) {
+    if (widget.highlightColor == null) return const {};
+
+    final rawEnd = widget.highlightEndWord ?? -1;
+    if (rawEnd < 0) return const {};
+
+    int effectiveStart = widget.highlightStartWord ?? 0;
+    int effectiveEnd = rawEnd;
+
+    // Cross-verse match handling:
+    // If the match began in an earlier verse (e.g. wasl recitation or query had prefix words):
+    if ((widget.startAyah != null && widget.startAyah! < widget.ayah) ||
+        (effectiveStart > effectiveEnd && effectiveEnd >= 0)) {
+      effectiveStart = 0;
+    }
+
+    final totalWords = page.words
+        .where((w) => w.surah == widget.surah && w.ayah == widget.ayah)
+        .length;
+    if (totalWords <= 0) return const {};
+
+    // If the match extends beyond this verse into subsequent verses:
+    if (widget.endAyah != null && widget.endAyah! > widget.ayah) {
+      effectiveEnd = totalWords - 1;
+    }
+
+    effectiveStart = effectiveStart.clamp(0, totalWords - 1);
+    effectiveEnd = effectiveEnd.clamp(0, totalWords - 1);
+
+    if (effectiveEnd >= effectiveStart) {
+      return {for (int i = effectiveStart; i <= effectiveEnd; i++) i};
+    }
+    return const {};
   }
 }
 
@@ -146,8 +187,7 @@ class _PassagePainter extends CustomPainter {
   final QvpPage page;
   final int pageNum;
   final Color color;
-  final int? highlightStartWord;
-  final int? highlightEndWord;
+  final Set<int> highlightedWords;
   final Color? highlightColor;
 
   _PassagePainter({
@@ -155,8 +195,7 @@ class _PassagePainter extends CustomPainter {
     required this.page,
     required this.pageNum,
     required this.color,
-    this.highlightStartWord,
-    this.highlightEndWord,
+    required this.highlightedWords,
     this.highlightColor,
   });
 
@@ -170,18 +209,11 @@ class _PassagePainter extends CustomPainter {
       ..color = color
       ..isAntiAlias = true;
     final activeHighlight = highlightColor;
-    final highlightPaint = activeHighlight != null
+    final highlightPaint = (activeHighlight != null)
         ? (Paint()
           ..color = activeHighlight
           ..isAntiAlias = true)
         : defaultPaint;
-
-    final hasHighlight = highlightStartWord != null &&
-        highlightEndWord != null &&
-        activeHighlight != null &&
-        highlightEndWord! >= highlightStartWord!;
-    final start = hasHighlight ? highlightStartWord! : -1;
-    final end = hasHighlight ? highlightEndWord! : -1;
 
     var cur = -1, open = false;
     for (final d in layout.draws) {
@@ -207,11 +239,9 @@ class _PassagePainter extends CustomPainter {
       }
 
       final wIdx = page.pathWord(d.path);
-      final bool isHighlighted = hasHighlight &&
-          wIdx >= 0 &&
+      final bool isHighlighted = wIdx >= 0 &&
           wIdx < page.words.length &&
-          (page.words[wIdx].word - 1) >= start &&
-          (page.words[wIdx].word - 1) <= end;
+          highlightedWords.contains(page.words[wIdx].word - 1);
 
       canvas.drawPath(path, isHighlighted ? highlightPaint : defaultPaint);
     }
@@ -222,7 +252,6 @@ class _PassagePainter extends CustomPainter {
   bool shouldRepaint(covariant _PassagePainter old) =>
       old.layout != layout ||
       old.color != color ||
-      old.highlightStartWord != highlightStartWord ||
-      old.highlightEndWord != highlightEndWord ||
-      old.highlightColor != highlightColor;
+      old.highlightColor != highlightColor ||
+      !setEquals(old.highlightedWords, highlightedWords);
 }
