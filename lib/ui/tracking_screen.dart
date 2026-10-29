@@ -333,6 +333,7 @@ class _TrackingScreenState extends State<TrackingScreen>
         return Directionality(
           textDirection: app.isArabic ? TextDirection.rtl : TextDirection.ltr,
           child: Scaffold(
+            resizeToAvoidBottomInset: false,
             backgroundColor: c.bg,
             body: Stack(
               fit: StackFit.expand,
@@ -351,7 +352,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                       app.currentMushafPage,
                       widget.controller.activeAyah,
                       widget.controller,
-                      MaglisController.instance,
+                      MaglisController.instance.sessionListenable,
                     ]),
                     builder: (context, _) {
                       final effectiveSurah = _effectiveSurah;

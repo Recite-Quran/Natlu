@@ -334,8 +334,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       }
 
       // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
+      final bool hasRemoteReciterOnPage = isMaglisRemote && hasMaglisAyah;
       final bool needsWordEvaluation = widget.isRecording ||
-          isMaglisRemote ||
+          hasRemoteReciterOnPage ||
           app.isBlurMode ||
           _lastGreenWords.isNotEmpty ||
           _lastYellowWords.isNotEmpty ||

@@ -46,16 +46,27 @@ class MaglisController extends ChangeNotifier {
   Map<String, RTCIceConnectionState> _peers = {};
   final Set<String> _connectedPeers = <String>{};
 
-  // Cumulative session word highlights: key = "${surah}_${ayah}_$word0", value = 1 (green), 2 (yellow), 3 (red)
-  final Map<String, int> _cumulativeHighlights = {};
-  Map<String, int> get cumulativeHighlights => _cumulativeHighlights;
+  final ChangeNotifier _sessionNotifier = ChangeNotifier();
+  Listenable get sessionListenable => _sessionNotifier;
+
+  void _notifySessionChanged() {
+    _sessionNotifier.notifyListeners();
+  }
+
+  // Compact 32-bit integer key: (surah << 20) | (ayah << 8) | word0
+  static int wordKey(int surah, int ayah, int word0) =>
+      (surah << 20) | (ayah << 8) | word0;
+
+  // Cumulative session word highlights: key = wordKey(surah, ayah, word0), value = 1 (green), 2 (yellow), 3 (red)
+  final Map<int, int> _cumulativeHighlights = {};
 
   int? getWordHighlight(int surah, int ayah, int word0) =>
-      _cumulativeHighlights['${surah}_${ayah}_$word0'];
+      _cumulativeHighlights[wordKey(surah, ayah, word0)];
 
   void _onPeerJoined(String peerId) {
     if (_connectedPeers.add(peerId)) {
       AppState.instance.showMaglisPeerJoinedBanner();
+      _notifySessionChanged();
       notifyListeners();
     }
   }
@@ -67,6 +78,7 @@ class MaglisController extends ChangeNotifier {
     }
     if (_connectedPeers.remove(peerId)) {
       AppState.instance.showMaglisPeerLeftBanner();
+      _notifySessionChanged();
       notifyListeners();
     }
   }
@@ -154,17 +166,27 @@ class MaglisController extends ChangeNotifier {
     });
     _participantSub = _net!.onParticipantCount.listen((count) {
       _participantCount = count;
+      _notifySessionChanged();
       notifyListeners();
     });
     _participantCount = _net!.participantCount;
 
     await _net!.start();
     _inSession = true;
+    _notifySessionChanged();
     notifyListeners();
     return true;
   }
 
   MaglisPacket _buildSnapshot() {
+    final stringMap = <String, int>{};
+    _cumulativeHighlights.forEach((k, v) {
+      final s = (k >> 20) & 0xFFF;
+      final a = (k >> 8) & 0xFFF;
+      final w = k & 0xFF;
+      stringMap['${s}_${a}_$w'] = v;
+    });
+
     return MaglisPacket(
       type: MaglisPacketType.snapshot,
       seq: ++_seq,
@@ -177,7 +199,7 @@ class MaglisController extends ChangeNotifier {
       yellowWords: _remoteYellowWords,
       redWords: _remoteRedWords,
       activeReciterId: _activeReciterId,
-      cumulative: Map.unmodifiable(_cumulativeHighlights),
+      cumulative: stringMap,
       ts: DateTime.now().millisecondsSinceEpoch,
     );
   }
@@ -187,18 +209,28 @@ class MaglisController extends ChangeNotifier {
       _onPeerJoined(pkt.senderId);
     }
 
-    // Merge cumulative and live words into persistent room highlights
+    // Merge cumulative and live words into persistent room highlights with zero string allocation
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
-      _cumulativeHighlights.addAll(pkt.cumulative!);
+      pkt.cumulative!.forEach((k, v) {
+        final parts = k.split('_');
+        if (parts.length == 3) {
+          final s = int.tryParse(parts[0]);
+          final a = int.tryParse(parts[1]);
+          final w = int.tryParse(parts[2]);
+          if (s != null && a != null && w != null) {
+            _cumulativeHighlights[wordKey(s, a, w)] = v;
+          }
+        }
+      });
     }
     for (final w in pkt.greenWords) {
-      _cumulativeHighlights['${pkt.surah}_${pkt.ayah}_$w'] = 1;
+      _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 1;
     }
     for (final w in pkt.yellowWords) {
-      _cumulativeHighlights['${pkt.surah}_${pkt.ayah}_$w'] = 2;
+      _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 2;
     }
     for (final w in pkt.redWords) {
-      _cumulativeHighlights['${pkt.surah}_${pkt.ayah}_$w'] = 3;
+      _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 3;
     }
 
     switch (pkt.type) {
@@ -217,6 +249,7 @@ class MaglisController extends ChangeNotifier {
           // Relinquish ASR tracking floor to the new reciter, but KEEP mic open for talking/notes!
           onRemoteFloorClaimed?.call();
         }
+        _notifySessionChanged();
         onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         break;
 
@@ -224,6 +257,7 @@ class MaglisController extends ChangeNotifier {
         if (_activeReciterId == pkt.senderId) {
           _activeReciterId = null;
           _remoteWord = null;
+          _notifySessionChanged();
         }
         break;
 
@@ -250,6 +284,7 @@ class MaglisController extends ChangeNotifier {
           _remoteGreenWords = pkt.greenWords;
           _remoteYellowWords = pkt.yellowWords;
           _remoteRedWords = pkt.redWords;
+          _notifySessionChanged();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         }
         break;
@@ -297,6 +332,7 @@ class MaglisController extends ChangeNotifier {
         ts: DateTime.now().millisecondsSinceEpoch,
       ),
     );
+    _notifySessionChanged();
     notifyListeners();
   }
 
@@ -321,6 +357,7 @@ class MaglisController extends ChangeNotifier {
           ts: DateTime.now().millisecondsSinceEpoch,
         ),
       );
+      _notifySessionChanged();
       notifyListeners();
     }
   }
@@ -337,15 +374,15 @@ class MaglisController extends ChangeNotifier {
   }) {
     if (!_inSession || _activeReciterId != localPeerId) return;
 
-    // Persist local words into cumulative session highlights
+    // Persist local words into cumulative session highlights with fast integer hashing
     for (final w in greenWords) {
-      _cumulativeHighlights['${surah}_${ayah}_$w'] = 1;
+      _cumulativeHighlights[wordKey(surah, ayah, w)] = 1;
     }
     for (final w in yellowWords) {
-      _cumulativeHighlights['${surah}_${ayah}_$w'] = 2;
+      _cumulativeHighlights[wordKey(surah, ayah, w)] = 2;
     }
     for (final w in redWords) {
-      _cumulativeHighlights['${surah}_${ayah}_$w'] = 3;
+      _cumulativeHighlights[wordKey(surah, ayah, w)] = 3;
     }
 
     // Deduplicate: avoid sending redundant packets if state hasn't changed
@@ -411,6 +448,7 @@ class MaglisController extends ChangeNotifier {
     _lastYellowCount = -1;
     _lastRedCount = -1;
     await MaglisPlatform.resetAudio();
+    _notifySessionChanged();
     notifyListeners();
   }
 }

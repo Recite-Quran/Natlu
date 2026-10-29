@@ -36,7 +36,6 @@ import 'ui/widgets/dialogs/permission_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
-import 'services/app_audio_processor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -177,7 +176,7 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserver {
   final SherpaEngine _engine = SherpaEngine();
-  final AppAudioProcessor _audio = AppAudioProcessor();
+  final AudioProcessor _audio = AudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
 
   QuranRepository? _repo;
