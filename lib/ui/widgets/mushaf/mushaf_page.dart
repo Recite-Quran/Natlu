@@ -53,6 +53,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   List<int> _lastRedWords = const [];
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
+  int _appliedCumulativeVersion = -1;
 
   Map<int, List<int>> _ayahWordMap = {};
   int _lastIndexedPage = -1;
@@ -109,6 +110,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _lastActiveWord = null;
       _lastIsDark = null;
       _lastIndexedPage = -1;
+      _appliedCumulativeVersion = -1;
       _ayahWordMap.clear();
       _lastGreenWords = const [];
       _lastYellowWords = const [];
@@ -364,11 +366,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
       // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
       final bool hasRemoteReciterOnPage = isMaglisRemote && hasMaglisAyah;
+      final bool hasNewCumulative = maglis.hasCumulativeHighlights &&
+          _appliedCumulativeVersion != maglis.cumulativeVersion;
 
       // Smart guard: If remote user is reciting on another page and local device is not recording,
-      // words on this page have not changed. Skip scanning all words on this page.
+      // and there are no new cumulative highlights to apply, words on this page have not changed.
       final bool skipRemoteWordScan = isMaglisRemote &&
           !hasRemoteReciterOnPage &&
+          !hasNewCumulative &&
           !widget.isRecording &&
           !isAudioActive &&
           !app.isBlurMode &&
@@ -377,6 +382,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       final bool needsWordEvaluation = !skipRemoteWordScan &&
           (widget.isRecording ||
               hasRemoteReciterOnPage ||
+              hasNewCumulative ||
               app.isBlurMode ||
               themeChanged ||
               _lastGreenWords.isNotEmpty ||
@@ -403,14 +409,38 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
             if (ayahKey == activeAyahKey) {
               // Direct O(1) array mapping for live reciting Ayah words
+              final liveWords = <int>{};
               for (final w0 in maglis.remoteGreenWords) {
-                if (w0 < wordIndices.length) green.add(wordIndices[w0]);
+                if (w0 < wordIndices.length) {
+                  green.add(wordIndices[w0]);
+                  liveWords.add(w0);
+                }
               }
               for (final w0 in maglis.remoteYellowWords) {
-                if (w0 < wordIndices.length) yellow.add(wordIndices[w0]);
+                if (w0 < wordIndices.length) {
+                  yellow.add(wordIndices[w0]);
+                  liveWords.add(w0);
+                }
               }
               for (final w0 in maglis.remoteRedWords) {
-                if (w0 < wordIndices.length) red.add(wordIndices[w0]);
+                if (w0 < wordIndices.length) {
+                  red.add(wordIndices[w0]);
+                  liveWords.add(w0);
+                }
+              }
+              // Also preserve previous cumulative words for this active ayah if not overridden by live words
+              if (hasCumulative) {
+                for (int w0 = 0; w0 < wordIndices.length; w0++) {
+                  if (liveWords.contains(w0)) continue;
+                  final int? h = maglis.getWordHighlight(s, a, w0);
+                  if (h == 1) {
+                    green.add(wordIndices[w0]);
+                  } else if (h == 2) {
+                    yellow.add(wordIndices[w0]);
+                  } else if (h == 3) {
+                    red.add(wordIndices[w0]);
+                  }
+                }
               }
             } else if (hasCumulative) {
               // Non-active Ayahs: direct lookup from cumulative highlights without controller overhead
@@ -518,6 +548,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             _hasMasks = false;
           }
         }
+        _appliedCumulativeVersion = maglis.cumulativeVersion;
       }
 
       _lastIsDark = isDark;

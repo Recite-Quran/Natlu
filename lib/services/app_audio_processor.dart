@@ -48,8 +48,12 @@ class AppAudioProcessor {
       echoCancel: false,
       noiseSuppress: false,
       androidConfig: AndroidRecordConfig(
-        audioSource: AndroidAudioSource.mic,
-        audioManagerMode: AudioManagerMode.modeNormal,
+        audioSource: inMaglis
+            ? AndroidAudioSource.voiceCommunication
+            : AndroidAudioSource.mic,
+        audioManagerMode: inMaglis
+            ? AudioManagerMode.modeInCommunication
+            : AudioManagerMode.modeNormal,
         manageBluetooth: !inMaglis,
       ),
     );

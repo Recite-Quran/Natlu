@@ -91,6 +91,7 @@ class MaglisNetworkEngine {
   final Map<String, Timer> _iceRestartGraceTimers = {};
   final Map<String, bool> _answerInFlight = {};
   final Set<String> _negotiatingPeers = {};
+  final Map<String, List<MediaStreamTrack>> _remoteTracks = {};
 
   MediaStream? _localStream;
   bool _isMicMuted = false;
@@ -101,7 +102,7 @@ class MaglisNetworkEngine {
   Timer? _throttleTimer;
   Timer? _relayHeartbeatTimer;
   MaglisPacket? _queuedPacket;
-  String? _pendingVitalPacket;
+  final List<String> _pendingVitalPackets = [];
 
   final _packetCtrl = StreamController<MaglisPacket>.broadcast();
   final _statesCtrl =
@@ -139,10 +140,13 @@ class MaglisNetworkEngine {
         'mandatory': {
           'echoCancellation': 'true',
           'googEchoCancellation': 'true',
+          'googEchoCancellation2': 'true',
+          'googDAEchoCancellation': 'true',
           'autoGainControl': 'true',
           'googAutoGainControl': 'true',
           'noiseSuppression': 'false',
           'googNoiseSuppression': 'false',
+          'googNoiseSuppression2': 'false',
           'highpassFilter': 'true',
           'googHighpassFilter': 'true',
           'googTypingNoiseDetection': 'false',
@@ -152,10 +156,13 @@ class MaglisNetworkEngine {
         'optional': [
           {'echoCancellation': true},
           {'googEchoCancellation': true},
+          {'googEchoCancellation2': true},
+          {'googDAEchoCancellation': true},
           {'autoGainControl': true},
           {'googAutoGainControl': true},
           {'noiseSuppression': false},
           {'googNoiseSuppression': false},
+          {'googNoiseSuppression2': false},
           {'highpassFilter': true},
           {'googHighpassFilter': true},
           {'googTypingNoiseDetection': false},
@@ -221,6 +228,7 @@ class MaglisNetworkEngine {
       for (final ws in _sockets.values) {
         try {
           ws.sink.add(jsonEncode(['REQ', pingTag, {'limit': 0}]));
+          ws.sink.add(jsonEncode(['CLOSE', pingTag]));
         } catch (_) {}
       }
     });
@@ -363,9 +371,11 @@ class MaglisNetworkEngine {
         final existingPc = _peers[remoteId];
         final existingState = _peerStates[remoteId];
         if (existingPc != null &&
-            existingState != RTCIceConnectionState.RTCIceConnectionStateFailed &&
-            existingState != RTCIceConnectionState.RTCIceConnectionStateClosed) {
-          // Already connected or in-flight negotiation with this peer; keep active!
+            (existingState ==
+                    RTCIceConnectionState.RTCIceConnectionStateConnected ||
+                existingState ==
+                    RTCIceConnectionState.RTCIceConnectionStateCompleted)) {
+          // Already happily connected with this peer; keep active!
           return;
         }
         if (_negotiatingPeers.contains(remoteId)) {
@@ -386,7 +396,9 @@ class MaglisNetworkEngine {
             final pc = await _createPeer(remoteId);
             final dc = await pc.createDataChannel(
               'maglis_sync',
-              RTCDataChannelInit()..ordered = true,
+              RTCDataChannelInit()
+                ..ordered = true
+                ..binaryType = 'binary',
             );
             _bindDataChannel(remoteId, dc);
 
@@ -397,10 +409,11 @@ class MaglisNetworkEngine {
               },
               'optional': [],
             });
-            final mungedSdp = _mungeOpusSdp(offer.sdp ?? '');
+            final mungedSdp = mungeOpusSdp(offer.sdp ?? '');
             await pc.setLocalDescription(
               RTCSessionDescription(mungedSdp, offer.type),
             );
+            await _configureAudioSendersForPeer(pc);
             await _sendSignal('offer',
                 targetId: remoteId, data: {'sdp': mungedSdp});
           } finally {
@@ -438,6 +451,14 @@ class MaglisNetworkEngine {
           return;
         }
 
+        if (existingOfferPc != null &&
+            (existingOfferState ==
+                    RTCIceConnectionState.RTCIceConnectionStateFailed ||
+                existingOfferState ==
+                    RTCIceConnectionState.RTCIceConnectionStateClosed)) {
+          await _cleanupPeer(remoteId);
+        }
+
         if (_negotiatingPeers.contains(remoteId)) {
           return;
         }
@@ -455,10 +476,11 @@ class MaglisNetworkEngine {
             },
             'optional': [],
           });
-          final mungedSdp = _mungeOpusSdp(answer.sdp ?? '');
+          final mungedSdp = mungeOpusSdp(answer.sdp ?? '');
           await pc.setLocalDescription(
             RTCSessionDescription(mungedSdp, answer.type),
           );
+          await _configureAudioSendersForPeer(pc);
           await _sendSignal('answer',
               targetId: remoteId, data: {'sdp': mungedSdp});
         } finally {
@@ -482,6 +504,7 @@ class MaglisNetworkEngine {
           await pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
           _remoteDescSet[remoteId] = true;
           await _flushIceQueue(remoteId);
+          await _configureAudioSendersForPeer(pc);
         } catch (e) {
           debugPrint('[MaglisNetwork] setRemoteDescription answer error: $e');
         } finally {
@@ -550,8 +573,8 @@ class MaglisNetworkEngine {
         try {
           final senders = await pc.getSenders();
           if (!senders.any((s) => s.track?.kind == 'audio')) {
-            final sender = await pc.addTrack(track, _localStream!);
-            await _configureAudioSender(sender);
+            await pc.addTrack(track, _localStream!);
+            await _configureAudioSendersForPeer(pc);
           }
         } catch (e) {
           debugPrint('[MaglisNetwork] addTrack error: $e');
@@ -579,15 +602,21 @@ class MaglisNetworkEngine {
         _iceRestartGraceTimers[remoteId]?.cancel();
         _iceRestartGraceTimers.remove(remoteId);
         _checkSocketSleepState();
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        // Debounce ICE restart: only initiator triggers restart after a 4-second grace period
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        // Debounce ICE restart: only initiator triggers restart after a grace period (3s for failed, 6s for disconnected)
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         if (isInitiator) {
+          final int graceSeconds =
+              (state == RTCIceConnectionState.RTCIceConnectionStateFailed) ? 3 : 6;
           _iceRestartGraceTimers[remoteId]?.cancel();
-          _iceRestartGraceTimers[remoteId] = Timer(const Duration(seconds: 4), () {
+          _iceRestartGraceTimers[remoteId] =
+              Timer(Duration(seconds: graceSeconds), () {
             if (!_disposed &&
-                _peerStates[remoteId] ==
-                    RTCIceConnectionState.RTCIceConnectionStateFailed) {
+                (_peerStates[remoteId] ==
+                        RTCIceConnectionState.RTCIceConnectionStateFailed ||
+                    _peerStates[remoteId] ==
+                        RTCIceConnectionState.RTCIceConnectionStateDisconnected)) {
               _natFailCtrl.add(remoteId);
               _checkSocketSleepState(); // Ensure socket is awake for ICE restart
               _triggerIceRestart(remoteId);
@@ -601,10 +630,19 @@ class MaglisNetworkEngine {
     pc.onTrack = (RTCTrackEvent ev) {
       if (ev.track.kind == 'audio') {
         ev.track.enabled = true;
+        _remoteTracks.putIfAbsent(remoteId, () => []).add(ev.track);
         try {
           Helper.setVolume(1.0, ev.track);
         } catch (_) {}
         MaglisPlatform.setSpeaker(true);
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (!_disposed) {
+            try {
+              Helper.setVolume(1.0, ev.track);
+            } catch (_) {}
+            MaglisPlatform.setSpeaker(true);
+          }
+        });
       }
     };
 
@@ -612,18 +650,31 @@ class MaglisNetworkEngine {
     return pc;
   }
 
-  Future<void> _configureAudioSender(RTCRtpSender sender) async {
+  Future<void> _configureAudioSendersForPeer(RTCPeerConnection pc) async {
     try {
-      final params = sender.parameters;
-      if (params.encodings != null && params.encodings!.isNotEmpty) {
-        for (final encoding in params.encodings!) {
-          encoding.maxBitrate = 36000;
-          encoding.networkPriority = RTCPriorityType.high;
-          encoding.priority = RTCPriorityType.high;
+      final senders = await pc.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'audio') {
+          final params = sender.parameters;
+          if (params.encodings == null || params.encodings!.isEmpty) {
+            params.encodings = [
+              RTCRtpEncoding(
+                maxBitrate: 48000,
+                priority: RTCPriorityType.high,
+                networkPriority: RTCPriorityType.high,
+              ),
+            ];
+          } else {
+            for (final encoding in params.encodings!) {
+              encoding.maxBitrate = 48000;
+              encoding.networkPriority = RTCPriorityType.high;
+              encoding.priority = RTCPriorityType.high;
+            }
+          }
+          params.degradationPreference =
+              RTCDegradationPreference.MAINTAIN_FRAMERATE;
+          await sender.setParameters(params);
         }
-        params.degradationPreference =
-            RTCDegradationPreference.MAINTAIN_FRAMERATE;
-        await sender.setParameters(params);
       }
     } catch (_) {}
   }
@@ -642,15 +693,21 @@ class MaglisNetworkEngine {
           {'iceRestart': true},
         ],
       });
-      final mungedSdp = _mungeOpusSdp(offer.sdp ?? '');
+      final mungedSdp = mungeOpusSdp(offer.sdp ?? '');
       await pc.setLocalDescription(
         RTCSessionDescription(mungedSdp, offer.type),
       );
+      await _configureAudioSendersForPeer(pc);
       await _sendSignal('offer', targetId: remoteId, data: {
         'sdp': mungedSdp,
         'iceRestart': true,
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[MaglisNetwork] restartIce error, recreating peer: $e');
+      // If native restartIce fails on corrupted state, recreate peer deterministically
+      await _cleanupPeer(remoteId);
+      await _sendSignal('beacon', targetId: remoteId, data: const {});
+    }
   }
 
   Future<void> _flushIceQueue(String remoteId) async {
@@ -667,6 +724,9 @@ class MaglisNetworkEngine {
 
   void _bindDataChannel(String remoteId, RTCDataChannel dc) {
     _channels[remoteId] = dc;
+    try {
+      dc.bufferedAmountLowThreshold = 2 * 1024 * 1024;
+    } catch (_) {}
     dc.onDataChannelState = (RTCDataChannelState state) {
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         _lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
@@ -675,11 +735,14 @@ class MaglisNetworkEngine {
         try {
           dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
         } catch (_) {}
-        // Send any vital packet that was queued while channel was establishing
-        if (_pendingVitalPacket != null) {
-          try {
-            dc.send(RTCDataChannelMessage(_pendingVitalPacket!));
-          } catch (_) {}
+        // Send any vital packets that were queued while channel was establishing
+        if (_pendingVitalPackets.isNotEmpty) {
+          for (final vital in List<String>.from(_pendingVitalPackets)) {
+            try {
+              dc.send(RTCDataChannelMessage(vital));
+            } catch (_) {}
+          }
+          _pendingVitalPackets.clear();
         }
       }
     };
@@ -714,7 +777,7 @@ class MaglisNetworkEngine {
     } catch (_) {}
   }
 
-  String _mungeOpusSdp(String sdp) {
+  static String mungeOpusSdp(String sdp) {
     final rtpmapRegex =
         RegExp(r'a=rtpmap:(\d+)\s+opus/48000/2', caseSensitive: false);
     final match = rtpmapRegex.firstMatch(sdp);
@@ -724,33 +787,65 @@ class MaglisNetworkEngine {
     // Production Tajweed Voice Profile for High Packet-Loss & Slow Network Resilience:
     // - useinbandfec=1: In-Band Forward Error Correction seamless loss repair
     // - usedtx=0: Continuous audio stream without clipping quiet Madd or breath pauses
-    // - cbr=1: Constant bitrate for steady packet pacing and jitter prevention
+    // - cbr=0: Variable bitrate allows Opus to seamlessly inject FEC packets without distortion
     // - ptime=20: 50 packets/sec cuts IP/UDP/RTP header overhead by 50% compared to 10ms
     // - minptime=10: Allows dynamic low-latency buffer adaptation
-    // - maxaveragebitrate=36000: Studio clarity while fitting 3 mesh streams into ~108 kbps
+    // - maxaveragebitrate=48000: Studio clarity for 48kHz vocal harmonics
     // - stereo=0: Clean mono voice transmission
     final opusParams = [
       'useinbandfec=1',
       'usedtx=0',
-      'cbr=1',
+      'cbr=0',
       'ptime=20',
       'minptime=10',
       'stereo=0',
       'sprop-stereo=0',
-      'maxaveragebitrate=36000',
+      'maxaveragebitrate=48000',
       'maxplaybackrate=48000',
       'sprop-maxcapturerate=48000',
     ].join(';');
 
+    String result = sdp;
+    final lineEnd = result.contains('\r\n') ? '\r\n' : '\n';
     final fmtpRegex = RegExp('a=fmtp:$pt[^\r\n]*');
-    if (fmtpRegex.hasMatch(sdp)) {
-      return sdp.replaceFirst(fmtpRegex, 'a=fmtp:$pt $opusParams');
+    if (fmtpRegex.hasMatch(result)) {
+      result = result.replaceFirst(fmtpRegex, 'a=fmtp:$pt $opusParams');
     } else {
-      return sdp.replaceFirst(
+      result = result.replaceFirst(
         match.group(0)!,
-        '${match.group(0)!}\r\na=fmtp:$pt $opusParams',
+        '${match.group(0)!}${lineEnd}a=fmtp:$pt $opusParams',
       );
     }
+
+    // Add or update b=AS:64 and b=TIAS:64000 to allow 48 kbps payload + 16 kbps IP/UDP/RTP headers at 50 pkts/s without throttling
+    final audioMlineRegex =
+        RegExp(r'(m=audio\s+\d+\s+[^\r\n]+)', caseSensitive: false);
+    final audioMatch = audioMlineRegex.firstMatch(result);
+    if (audioMatch != null) {
+      final mline = audioMatch.group(1)!;
+      final basRegex = RegExp(r'b=AS:\d+');
+      final btiasRegex = RegExp(r'b=TIAS:\d+');
+
+      final hasBas = result.contains(basRegex);
+      final hasBtias = result.contains(btiasRegex);
+
+      if (hasBas) {
+        result = result.replaceAll(basRegex, 'b=AS:64');
+      }
+      if (hasBtias) {
+        result = result.replaceAll(btiasRegex, 'b=TIAS:64000');
+      }
+
+      if (!hasBas && !hasBtias) {
+        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:64${lineEnd}b=TIAS:64000');
+      } else if (!hasBas) {
+        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:64');
+      } else if (!hasBtias) {
+        result = result.replaceFirst(mline, '$mline${lineEnd}b=TIAS:64000');
+      }
+    }
+
+    return result;
   }
 
   void sendPacket(MaglisPacket packet, {bool throttle = false}) {
@@ -759,6 +854,7 @@ class MaglisNetworkEngine {
       _dispatchRaw(packet.pack());
       return;
     }
+
     _queuedPacket = packet;
     if (_throttleTimer?.isActive ?? false) return;
     _throttleTimer = Timer(const Duration(milliseconds: 50), () {
@@ -773,8 +869,17 @@ class MaglisNetworkEngine {
   void _dispatchRaw(String raw) {
     final msg = RTCDataChannelMessage(raw);
     bool anyChannelOpen = false;
+    final bool isVital = raw.contains('"t":0') ||
+        raw.contains('"t":2') ||
+        raw.contains('"t":3');
+
     for (final dc in _channels.values) {
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+        // Check per-peer backpressure: only skip non-vital recitation updates for
+        // a specific slow peer without choking other peers in the room
+        if (!isVital && (dc.bufferedAmount ?? 0) > 65536) {
+          continue;
+        }
         try {
           dc.send(msg);
           anyChannelOpen = true;
@@ -782,12 +887,14 @@ class MaglisNetworkEngine {
       }
     }
 
-    // Queue vital packets (floor claim, release, snapshot) if channel is still connecting
-    final bool isVital = raw.contains('"t":0') ||
-        raw.contains('"t":2') ||
-        raw.contains('"t":3');
+    // Queue vital packets (floor claim, release, snapshot) if channels are still connecting
     if (!anyChannelOpen && isVital) {
-      _pendingVitalPacket = raw;
+      if (!_pendingVitalPackets.contains(raw)) {
+        _pendingVitalPackets.add(raw);
+        if (_pendingVitalPackets.length > 20) {
+          _pendingVitalPackets.removeAt(0);
+        }
+      }
     }
   }
 
@@ -809,7 +916,12 @@ class MaglisNetworkEngine {
         }
       } catch (_) {}
     } else {
-      _localStream?.getAudioTracks().forEach((t) => t.enabled = !muted);
+      _localStream?.getAudioTracks().forEach((t) {
+        t.enabled = !muted;
+        try {
+          Helper.setMicrophoneMute(muted, t);
+        } catch (_) {}
+      });
     }
   }
 
@@ -838,6 +950,14 @@ class MaglisNetworkEngine {
     _answerInFlight.remove(peerId);
     _negotiatingPeers.remove(peerId);
     _participantCountCtrl.add(_roomParticipants.length + 1);
+    final remoteTracks = _remoteTracks.remove(peerId);
+    if (remoteTracks != null) {
+      for (final t in remoteTracks) {
+        try {
+          t.stop();
+        } catch (_) {}
+      }
+    }
     try {
       await _channels.remove(peerId)?.close();
     } catch (_) {}
@@ -877,6 +997,7 @@ class MaglisNetworkEngine {
     }
     _iceRestartGraceTimers.clear();
     _pendingOutboundCandidates.clear();
+    _pendingVitalPackets.clear();
 
     try {
       final leaveSig = MaglisSignal(
@@ -901,6 +1022,7 @@ class MaglisNetworkEngine {
     for (final id in List<String>.from(_peers.keys)) {
       await _cleanupPeer(id);
     }
+    _remoteTracks.clear();
 
     _localStream?.getTracks().forEach((t) => t.stop());
     await _localStream?.dispose();

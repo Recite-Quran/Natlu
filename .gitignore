@@ -102,3 +102,6 @@ fastlane/test_output/
 windows/runner/*.dll
 windows/runner/*.exp
 windows/runner/*.lib
+
+
+test

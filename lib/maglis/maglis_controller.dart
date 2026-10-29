@@ -54,17 +54,19 @@ class MaglisController extends ChangeNotifier {
     _sessionNotifier.notifyListeners();
   }
 
-  // Compact 32-bit integer key: (surah << 20) | (ayah << 8) | word0
+  // Compact 32-bit integer key: ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF)
   static int wordKey(int surah, int ayah, int word0) =>
-      (surah << 20) | (ayah << 8) | word0;
+      ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF);
 
   // Cumulative session word highlights: key = wordKey(surah, ayah, word0), value = 1 (green), 2 (yellow), 3 (red)
   final Map<int, int> _cumulativeHighlights = {};
+  int _cumulativeVersion = 0;
 
   int? getWordHighlight(int surah, int ayah, int word0) =>
       _cumulativeHighlights[wordKey(surah, ayah, word0)];
 
   bool get hasCumulativeHighlights => _cumulativeHighlights.isNotEmpty;
+  int get cumulativeVersion => _cumulativeVersion;
 
   void _onPeerJoined(String peerId) {
     if (_connectedPeers.add(peerId)) {
@@ -98,6 +100,17 @@ class MaglisController extends ChangeNotifier {
   bool get isRemoteReciting =>
       _inSession && _activeReciterId != null && _activeReciterId != localPeerId;
   bool get isMicMuted => _net?.isMicMuted ?? true;
+
+  Future<void> setMicMuted(bool muted) async {
+    await _net?.setMicMuted(muted);
+    _notifySessionChanged();
+    notifyListeners();
+  }
+
+  Future<void> toggleMic() async {
+    final next = !isMicMuted;
+    await setMicMuted(next);
+  }
 
   int get remotePage => _remotePage;
   int get remoteSurah => _remoteSurah;
@@ -240,11 +253,15 @@ class MaglisController extends ChangeNotifier {
     }
 
     // Merge cumulative and live words into persistent room highlights with fast radix decoding
+    bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
       pkt.cumulative!.forEach((k, v) {
         final parsed = int.tryParse(k, radix: 16);
         if (parsed != null) {
-          _cumulativeHighlights[parsed] = v;
+          if (_cumulativeHighlights[parsed] != v) {
+            _cumulativeHighlights[parsed] = v;
+            cumulativeChanged = true;
+          }
         } else if (k.contains('_')) {
           final parts = k.split('_');
           if (parts.length == 3) {
@@ -252,20 +269,39 @@ class MaglisController extends ChangeNotifier {
             final a = int.tryParse(parts[1]);
             final w = int.tryParse(parts[2]);
             if (s != null && a != null && w != null) {
-              _cumulativeHighlights[wordKey(s, a, w)] = v;
+              final key = wordKey(s, a, w);
+              if (_cumulativeHighlights[key] != v) {
+                _cumulativeHighlights[key] = v;
+                cumulativeChanged = true;
+              }
             }
           }
         }
       });
     }
     for (final w in pkt.greenWords) {
-      _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 1;
+      final key = wordKey(pkt.surah, pkt.ayah, w);
+      if (_cumulativeHighlights[key] != 1) {
+        _cumulativeHighlights[key] = 1;
+        cumulativeChanged = true;
+      }
     }
     for (final w in pkt.yellowWords) {
-      _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 2;
+      final key = wordKey(pkt.surah, pkt.ayah, w);
+      if (_cumulativeHighlights[key] != 2) {
+        _cumulativeHighlights[key] = 2;
+        cumulativeChanged = true;
+      }
     }
     for (final w in pkt.redWords) {
-      _cumulativeHighlights[wordKey(pkt.surah, pkt.ayah, w)] = 3;
+      final key = wordKey(pkt.surah, pkt.ayah, w);
+      if (_cumulativeHighlights[key] != 3) {
+        _cumulativeHighlights[key] = 3;
+        cumulativeChanged = true;
+      }
+    }
+    if (cumulativeChanged) {
+      _cumulativeVersion++;
     }
 
     if (isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
@@ -355,7 +391,7 @@ class MaglisController extends ChangeNotifier {
           _notifySessionChanged();
           notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
-        } else if (_cumulativeHighlights.isNotEmpty) {
+        } else if (cumulativeChanged || _cumulativeHighlights.isNotEmpty) {
           notifyListeners();
         }
         break;
@@ -445,15 +481,39 @@ class MaglisController extends ChangeNotifier {
     if (!_inSession || _activeReciterId != localPeerId) return;
 
     // Persist local words into cumulative session highlights with fast integer hashing
+    bool cumulativeChanged = false;
     for (final w in greenWords) {
-      _cumulativeHighlights[wordKey(surah, ayah, w)] = 1;
+      final key = wordKey(surah, ayah, w);
+      if (_cumulativeHighlights[key] != 1) {
+        _cumulativeHighlights[key] = 1;
+        cumulativeChanged = true;
+      }
     }
     for (final w in yellowWords) {
-      _cumulativeHighlights[wordKey(surah, ayah, w)] = 2;
+      final key = wordKey(surah, ayah, w);
+      if (_cumulativeHighlights[key] != 2) {
+        _cumulativeHighlights[key] = 2;
+        cumulativeChanged = true;
+      }
     }
     for (final w in redWords) {
-      _cumulativeHighlights[wordKey(surah, ayah, w)] = 3;
+      final key = wordKey(surah, ayah, w);
+      if (_cumulativeHighlights[key] != 3) {
+        _cumulativeHighlights[key] = 3;
+        cumulativeChanged = true;
+      }
     }
+    if (cumulativeChanged) {
+      _cumulativeVersion++;
+    }
+
+    _remotePage = page;
+    _remoteSurah = surah;
+    _remoteAyah = ayah;
+    _remoteWord = activeWord;
+    _remoteGreenWords = greenWords;
+    _remoteYellowWords = yellowWords;
+    _remoteRedWords = redWords;
 
     // Deduplicate: avoid sending redundant packets if state hasn't changed
     if (page == _lastBroadcastPage &&
@@ -510,6 +570,7 @@ class MaglisController extends ChangeNotifier {
     _remoteYellowWords = const [];
     _remoteRedWords = const [];
     _cumulativeHighlights.clear();
+    _cumulativeVersion = 0;
     _lastBroadcastPage = null;
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;

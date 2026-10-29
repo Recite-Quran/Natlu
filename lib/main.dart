@@ -543,7 +543,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final int? activeAyah = _ctrl!.activeAyah.value;
     if (activeAyah == null) return;
 
-    final int page = AppState.instance.currentMushafPage.value;
+    final int currentPage = AppState.instance.currentMushafPage.value;
+    final int page =
+        MushafProvider.instance.getPageForAyah(targetSurah, activeAyah) ??
+            currentPage;
 
     final greenWords = <int>[];
     final yellowWords = <int>[];
@@ -551,7 +554,9 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     int? activeWord;
 
     final pageWords =
-        MushafProvider.instance.getCachedPage(page)?.words ?? const [];
+        MushafProvider.instance.getCachedPage(page)?.words ??
+        MushafProvider.instance.getCachedPage(currentPage)?.words ??
+        const [];
 
     bool foundAyah = false;
     for (final w in pageWords) {
@@ -573,8 +578,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       }
     }
 
-    if (activeWord == null && greenWords.isNotEmpty) {
-      activeWord = greenWords.last + 1;
+    if (activeWord == null) {
+      if (greenWords.isNotEmpty) {
+        activeWord = greenWords.last + 1;
+      } else if (foundAyah) {
+        activeWord = 0;
+      }
     }
 
     maglis.broadcastRecitation(

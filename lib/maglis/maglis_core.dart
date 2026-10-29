@@ -279,69 +279,94 @@ class MaglisPlatform {
   static Future<void> initAudio() async {
     if (kIsWeb) return;
     try {
-      // 1. Initialize WebRTC field trials (WARP enabled for ultra-fast connection setup)
+      // 1. Initialize WebRTC field trials and 48kHz audio pipeline (WARP enabled for ultra-fast setup)
       try {
-        await WebRTC.initialize(options: {'enableWARP': true});
+        await WebRTC.initialize(options: {
+          'enableWARP': true,
+          'audioSampleRate': 48000,
+          'audioOutputSampleRate': 48000,
+          'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
+          if (Platform.isAndroid)
+            'androidAudioConfiguration':
+                AndroidAudioConfiguration.communication.toMap(),
+        });
       } catch (_) {}
 
-      // 2. Configure system audio_session for VoIP voice chat & hardware speakerphone
-      if (Platform.isAndroid || Platform.isIOS) {
-        final session = await AudioSession.instance;
-        await session.configure(
-          AudioSessionConfiguration(
-            avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
-            avAudioSessionCategoryOptions:
-                AVAudioSessionCategoryOptions.defaultToSpeaker |
-                    AVAudioSessionCategoryOptions.allowBluetooth |
-                    AVAudioSessionCategoryOptions.allowBluetoothA2dp,
-            avAudioSessionMode: AVAudioSessionMode.voiceChat,
-            androidAudioAttributes: const AndroidAudioAttributes(
-              contentType: AndroidAudioContentType.speech,
-              usage: AndroidAudioUsage.voiceCommunication,
-            ),
-            androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-            androidWillPauseWhenDucked: false,
-          ),
-        );
-        await session.setActive(true);
+      // 2. Set silent microphone mute mode (prevents OS beep on iOS/macOS)
+      try {
+        if (Platform.isIOS || Platform.isMacOS) {
+          await Helper.setMicrophoneMuteMode(MicrophoneMuteMode.inputMixer);
+        }
+      } catch (_) {}
 
-        // Auto-switch to bluetooth or speakerphone when devices are plugged or unplugged
-        _deviceChangeSub?.cancel();
-        _deviceChangeSub = session.devicesChangedEventStream.listen((_) {
-          setSpeaker(true);
-        });
-
-        // Recover audio route if interrupted by incoming phone call or system alarm
-        _interruptionSub?.cancel();
-        _interruptionSub = session.interruptionEventStream.listen((event) {
-          if (!event.begin) {
-            session.setActive(true).then((_) {
-              setSpeaker(true);
-            }).catchError((_) {});
-          }
-        });
-      }
-
-      // 3. Configure platform audio routing for voice communication (WhatsApp-grade loud speakerphone)
+      // 3. Configure platform audio routing for voice communication (Google Meet grade loud speakerphone)
       if (Platform.isAndroid) {
         await Helper.setAndroidAudioConfiguration(
           AndroidAudioConfiguration.communication,
         );
         await Helper.setSpeakerphoneOnButPreferBluetooth();
       } else if (Platform.isIOS) {
+        try {
+          await Helper.ensureAudioSession();
+        } catch (_) {}
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
             appleAudioCategory: AppleAudioCategory.playAndRecord,
-            appleAudioMode: AppleAudioMode.videoChat,
+            appleAudioMode: AppleAudioMode.videoChat, // videoChat provides loud loudspeaker handsfree playout + full AEC
             appleAudioCategoryOptions: {
               AppleAudioCategoryOption.defaultToSpeaker,
               AppleAudioCategoryOption.allowBluetooth,
               AppleAudioCategoryOption.allowBluetoothA2DP,
+              AppleAudioCategoryOption.allowAirPlay,
             },
           ),
         );
         await Helper.setSpeakerphoneOnButPreferBluetooth();
       }
+
+      // 4. Configure system audio_session for VoIP voice chat & hardware speakerphone
+      if (Platform.isAndroid || Platform.isIOS) {
+        try {
+          final session = await AudioSession.instance;
+          await session.configure(
+            AudioSessionConfiguration(
+              avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
+              avAudioSessionCategoryOptions:
+                  AVAudioSessionCategoryOptions.defaultToSpeaker |
+                      AVAudioSessionCategoryOptions.allowBluetooth |
+                      AVAudioSessionCategoryOptions.allowBluetoothA2dp |
+                      AVAudioSessionCategoryOptions.allowAirPlay,
+              avAudioSessionMode: AVAudioSessionMode.videoChat,
+              androidAudioAttributes: const AndroidAudioAttributes(
+                contentType: AndroidAudioContentType.speech,
+                usage: AndroidAudioUsage.voiceCommunication,
+              ),
+              androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+              androidWillPauseWhenDucked: false,
+            ),
+          );
+          await session.setActive(true);
+
+          // Auto-switch to bluetooth or speakerphone when devices are plugged or unplugged
+          _deviceChangeSub?.cancel();
+          _deviceChangeSub = session.devicesChangedEventStream.listen((_) {
+            setSpeaker(true);
+          });
+
+          // Recover audio route if interrupted by incoming phone call or system alarm
+          _interruptionSub?.cancel();
+          _interruptionSub = session.interruptionEventStream.listen((event) {
+            if (!event.begin) {
+              session.setActive(true).then((_) {
+                setSpeaker(true);
+              }).catchError((_) {});
+            }
+          });
+        } catch (_) {}
+      }
+
+      // Final speakerphone enforcement
+      await setSpeaker(true);
     } catch (e) {
       debugPrint('[MaglisPlatform] initAudio error: $e');
     }
@@ -352,7 +377,6 @@ class MaglisPlatform {
     try {
       if (Platform.isAndroid || Platform.isIOS) {
         if (on) {
-          await Helper.setSpeakerphoneOn(true);
           await Helper.setSpeakerphoneOnButPreferBluetooth();
         } else {
           await Helper.setSpeakerphoneOn(false);
