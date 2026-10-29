@@ -116,7 +116,7 @@ class QuranApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: AppState.instance,
+      listenable: AppState.instance.themeNotifier,
       builder: (context, child) {
         final ThemeColors c = AppState.instance.colors;
         final isDark = AppState.instance.isDarkMode;
@@ -381,6 +381,26 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     return _engine.isInitialized;
   }
 
+  Future<bool> _ensureMicPermission(PermissionReason reason) async {
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return true;
+    }
+    final status = await Permission.microphone.status;
+    if (status.isGranted) return true;
+
+    final request = await Permission.microphone.request();
+    if (request.isGranted) return true;
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => PermissionDialog(reason: reason),
+      );
+    }
+    return false;
+  }
+
   Future<void> _startAudioRecordingStream() async {
     try {
       await _audio.start(
@@ -442,15 +462,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           });
         }
       } else {
-        final status = await Permission.microphone.request();
-        if (status != PermissionStatus.granted) {
-          if (mounted) {
-            showDialog(
-              context: context,
-              builder: (ctx) =>
-                  const PermissionDialog(reason: PermissionReason.tracking),
-            );
-          }
+        if (!await _ensureMicPermission(PermissionReason.tracking)) {
           _isToggling = false;
           return;
         }
@@ -506,15 +518,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     _isToggling = true;
 
     try {
-      final status = await Permission.microphone.request();
-      if (status != PermissionStatus.granted) {
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (ctx) =>
-                const PermissionDialog(reason: PermissionReason.voiceSearch),
-          );
-        }
+      if (!await _ensureMicPermission(PermissionReason.voiceSearch)) {
         _isToggling = false;
         return;
       }

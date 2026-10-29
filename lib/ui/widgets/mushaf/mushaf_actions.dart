@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
+import '../../../services/app_haptics.dart';
 
 import '../../../services/quran_audio_service.dart';
 import '../../../state/app_state.dart';
@@ -30,7 +30,7 @@ abstract final class MushafActions {
     required HighlightingController controller,
     VoidCallback? onTap,
   }) async {
-    HapticFeedback.lightImpact();
+    AppHaptics.lightImpact();
     if (controller.targetSurah != surah) {
       await controller.setTargetSurah(surah, preserveOtherSurahStates: true);
     }
@@ -102,7 +102,7 @@ abstract final class MushafActions {
         AppState.instance.activeAudioAyah.value == ayah) {
       return;
     }
-    HapticFeedback.selectionClick();
+    AppHaptics.selectionClick();
     if (controller.targetSurah != surah) {
       await controller.setTargetSurah(
         surah,

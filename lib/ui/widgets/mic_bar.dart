@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import '../../services/app_haptics.dart';
 import '../../state/app_state.dart';
 
 /// 2026 Unified Glassmorphic Floating Command Dock
@@ -175,7 +175,7 @@ class BottomActionBar extends StatelessWidget {
 
     return _TactileScaleButton(
       onTap: () {
-        HapticFeedback.heavyImpact();
+        AppHaptics.heavyImpact();
         onMic();
       },
       child: AnimatedContainer(
@@ -245,7 +245,7 @@ class BottomActionBar extends StatelessWidget {
       waitDuration: const Duration(milliseconds: 400),
       child: _TactileScaleButton(
         onTap: () {
-          HapticFeedback.lightImpact();
+          AppHaptics.lightImpact();
           onTap();
         },
         child: AnimatedContainer(
@@ -300,7 +300,7 @@ class BottomActionBar extends StatelessWidget {
       waitDuration: const Duration(milliseconds: 400),
       child: _TactileScaleButton(
         onTap: () {
-          HapticFeedback.lightImpact();
+          AppHaptics.lightImpact();
           onSurahTap();
         },
         child: Container(

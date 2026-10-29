@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
+import '../../../services/app_haptics.dart';
 import '../../../state/app_state.dart';
 
 /// Single interactive row tile for a Surah in the picker sheet.
@@ -48,7 +48,7 @@ class _SurahListTileState extends State<SurahListTile> {
         onTapUp: (_) => setState(() => _isPressed = false),
         onTapCancel: () => setState(() => _isPressed = false),
         onTap: () {
-          HapticFeedback.lightImpact();
+          AppHaptics.lightImpact();
           widget.onTap();
         },
         behavior: HitTestBehavior.opaque,

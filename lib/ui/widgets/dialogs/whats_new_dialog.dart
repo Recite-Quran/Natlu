@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../services/app_haptics.dart';
 import '../../../state/app_state.dart';
 
 /// "What's New" Dialog built strictly according to Natlu's native dialog architecture.
@@ -203,7 +203,7 @@ class WhatsNewDialog extends StatelessWidget {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () async {
-                          HapticFeedback.lightImpact();
+                          AppHaptics.lightImpact();
                           final prefs = await SharedPreferences.getInstance();
                           await prefs.setBool(
                               'has_seen_mushaf_whats_new', true);

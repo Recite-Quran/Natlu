@@ -572,7 +572,7 @@ class _MushafViewState extends State<MushafView> {
                       controller: _pageController,
                       itemCount: 604,
                       padEnds: false,
-                      preloadPagesCount: 2,
+                      preloadPagesCount: 1,
                       physics: physics,
                       onPageChanged: (index) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {

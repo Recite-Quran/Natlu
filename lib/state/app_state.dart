@@ -58,10 +58,18 @@ class AppState extends ChangeNotifier {
     // Initialize default language from the device's OS setting.
     final deviceLang = ui.PlatformDispatcher.instance.locale.languageCode;
     _lang = (deviceLang == 'ar') ? AppLanguage.ar : AppLanguage.en;
+    languageNotifier = ValueNotifier<AppLanguage>(_lang);
+    themeNotifier = ValueNotifier<AppTheme>(_theme);
   }
 
   /// Singleton instance — accessed everywhere as `AppState.instance`.
   static final AppState instance = AppState._();
+
+  /// Dedicated ValueNotifiers for fine-grained reactivity without rebuilding the entire app tree.
+  late final ValueNotifier<AppLanguage> languageNotifier;
+  late final ValueNotifier<AppTheme> themeNotifier;
+  final ValueNotifier<AppMode> modeNotifier = ValueNotifier<AppMode>(AppMode.wordChecker);
+  final ValueNotifier<AppBannerInfo?> bannerNotifier = ValueNotifier<AppBannerInfo?>(null);
 
   SharedPreferences? _prefs;
 
@@ -77,6 +85,7 @@ class AppState extends ChangeNotifier {
 
   void toggleLanguage() async {
     _lang = _lang == AppLanguage.ar ? AppLanguage.en : AppLanguage.ar;
+    languageNotifier.value = _lang;
     notifyListeners();
     final prefs = await _getPrefs();
     await prefs.setString('lang', _lang.name);
@@ -91,6 +100,7 @@ class AppState extends ChangeNotifier {
   void setMode(AppMode mode) {
     if (currentMode != mode) {
       currentMode = mode;
+      modeNotifier.value = mode;
       notifyListeners();
     }
   }
@@ -116,6 +126,7 @@ class AppState extends ChangeNotifier {
 
   void setTheme(AppTheme t) async {
     _theme = t;
+    themeNotifier.value = _theme;
     notifyListeners();
     final prefs = await _getPrefs();
     await prefs.setString('theme', _theme.name);
@@ -247,6 +258,7 @@ class AppState extends ChangeNotifier {
   /// Displays the modern slide-up floating banner.
   void showBanner(AppBannerInfo banner) {
     currentBanner = banner;
+    bannerNotifier.value = banner;
     _bannerTimer?.cancel();
     notifyListeners();
 
@@ -254,6 +266,7 @@ class AppState extends ChangeNotifier {
     _bannerTimer = Timer(effectiveDuration, () {
       if (currentBanner?.id == banner.id) {
         currentBanner = null;
+        bannerNotifier.value = null;
         notifyListeners();
       }
     });
@@ -264,6 +277,7 @@ class AppState extends ChangeNotifier {
     _bannerTimer?.cancel();
     if (currentBanner != null) {
       currentBanner = null;
+      bannerNotifier.value = null;
       notifyListeners();
     }
   }
@@ -587,6 +601,10 @@ class AppState extends ChangeNotifier {
       if (savedPage != null && savedPage >= 1 && savedPage <= 604) {
         currentMushafPage.value = savedPage;
       }
+
+      themeNotifier.value = _theme;
+      languageNotifier.value = _lang;
+      modeNotifier.value = currentMode;
 
       notifyListeners();
     } catch (e) {

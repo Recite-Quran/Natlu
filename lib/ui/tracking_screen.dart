@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../services/quran_timing_service.dart';
 import '../services/quran_audio_service.dart';
+import '../services/app_haptics.dart';
 import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
 import 'widgets/mic_bar.dart';
@@ -282,6 +283,10 @@ class _TrackingScreenState extends State<TrackingScreen>
             Navigator.pop(context);
           }
 
+          // Let the sheet pop animation finish cleanly before page transition
+          await Future.delayed(const Duration(milliseconds: 100));
+          if (!mounted) return;
+
           final targetAyah = ayah ?? 1;
           await widget.controller.setTargetSurah(n);
           widget.controller.setManualAyah(n, targetAyah);
@@ -316,7 +321,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     final app = AppState.instance;
 
     return ListenableBuilder(
-      listenable: app,
+      listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
       builder: (context, child) {
         final c = app.colors;
 
@@ -351,17 +356,11 @@ class _TrackingScreenState extends State<TrackingScreen>
                         isRecording: widget.isRecording,
                         isLoadingEngine: widget.isLoadingEngine,
                         c: c,
-                        onMic: () async {
+                        onMic: () {
                           app.dismissBanner();
                           if (widget.isVoiceSearching) {
                             widget.onVoiceSearchToggle();
                           } else {
-                            if (!widget.isRecording) {
-                              await MushafView.ensureActiveAyahOnCurrentPage(
-                                controller: widget.controller,
-                                pageNumber: app.currentMushafPage.value,
-                              );
-                            }
                             widget.onToggleRecord();
                           }
                         },
@@ -392,13 +391,13 @@ class _TrackingScreenState extends State<TrackingScreen>
                         onSurahTap: _showSurahPicker,
                         isVoiceSearching: widget.isVoiceSearching,
                         onVoiceSearchToggle: () {
-                          HapticFeedback.lightImpact();
+                          AppHaptics.lightImpact();
                           app.dismissBanner();
                           AppState.instance.stopVerseAudio();
                           widget.onVoiceSearchToggle();
                         },
                         onSettingsTap: () {
-                          HapticFeedback.lightImpact();
+                          AppHaptics.lightImpact();
                           _showSettingsDialog();
                         },
                       );
@@ -406,8 +405,12 @@ class _TrackingScreenState extends State<TrackingScreen>
                   ),
                 ),
 
-                // Modern Floating Slide-Up Banner (Slides UP above bottom toolbar for all notifications)
-                _buildModernBottomBanner(c, app, bottom),
+                // Modern Floating Slide-Up Banner (Scoped listener prevents full screen rebuilds)
+                ValueListenableBuilder<AppBannerInfo?>(
+                  valueListenable: app.bannerNotifier,
+                  builder: (context, activeBanner, _) =>
+                      _buildModernBottomBanner(c, app, bottom, activeBanner),
+                ),
               ],
             ),
           ),
@@ -429,15 +432,16 @@ class _TrackingScreenState extends State<TrackingScreen>
   // ──────────────────────────────────────────────────────────────────────────
   // Modern Floating Slide-Up Banner (Slides UP from bottom toolbar for all notices)
   // ──────────────────────────────────────────────────────────────────────────
-  Widget _buildModernBottomBanner(ThemeColors c, AppState app, double bottom) {
+  Widget _buildModernBottomBanner(
+      ThemeColors c, AppState app, double bottom, AppBannerInfo? activeBanner) {
     final bool isDark = app.isDarkMode;
     final bool isAr = app.isArabic;
-    final bool isVisible = app.isBannerVisible;
+    final bool isVisible = activeBanner != null;
 
-    if (app.currentBanner != null) {
-      _lastBanner = app.currentBanner;
+    if (activeBanner != null) {
+      _lastBanner = activeBanner;
     }
-    final banner = app.currentBanner ?? _lastBanner;
+    final banner = activeBanner ?? _lastBanner;
     if (banner == null) {
       return const SizedBox.shrink();
     }

@@ -92,7 +92,7 @@ class _ThemeSelectionDialogState extends State<ThemeSelectionDialog> {
                         onTap: () {
                           setState(() => _selectedIndex = 0);
                           app.setTheme(AppTheme.white);
-                          Future.delayed(const Duration(milliseconds: 300), widget.onThemeSelected);
+                          Future.delayed(const Duration(milliseconds: 150), widget.onThemeSelected);
                         },
                       ),
                       _ThemeSwatch(
@@ -103,7 +103,7 @@ class _ThemeSelectionDialogState extends State<ThemeSelectionDialog> {
                         onTap: () {
                           setState(() => _selectedIndex = 1);
                           app.setTheme(AppTheme.black);
-                          Future.delayed(const Duration(milliseconds: 300), widget.onThemeSelected);
+                          Future.delayed(const Duration(milliseconds: 150), widget.onThemeSelected);
                         },
                       ),
                     ],

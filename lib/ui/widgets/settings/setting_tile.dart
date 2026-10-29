@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import '../../../services/app_haptics.dart';
 import '../../../state/app_state.dart';
 
 /// Thin flush separator line for grouped lists.
@@ -184,7 +184,7 @@ class PremiumPillSelector extends StatelessWidget {
                   return Expanded(
                     child: GestureDetector(
                       onTap: () {
-                        HapticFeedback.lightImpact();
+                        AppHaptics.lightImpact();
                         onSelected(i);
                       },
                       behavior: HitTestBehavior.opaque,

@@ -49,11 +49,15 @@ class MushafProvider {
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   static const int _maxCachedPages = 64;
+  Timer? _preloadDebounce;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
     if (size == null || size.width <= 0 || size.height <= 0) return;
-    unawaited(_doPreloadAdjacentPages(pageNumber, size));
+    _preloadDebounce?.cancel();
+    _preloadDebounce = Timer(const Duration(milliseconds: 140), () {
+      unawaited(_doPreloadAdjacentPages(pageNumber, size));
+    });
   }
 
   Future<void> _doPreloadAdjacentPages(int pageNumber, Size size) async {
@@ -70,11 +74,12 @@ class MushafProvider {
       surahFrames: true,
     );
 
-    await Future.wait([
-      for (final target in [pageNumber + 1, pageNumber - 1, pageNumber + 2, pageNumber - 2])
-        if (target >= 1 && target <= 604)
-          _preloadSinglePage(target, size, dpr, inkColor, layout),
-    ]);
+    // Only preload immediate adjacent pages (1 ahead, 1 behind) sequentially to protect the UI frame rate
+    for (final target in [pageNumber + 1, pageNumber - 1]) {
+      if (target >= 1 && target <= 604) {
+        await _preloadSinglePage(target, size, dpr, inkColor, layout);
+      }
+    }
   }
 
   Future<void> _preloadSinglePage(
@@ -84,6 +89,10 @@ class MushafProvider {
     Color inkColor,
     QvpViewLayout layout,
   ) async {
+    final cached = getCachedPage(target);
+    if (cached != null && !cached.isDisposed && cached.currentLayout != null) {
+      return;
+    }
     final p = await getPage(target);
     if (p != null && !p.isDisposed) {
       if (p.currentLayout == null) {
@@ -106,7 +115,9 @@ class MushafProvider {
       final appDir = await getApplicationSupportDirectory();
       final dir = Directory('${appDir.path}/mushaf_pages');
       final atlasFile = File('${dir.path}/atlas.qva');
-      if (dir.existsSync() && atlasFile.existsSync() && dir.listSync().length >= 605) {
+      if (dir.existsSync() &&
+          atlasFile.existsSync() &&
+          File('${dir.path}/604.qvp').existsSync()) {
         _extractedPagesPath = dir.path;
         return;
       }

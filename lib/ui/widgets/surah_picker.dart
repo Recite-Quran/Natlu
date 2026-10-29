@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
+import '../../services/app_haptics.dart';
 import '../../state/app_state.dart';
 import 'surah/surah_list_tile.dart';
 
@@ -31,6 +31,9 @@ class SurahPickerSheet extends StatefulWidget {
 }
 
 class _SurahPickerSheetState extends State<SurahPickerSheet> {
+  static List<String>? _cachedNormalizedNames;
+  static List<String>? _cachedLowerEnNames;
+
   String _query = '';
   late final List<QuranVerse> _surahs;
   late final List<String> _normalizedNames;
@@ -42,9 +45,10 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
   void initState() {
     super.initState();
     _surahs = widget.controller.repository.surahMetadata;
-    _normalizedNames =
+    _normalizedNames = _cachedNormalizedNames ??=
         _surahs.map((s) => _normalizeArabic(s.surahName)).toList();
-    _lowerEnNames = _surahs.map((s) => s.surahNameEn.toLowerCase()).toList();
+    _lowerEnNames = _cachedLowerEnNames ??=
+        _surahs.map((s) => s.surahNameEn.toLowerCase()).toList();
     // Each SurahListTile is exactly 76.0px (44px badge + 24px container padding + 8px tile margin)
     final double initialOffset =
         ((widget.current - 1) * 76.0).clamp(0.0, double.infinity);
@@ -201,7 +205,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                     // 2. 2026 Popping Voice Search Action Button
                     _TactileScaleButton(
                       onTap: () {
-                        HapticFeedback.mediumImpact();
+                        AppHaptics.mediumImpact();
                         if (Navigator.of(context).canPop()) {
                           Navigator.pop(context);
                         }

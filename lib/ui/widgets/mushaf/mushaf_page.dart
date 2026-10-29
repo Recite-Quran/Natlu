@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Page;
-import 'package:flutter/services.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
 
+import '../../../services/app_haptics.dart';
 import '../../../state/app_state.dart';
 import 'mushaf_actions.dart';
 import 'mushaf_provider.dart';
@@ -30,7 +30,7 @@ class MushafPageWidget extends StatefulWidget {
 class _MushafPageWidgetState extends State<MushafPageWidget>
     with AutomaticKeepAliveClientMixin {
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => false;
 
   QvpPage? _page;
   bool _isLoading = true;
@@ -286,76 +286,86 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       }
 
       // 3. RECITATION FEEDBACK (TEXT INK + BACKGROUND BANDS) & HIFZ CONCEALING
-      final green = <int>[];
-      final yellow = <int>[];
-      final red = <int>[];
-      final hidden = <int>[];
+      // Bypassed completely during normal reading and audio playback for zero-lag 120fps scrolling
+      final bool needsWordEvaluation = widget.isRecording ||
+          app.isBlurMode ||
+          _lastGreenWords.isNotEmpty ||
+          _lastYellowWords.isNotEmpty ||
+          _lastRedWords.isNotEmpty ||
+          _lastHiddenWords.isNotEmpty;
 
-      for (final w in page.words) {
-        final w0 = w.word - 1;
-        final color = MushafActions.resolveWordDisplayColor(
-          ayah: w.ayah,
-          wordIndex: w0,
-          controller: ctrl,
-          app: app,
-          colors: c,
-          surah: w.surah,
-        );
-        if (color == Colors.transparent) {
-          hidden.add(w.index);
-        } else if (color == c.green) {
-          green.add(w.index);
-        } else if (color == c.warning) {
-          yellow.add(w.index);
-        } else if (color == c.red) {
-          red.add(w.index);
+      if (needsWordEvaluation) {
+        final green = <int>[];
+        final yellow = <int>[];
+        final red = <int>[];
+        final hidden = <int>[];
+
+        for (final w in page.words) {
+          final w0 = w.word - 1;
+          final color = MushafActions.resolveWordDisplayColor(
+            ayah: w.ayah,
+            wordIndex: w0,
+            controller: ctrl,
+            app: app,
+            colors: c,
+            surah: w.surah,
+          );
+          if (color == Colors.transparent) {
+            hidden.add(w.index);
+          } else if (color == c.green) {
+            green.add(w.index);
+          } else if (color == c.warning) {
+            yellow.add(w.index);
+          } else if (color == c.red) {
+            red.add(w.index);
+          }
         }
-      }
 
-      if (!listEquals(green, _lastGreenWords)) {
-        _lastGreenWords = green;
-        _updateHighlightGroup(
-          page,
-          green,
-          ref: _recitationGreenHandle,
-          inkColor: c.green,
-          bandColor: c.green.withValues(alpha: isDark ? 0.22 : 0.14),
-          onHandleChanged: (h) => _recitationGreenHandle = h,
-        );
-      }
+        if (!listEquals(green, _lastGreenWords)) {
+          _lastGreenWords = green;
+          _updateHighlightGroup(
+            page,
+            green,
+            ref: _recitationGreenHandle,
+            inkColor: c.green,
+            bandColor: c.green.withValues(alpha: isDark ? 0.22 : 0.14),
+            onHandleChanged: (h) => _recitationGreenHandle = h,
+          );
+        }
 
-      if (!listEquals(yellow, _lastYellowWords)) {
-        _lastYellowWords = yellow;
-        _updateHighlightGroup(
-          page,
-          yellow,
-          ref: _recitationYellowHandle,
-          inkColor: c.warning,
-          bandColor: c.warning.withValues(alpha: isDark ? 0.25 : 0.16),
-          onHandleChanged: (h) => _recitationYellowHandle = h,
-        );
-      }
+        if (!listEquals(yellow, _lastYellowWords)) {
+          _lastYellowWords = yellow;
+          _updateHighlightGroup(
+            page,
+            yellow,
+            ref: _recitationYellowHandle,
+            inkColor: c.warning,
+            bandColor: c.warning.withValues(alpha: isDark ? 0.25 : 0.16),
+            onHandleChanged: (h) => _recitationYellowHandle = h,
+          );
+        }
 
-      if (!listEquals(red, _lastRedWords)) {
-        _lastRedWords = red;
-        _updateHighlightGroup(
-          page,
-          red,
-          ref: _recitationRedHandle,
-          inkColor: c.red,
-          bandColor: c.red.withValues(alpha: isDark ? 0.25 : 0.16),
-          onHandleChanged: (h) => _recitationRedHandle = h,
-        );
-      }
+        if (!listEquals(red, _lastRedWords)) {
+          _lastRedWords = red;
+          _updateHighlightGroup(
+            page,
+            red,
+            ref: _recitationRedHandle,
+            inkColor: c.red,
+            bandColor: c.red.withValues(alpha: isDark ? 0.25 : 0.16),
+            onHandleChanged: (h) => _recitationRedHandle = h,
+          );
+        }
 
-      if (!listEquals(hidden, _lastHiddenWords)) {
-        _lastHiddenWords = hidden;
-        if (hidden.isNotEmpty) {
-          page.mask(T.words(hidden), 'hide');
-          _hasMasks = true;
-        } else if (_hasMasks) {
-          page.unmaskAll();
-          _hasMasks = false;
+        if (!listEquals(hidden, _lastHiddenWords)) {
+          _lastHiddenWords = hidden;
+          if (hidden.isNotEmpty) {
+            page.mask(T.words(hidden), 'hide');
+            _hasMasks = true;
+          } else if (_hasMasks) {
+            page.unmaskAll();
+            _hasMasks = false;
+          }
         }
       }
     });
@@ -433,7 +443,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         playWordDirectly: true,
       );
     } else {
-      HapticFeedback.lightImpact();
+      AppHaptics.lightImpact();
       MushafActions.selectAyah(
         surah: surah,
         ayah: ayah,
@@ -445,7 +455,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _onDecorationTap(QvpDecorationInfo dec) {
     if (dec.surah > 0 && dec.ayah > 0) {
-      HapticFeedback.selectionClick();
+      AppHaptics.selectionClick();
       AppState.instance.markMushafAudioAyahClicked();
       MushafActions.toggleAyahAudio(
         surah: dec.surah,
