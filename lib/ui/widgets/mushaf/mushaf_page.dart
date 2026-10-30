@@ -415,28 +415,30 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         _ensurePageWordsIndexed(page);
 
         // Fast O(1) Path for Maglis remote recitation: direct wordKey mapping with zero scanning
-        if (isMaglisRemote && hasRemoteReciterOnPage && !widget.isRecording && !isBlurEffective) {
+        if (isMaglisRemote && !widget.isRecording && !isBlurEffective) {
           final liveWordIndices = <int>{};
 
-          for (final w0 in maglis.remoteGreenWords) {
-            final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
-            if (idx != null) {
-              green.add(idx);
-              liveWordIndices.add(idx);
+          if (hasRemoteReciterOnPage) {
+            for (final w0 in maglis.remoteGreenWords) {
+              final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+              if (idx != null) {
+                green.add(idx);
+                liveWordIndices.add(idx);
+              }
             }
-          }
-          for (final w0 in maglis.remoteYellowWords) {
-            final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
-            if (idx != null) {
-              yellow.add(idx);
-              liveWordIndices.add(idx);
+            for (final w0 in maglis.remoteYellowWords) {
+              final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+              if (idx != null) {
+                yellow.add(idx);
+                liveWordIndices.add(idx);
+              }
             }
-          }
-          for (final w0 in maglis.remoteRedWords) {
-            final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
-            if (idx != null) {
-              red.add(idx);
-              liveWordIndices.add(idx);
+            for (final w0 in maglis.remoteRedWords) {
+              final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+              if (idx != null) {
+                red.add(idx);
+                liveWordIndices.add(idx);
+              }
             }
           }
 

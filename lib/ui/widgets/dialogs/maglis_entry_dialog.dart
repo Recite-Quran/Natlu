@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/app_haptics.dart';
-import '../state/app_state.dart';
-import 'maglis_controller.dart';
-import 'maglis_core.dart';
+import '../../../services/app_haptics.dart';
+import '../../../state/app_state.dart';
+import '../../../maglis/maglis_controller.dart';
+import '../../../maglis/maglis_core.dart';
 import 'maglis_explanation_dialog.dart';
-import 'maglis_network.dart';
+import '../../../maglis/maglis_network.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
 /// Minimal labels, crystal-clear actions, and zero UI-thread blocking.
@@ -113,7 +113,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     final codeEn = formatMaglisCode(trimmed, isArabic: false);
 
     if (_selectedTab == 0) {
-      // ── JOINING EXISTING ROOM: Verify existence & capacity first! ──
+      // ── JOINING EXISTING MAGLIS: Verify existence & capacity first! ──
       setState(() => _isJoining = true);
       AppHaptics.lightImpact();
 
@@ -135,7 +135,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             id: 'maglis_joined',
             messageAr:
                 'تم الاتصال بمجلس القرآن \u202A$codeAr\u202C • اضغط الميكروفون للتلاوة',
-            messageEn: 'Joined Quran Circle $codeEn • Tap mic to recite',
+            messageEn: 'Joined Quran Maglis $codeEn • Tap mic to recite',
             icon: Icons.groups_rounded,
             customDuration: const Duration(seconds: 3),
           ));
@@ -145,7 +145,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             id: 'maglis_full',
             messageAr:
                 'عذراً، المجلس \u202A$codeAr\u202C ممتلئ (الحد الأقصى 4 أعضاء)',
-            messageEn: 'Room $codeEn is full (maximum 4 participants)',
+            messageEn: 'Maglis $codeEn is full (maximum 4 participants)',
             icon: Icons.group_off_rounded,
             customDuration: const Duration(seconds: 4),
           ));
@@ -155,7 +155,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             id: 'maglis_not_found',
             messageAr:
                 'رمز المجلس \u202A$codeAr\u202C غير موجود أو لم يبدأ بعد',
-            messageEn: 'Room $codeEn does not exist or has not started',
+            messageEn: 'Maglis $codeEn does not exist or has not started',
             icon: Icons.search_off_rounded,
             customDuration: const Duration(seconds: 4),
           ));
@@ -166,13 +166,13 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           id: 'maglis_not_found',
           messageAr:
               'رمز المجلس \u202A$codeAr\u202C غير موجود أو تعذر الاتصال',
-          messageEn: 'Room $codeEn does not exist or network error',
+          messageEn: 'Maglis $codeEn does not exist or network error',
           icon: Icons.search_off_rounded,
           customDuration: const Duration(seconds: 4),
         ));
       });
     } else {
-      // ── MAKING A NEW ROOM AS HOST ──
+      // ── MAKING A NEW MAGLIS AS HOST ──
       AppHaptics.lightImpact();
       Navigator.of(context).pop();
 
@@ -199,7 +199,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             messageAr:
                 'تم افتتاح مجلس القرآن \u202A$codeAr\u202C • شارك الرمز مع إخوانك',
             messageEn:
-                'Started Quran Circle $codeEn • Share code with peers',
+                'Started Quran Maglis $codeEn • Share code with peers',
             icon: Icons.meeting_room_rounded,
             customDuration: const Duration(seconds: 3),
           ));
@@ -239,7 +239,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         AppState.instance.showBanner(AppBannerInfo(
           id: 'maglis_pasted',
           messageAr: 'تم لصق رمز المجلس: \u202A${formatMaglisCode(code, isArabic: true)}\u202C',
-          messageEn: 'Pasted room code: $code',
+          messageEn: 'Pasted Maglis code: $code',
           icon: Icons.paste_rounded,
           customDuration: const Duration(seconds: 2),
         ));
@@ -298,113 +298,52 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     ),
                   ),
 
-                // 1. Clean Header
+                // 1. Clean Header (No logo; title & subtitle start on the right in Arabic, with action buttons)
                 Row(
-                  children: isAr
-                      ? [
-                          IconButton(
-                            tooltip: 'إغلاق',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
-                          ),
-                          IconButton(
-                            tooltip: 'إرشادات المجلس',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () {
-                              AppHaptics.lightImpact();
-                              MaglisExplanationDialog.show(context);
-                            },
-                            icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  'مجلس القرآن المجيد',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    color: c.text,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                Text(
-                                  'اجتمع في مجلس لتلاوة القرآن الحكيم',
-                                  textAlign: TextAlign.right,
-                                  style: TextStyle(
-                                    color: c.muted,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Maglis',
+                            style: TextStyle(
+                              color: c.text,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(10),
+                          const SizedBox(height: 2),
+                          Text(
+                            isAr
+                                ? 'اجتمع في مجلس لتلاوة القرآن الحكيم'
+                                : 'Gather in a Maglis to recite the Wise Quran',
+                            style: TextStyle(
+                              color: c.muted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
                             ),
-                            child: const Icon(Icons.auto_stories_rounded,
-                                color: Color(0xFF10B981), size: 20),
-                          ),
-                        ]
-                      : [
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.auto_stories_rounded,
-                                color: Color(0xFF10B981), size: 20),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'The Glorious Quran Circle',
-                                  style: TextStyle(
-                                    color: c.text,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15.5,
-                                  ),
-                                ),
-                                Text(
-                                  'Gather in a circle to recite the Wise Quran',
-                                  style: TextStyle(
-                                    color: c.muted,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'How it works',
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () {
-                              AppHaptics.lightImpact();
-                              MaglisExplanationDialog.show(context);
-                            },
-                            icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
-                          ),
-                          IconButton(
-                            visualDensity: VisualDensity.compact,
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
                           ),
                         ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: isAr ? 'إرشادات المجلس' : 'How it works',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        AppHaptics.lightImpact();
+                        MaglisExplanationDialog.show(context);
+                      },
+                      icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
+                    ),
+                    IconButton(
+                      tooltip: isAr ? 'إغلاق' : 'Close',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
 
@@ -422,7 +361,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     children: [
                       Expanded(
                         child: _tabButton(
-                          title: isAr ? 'عقد المجلس' : 'Make Room',
+                          title: isAr ? 'عقد المجلس' : 'Open Maglis',
                           icon: Icons.meeting_room_rounded,
                           isSelected: _selectedTab == 1,
                           isDark: isDark,
@@ -437,7 +376,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                       ),
                       Expanded(
                         child: _tabButton(
-                          title: isAr ? 'دخول المجلس' : 'Join Circle',
+                          title: isAr ? 'دخول المجلس' : 'Join Maglis',
                           icon: Icons.login_rounded,
                           isSelected: _selectedTab == 0,
                           isDark: isDark,
@@ -525,7 +464,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  /// Modern, intuitive Join UI matching Make Room's exact card styling, with interactive slots and smart paste
+  /// Modern, intuitive Join UI matching Open Maglis's exact card styling, with interactive slots and smart paste
   Widget _buildModernJoinBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     final text = _codeCtrl.text.trim();
@@ -537,7 +476,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Hero Room Code Card (matching Make Room styling)
+          // Hero Maglis Code Card
           GestureDetector(
             onTap: _openKeyboard,
             behavior: HitTestBehavior.opaque,
@@ -567,7 +506,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                       Text(
                         isAr
                             ? 'اضغط هنا لكتابة الرمز (5 أرقام)'
-                            : 'Tap here to type 5-digit room code',
+                            : 'Tap here to type 5-digit Maglis code',
                         style: TextStyle(
                           color: c.muted,
                           fontSize: 12,
@@ -578,8 +517,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   ),
                   const SizedBox(height: 8),
 
-                  // 5 Discrete Digit Slots strictly in Left-to-Right order (NO bullet dots!)
-                  // Overlay transparent TextField directly so touching the slots reliably opens/reopens the keyboard
+                  // 5 Discrete Digit Slots strictly in Left-to-Right order (Clean empty boxes, no dashes/slashes!)
                   Stack(
                     alignment: Alignment.center,
                     children: [
@@ -639,14 +577,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                                             height: 18,
                                             color: const Color(0xFF10B981),
                                           )
-                                        : Container(
-                                            width: 12,
-                                            height: 2,
-                                            decoration: BoxDecoration(
-                                              color: isDark ? Colors.white24 : Colors.black26,
-                                              borderRadius: BorderRadius.circular(1),
-                                            ),
-                                          )),
+                                        : const SizedBox.shrink()),
                               );
                             }),
                           ),
@@ -686,7 +617,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
 
                   const SizedBox(height: 10),
 
-                  // Dedicated Action Pill: Smart Paste from clipboard & Clear (Tall 38dp pill buttons)
+                  // Dedicated Action Pill: Smart Paste from clipboard & Clear
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -774,7 +705,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             ),
           ),
 
-          // Submit Button (matching Make Room button)
+          // Submit Button (matching Open Maglis button)
           SizedBox(
             height: 46,
             child: FilledButton.icon(
@@ -804,8 +735,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   : const Icon(Icons.login_rounded, size: 20),
               label: Text(
                 _isJoining
-                    ? (isAr ? 'جاري التحقق من المجلس...' : 'Verifying room...')
-                    : (isAr ? 'دخول المجلس الآن' : 'Join Room Now'),
+                    ? (isAr ? 'جاري التحقق من المجلس...' : 'Verifying Maglis...')
+                    : (isAr ? 'دخول المجلس الآن' : 'Join Maglis Now'),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),
@@ -815,7 +746,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  /// Modern, intuitive Create UI with strictly LTR room code slots, separate copy button, and human copy
+  /// Modern, intuitive Create UI with strictly LTR Maglis code slots, separate copy button, and human copy
   Widget _buildModernCreateBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     final displayCode = formatMaglisCode(_newCode, isArabic: isAr);
@@ -828,7 +759,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Hero Room Code Card
+          // Hero Maglis Code Card
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
@@ -841,7 +772,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             child: Column(
               children: [
                 Text(
-                  isAr ? 'رمز المجلس لمشاركته مع إخوانك' : 'Your 5-Digit Room Code',
+                  isAr ? 'رمز المجلس لمشاركته مع إخوانك' : 'Your 5-Digit Maglis Code',
                   style: TextStyle(
                     color: c.muted,
                     fontSize: 12,
@@ -929,7 +860,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                         const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 17),
                         const SizedBox(width: 7),
                         Text(
-                          isAr ? 'نسخ رمز المجلس' : 'Copy Room Code',
+                          isAr ? 'نسخ رمز المجلس' : 'Copy Maglis Code',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -944,7 +875,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             ),
           ),
 
-          // Start Room Button (NO 'create' label!)
+          // Start Maglis Button
           SizedBox(
             height: 46,
             child: FilledButton.icon(
@@ -958,7 +889,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
               onPressed: () => _submitSession(_newCode),
               icon: const Icon(Icons.play_arrow_rounded, size: 21),
               label: Text(
-                isAr ? 'افتتاح المجلس الآن' : 'Start Room Now',
+                isAr ? 'افتتاح المجلس الآن' : 'Start Maglis Now',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),

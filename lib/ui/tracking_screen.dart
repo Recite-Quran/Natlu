@@ -17,8 +17,8 @@ import 'widgets/surah_picker.dart';
 import 'widgets/mushaf/mushaf_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../maglis/maglis_controller.dart';
-import '../maglis/maglis_entry_dialog.dart';
-import '../maglis/maglis_explanation_dialog.dart';
+import 'widgets/dialogs/maglis_entry_dialog.dart';
+import 'widgets/dialogs/maglis_explanation_dialog.dart';
 import 'widgets/dialogs/whats_new_dialog.dart';
 
 /// Main interactive screen for real-time recitation tracking and reading.

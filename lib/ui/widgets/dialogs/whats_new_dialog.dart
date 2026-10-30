@@ -119,7 +119,7 @@ class WhatsNewDialog extends StatelessWidget {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Circle',
+                                isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Maglis',
                                 style: TextStyle(
                                   color: c.primary,
                                   fontSize: 14,
@@ -131,8 +131,8 @@ class WhatsNewDialog extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             isAr
-                                ? 'حلقة مباركة لتلاوة آيات الذكر الحكيم وتدارسها حتى 4 أفراد بمحادثة صوتية وتزامن حي للمصحف'
-                                : 'Interactive Quran study circle for up to 4 peers with open voice call and live Mushaf sync using a 5-digit code',
+                                ? 'مجلس مبارك لتلاوة آيات الذكر الحكيم وتدارسها حتى 4 أفراد بمحادثة صوتية وتزامن حي للمصحف'
+                                : 'Interactive Quran Maglis for up to 4 peers with open voice call and live Mushaf sync using a 5-digit code',
                             style: TextStyle(
                               color: c.text,
                               fontSize: 12.5,

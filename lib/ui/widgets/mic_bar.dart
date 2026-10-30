@@ -297,7 +297,7 @@ class BottomActionBar extends StatelessWidget {
     final countDisplay = formatMaglisCode(count.toString(), isArabic: isAr);
 
     return Tooltip(
-      message: isAr ? 'رمز المجلس (اضغط لنسخ الرمز)' : 'Room Code (tap to copy)',
+      message: isAr ? 'رمز المجلس (اضغط لنسخ الرمز)' : 'Maglis Code (tap to copy)',
       waitDuration: const Duration(milliseconds: 350),
       child: InkWell(
         borderRadius: BorderRadius.circular(14.0),
@@ -397,7 +397,7 @@ class BottomActionBar extends StatelessWidget {
   }) {
     final btn = _buildButton(
       icon: Icons.groups_rounded,
-      tooltip: isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Circle',
+      tooltip: isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Maglis',
       isActive: false,
       isDark: isDark,
       size: size,
@@ -454,9 +454,7 @@ class BottomActionBar extends StatelessWidget {
   }) {
     final colors = isRecording
         ? const [Color(0xFFFB7185), Color(0xFFE11D48), Color(0xFF881337)]
-        : (isRemoteReciting
-            ? const [Color(0xFF38BDF8), Color(0xFF0284C7), Color(0xFF0369A1)]
-            : const [Color(0xFF34D399), Color(0xFF059669), Color(0xFF065F46)]);
+        : const [Color(0xFF34D399), Color(0xFF059669), Color(0xFF065F46)];
 
     return _TapScale(
       onTapDown: () {
@@ -480,7 +478,7 @@ class BottomActionBar extends StatelessWidget {
           boxShadow: [
             BoxShadow(
               color: colors[1].withValues(alpha: isDark ? 0.50 : 0.35),
-              blurRadius: (isRecording || isRemoteReciting) ? 20 : 14,
+              blurRadius: isRecording ? 20 : 14,
               offset: const Offset(0, 4),
             ),
             BoxShadow(
@@ -521,17 +519,11 @@ class BottomActionBar extends StatelessWidget {
                     )
                   : (isRecording
                       ? const _AudioWaveform()
-                      : (isRemoteReciting
-                          ? Icon(
-                              Icons.volume_up_rounded,
-                              color: Colors.white,
-                              size: isNarrow ? 23.0 : 26.0,
-                            )
-                          : Icon(
-                              Icons.mic_rounded,
-                              color: Colors.white,
-                              size: isNarrow ? 25.0 : 28.0,
-                            ))),
+                      : Icon(
+                          Icons.mic_rounded,
+                          color: Colors.white,
+                          size: isNarrow ? 25.0 : 28.0,
+                        )),
             ),
           ],
         ),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/app_haptics.dart';
-import '../state/app_state.dart';
+import '../../../services/app_haptics.dart';
+import '../../../state/app_state.dart';
 
 /// Brief, crystal-clear explanation dialog for the Maglis feature.
 /// Explains "What is it for" and "How to use it step-by-step" with minimal labels and maximum eye comfort.
@@ -75,7 +75,7 @@ class MaglisExplanationDialog extends StatelessWidget {
 
                     // 2. Dialog Title
                     Text(
-                      isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Circle',
+                      isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Maglis',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: c.text,
@@ -96,8 +96,8 @@ class MaglisExplanationDialog extends StatelessWidget {
                       ),
                       child: Text(
                         isAr
-                            ? 'حلقة قرآنية مباشرة بالصوت وتزامن المصحف (حتى 4 أفراد) للتسميع والتصحيح بين المعلم والطلاب.'
-                            : 'A live study circle with open voice & synced Mushaf (up to 4 peers) to recite and correct together.',
+                            ? 'مجلس قرآني مباشر بالصوت وتزامن المصحف (حتى 4 أفراد) للتسميع والتصحيح بين المعلم والطلاب.'
+                            : 'A live Quran Maglis with open voice & synced Mushaf (up to 4 peers) to recite and correct together.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: c.text,
@@ -112,10 +112,10 @@ class MaglisExplanationDialog extends StatelessWidget {
                     // 4. How to Use - Step 1: 5-digit code
                     _buildStepRow(
                       number: '1',
-                      title: isAr ? 'الرمز (5 أرقام)' : '5-Digit Room Code',
+                      title: isAr ? 'الرمز (5 أرقام)' : '5-Digit Maglis Code',
                       body: isAr
                           ? '• المعلم: يضغط "عقد المجلس" ويشارك الرمز مع الطلاب.\n• الطالب: يضغط "دخول المجلس" ويكتب الرمز للانضمام فوراً.'
-                          : '• Teacher: Taps "Make Room" and shares the code.\n• Student: Taps "Join", types code, and enters instantly.',
+                          : '• Teacher: Taps "Open Maglis" and shares the code.\n• Student: Taps "Join Maglis", types code, and enters instantly.',
                       c: c,
                     ),
                     const SizedBox(height: 10),
