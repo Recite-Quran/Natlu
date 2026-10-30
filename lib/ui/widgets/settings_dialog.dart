@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../state/app_state.dart';
 import 'settings/setting_tile.dart';
-import 'dialogs/whats_new_dialog.dart';
 
 /// Settings modal bottom sheet with modern styling.
 class SettingsDialog extends StatelessWidget {
@@ -134,26 +133,6 @@ class SettingsDialog extends StatelessWidget {
                                     selected: app.theme.index,
                                     c: c,
                                     onSelected: (i) => app.setTheme(AppTheme.values[i]),
-                                  ),
-                                ),
-                                PremiumSettingDivider(c: c),
-
-                                // 3. What's New
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(16),
-                                  onTap: () {
-                                    Navigator.of(context).pop();
-                                    WhatsNewDialog.show(context);
-                                  },
-                                  child: SettingTile(
-                                    icon: Icons.auto_awesome_rounded,
-                                    title: isAr ? 'ما الجديد في هذا التحديث' : "What's New in this Update",
-                                    c: c,
-                                    trailing: Icon(
-                                      isAr ? Icons.arrow_back_ios_new_rounded : Icons.arrow_forward_ios_rounded,
-                                      size: 13,
-                                      color: c.muted,
-                                    ),
                                   ),
                                 ),
                               ],

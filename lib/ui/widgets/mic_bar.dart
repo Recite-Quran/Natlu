@@ -1,7 +1,9 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../services/app_haptics.dart';
 import '../../state/app_state.dart';
+import '../../maglis/maglis_core.dart';
 
 /// Ultra-Modern, Ultra-Lightweight Bottom Command Dock
 ///
@@ -76,15 +78,16 @@ class BottomActionBar extends StatelessWidget {
           // Full & Collapsed widths
           final double fullDockWidth = math.min(maxW - 24.0, 520.0);
           final double collapsedDockWidth = (padH * 2) + recBtnSize + (gap + btnSize) * 2;
-          final double smallRoomCodeWidth = isNarrow ? 56.0 : 64.0;
-          final double maglisDockWidth = math.min(maxW - 24.0, (padH * 2) + recBtnSize + (gap + btnSize) * 4 + gap + smallRoomCodeWidth);
+          final double leftSpaceForPage = isNarrow ? 48.0 : 54.0;
+          // In Maglis: Stretch dock across the bottom leaving only a small space on the left for the page number
+          final double maglisDockWidth = math.min(maxW - 12.0 - leftSpaceForPage, 520.0);
           final double targetDockWidth = isInMaglis
               ? maglisDockWidth
               : (isRecording ? collapsedDockWidth : fullDockWidth);
 
           // Stationary right margin: locks right buttons to exact screen coordinates!
           final double rightMargin = math.max(12.0, (maxW - fullDockWidth) / 2.0);
-          final double fullContentWidth = fullDockWidth - (padH * 2);
+          final double fullContentWidth = targetDockWidth - (padH * 2);
 
           // Clean, consistent dock styling (Zero red tint/shadow on the bar itself)
           final Color dockBg = isDark ? c.surfaceHigh : c.surface;
@@ -196,10 +199,13 @@ class BottomActionBar extends StatelessWidget {
                                                     onTap: onSurahTap,
                                                   ),
                                                   SizedBox(width: gap),
-                                                  _buildSmallRoomCode(
-                                                    height: btnSize,
-                                                    width: smallRoomCodeWidth,
-                                                    isDark: isDark,
+                                                  Expanded(
+                                                    child: _buildSessionInfoCard(
+                                                      height: btnSize,
+                                                      isDark: isDark,
+                                                      isAr: isAr,
+                                                      isNarrow: isNarrow,
+                                                    ),
                                                   ),
                                                   SizedBox(width: gap),
                                                   _buildButton(
@@ -273,53 +279,125 @@ class BottomActionBar extends StatelessWidget {
     );
   }
 
-  /// Compact room code badge with live activity indicator
-  Widget _buildSmallRoomCode({
+  /// Expanded session status badge displaying the room code, participant count, and live pulse dot
+  Widget _buildSessionInfoCard({
     required double height,
-    required double width,
     required bool isDark,
+    required bool isAr,
+    required bool isNarrow,
   }) {
-    return Container(
-      height: height,
-      width: width,
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.06)
-            : Colors.black.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(height * 0.34),
-        border: Border.all(
+    final displayCode = formatMaglisCode(maglisRoomCode ?? '', isArabic: isAr);
+    final count = maglisPeerCount > 0 ? maglisPeerCount : 1;
+    final countDisplay = formatMaglisCode(count.toString(), isArabic: isAr);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(height * 0.34),
+      onTap: () {
+        if (maglisRoomCode != null && maglisRoomCode!.isNotEmpty) {
+          Clipboard.setData(ClipboardData(text: maglisRoomCode!));
+          AppHaptics.lightImpact();
+          AppState.instance.showBanner(AppBannerInfo(
+            id: 'maglis_code_copied',
+            messageAr: 'تم نسخ رمز المجلس: \u202A${formatMaglisCode(maglisRoomCode!, isArabic: true)}\u202C',
+            messageEn: 'Maglis code copied: $maglisRoomCode',
+            icon: Icons.copy_rounded,
+            customDuration: const Duration(seconds: 2),
+          ));
+        }
+      },
+      child: Container(
+        height: height,
+        padding: EdgeInsets.symmetric(horizontal: isNarrow ? 6.0 : 8.0),
+        decoration: BoxDecoration(
           color: isDark
-              ? Colors.white.withValues(alpha: 0.12)
-              : Colors.black.withValues(alpha: 0.08),
-          width: 0.9,
+              ? Colors.white.withValues(alpha: 0.06)
+              : Colors.black.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(height * 0.34),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.12)
+                : Colors.black.withValues(alpha: 0.08),
+            width: 0.9,
+          ),
         ),
-      ),
-      alignment: Alignment.center,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 5.5,
-            height: 5.5,
-            decoration: BoxDecoration(
-              color: isRemoteReciting
-                  ? const Color(0xFF38BDF8)
-                  : const Color(0xFF10B981),
-              shape: BoxShape.circle,
-            ),
+        alignment: Alignment.center,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Live Audio Pulse Dot
+              Container(
+                width: 6.0,
+                height: 6.0,
+                decoration: BoxDecoration(
+                  color: isRemoteReciting
+                      ? const Color(0xFF38BDF8)
+                      : const Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: (isRemoteReciting
+                              ? const Color(0xFF38BDF8)
+                              : const Color(0xFF10B981))
+                          .withValues(alpha: 0.5),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 5.0),
+
+              // Room Code (Strictly LTR so digits never invert)
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text(
+                  displayCode,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    fontFamily: 'cairo',
+                    color: Color(0xFF10B981),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12.0,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+
+              // Subtle vertical separator
+              Container(
+                width: 1.0,
+                height: height * 0.42,
+                margin: EdgeInsets.symmetric(horizontal: isNarrow ? 5.0 : 6.5),
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.15)
+                    : Colors.black.withValues(alpha: 0.12),
+              ),
+
+              // Users count (icon + count)
+              Icon(
+                Icons.groups_rounded,
+                size: isNarrow ? 13.0 : 14.5,
+                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+              ),
+              const SizedBox(width: 3.5),
+              Directionality(
+                textDirection: TextDirection.ltr,
+                child: Text(
+                  countDisplay,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontFamily: 'cairo',
+                    color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 4.0),
-          Text(
-            maglisRoomCode ?? '',
-            maxLines: 1,
-            style: const TextStyle(
-              color: Color(0xFF10B981),
-              fontWeight: FontWeight.w800,
-              fontSize: 11.5,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

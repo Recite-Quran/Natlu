@@ -387,7 +387,7 @@ class MaglisPlatform {
                       AVAudioSessionCategoryOptions.allowAirPlay,
               avAudioSessionMode: AVAudioSessionMode.videoChat,
               androidAudioAttributes: const AndroidAudioAttributes(
-                contentType: AndroidAudioContentType.speech,
+                contentType: AndroidAudioContentType.music,
                 usage: AndroidAudioUsage.voiceCommunication,
               ),
               androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
@@ -484,4 +484,29 @@ class MaglisPlatform {
       }
     } catch (_) {}
   }
+}
+
+/// Converts any Eastern Arabic digits (٠-٩) in [input] to standard ASCII digits (0-9).
+String normalizeArabicDigits(String input) {
+  const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  String result = input;
+  for (int i = 0; i < 10; i++) {
+    result = result.replaceAll(eastern[i], i.toString());
+  }
+  return result;
+}
+
+/// Formats a 5-digit room code according to locale:
+/// - If [isArabic] is true, converts to Eastern Arabic digits ('٠'-'٩').
+/// - If false, keeps ASCII digits ('0'-'9').
+/// Always maintains strict Left-to-Right reading order.
+String formatMaglisCode(String code, {required bool isArabic}) {
+  if (code.isEmpty) return code;
+  final normalized = normalizeArabicDigits(code);
+  if (!isArabic) return normalized;
+  const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  return normalized.split('').map((char) {
+    final n = int.tryParse(char);
+    return n != null ? digits[n] : char;
+  }).join('');
 }

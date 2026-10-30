@@ -221,6 +221,7 @@ class _MushafViewState extends State<MushafView> {
     widget.controller.addListener(_onControllerProgress);
     AppState.instance.activeAudioAyah.addListener(_onAudioAyahChanged);
     AppState.instance.activeAudioSurah.addListener(_onAudioAyahChanged);
+    MaglisController.instance.addListener(_onMaglisSessionChanged);
 
     MaglisController.instance.onSyncMushafUI = (page, surah, ayah) {
       if (!mounted) return;
@@ -321,6 +322,7 @@ class _MushafViewState extends State<MushafView> {
 
   @override
   void dispose() {
+    MaglisController.instance.removeListener(_onMaglisSessionChanged);
     MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
@@ -330,6 +332,10 @@ class _MushafViewState extends State<MushafView> {
     _pageController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onMaglisSessionChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onControllerProgress() {
@@ -558,18 +564,20 @@ class _MushafViewState extends State<MushafView> {
 
     // Bottom command dock is at safeBottom + 14.0 (margin) + 56.0 (height) = safeBottom + 70.0.
     // When idle: page number sits snugly 1.5dp above the dock at the bottom-left (safeBottom + 71.5).
-    // When recording: toolbar collapses to the center, so page number drops down to be
+    // When recording or in Maglis session: page number drops down to be
     // vertically centered with the 56dp bottom bar at the left:
     // safeBottom + 14.0 + (56.0 - 10.5) / 2 = safeBottom + 36.75 ~ safeBottom + 36.5.
-    final double pageLabelBottom = widget.isRecording
+    final bool isSessionActive = widget.isRecording || MaglisController.instance.inSession;
+
+    final double pageLabelBottom = isSessionActive
         ? (safeBottom + 36.5)
         : (safeBottom + 71.5);
 
     // Constrain the mushaf content:
     // When idle: stops just above the page number (safeBottom + 84.5).
-    // When recording: page number drops down to the bottom bar row, allowing the ayahs to
-    // stretch down right to the top of the collapsed dock (safeBottom + 71.0).
-    final double bottomPadding = widget.isRecording
+    // When recording or in Maglis session: page number drops down to the bottom bar row, allowing the ayahs to
+    // stretch down right to the top of the dock (safeBottom + 71.0).
+    final double bottomPadding = isSessionActive
         ? (safeBottom + 71.0)
         : (safeBottom + 84.5);
 

@@ -208,12 +208,13 @@ class MaglisNetworkEngine {
   static Map<String, dynamic> _buildAudioConstraints({String? inputDeviceId}) {
     return {
       'audio': {
-        // Top-level standard W3C constraints (Web & modern desktop WebRTC)
+        // Top-level standard W3C constraints (Google Meet / Studio HD Voice)
         'echoCancellation': true,
-        'autoGainControl': true,
+        'autoGainControl': false, // Disable aggressive telephony AGC compression
         'noiseSuppression': false, // Preserve natural Tajweed recitation without clipping
-        'highpassFilter': true,
+        'highpassFilter': false, // Disable telephony bass cutoff to preserve natural vocal warmth
         'sampleRate': 48000,
+        'sampleSize': 16,
         'channelCount': 1,
         if (inputDeviceId != null) 'deviceId': inputDeviceId,
 
@@ -223,13 +224,13 @@ class MaglisNetworkEngine {
           'googEchoCancellation': 'true',
           'googEchoCancellation2': 'true',
           'googDAEchoCancellation': 'true',
-          'autoGainControl': 'true',
-          'googAutoGainControl': 'true',
+          'autoGainControl': 'false',
+          'googAutoGainControl': 'false',
           'noiseSuppression': 'false',
           'googNoiseSuppression': 'false',
           'googNoiseSuppression2': 'false',
-          'highpassFilter': 'true',
-          'googHighpassFilter': 'true',
+          'highpassFilter': 'false',
+          'googHighpassFilter': 'false',
           'googTypingNoiseDetection': 'false',
         },
 
@@ -239,13 +240,13 @@ class MaglisNetworkEngine {
           {'googEchoCancellation': true},
           {'googEchoCancellation2': true},
           {'googDAEchoCancellation': true},
-          {'autoGainControl': true},
-          {'googAutoGainControl': true},
+          {'autoGainControl': false},
+          {'googAutoGainControl': false},
           {'noiseSuppression': false},
           {'googNoiseSuppression': false},
           {'googNoiseSuppression2': false},
-          {'highpassFilter': true},
-          {'googHighpassFilter': true},
+          {'highpassFilter': false},
+          {'googHighpassFilter': false},
           {'googTypingNoiseDetection': false},
           if (inputDeviceId != null) {'sourceId': inputDeviceId},
         ],
@@ -896,21 +897,26 @@ class MaglisNetworkEngine {
     // Production Tajweed Voice Profile for High Packet-Loss & Slow Network Resilience:
     // - useinbandfec=1: In-Band Forward Error Correction seamless loss repair
     // - usedtx=0: Continuous audio stream without clipping quiet Madd or breath pauses
-    // - cbr=0: Variable bitrate allows Opus to seamlessly inject FEC packets without distortion
-    // - ptime=20: 50 packets/sec cuts IP/UDP/RTP header overhead by 50% compared to 10ms
-    // - minptime=10: Allows dynamic low-latency buffer adaptation
-    // - maxaveragebitrate=48000: Studio clarity for 48kHz vocal harmonics
-    // - stereo=0: Clean mono voice transmission
+    // Studio High-Fidelity Voice Profile (Google Meet / Studio Clarity):
+    // - maxaveragebitrate=96000: 96 kbps HD audio preserving all harmonics and vocal resonance
+    // - maxplaybackrate=48000: Full-band 48 kHz
+    // - sprop-maxcapturerate=48000: 48 kHz capture
+    // - ptime=20: Optimal frame duration for audio fidelity
+    // - minptime=10: Low-latency dynamic adaptation
+    // - maxptime=20: Consistent packet pacing
+    // - useinbandfec=1: Loss protection
+    // - usedtx=0: Continuous unclipped natural audio without gating
+    // - cbr=0: Dynamic Opus allocation
     final opusParams = [
       'useinbandfec=1',
       'usedtx=0',
       'cbr=0',
-      'ptime=10',
+      'ptime=20',
       'minptime=10',
       'maxptime=20',
       'stereo=0',
       'sprop-stereo=0',
-      'maxaveragebitrate=48000',
+      'maxaveragebitrate=96000',
       'maxplaybackrate=48000',
       'sprop-maxcapturerate=48000',
     ].join(';');
@@ -927,7 +933,7 @@ class MaglisNetworkEngine {
       );
     }
 
-    // Add or update b=AS:64 and b=TIAS:64000 to allow 48 kbps payload + 16 kbps IP/UDP/RTP headers at 50 pkts/s without throttling
+    // Add or update b=AS:128 and b=TIAS:128000 to allow 96 kbps payload + IP/UDP/RTP headers without throttling
     final audioMlineRegex =
         RegExp(r'(m=audio\s+\d+\s+[^\r\n]+)', caseSensitive: false);
     final audioMatch = audioMlineRegex.firstMatch(result);
@@ -940,18 +946,18 @@ class MaglisNetworkEngine {
       final hasBtias = result.contains(btiasRegex);
 
       if (hasBas) {
-        result = result.replaceAll(basRegex, 'b=AS:64');
+        result = result.replaceAll(basRegex, 'b=AS:128');
       }
       if (hasBtias) {
-        result = result.replaceAll(btiasRegex, 'b=TIAS:64000');
+        result = result.replaceAll(btiasRegex, 'b=TIAS:128000');
       }
 
       if (!hasBas && !hasBtias) {
-        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:64${lineEnd}b=TIAS:64000');
+        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:128${lineEnd}b=TIAS:128000');
       } else if (!hasBas) {
-        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:64');
+        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:128');
       } else if (!hasBtias) {
-        result = result.replaceFirst(mline, '$mline${lineEnd}b=TIAS:64000');
+        result = result.replaceFirst(mline, '$mline${lineEnd}b=TIAS:128000');
       }
     }
 

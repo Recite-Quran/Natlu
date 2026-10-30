@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../services/app_haptics.dart';
 import '../state/app_state.dart';
 import 'maglis_controller.dart';
+import 'maglis_core.dart';
 import 'maglis_explanation_dialog.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
@@ -61,7 +62,14 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   }
 
   void _onCodeChanged(String text) {
-    final isValid = text.trim().length == 5;
+    final normalized = normalizeArabicDigits(text.trim());
+    if (normalized != text) {
+      _codeCtrl.value = TextEditingValue(
+        text: normalized,
+        selection: TextSelection.collapsed(offset: normalized.length),
+      );
+    }
+    final isValid = normalized.length == 5;
     if (_canJoin != isValid) {
       setState(() => _canJoin = isValid);
     } else {
@@ -70,18 +78,20 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   }
 
   void _submitSession(String code) {
-    final trimmed = code.trim();
+    final trimmed = normalizeArabicDigits(code.trim());
     if (trimmed.length != 5) return;
 
     AppHaptics.lightImpact();
     Navigator.of(context).pop();
 
     final app = AppState.instance;
+    final codeAr = formatMaglisCode(trimmed, isArabic: true);
+    final codeEn = formatMaglisCode(trimmed, isArabic: false);
 
     app.showBanner(AppBannerInfo(
       id: 'maglis_connecting',
-      messageAr: 'جاري الاتصال بالمجلس $trimmed...',
-      messageEn: 'Connecting to Maglis $trimmed...',
+      messageAr: 'جاري الاتصال بالمجلس \u202A$codeAr\u202C...',
+      messageEn: 'Connecting to Maglis $codeEn...',
       icon: Icons.wifi_calling_3_rounded,
       customDuration: const Duration(seconds: 2),
     ));
@@ -98,8 +108,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       if (success) {
         app.showBanner(AppBannerInfo(
           id: 'maglis_joined',
-          messageAr: 'تم الاتصال بالمجلس $trimmed • المحادثة مفتوحة للجميع • اضغط الميكروفون للتلاوة',
-          messageEn: 'Connected to Maglis $trimmed • Voice call active for all • Tap mic to recite',
+          messageAr: 'تم الاتصال بالمجلس \u202A$codeAr\u202C • المحادثة مفتوحة للجميع • اضغط الميكروفون للتلاوة',
+          messageEn: 'Connected to Maglis $codeEn • Voice call active for all • Tap mic to recite',
           icon: Icons.groups_rounded,
           customDuration: const Duration(seconds: 4),
         ));
@@ -127,7 +137,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text?.trim() ?? '';
-      final match = RegExp(r'\d{5}').firstMatch(text);
+      final normalized = normalizeArabicDigits(text);
+      final match = RegExp(r'\d{5}').firstMatch(normalized);
       if (match != null) {
         _codeCtrl.text = match.group(0)!;
         _onCodeChanged(_codeCtrl.text);
@@ -286,12 +297,15 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 ),
                 const SizedBox(height: 18),
 
-                // 3. Tab Body
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  child: _selectedTab == 0
-                      ? _buildModernJoinBody(isDark, isAr, c, borderColor)
-                      : _buildModernCreateBody(isDark, isAr, c, borderColor),
+                // 3. Tab Body (Fixed 180dp height — ZERO height jumping when switching tabs)
+                SizedBox(
+                  height: 180,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: _selectedTab == 0
+                        ? _buildModernJoinBody(isDark, isAr, c, borderColor)
+                        : _buildModernCreateBody(isDark, isAr, c, borderColor),
+                  ),
                 ),
               ],
             ),
@@ -358,127 +372,103 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     final text = _codeCtrl.text.trim();
 
-    return Column(
-      key: const ValueKey('join_tab_body'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // 5 Interactive Digit Slots
-        GestureDetector(
-          onTap: () => _focusNode.requestFocus(),
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.03)
-                  : Colors.black.withValues(alpha: 0.02),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: _canJoin
-                    ? const Color(0xFF10B981).withValues(alpha: 0.40)
-                    : borderColor,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(5, (index) {
-                final hasChar = index < text.length;
-                final isCurrent = index == text.length;
-
-                return Container(
-                  width: 44,
-                  height: 50,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? (hasChar ? Colors.white12 : Colors.white.withValues(alpha: 0.04))
-                        : (hasChar ? const Color(0xFFF1F5F9) : Colors.black.withValues(alpha: 0.03)),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: isCurrent
-                          ? const Color(0xFF10B981)
-                          : (hasChar
-                              ? const Color(0xFF10B981).withValues(alpha: 0.5)
-                              : borderColor),
-                      width: isCurrent ? 1.8 : 1.0,
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    hasChar ? text[index] : '•',
-                    style: TextStyle(
-                      color: hasChar
-                          ? (isDark ? Colors.white : const Color(0xFF0F172A))
-                          : c.muted.withValues(alpha: 0.35),
-                      fontSize: hasChar ? 22 : 18,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                );
-              }),
-            ),
-          ),
-        ),
-
-        // Hidden input field for native keyboard input
-        Offstage(
-          offstage: true,
-          child: TextField(
-            focusNode: _focusNode,
-            controller: _codeCtrl,
-            keyboardType: TextInputType.number,
-            onChanged: _onCodeChanged,
-            onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(5),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-
-        // Quick action: Paste or Clear chip
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: _pasteFromClipboard,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(8),
+    return SizedBox(
+      height: 180,
+      child: Column(
+        key: const ValueKey('join_tab_body'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // 5 Interactive Digit Slots — strictly LTR so first digit is always on the left
+          GestureDetector(
+            onTap: () => _focusNode.requestFocus(),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.03)
+                    : Colors.black.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _canJoin
+                      ? const Color(0xFF10B981).withValues(alpha: 0.40)
+                      : borderColor,
                 ),
+              ),
+              child: Directionality(
+                textDirection: TextDirection.ltr,
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.paste_rounded, size: 14, color: c.muted),
-                    const SizedBox(width: 5),
-                    Text(
-                      isAr ? 'لصق الرمز من الحافظة' : 'Paste from clipboard',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: c.muted,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    final hasChar = index < text.length;
+                    final isCurrent = index == text.length;
+                    final char = hasChar
+                        ? formatMaglisCode(text[index], isArabic: isAr)
+                        : '•';
+
+                    return Container(
+                      width: 44,
+                      height: 48,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? (hasChar ? Colors.white12 : Colors.white.withValues(alpha: 0.04))
+                            : (hasChar ? const Color(0xFFF1F5F9) : Colors.black.withValues(alpha: 0.03)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isCurrent
+                              ? const Color(0xFF10B981)
+                              : (hasChar
+                                  ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                                  : borderColor),
+                          width: isCurrent ? 1.8 : 1.0,
+                        ),
                       ),
-                    ),
-                  ],
+                      alignment: Alignment.center,
+                      child: Text(
+                        char,
+                        style: TextStyle(
+                          fontFamily: 'cairo',
+                          color: hasChar
+                              ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                              : c.muted.withValues(alpha: 0.35),
+                          fontSize: hasChar ? 21 : 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    );
+                  }),
                 ),
               ),
             ),
-            if (text.isNotEmpty) ...[
-              const SizedBox(width: 8),
+          ),
+
+          // Hidden input field supporting both Western digits and Arabic digits
+          Offstage(
+            offstage: true,
+            child: TextField(
+              focusNode: _focusNode,
+              controller: _codeCtrl,
+              keyboardType: TextInputType.number,
+              onChanged: _onCodeChanged,
+              onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[\d\u0660-\u0669]')),
+                LengthLimitingTextInputFormatter(5),
+              ],
+            ),
+          ),
+
+          // Quick action: Paste or Clear chip
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
               InkWell(
                 borderRadius: BorderRadius.circular(8),
-                onTap: () {
-                  _codeCtrl.clear();
-                  _onCodeChanged('');
-                  AppHaptics.selectionClick();
-                },
+                onTap: _pasteFromClipboard,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
                     borderRadius: BorderRadius.circular(8),
@@ -486,10 +476,10 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.clear_rounded, size: 14, color: c.muted),
-                      const SizedBox(width: 4),
+                      Icon(Icons.paste_rounded, size: 14, color: c.muted),
+                      const SizedBox(width: 5),
                       Text(
-                        isAr ? 'مسح' : 'Clear',
+                        isAr ? 'لصق الرمز من الحافظة' : 'Paste from clipboard',
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,
@@ -500,136 +490,176 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   ),
                 ),
               ),
+              if (text.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    _codeCtrl.clear();
+                    _onCodeChanged('');
+                    AppHaptics.selectionClick();
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.clear_rounded, size: 14, color: c.muted),
+                        const SizedBox(width: 4),
+                        Text(
+                          isAr ? 'مسح' : 'Clear',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: c.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
-        ),
-        const SizedBox(height: 16),
+          ),
 
-        // Submit Button
-        SizedBox(
-          height: 46,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.black.withValues(alpha: 0.06),
-              disabledForegroundColor: c.muted,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+          // Submit Button
+          SizedBox(
+            height: 46,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06),
+                disabledForegroundColor: c.muted,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
+              icon: const Icon(Icons.login_rounded, size: 19),
+              label: Text(
+                isAr ? 'انضمام للمجلس' : 'Join Maglis',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),
-            onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
-            icon: const Icon(Icons.login_rounded, size: 19),
-            label: Text(
-              isAr ? 'انضمام للمجلس' : 'Join Maglis',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   /// Modern, intuitive Create UI with glowing room code card and one-tap copy
   Widget _buildModernCreateBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
-    return Column(
-      key: const ValueKey('create_tab_body'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Hero Room Code Card
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.08 : 0.06),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: const Color(0xFF10B981).withValues(alpha: 0.25),
-            ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                isAr ? 'رمز مجلسك المخصص للمشاركة' : 'Your 5-Digit Room Code',
-                style: TextStyle(
-                  color: c.muted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
+    final displayCode = formatMaglisCode(_newCode, isArabic: isAr);
+
+    return SizedBox(
+      height: 180,
+      child: Column(
+        key: const ValueKey('create_tab_body'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Hero Room Code Card
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.08 : 0.06),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: const Color(0xFF10B981).withValues(alpha: 0.25),
               ),
-              const SizedBox(height: 6),
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: _newCode));
-                  AppHaptics.lightImpact();
-                  AppState.instance.showBanner(AppBannerInfo(
-                    id: 'maglis_code_copied',
-                    messageAr: 'تم نسخ رمز المجلس: $_newCode',
-                    messageEn: 'Maglis code copied: $_newCode',
-                    icon: Icons.copy_rounded,
-                    customDuration: const Duration(seconds: 2),
-                  ));
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _newCode.split('').join('  '),
-                        style: const TextStyle(
-                          letterSpacing: 2.0,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 26,
-                          color: Color(0xFF10B981),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 18),
-                    ],
+            ),
+            child: Column(
+              children: [
+                Text(
+                  isAr ? 'رمز مجلسك المخصص للمشاركة' : 'Your 5-Digit Room Code',
+                  style: TextStyle(
+                    color: c.muted,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                isAr
-                    ? 'شارك هذا الرمز مع من تريد انضمامه للمجلس'
-                    : 'Share this code with whoever you want to join',
-                style: TextStyle(
-                  color: c.muted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
+                const SizedBox(height: 5),
+                InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: _newCode));
+                    AppHaptics.lightImpact();
+                    AppState.instance.showBanner(AppBannerInfo(
+                      id: 'maglis_code_copied',
+                      messageAr: 'تم نسخ رمز المجلس: \u202A${formatMaglisCode(_newCode, isArabic: true)}\u202C',
+                      messageEn: 'Maglis code copied: $_newCode',
+                      icon: Icons.copy_rounded,
+                      customDuration: const Duration(seconds: 2),
+                    ));
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: Text(
+                            displayCode.split('').join('  '),
+                            style: const TextStyle(
+                              fontFamily: 'cairo',
+                              letterSpacing: 2.0,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 25,
+                              color: Color(0xFF10B981),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  isAr
+                      ? 'شارك هذا الرمز مع من تريد انضمامه للمجلس'
+                      : 'Share this code with whoever you want to join',
+                  style: TextStyle(
+                    color: c.muted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Start Room Button
+          SizedBox(
+            height: 46,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Start Room Button
-        SizedBox(
-          height: 46,
-          child: FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+              onPressed: () => _submitSession(_newCode),
+              icon: const Icon(Icons.play_arrow_rounded, size: 21),
+              label: Text(
+                isAr ? 'بدء المجلس الآن' : 'Start Room Now',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),
-            onPressed: () => _submitSession(_newCode),
-            icon: const Icon(Icons.play_arrow_rounded, size: 21),
-            label: Text(
-              isAr ? 'بدء المجلس الآن' : 'Start Room Now',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
