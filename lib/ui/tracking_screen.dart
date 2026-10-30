@@ -63,6 +63,9 @@ class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final ValueNotifier<String> _voiceSearchNotifier = ValueNotifier('');
 
+  static const MethodChannel _lifecycleChannel =
+      MethodChannel('com.recitequran.app/audio_lifecycle');
+
   AppBannerInfo? _lastBanner;
   int? _lastAyah;
   int? _lastSurah;
@@ -81,6 +84,13 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.activeAudioAyah.addListener(_onActiveAudioAyahChanged);
     AppState.instance.activeAudioSurah.addListener(_onActiveAudioAyahChanged);
     AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
+
+    // Listen for explicit native user leave hint (Home button pressed or app switched)
+    _lifecycleChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onUserLeaveHome') {
+        AppState.instance.stopVerseAudio();
+      }
+    });
 
     // Warm up Surah timings and Ayah 1 audio in memory/disk in the background for zero-latency instant play
     unawaited(QuranTimingService.instance
@@ -150,10 +160,21 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached ||
-        widget.isRecording ||
-        QuranAudioService.instance.isSingleWordMode) {
+    if (state == AppLifecycleState.detached) {
       AppState.instance.stopVerseAudio();
+    } else if (state == AppLifecycleState.paused ||
+               state == AppLifecycleState.inactive ||
+               state == AppLifecycleState.hidden) {
+      if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
+        AppState.instance.stopVerseAudio();
+      } else if (defaultTargetPlatform == TargetPlatform.android) {
+        // Query native Android PowerManager / KeyguardManager:
+        // If screen is interactive and unlocked, user went to Home screen or another app -> stop audio!
+        // If screen is OFF or locked, audio continues playing!
+        _checkAndStopIfBackgrounded();
+      } else {
+        AppState.instance.stopVerseAudio();
+      }
     }
 
     if (state == AppLifecycleState.paused ||
@@ -166,6 +187,18 @@ class _TrackingScreenState extends State<TrackingScreen>
       if (widget.isVoiceSearching) {
         widget.onVoiceSearchToggle();
       }
+    }
+  }
+
+  Future<void> _checkAndStopIfBackgrounded() async {
+    try {
+      final isOffOrLocked =
+          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ?? false;
+      if (!isOffOrLocked) {
+        AppState.instance.stopVerseAudio();
+      }
+    } catch (_) {
+      AppState.instance.stopVerseAudio();
     }
   }
 

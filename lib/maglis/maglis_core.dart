@@ -304,6 +304,13 @@ String _signNostrEventWorker(_NostrSignParams p) {
   );
 }
 
+enum MaglisJoinResult {
+  success,
+  notFound,
+  full,
+  error,
+}
+
 class MaglisPlatform {
   static StreamSubscription? _deviceChangeSub;
   static StreamSubscription? _interruptionSub;
@@ -328,7 +335,17 @@ class MaglisPlatform {
     _audioInitialized = true;
 
     try {
-      // 1. Initialize WebRTC audio pipeline cleanly without WARP race condition
+      final androidConfig = AndroidAudioConfiguration(
+        manageAudioFocus: true,
+        androidAudioMode: AndroidAudioMode.normal,
+        androidAudioFocusMode: AndroidAudioFocusMode.gain,
+        androidAudioStreamType: AndroidAudioStreamType.music,
+        androidAudioAttributesUsageType: AndroidAudioAttributesUsageType.media,
+        androidAudioAttributesContentType: AndroidAudioAttributesContentType.music,
+        forceHandleAudioRouting: true,
+      );
+
+      // 1. Initialize WebRTC audio pipeline cleanly with music media attributes
       try {
         await WebRTC.initialize(options: {
           'zeroPlayoutDelay': true, // Pins playout delay to 0 ms! Plays audio immediately as decoded instead of holding in NetEQ jitter buffer
@@ -336,8 +353,7 @@ class MaglisPlatform {
           'audioOutputSampleRate': 48000,
           'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
           if (Platform.isAndroid)
-            'androidAudioConfiguration':
-                AndroidAudioConfiguration.communication.toMap(),
+            'androidAudioConfiguration': androidConfig.toMap(),
         });
       } catch (_) {}
 
@@ -348,12 +364,10 @@ class MaglisPlatform {
         }
       } catch (_) {}
 
-      // 3. Configure platform audio routing for voice communication (Google Meet grade loud speakerphone)
+      // 3. Configure platform audio routing for high-fidelity media loudspeaker playout
       if (Platform.isAndroid) {
-        await Helper.setAndroidAudioConfiguration(
-          AndroidAudioConfiguration.communication,
-        );
-        await Helper.setSpeakerphoneOnButPreferBluetooth();
+        await Helper.setAndroidAudioConfiguration(androidConfig);
+        await Helper.setSpeakerphoneOn(true);
       } else if (Platform.isIOS) {
         try {
           await Helper.ensureAudioSession();
@@ -370,10 +384,10 @@ class MaglisPlatform {
             },
           ),
         );
-        await Helper.setSpeakerphoneOnButPreferBluetooth();
+        await Helper.setSpeakerphoneOn(true);
       }
 
-      // 4. Configure system audio_session for VoIP voice chat & hardware speakerphone
+      // 4. Configure system audio_session for loud media playout & hardware speakerphone
       if (Platform.isAndroid || Platform.isIOS) {
         try {
           final session = await AudioSession.instance;
@@ -382,13 +396,13 @@ class MaglisPlatform {
               avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
               avAudioSessionCategoryOptions:
                   AVAudioSessionCategoryOptions.defaultToSpeaker |
-                      AVAudioSessionCategoryOptions.allowBluetooth |
+                       AVAudioSessionCategoryOptions.allowBluetooth |
                       AVAudioSessionCategoryOptions.allowBluetoothA2dp |
                       AVAudioSessionCategoryOptions.allowAirPlay,
               avAudioSessionMode: AVAudioSessionMode.videoChat,
               androidAudioAttributes: const AndroidAudioAttributes(
                 contentType: AndroidAudioContentType.music,
-                usage: AndroidAudioUsage.voiceCommunication,
+                usage: AndroidAudioUsage.media,
               ),
               androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
               androidWillPauseWhenDucked: false,
@@ -425,11 +439,7 @@ class MaglisPlatform {
     if (kIsWeb) return;
     try {
       if (Platform.isAndroid || Platform.isIOS) {
-        if (on) {
-          await Helper.setSpeakerphoneOnButPreferBluetooth();
-        } else {
-          await Helper.setSpeakerphoneOn(false);
-        }
+        await Helper.setSpeakerphoneOn(on);
       }
     } catch (_) {}
   }
@@ -437,6 +447,7 @@ class MaglisPlatform {
   static Future<void> resetAudio() async {
     if (kIsWeb) return;
     try {
+      _audioInitialized = false;
       _deviceChangeSub?.cancel();
       _deviceChangeSub = null;
       _interruptionSub?.cancel();

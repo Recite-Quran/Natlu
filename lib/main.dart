@@ -207,8 +207,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
 
     MaglisController.instance.onRemoteFloorClaimed = () {
-      if (_isRecording && mounted) {
-        _toggleRecord();
+      if (mounted) {
+        _stopRecordingForRemoteClaim();
       }
     };
 
@@ -526,12 +526,48 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     }
   }
 
+  void _stopRecordingForRemoteClaim() {
+    if (!_isRecording) return;
+    _maglisBroadcastThrottle?.cancel();
+    _audio.stop();
+    _engine.resetBuffer();
+    _ctrl?.finalize();
+    if (!AppState.instance.isAudioPlaying.value) {
+      try {
+        WakelockPlus.disable();
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _isRecording = false;
+        _isToggling = false;
+      });
+    }
+    MaglisPlatform.setSpeaker(true);
+    AppState.instance.showBanner(AppBannerInfo(
+      id: 'maglis_reciter_changed',
+      messageAr: 'انتقلت التلاوة للمشارك الآخر • استمع وتابع معه',
+      messageEn: 'Recitation passed to peer • Listen and follow along',
+      icon: Icons.record_voice_over_rounded,
+      customDuration: const Duration(seconds: 3),
+    ));
+  }
+
   Timer? _maglisBroadcastThrottle;
+  int? _lastProcessedAyah;
+  int? _lastProcessedSurah;
 
   void _throttledBroadcastMaglisProgress() {
     if (!MaglisController.instance.isLocalReciting || !_isRecording) return;
+    final int? currentAyah = _ctrl?.activeAyah.value;
+    // When ayah transitions or finishes, broadcast immediately to flush completed words without throttle lag
+    if (currentAyah != null && currentAyah != _lastProcessedAyah) {
+      _maglisBroadcastThrottle?.cancel();
+      _broadcastMaglisProgress();
+      return;
+    }
     if (_maglisBroadcastThrottle?.isActive ?? false) return;
-    _maglisBroadcastThrottle = Timer(const Duration(milliseconds: 70), () {
+    _maglisBroadcastThrottle = Timer(const Duration(milliseconds: 35), () {
       _broadcastMaglisProgress();
     });
   }
@@ -549,33 +585,69 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         MushafProvider.instance.getPageForAyah(targetSurah, activeAyah) ??
             currentPage;
 
-    final greenWords = <int>[];
-    final yellowWords = <int>[];
-    final redWords = <int>[];
-    int? activeWord;
-
     final pageWords =
         MushafProvider.instance.getCachedPage(page)?.words ??
         MushafProvider.instance.getCachedPage(currentPage)?.words ??
         const [];
 
+    // If activeAyah just advanced, ensure the previous ayah's final word is flushed and saved as completed
+    if (_lastProcessedAyah != null &&
+        (_lastProcessedAyah != activeAyah || _lastProcessedSurah != targetSurah)) {
+      final prevAyah = _lastProcessedAyah!;
+      final prevSurah = _lastProcessedSurah!;
+      final prevGreen = <int>[];
+      for (final w in pageWords) {
+        if (w.surah == prevSurah && w.ayah == prevAyah) {
+          final w0 = w.word - 1;
+          prevGreen.add(w0);
+          maglis.recordWordHighlight(prevSurah, prevAyah, w0, 1);
+        }
+      }
+      if (prevGreen.isNotEmpty) {
+        maglis.broadcastRecitation(
+          page: page,
+          surah: prevSurah,
+          ayah: prevAyah,
+          activeWord: null,
+          greenWords: prevGreen,
+          yellowWords: const [],
+          redWords: const [],
+        );
+      }
+    }
+    _lastProcessedAyah = activeAyah;
+    _lastProcessedSurah = targetSurah;
+
+    final greenWords = <int>[];
+    final yellowWords = <int>[];
+    final redWords = <int>[];
+    int? activeWord;
     bool foundAyah = false;
+
     for (final w in pageWords) {
+      final w0 = w.word - 1;
       if (w.surah == targetSurah && w.ayah == activeAyah) {
         foundAyah = true;
-        final w0 = w.word - 1;
-        if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah)) {
+        if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah) ||
+            _ctrl!.completedAyahsFor(targetSurah).contains(activeAyah)) {
           greenWords.add(w0);
+          maglis.recordWordHighlight(targetSurah, activeAyah, w0, 1);
         } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
           yellowWords.add(w0);
+          maglis.recordWordHighlight(targetSurah, activeAyah, w0, 2);
         } else if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
           redWords.add(w0);
+          maglis.recordWordHighlight(targetSurah, activeAyah, w0, 3);
         } else if (activeWord == null &&
             !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
           activeWord = w0;
         }
-      } else if (foundAyah) {
-        break; // Mushaf page words are sequential: break early once finished with target ayah
+      } else {
+        // Also persist completed/green words on current page into cumulative highlights
+        if (_ctrl!.completedAyahsFor(w.surah).contains(w.ayah) ||
+            _ctrl!.isWordGreen(w.ayah, w0, surah: w.surah)) {
+          maglis.recordWordHighlight(w.surah, w.ayah, w0, 1);
+        }
       }
     }
 

@@ -66,15 +66,28 @@ class AyahTiming {
   /// so highlighting never flickers, drops out, or glitches.
   int? getWordIndexAtMs(int positionMs) {
     if (words.isEmpty) return null;
-    if (positionMs <= words.first.startMs) return words.first.wordIndex;
-    if (positionMs >= words.last.startMs) return words.last.wordIndex;
+    if (positionMs <= 0 || positionMs <= words.first.startMs) {
+      return words.first.wordIndex;
+    }
+    if (positionMs >= words.last.startMs) {
+      return words.last.wordIndex;
+    }
 
-    for (int i = words.length - 1; i >= 0; i--) {
-      if (words[i].startMs <= positionMs) {
-        return words[i].wordIndex;
+    // Binary search for highest word index where startMs <= positionMs
+    int low = 0;
+    int high = words.length - 1;
+    int result = 0;
+
+    while (low <= high) {
+      final mid = (low + high) >> 1;
+      if (words[mid].startMs <= positionMs) {
+        result = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
       }
     }
-    return words.first.wordIndex;
+    return words[result].wordIndex;
   }
 
   /// Backward-compatible lookup by seconds.
@@ -328,6 +341,30 @@ class QuranTimingService {
 
         // Sort words strictly chronologically
         aWords.sort((a, b) => a.startMs.compareTo(b.startMs));
+
+        // Ensure word 0 is always present and starts at 0ms.
+        // In some Quran.com recitations, segments omit word 1 and start at word 2.
+        if (aWords.isNotEmpty && aWords.first.wordIndex > 0) {
+          final firstSegStart = aWords.first.startMs;
+          final synth = WordTiming(
+            ayah: aNum,
+            wordIndex: 0,
+            startMs: 0,
+            endMs: firstSegStart > 0 ? firstSegStart : 400,
+          );
+          aWords.insert(0, synth);
+          allWords.add(synth);
+        } else if (aWords.isNotEmpty && aWords.first.startMs > 0) {
+          final first = aWords.first;
+          aWords[0] = WordTiming(
+            ayah: first.ayah,
+            wordIndex: first.wordIndex,
+            startMs: 0,
+            endMs: first.endMs,
+            text: first.text,
+            occurrence: first.occurrence,
+          );
+        }
 
         ayahTimings[aNum] = AyahTiming(
           surah: surah,

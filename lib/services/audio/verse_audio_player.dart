@@ -156,6 +156,7 @@ class VerseAudioPlayer {
   int? _currentAyah;
   bool _isContinuous = true;
   bool _isHandlingComplete = false;
+  bool _isAdvancingSurah = false;
   double _lastCompleteTime = 0.0;
 
   // Gapless continuous playlist state
@@ -227,9 +228,8 @@ class VerseAudioPlayer {
 
   static final Set<String> _inFlightDownloads = {};
 
-  /// Fast first-time cache: checks local disk first (0ms), otherwise returns the
-  /// streaming URL immediately for zero-wait progressive playback while caching
-  /// to disk in the background for instant future offline replays.
+  /// Fast first-time cache: checks local disk first (0ms), otherwise downloads
+  /// the tiny ~20KB file to disk once for instant offline playback.
   static Future<String> ensureAyahDownloaded(int surah, int ayah) async {
     final url = getAyahAudioUrl(surah, ayah);
     try {
@@ -238,8 +238,10 @@ class VerseAudioPlayer {
         return file.path;
       }
 
-      // Download and cache to disk in background; stream progressively right now
-      unawaited(_downloadAndCacheAyah(surah, ayah, file));
+      await _downloadAndCacheAyah(surah, ayah, file);
+      if (file.existsSync() && file.lengthSync() > 1024) {
+        return file.path;
+      }
       return url;
     } catch (_) {
       return url;
@@ -266,7 +268,14 @@ class VerseAudioPlayer {
       ).timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
-        await file.writeAsBytes(res.bodyBytes, flush: true);
+        final tmpFile = File('${file.path}.tmp');
+        await tmpFile.writeAsBytes(res.bodyBytes, flush: true);
+        if (tmpFile.existsSync() && tmpFile.lengthSync() > 1024) {
+          if (file.existsSync()) {
+            try { file.deleteSync(); } catch (_) {}
+          }
+          await tmpFile.rename(file.path);
+        }
       }
     } catch (_) {
       // Background cache failure is non-fatal; playback continues via HTTP stream
@@ -314,7 +323,12 @@ class VerseAudioPlayer {
   }
 
   void _ensureSubscriptions(AudioPlayer p) {
-    _positionSub ??= p.positionStream.listen(_handlePosition);
+    _positionSub ??= p
+        .createPositionStream(
+          minPeriod: const Duration(milliseconds: 20),
+          maxPeriod: const Duration(milliseconds: 40),
+        )
+        .listen(_handlePosition);
     _currentIndexSub ??= p.currentIndexStream.listen(_handleIndexChanged);
 
     _playerStateSub ??= p.playerStateStream.listen((state) {
@@ -335,7 +349,7 @@ class VerseAudioPlayer {
         } else if (app.activeAudioWordIndex.value == null) {
           app.activeAudioWordIndex.value = 0;
         }
-      } else if (!state.playing && !isBuffering) {
+      } else if (!state.playing && !isBuffering && !_isAdvancingSurah) {
         app.isAudioPlaying.value = false;
       }
     });
@@ -428,6 +442,10 @@ class VerseAudioPlayer {
       await ensureMediaAudioSession();
       final player = _audioPlayer;
 
+      // Ensure local file is on disk for instant 0ms auditioning
+      await ensureAyahDownloaded(surah, ayah);
+      if (session != _sessionId) return;
+
       // 2. Fetch/resolve cached 64kbps Ayah file AudioSource
       final source = await createAyahAudioSource(surah, ayah);
       if (session != _sessionId) return;
@@ -450,6 +468,11 @@ class VerseAudioPlayer {
         [source],
         initialPosition: Duration(milliseconds: startMs),
       );
+      if (session != _sessionId) return;
+
+      try {
+        await player.seek(Duration(milliseconds: startMs));
+      } catch (_) {}
       if (session != _sessionId) return;
 
       app.isAudioBuffering.value = false;
@@ -481,12 +504,15 @@ class VerseAudioPlayer {
   }) async {
     final int session = ++_sessionId;
 
-    _isSingleWordMode = false;
-    _targetWordIndex = null;
-    _targetWordEndMs = null;
+    // Synchronously stop any active audio immediately so no old playback or
+    // position callbacks leak through while loading the new verse.
+    try {
+      _player?.stop();
+    } catch (_) {}
 
-    // Fast-path resume if this exact Ayah was paused
-    if (_player != null &&
+    // Fast-path resume if this exact Ayah was paused (and not single-word mode)
+    if (!_isSingleWordMode &&
+        _player != null &&
         _currentSurah == surah &&
         _currentAyah == ayah &&
         _player!.processingState == ProcessingState.ready &&
@@ -497,6 +523,9 @@ class VerseAudioPlayer {
       return;
     }
 
+    _isSingleWordMode = false;
+    _targetWordIndex = null;
+    _targetWordEndMs = null;
     _isPaused = false;
     _currentSurah = surah;
     _currentAyah = ayah;
@@ -507,7 +536,7 @@ class VerseAudioPlayer {
     app.activeAudioSurah.value = surah;
     app.activeAudioAyah.value = ayah;
     app.saveLastPosition(surah, ayah);
-    app.activeAudioWordIndex.value = _targetWordIndex ?? 0;
+    app.activeAudioWordIndex.value = 0;
     app.isContinuousPlayback.value = continuous;
     app.isAudioBuffering.value = true;
     app.isAudioPlaying.value = false;
@@ -520,6 +549,10 @@ class VerseAudioPlayer {
       final player = _audioPlayer;
       final int maxAyahs =
           (surah >= 1 && surah <= 114) ? surahAyahCounts[surah - 1] : 286;
+
+      // Ensure current Ayah is cached so first track plays directly from disk
+      await ensureAyahDownloaded(surah, ayah);
+      if (session != _sessionId) return;
 
       // In continuous mode, build full remaining playlist for the Surah:
       // from [ayah] to [maxAyahs]! Zero dynamic additions needed later!
@@ -539,10 +572,16 @@ class VerseAudioPlayer {
       await player.setAudioSources(
         sources,
         initialIndex: 0,
+        initialPosition: Duration.zero,
       );
       await player.setShuffleModeEnabled(false);
       await player.setLoopMode(LoopMode.off);
 
+      if (session != _sessionId) return;
+
+      try {
+        await player.seek(Duration.zero, index: 0);
+      } catch (_) {}
       if (session != _sessionId) return;
 
       app.isAudioBuffering.value = false;
@@ -607,6 +646,17 @@ class VerseAudioPlayer {
 
     final int posMs = pos.inMilliseconds;
 
+    // Ignore stale late position spikes during track start transition
+    if (posMs > 2500 && AppState.instance.activeAudioWordIndex.value == 0) {
+      final ayahTiming = QuranTimingService.instance
+          .getCachedAyahTiming(playingSurah, playingAyah);
+      if (ayahTiming != null &&
+          ayahTiming.words.isNotEmpty &&
+          posMs > ayahTiming.words.last.endMs + 500) {
+        return;
+      }
+    }
+
     // Single-ayah mode (e.g. record mode):
     // Stop immediately when the reciter finishes the last word (no trailing silence delay)
     if (!_isContinuous) {
@@ -636,7 +686,7 @@ class VerseAudioPlayer {
 
   void _handleTrackComplete() {
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    if (_isHandlingComplete || (now - _lastCompleteTime) < 0.2) return;
+    if (_isHandlingComplete || (now - _lastCompleteTime) < 0.2 || _isAdvancingSurah) return;
     _isHandlingComplete = true;
     _lastCompleteTime = now;
 
@@ -661,17 +711,27 @@ class VerseAudioPlayer {
       // This strictly prevents premature jumping between Surahs.
       if (ayah >= maxAyahs && surah < 114) {
         // Entire Surah finished in playlist; roll seamlessly to next Surah Ayah 1
-        play(
-          surah: surah + 1,
-          ayah: 1,
-          continuous: true,
-        );
+        _isAdvancingSurah = true;
+        unawaited(() async {
+          try {
+            await play(
+              surah: surah + 1,
+              ayah: 1,
+              continuous: true,
+            );
+          } finally {
+            _isAdvancingSurah = false;
+            _isHandlingComplete = false;
+          }
+        }());
         return;
       }
 
       stop();
     } finally {
-      _isHandlingComplete = false;
+      if (!_isAdvancingSurah) {
+        _isHandlingComplete = false;
+      }
     }
   }
 

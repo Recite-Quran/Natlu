@@ -22,7 +22,8 @@ class MaglisController extends ChangeNotifier {
   bool _inSession = false;
   int _seq = 0;
   String _roomCode = '';
-  final String localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
+  String _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
+  String get localPeerId => _localPeerId;
   String? _activeReciterId;
   String? _natFailedPeer;
   int _participantCount = 1;
@@ -64,6 +65,16 @@ class MaglisController extends ChangeNotifier {
 
   int? getWordHighlight(int surah, int ayah, int word0) =>
       _cumulativeHighlights[wordKey(surah, ayah, word0)];
+
+  int? getCumulativeHighlightByKey(int key) => _cumulativeHighlights[key];
+
+  void recordWordHighlight(int surah, int ayah, int word0, int color) {
+    final key = wordKey(surah, ayah, word0);
+    if (_cumulativeHighlights[key] != color) {
+      _cumulativeHighlights[key] = color;
+      _cumulativeVersion++;
+    }
+  }
 
   bool get hasCumulativeHighlights => _cumulativeHighlights.isNotEmpty;
   int get cumulativeVersion => _cumulativeVersion;
@@ -122,6 +133,27 @@ class MaglisController extends ChangeNotifier {
   List<int> get remoteRedWords => _remoteRedWords;
   Map<String, RTCIceConnectionState> get peers => Map.unmodifiable(_peers);
 
+  /// Verifies room existence and capacity before connecting.
+  Future<MaglisJoinResult> verifyAndJoinRoom({
+    required String code,
+    required int page,
+    required int surah,
+    required int ayah,
+  }) async {
+    final check = await MaglisNetworkEngine.verifyRoomJoinable(code);
+    if (check != MaglisJoinResult.success) {
+      return check;
+    }
+    final started = await startSession(
+      code: code,
+      isHost: false,
+      page: page,
+      surah: surah,
+      ayah: ayah,
+    );
+    return started ? MaglisJoinResult.success : MaglisJoinResult.error;
+  }
+
   Future<bool> startSession({
     String? code,
     bool isHost = true,
@@ -135,6 +167,7 @@ class MaglisController extends ChangeNotifier {
 
       await leaveSession();
 
+      _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
       _roomCode = (code != null && code.trim().isNotEmpty)
           ? code.trim()
           : (10000 + Random.secure().nextInt(90000)).toString();
@@ -319,7 +352,6 @@ class MaglisController extends ChangeNotifier {
 
     switch (pkt.type) {
       case MaglisPacketType.floorClaim:
-        final bool wasIreciting = isLocalReciting;
         _activeReciterId = pkt.senderId;
         _remotePage = pkt.page;
         _remoteSurah = pkt.surah;
@@ -329,8 +361,8 @@ class MaglisController extends ChangeNotifier {
         _remoteYellowWords = pkt.yellowWords;
         _remoteRedWords = pkt.redWords;
 
-        if (wasIreciting) {
-          // Relinquish ASR tracking floor to the new reciter, but KEEP mic open for talking/notes!
+        // Unconditionally stop local recitation recording when another peer takes the floor
+        if (pkt.senderId != localPeerId) {
           onRemoteFloorClaimed?.call();
         }
         _notifySessionChanged();
@@ -387,7 +419,7 @@ class MaglisController extends ChangeNotifier {
         break;
 
       case MaglisPacketType.snapshot:
-        if (_activeReciterId == null && pkt.activeReciterId != null) {
+        if (pkt.activeReciterId != null) {
           _activeReciterId = pkt.activeReciterId;
           _remotePage = pkt.page;
           _remoteSurah = pkt.surah;
@@ -399,8 +431,13 @@ class MaglisController extends ChangeNotifier {
           _notifySessionChanged();
           notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
-        } else if (cumulativeChanged || _cumulativeHighlights.isNotEmpty) {
-          notifyListeners();
+        } else {
+          _remotePage = pkt.page;
+          _remoteSurah = pkt.surah;
+          _remoteAyah = pkt.ayah;
+          if (cumulativeChanged || _cumulativeHighlights.isNotEmpty) {
+            notifyListeners();
+          }
         }
         break;
 
@@ -446,6 +483,11 @@ class MaglisController extends ChangeNotifier {
         ts: DateTime.now().millisecondsSinceEpoch,
       ),
     );
+    _net?.sendSignalFast('floor_claim', data: {
+      'page': page,
+      'surah': surah,
+      'ayah': ayah,
+    });
     _notifySessionChanged();
     notifyListeners();
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import '../state/app_state.dart';
 import 'maglis_controller.dart';
 import 'maglis_core.dart';
 import 'maglis_explanation_dialog.dart';
+import 'maglis_network.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
 /// Minimal labels, crystal-clear actions, and zero UI-thread blocking.
@@ -42,19 +44,40 @@ class MaglisEntryDialog extends StatefulWidget {
 
 class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   late int _selectedTab;
-  late final String _newCode;
+  String _newCode = '';
+  late final String _tempReservationId;
   final TextEditingController _codeCtrl = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool _canJoin = false;
+  bool _isJoining = false;
 
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab;
     _newCode = (10000 + Random().nextInt(90000)).toString();
+    _tempReservationId = MaglisCrypto.randomHex32().substring(0, 8);
+    _ensureUniqueNewCode();
     _focusNode.addListener(() {
       if (mounted) setState(() {});
     });
+  }
+
+  Future<void> _ensureUniqueNewCode() async {
+    String candidate = _newCode;
+    bool inUse = await MaglisNetworkEngine.isRoomCodeInUse(candidate);
+    int attempts = 0;
+    while (inUse && attempts < 5 && mounted) {
+      attempts++;
+      candidate = (10000 + Random().nextInt(90000)).toString();
+      inUse = await MaglisNetworkEngine.isRoomCodeInUse(candidate);
+    }
+    if (mounted) {
+      setState(() {
+        _newCode = candidate;
+      });
+      unawaited(MaglisNetworkEngine.reserveRoomCode(_newCode, _tempReservationId));
+    }
   }
 
   void _openKeyboard() {
@@ -83,41 +106,113 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
 
   void _submitSession(String code) {
     final trimmed = normalizeArabicDigits(code.trim());
-    if (trimmed.length != 5) return;
-
-    AppHaptics.lightImpact();
-    Navigator.of(context).pop();
+    if (trimmed.length != 5 || _isJoining) return;
 
     final app = AppState.instance;
     final codeAr = formatMaglisCode(trimmed, isArabic: true);
     final codeEn = formatMaglisCode(trimmed, isArabic: false);
 
-    app.showBanner(AppBannerInfo(
-      id: 'maglis_connecting',
-      messageAr: 'جاري الاتصال بالمجلس \u202A$codeAr\u202C...',
-      messageEn: 'Connecting to Maglis $codeEn...',
-      icon: Icons.wifi_calling_3_rounded,
-      customDuration: const Duration(seconds: 2),
-    ));
+    if (_selectedTab == 0) {
+      // ── JOINING EXISTING ROOM: Verify existence & capacity first! ──
+      setState(() => _isJoining = true);
+      AppHaptics.lightImpact();
 
-    MaglisController.instance
-        .startSession(
-      code: trimmed,
-      isHost: _selectedTab == 1,
-      page: app.currentMushafPage.value,
-      surah: app.lastSurah,
-      ayah: app.lastAyah,
-    )
-        .then((success) {
-      if (success) {
+      MaglisController.instance
+          .verifyAndJoinRoom(
+        code: trimmed,
+        page: app.currentMushafPage.value,
+        surah: app.lastSurah,
+        ayah: app.lastAyah,
+      )
+          .then((result) {
+        if (!mounted) return;
+        setState(() => _isJoining = false);
+
+        if (result == MaglisJoinResult.success) {
+          AppHaptics.mediumImpact();
+          Navigator.of(context).pop();
+          app.showBanner(AppBannerInfo(
+            id: 'maglis_joined',
+            messageAr:
+                'تم الاتصال بمجلس القرآن \u202A$codeAr\u202C • اضغط الميكروفون للتلاوة',
+            messageEn: 'Joined Quran Circle $codeEn • Tap mic to recite',
+            icon: Icons.groups_rounded,
+            customDuration: const Duration(seconds: 3),
+          ));
+        } else if (result == MaglisJoinResult.full) {
+          AppHaptics.selectionClick();
+          app.showBanner(AppBannerInfo(
+            id: 'maglis_full',
+            messageAr:
+                'عذراً، المجلس \u202A$codeAr\u202C ممتلئ (الحد الأقصى 4 أعضاء)',
+            messageEn: 'Room $codeEn is full (maximum 4 participants)',
+            icon: Icons.group_off_rounded,
+            customDuration: const Duration(seconds: 4),
+          ));
+        } else {
+          AppHaptics.selectionClick();
+          app.showBanner(AppBannerInfo(
+            id: 'maglis_not_found',
+            messageAr:
+                'رمز المجلس \u202A$codeAr\u202C غير موجود أو لم يبدأ بعد',
+            messageEn: 'Room $codeEn does not exist or has not started',
+            icon: Icons.search_off_rounded,
+            customDuration: const Duration(seconds: 4),
+          ));
+        }
+      }).catchError((_) {
+        if (mounted) setState(() => _isJoining = false);
         app.showBanner(AppBannerInfo(
-          id: 'maglis_joined',
-          messageAr: 'تم الاتصال بمجلس القرآن \u202A$codeAr\u202C • اضغط الميكروفون للتلاوة',
-          messageEn: 'Joined Quran Circle $codeEn • Tap mic to recite',
-          icon: Icons.groups_rounded,
-          customDuration: const Duration(seconds: 3),
+          id: 'maglis_not_found',
+          messageAr:
+              'رمز المجلس \u202A$codeAr\u202C غير موجود أو تعذر الاتصال',
+          messageEn: 'Room $codeEn does not exist or network error',
+          icon: Icons.search_off_rounded,
+          customDuration: const Duration(seconds: 4),
         ));
-      } else {
+      });
+    } else {
+      // ── MAKING A NEW ROOM AS HOST ──
+      AppHaptics.lightImpact();
+      Navigator.of(context).pop();
+
+      app.showBanner(AppBannerInfo(
+        id: 'maglis_connecting',
+        messageAr: 'جاري افتتاح المجلس \u202A$codeAr\u202C...',
+        messageEn: 'Starting Maglis $codeEn...',
+        icon: Icons.wifi_calling_3_rounded,
+        customDuration: const Duration(seconds: 2),
+      ));
+
+      MaglisController.instance
+          .startSession(
+        code: trimmed,
+        isHost: true,
+        page: app.currentMushafPage.value,
+        surah: app.lastSurah,
+        ayah: app.lastAyah,
+      )
+          .then((success) {
+        if (success) {
+          app.showBanner(AppBannerInfo(
+            id: 'maglis_created',
+            messageAr:
+                'تم افتتاح مجلس القرآن \u202A$codeAr\u202C • شارك الرمز مع إخوانك',
+            messageEn:
+                'Started Quran Circle $codeEn • Share code with peers',
+            icon: Icons.meeting_room_rounded,
+            customDuration: const Duration(seconds: 3),
+          ));
+        } else {
+          app.showBanner(AppBannerInfo(
+            id: 'maglis_error',
+            messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
+            messageEn: 'Could not connect. Check mic permissions and network.',
+            icon: Icons.error_outline_rounded,
+            customDuration: const Duration(seconds: 4),
+          ));
+        }
+      }).catchError((_) {
         app.showBanner(AppBannerInfo(
           id: 'maglis_error',
           messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
@@ -125,16 +220,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           icon: Icons.error_outline_rounded,
           customDuration: const Duration(seconds: 4),
         ));
-      }
-    }).catchError((e) {
-      app.showBanner(AppBannerInfo(
-        id: 'maglis_error',
-        messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
-        messageEn: 'Could not connect. Check mic permissions and network.',
-        icon: Icons.error_outline_rounded,
-        customDuration: const Duration(seconds: 4),
-      ));
-    });
+      });
+    }
   }
 
   Future<void> _pasteFromClipboard() async {
@@ -702,10 +789,23 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
-              icon: const Icon(Icons.login_rounded, size: 20),
+              onPressed: (_canJoin && !_isJoining)
+                  ? () => _submitSession(_codeCtrl.text)
+                  : null,
+              icon: _isJoining
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.login_rounded, size: 20),
               label: Text(
-                isAr ? 'دخول المجلس الآن' : 'Join Room Now',
+                _isJoining
+                    ? (isAr ? 'جاري التحقق من المجلس...' : 'Verifying room...')
+                    : (isAr ? 'دخول المجلس الآن' : 'Join Room Now'),
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),

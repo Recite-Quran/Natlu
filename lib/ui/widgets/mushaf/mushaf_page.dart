@@ -55,17 +55,16 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   bool _hasMasks = false;
   int _appliedCumulativeVersion = -1;
 
-  Map<int, List<int>> _ayahWordMap = {};
+  Map<int, int> _pageWordMap = {};
   int _lastIndexedPage = -1;
 
   void _ensurePageWordsIndexed(QvpPage page) {
-    if (_lastIndexedPage == widget.pageNumber && _ayahWordMap.isNotEmpty) return;
-    final map = <int, List<int>>{};
+    if (_lastIndexedPage == widget.pageNumber && _pageWordMap.isNotEmpty) return;
+    final map = <int, int>{};
     for (final w in page.words) {
-      final key = (w.surah << 16) | w.ayah;
-      map.putIfAbsent(key, () => []).add(w.index);
+      map[MaglisController.wordKey(w.surah, w.ayah, w.word - 1)] = w.index;
     }
-    _ayahWordMap = map;
+    _pageWordMap = map;
     _lastIndexedPage = widget.pageNumber;
   }
 
@@ -111,7 +110,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _lastIsDark = null;
       _lastIndexedPage = -1;
       _appliedCumulativeVersion = -1;
-      _ayahWordMap.clear();
+      _pageWordMap.clear();
       _lastGreenWords = const [];
       _lastYellowWords = const [];
       _lastRedWords = const [];
@@ -312,7 +311,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       // 2. ACTIVE WORD HIGHLIGHT (Audio Word, Reciting Word cursor, or Remote Maglis cursor)
       int? activeWord;
       if (isMaglisRemote && hasMaglisAyah && maglisWord != null) {
-        final idx = page.findWord(maglisSurah, maglisAyah, maglisWord + 1);
+        _ensurePageWordsIndexed(page);
+        final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, maglisWord)] ??
+            page.findWord(maglisSurah, maglisAyah, maglisWord + 1);
         if (idx >= 0) activeWord = idx;
       } else if (hasAudioAyah) {
         final idx = page.findWord(audioSurah, audioAyah, audioWordIdx + 1);
@@ -398,64 +399,46 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
         _ensurePageWordsIndexed(page);
 
-        // Fast O(1) Path for Maglis remote recitation: direct Ayah mapping with zero scanning
+        // Fast O(1) Path for Maglis remote recitation: direct wordKey mapping with zero scanning
         if (isMaglisRemote && hasRemoteReciterOnPage && !widget.isRecording && !app.isBlurMode) {
-          final int activeAyahKey = (maglisSurah << 16) | maglisAyah;
-          final bool hasCumulative = maglis.hasCumulativeHighlights;
+          final liveWordIndices = <int>{};
 
-          _ayahWordMap.forEach((ayahKey, wordIndices) {
-            final int s = (ayahKey >> 16) & 0xFFFF;
-            final int a = ayahKey & 0xFFFF;
-
-            if (ayahKey == activeAyahKey) {
-              // Direct O(1) array mapping for live reciting Ayah words
-              final liveWords = <int>{};
-              for (final w0 in maglis.remoteGreenWords) {
-                if (w0 < wordIndices.length) {
-                  green.add(wordIndices[w0]);
-                  liveWords.add(w0);
-                }
-              }
-              for (final w0 in maglis.remoteYellowWords) {
-                if (w0 < wordIndices.length) {
-                  yellow.add(wordIndices[w0]);
-                  liveWords.add(w0);
-                }
-              }
-              for (final w0 in maglis.remoteRedWords) {
-                if (w0 < wordIndices.length) {
-                  red.add(wordIndices[w0]);
-                  liveWords.add(w0);
-                }
-              }
-              // Also preserve previous cumulative words for this active ayah if not overridden by live words
-              if (hasCumulative) {
-                for (int w0 = 0; w0 < wordIndices.length; w0++) {
-                  if (liveWords.contains(w0)) continue;
-                  final int? h = maglis.getWordHighlight(s, a, w0);
-                  if (h == 1) {
-                    green.add(wordIndices[w0]);
-                  } else if (h == 2) {
-                    yellow.add(wordIndices[w0]);
-                  } else if (h == 3) {
-                    red.add(wordIndices[w0]);
-                  }
-                }
-              }
-            } else if (hasCumulative) {
-              // Non-active Ayahs: direct lookup from cumulative highlights without controller overhead
-              for (int w0 = 0; w0 < wordIndices.length; w0++) {
-                final int? h = maglis.getWordHighlight(s, a, w0);
-                if (h == 1) {
-                  green.add(wordIndices[w0]);
-                } else if (h == 2) {
-                  yellow.add(wordIndices[w0]);
-                } else if (h == 3) {
-                  red.add(wordIndices[w0]);
-                }
-              }
+          for (final w0 in maglis.remoteGreenWords) {
+            final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+            if (idx != null) {
+              green.add(idx);
+              liveWordIndices.add(idx);
             }
-          });
+          }
+          for (final w0 in maglis.remoteYellowWords) {
+            final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+            if (idx != null) {
+              yellow.add(idx);
+              liveWordIndices.add(idx);
+            }
+          }
+          for (final w0 in maglis.remoteRedWords) {
+            final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+            if (idx != null) {
+              red.add(idx);
+              liveWordIndices.add(idx);
+            }
+          }
+
+          // Merge cumulative highlights for all other words on this page
+          if (maglis.hasCumulativeHighlights) {
+            _pageWordMap.forEach((key, wordIdx) {
+              if (liveWordIndices.contains(wordIdx)) return;
+              final int? h = maglis.getCumulativeHighlightByKey(key);
+              if (h == 1) {
+                green.add(wordIdx);
+              } else if (h == 2) {
+                yellow.add(wordIdx);
+              } else if (h == 3) {
+                red.add(wordIdx);
+              }
+            });
+          }
         } else {
           // Standard full-page evaluation for local recording / blur mode / theme changes
           final bool hasCumulative = maglis.hasCumulativeHighlights;
