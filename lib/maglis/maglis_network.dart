@@ -177,6 +177,7 @@ class MaglisNetworkEngine {
   bool _isMicMuted = false;
   bool _disposed = false;
   bool _isSocketSubscribed = false;
+  final int _engineStartTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   Timer? _beaconTimer;
   Timer? _pingTimer;
   Timer? _throttleTimer;
@@ -322,7 +323,7 @@ class MaglisNetworkEngine {
       }
     });
 
-    // 5s Watchdog Timer: keeps relay fleet connected during internet cuts and recovers disconnected peers
+    // 5s Watchdog Timer: keeps relay fleet connected and prunes abandoned ghost peers
     _watchdogTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_disposed) return;
       if (_sockets.length < 2) {
@@ -332,22 +333,32 @@ class MaglisNetworkEngine {
           }
         }
       }
-      _checkPeersHealth();
+      _pruneStalePeers();
     });
   }
 
-  void _checkPeersHealth() {
+  void _pruneStalePeers() {
     if (_disposed) return;
-    for (final entry in _peerStates.entries) {
-      final remoteId = entry.key;
-      final state = entry.value;
-      if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        final isInitiator = localPeerId.compareTo(remoteId) < 0;
-        if (isInitiator) {
-          _triggerIceRestart(remoteId);
-        }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final stalePeers = <String>[];
+    for (final peerId in _roomParticipants) {
+      final lastSeen = _lastSeenPeerMs[peerId] ?? 0;
+      final state = _peerStates[peerId];
+      final isConnected = state ==
+              RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
+      // If WebRTC is not connected and peer hasn't been active for > 15s, evict ghost peer
+      if (!isConnected && (now - lastSeen) > 15000) {
+        stalePeers.add(peerId);
       }
+    }
+    for (final p in stalePeers) {
+      _roomParticipants.remove(p);
+      _admittedPeers.remove(p);
+      unawaited(_cleanupPeer(p));
+    }
+    if (stalePeers.isNotEmpty) {
+      _participantCountCtrl.add(_roomParticipants.length + 1);
     }
   }
 
@@ -401,31 +412,11 @@ class MaglisNetworkEngine {
   }
 
   /// Smart Socket Sleep:
-  /// When room is full or all peers are established with open DataChannels,
-  /// tells the Nostr relays to pause streaming broadcast frames, saving 100% CPU and network.
-  /// Automatically wakes up if a peer leaves or network renegotiation is needed.
+  /// Ensures signaling relay subscription stays active and responsive
+  /// to room events (joins, leaves, renegotiations) without deadlocks.
   void _checkSocketSleepState() {
     if (_disposed) return;
-    final bool allIceConnected = _peers.isNotEmpty &&
-        _peers.keys.every((id) =>
-            _peerStates[id] == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-            _peerStates[id] == RTCIceConnectionState.RTCIceConnectionStateCompleted);
-
-    final bool isFullAndStable = allIceConnected &&
-        _peers.length >= maxRemotePeers &&
-        _channels.values.length >= maxRemotePeers &&
-        _channels.values.every(
-            (dc) => dc.state == RTCDataChannelState.RTCDataChannelOpen);
-
-    if (isFullAndStable && _isSocketSubscribed) {
-      final tag = _activeTags.first;
-      for (final ws in _sockets.values) {
-        try {
-          ws.sink.add(jsonEncode(['CLOSE', 'maglis_$tag']));
-        } catch (_) {}
-      }
-      _isSocketSubscribed = false;
-    } else if (!isFullAndStable && !_isSocketSubscribed) {
+    if (!_isSocketSubscribed) {
       _resubscribeRelays();
     }
   }
@@ -485,7 +476,13 @@ class MaglisNetworkEngine {
       final ev = list[2] as Map<String, dynamic>;
       final id = ev['id'] as String?;
       final content = ev['content'] as String?;
+      final createdAt = ev['created_at'] as int?;
       if (id == null || content == null) return;
+
+      // Discard stale events from prior sessions or older than 30s before engine start
+      if (createdAt != null && createdAt < (_engineStartTime - 30)) {
+        return;
+      }
 
       if (_seenNostrIds.contains(id)) return;
       _seenNostrIds.add(id);
@@ -506,19 +503,21 @@ class MaglisNetworkEngine {
         return; // Reject unauthenticated probes
       }
 
+      final bool isProbe = sig.type == 'presence_probe' ||
+          sig.type == 'presence_pong' ||
+          sig.type == 'reserve_code' ||
+          sig.type == 'join_probe';
+
       // Host capacity shield: Max 3 remote peers (4 total participants)
-      if (isHost) {
+      if (isHost && !isProbe) {
         if (!_admittedPeers.contains(sig.senderId) && _admittedPeers.length >= maxRemotePeers) {
-          if (sig.type == 'join_probe') {
-            await _sendSignal('join_reject', targetId: sig.senderId, data: {'reason': 'full'});
-          }
-          return; // Drop probes exceeding room capacity
+          return; // Drop signals exceeding room capacity
         }
         _admittedPeers.add(sig.senderId);
       }
 
       _lastSeenPeerMs[sig.senderId] = DateTime.now().millisecondsSinceEpoch;
-      if (!_roomParticipants.contains(sig.senderId)) {
+      if (!isProbe && !_roomParticipants.contains(sig.senderId)) {
         _roomParticipants.add(sig.senderId);
         _participantCountCtrl.add(_roomParticipants.length + 1);
       }
@@ -533,13 +532,13 @@ class MaglisNetworkEngine {
     switch (sig.type) {
       case 'join_probe':
         if (isHost) {
-          if (_admittedPeers.length >= maxRemotePeers) {
+          if (_roomParticipants.length >= maxRemotePeers) {
             await _sendSignal('join_reject',
                 targetId: remoteId, data: {'reason': 'full'});
           } else {
             await _sendSignal('join_ack',
                 targetId: remoteId,
-                data: {'count': _admittedPeers.length + 1});
+                data: {'count': _roomParticipants.length + 1});
           }
         } else if (_peers.isNotEmpty) {
           await _sendSignal('join_ack',
@@ -827,6 +826,14 @@ class MaglisNetworkEngine {
       }
     };
 
+    pc.onConnectionState = (RTCPeerConnectionState state) {
+      if (_disposed) return;
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+          state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+        _lastSeenPeerMs[remoteId] = 0;
+      }
+    };
+
     // Route incoming audio stream to hardware speakerphone at full volume
     pc.onTrack = (RTCTrackEvent ev) {
       if (ev.track.kind == 'audio') {
@@ -929,6 +936,20 @@ class MaglisNetworkEngine {
   void _handleIncomingPacketString(String raw) {
     if (raw.isEmpty) return;
     try {
+      if (raw.contains('"type":"leave"') || raw.contains('"t":99')) {
+        try {
+          final m = jsonDecode(raw) as Map<String, dynamic>;
+          final u = m['u'] as String?;
+          if (u != null && u.isNotEmpty && u != localPeerId) {
+            _roomParticipants.remove(u);
+            _admittedPeers.remove(u);
+            _participantCountCtrl.add(_roomParticipants.length + 1);
+            unawaited(_cleanupPeer(u));
+          }
+        } catch (_) {}
+        return;
+      }
+
       final pkt = MaglisPacket.unpack(raw);
       if (pkt.type == MaglisPacketType.ping) {
         _dispatchRaw(jsonEncode({
@@ -1196,6 +1217,13 @@ class MaglisNetworkEngine {
     _pendingVitalPackets.clear();
 
     try {
+      // 1. Immediately notify peers via direct P2P DataChannel (0ms latency)
+      _dispatchRaw(jsonEncode({
+        't': 99,
+        'u': localPeerId,
+        'type': 'leave',
+      }));
+
       final leaveSig = MaglisSignal(
         type: 'leave',
         senderId: localPeerId,
@@ -1211,8 +1239,16 @@ class MaglisNetworkEngine {
         content: cipher,
       );
       for (final ws in _sockets.values) {
-        ws.sink.add(frame);
-        await ws.sink.close();
+        try {
+          ws.sink.add(frame);
+        } catch (_) {}
+      }
+      // Brief flush delay so TCP buffer transmits leave frame before socket teardown
+      await Future.delayed(const Duration(milliseconds: 80));
+      for (final ws in _sockets.values) {
+        try {
+          await ws.sink.close();
+        } catch (_) {}
       }
     } catch (_) {}
     _sockets.clear();

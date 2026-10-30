@@ -359,7 +359,6 @@ class MaglisPlatform {
       // 1. Initialize WebRTC audio pipeline cleanly with music media attributes
       try {
         await WebRTC.initialize(options: {
-          'zeroPlayoutDelay': true, // Pins playout delay to 0 ms! Plays audio immediately as decoded instead of holding in NetEQ jitter buffer
           'audioSampleRate': 48000,
           'audioOutputSampleRate': 48000,
           'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
