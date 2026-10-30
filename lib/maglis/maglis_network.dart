@@ -41,6 +41,8 @@ class MaglisNetworkEngine {
       {'urls': 'stun:stun.services.mozilla.com:3478'},
       {
         'urls': [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:80?transport=tcp',
           'turn:openrelay.metered.ca:443',
           'turn:openrelay.metered.ca:443?transport=tcp',
           'turn:openrelay.metered.ca:3478',
@@ -50,6 +52,7 @@ class MaglisNetworkEngine {
         'credential': 'openrelayproject',
       },
     ],
+    'iceTransportPolicy': 'all',
     'sdpSemantics': 'unified-plan',
     'bundlePolicy': 'max-bundle',
     'rtcpMuxPolicy': 'require',
@@ -832,6 +835,10 @@ class MaglisNetworkEngine {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
           state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         _lastSeenPeerMs[remoteId] = 0;
+        if (_roomParticipants.remove(remoteId) || _admittedPeers.remove(remoteId)) {
+          _participantCountCtrl.add(_roomParticipants.length + 1);
+        }
+        unawaited(_cleanupPeer(remoteId));
       }
     };
 
@@ -917,6 +924,18 @@ class MaglisNetworkEngine {
             dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
           } catch (_) {}
         }
+        // Mesh gossip announcement: share active peers with newcomer to guarantee full mesh
+        final activeOthers = _roomParticipants
+            .where((p) => p != remoteId && p != localPeerId)
+            .toList();
+        if (activeOthers.isNotEmpty) {
+          try {
+            dc.send(RTCDataChannelMessage(jsonEncode({
+              't': 98,
+              'peers': activeOthers,
+            })));
+          } catch (_) {}
+        }
         // Send any vital packets that were queued while channel was establishing
         if (_pendingVitalPackets.isNotEmpty) {
           for (final vital in List<String>.from(_pendingVitalPackets)) {
@@ -948,6 +967,30 @@ class MaglisNetworkEngine {
             _admittedPeers.remove(u);
             _participantCountCtrl.add(_roomParticipants.length + 1);
             unawaited(_cleanupPeer(u));
+          }
+        } catch (_) {}
+        return;
+      }
+
+      if (raw.contains('"t":98') || raw.contains('"type":"peer_list"')) {
+        try {
+          final m = jsonDecode(raw) as Map<String, dynamic>;
+          final peersList = m['peers'] as List<dynamic>?;
+          if (peersList != null) {
+            for (final p in peersList) {
+              final id = p.toString();
+              if (id.isNotEmpty &&
+                  id != localPeerId &&
+                  !_peers.containsKey(id) &&
+                  !_roomParticipants.contains(id)) {
+                if (_roomParticipants.length < maxRemotePeers) {
+                  _admittedPeers.add(id);
+                  _roomParticipants.add(id);
+                  _participantCountCtrl.add(_roomParticipants.length + 1);
+                  _sendSignal('beacon', targetId: id, data: const {});
+                }
+              }
+            }
           }
         } catch (_) {}
         return;
