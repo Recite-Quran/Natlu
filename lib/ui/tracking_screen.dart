@@ -336,7 +336,11 @@ class _TrackingScreenState extends State<TrackingScreen>
           if (!mounted) return;
 
           final targetAyah = ayah ?? 1;
-          await widget.controller.setTargetSurah(n);
+          await widget.controller.setTargetSurah(
+            n,
+            preserveOtherSurahStates: true,
+            clearTargetSurah: false,
+          );
           widget.controller.setManualAyah(n, targetAyah);
           AppState.instance.saveLastPosition(n, targetAyah);
           final mappedPage = MushafProvider.instance.getPageForAyah(n, targetAyah);

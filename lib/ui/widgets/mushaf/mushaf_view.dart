@@ -194,6 +194,8 @@ class _MushafViewState extends State<MushafView> {
   Timer? _savePositionDebounce;
   int? _lastAutoAdvancedFromPage;
   bool _isAutoAdvancingPage = false;
+  int? _lastAdvancedSurah;
+  bool _isAdvancingSurah = false;
 
   KeyEventResult _controlRLByKeyboard(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -276,6 +278,7 @@ class _MushafViewState extends State<MushafView> {
       }
     } else if (oldWidget.isRecording && !widget.isRecording) {
       _lastAutoAdvancedFromPage = null;
+      _lastAdvancedSurah = null;
     }
   }
 
@@ -338,21 +341,88 @@ class _MushafViewState extends State<MushafView> {
     if (mounted) setState(() {});
   }
 
+  bool _isSurahFinished(HighlightingController ctrl, int surah) {
+    if (surah < 1 || surah > 114) return false;
+    final surahWords = ctrl.repository.getSurahWords(surah);
+    if (surahWords.isEmpty) return false;
+    final lastWord = surahWords.last;
+    return ctrl.completedAyahsFor(surah).contains(lastWord.ayah) ||
+        ctrl.isWordGreen(lastWord.ayah, lastWord.wordInAyah, surah: surah) ||
+        ctrl.isWordYellow(lastWord.ayah, lastWord.wordInAyah, surah: surah) ||
+        ctrl.isWordNeutral(lastWord.ayah, lastWord.wordInAyah, surah: surah);
+  }
+
+  Future<void> _advanceToNextSurah(int currentSurah) async {
+    if (_isAdvancingSurah || !mounted || !widget.isRecording) return;
+    final int nextSurah = currentSurah + 1;
+    if (nextSurah > 114) return;
+
+    _isAdvancingSurah = true;
+    _lastAdvancedSurah = currentSurah;
+
+    try {
+      final provider = MushafProvider.instance;
+      final ctrl = widget.controller;
+      const int nextAyah = 1;
+
+      final targetPage = provider.getPageForAyah(nextSurah, nextAyah);
+      if (targetPage != null && targetPage != _currentPage) {
+        _navigationTargetAyah = (nextSurah, nextAyah);
+        _goToPage(targetPage);
+      }
+
+      await ctrl.setTargetSurah(
+        nextSurah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      );
+      ctrl.setManualAyah(nextSurah, nextAyah);
+      AppState.instance.saveLastPosition(nextSurah, nextAyah);
+      if (widget.isRecording) {
+        ctrl.startRecordingSession();
+      }
+    } catch (e) {
+      debugPrint('Error advancing to next surah: $e');
+    } finally {
+      await Future.delayed(const Duration(milliseconds: 300));
+      _isAdvancingSurah = false;
+    }
+  }
+
   void _onControllerProgress() {
     final provider = MushafProvider.instance;
-    if (!mounted || _isAutoAdvancingPage || !provider.isReady || !widget.isRecording) return;
+    if (!mounted ||
+        _isAutoAdvancingPage ||
+        _isAdvancingSurah ||
+        !provider.isReady ||
+        !widget.isRecording) {
+      return;
+    }
 
     final ctrl = widget.controller;
-    final lastWord = provider.getLastWordOnPage(_currentPage);
-    if (lastWord == null) return;
-
-    final int? activeAyah = ctrl.activeAyah.value;
     final int activeSurah = ctrl.targetSurah != 0
         ? ctrl.targetSurah
         : AppState.instance.lastSurah;
 
+    // 1. Hands-free recitation flow across Surahs (same page or next page)
+    if (_isSurahFinished(ctrl, activeSurah)) {
+      if (activeSurah < 114 && _lastAdvancedSurah != activeSurah) {
+        _advanceToNextSurah(activeSurah);
+        return;
+      }
+    } else {
+      if (_lastAdvancedSurah == activeSurah) {
+        _lastAdvancedSurah = null;
+      }
+    }
+
+    final lastWord = provider.getLastWordOnPage(_currentPage);
+    if (lastWord == null) return;
+
+    final int? activeAyah = ctrl.activeAyah.value;
+
     if (activeAyah != null &&
-        activeAyah != lastWord.ayah &&
+        (activeSurah != lastWord.surah || activeAyah != lastWord.ayah) &&
         provider.isAyahOnPage(
           pageNumber: _currentPage,
           surah: activeSurah,

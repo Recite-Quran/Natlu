@@ -5,7 +5,6 @@ import '../../../services/app_haptics.dart';
 
 import '../../../services/quran_audio_service.dart';
 import '../../../state/app_state.dart';
-import '../../../maglis/maglis_controller.dart';
 import '../dialogs/error_detail_dialog.dart';
 
 /// Core interactive actions for the Mushaf vector layout.
@@ -33,7 +32,11 @@ abstract final class MushafActions {
   }) async {
     AppHaptics.lightImpact();
     if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(surah, preserveOtherSurahStates: true);
+      await controller.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      );
     }
     controller.setManualAyah(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
@@ -139,42 +142,22 @@ abstract final class MushafActions {
             ? controller.targetSurah
             : AppState.instance.lastSurah);
 
-    // 1. Check Maglis persistent cumulative highlights
-    if (MaglisController.instance.inSession) {
-      final maglisH =
-          MaglisController.instance.getWordHighlight(s, ayah, wordIndex);
-      if (maglisH != null) {
-        if (maglisH == 1) return colors.green;
-        if (maglisH == 2) return colors.warning;
-        if (maglisH == 3) return colors.red;
-      }
-    }
-
-    // 2. Check AppState persistent highlights
-    final appH = AppState.instance.getWordHighlight(s, ayah, wordIndex);
-    if (appH != null) {
-      if (appH == 1) return colors.green;
-      if (appH == 2) return colors.warning;
-      if (appH == 3) return colors.red;
-    }
-
-    // 3. Check live controller state and persist
-    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
-      AppState.instance.recordWordHighlight(s, ayah, wordIndex, 1);
-      return colors.green;
-    }
+    // HighlightingController is the single canonical authority for recitation highlights
     if (controller.isWordRed(ayah, wordIndex, surah: s)) {
-      AppState.instance.recordWordHighlight(s, ayah, wordIndex, 3);
       return colors.red;
     }
     if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
-      AppState.instance.recordWordHighlight(s, ayah, wordIndex, 2);
       return colors.warning;
+    }
+    if (controller.isWordGreen(ayah, wordIndex, surah: s) ||
+        controller.completedAyahsFor(s).contains(ayah)) {
+      return colors.green;
     }
     return colors.text;
   }
 
   /// Resolves the word display color, handling zero-GPU blur hiding for unrecited words.
+  /// Concealing unrecited words only occurs when [isBlurEffective] is true (i.e. recording or Maglis session active).
   static Color resolveWordDisplayColor({
     required int ayah,
     required int wordIndex,
@@ -182,13 +165,21 @@ abstract final class MushafActions {
     required AppState app,
     required ThemeColors colors,
     int? surah,
+    bool isBlurEffective = false,
   }) {
     if (wordIndex < 0) return colors.text;
-    if (app.isBlurMode) {
-      final isRead = controller.isWordGreen(ayah, wordIndex, surah: surah) ||
-          controller.isWordRed(ayah, wordIndex, surah: surah) ||
-          controller.isWordYellow(ayah, wordIndex, surah: surah) ||
-          controller.isWordNeutral(ayah, wordIndex, surah: surah);
+    final int s = surah ??
+        (controller.targetSurah != 0
+            ? controller.targetSurah
+            : AppState.instance.lastSurah);
+
+    if (isBlurEffective) {
+      final isCompleted = controller.completedAyahsFor(s).contains(ayah);
+      final isRead = isCompleted ||
+          controller.isWordGreen(ayah, wordIndex, surah: s) ||
+          controller.isWordRed(ayah, wordIndex, surah: s) ||
+          controller.isWordYellow(ayah, wordIndex, surah: s) ||
+          controller.isWordNeutral(ayah, wordIndex, surah: s);
       if (!isRead) return Colors.transparent;
     }
 
@@ -197,7 +188,7 @@ abstract final class MushafActions {
       wordIndex: wordIndex,
       controller: controller,
       colors: colors,
-      surah: surah,
+      surah: s,
     );
   }
 }

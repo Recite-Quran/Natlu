@@ -79,6 +79,18 @@ class MaglisController extends ChangeNotifier {
   bool get hasCumulativeHighlights => _cumulativeHighlights.isNotEmpty;
   int get cumulativeVersion => _cumulativeVersion;
 
+  /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
+  /// Any verse coming before [startSurah, startAyah] strictly keeps its highlights.
+  void clearHighlightsFrom(int startSurah, int startAyah) {
+    _cumulativeHighlights.removeWhere((key, _) {
+      final s = (key >> 20) & 0xFF;
+      final a = (key >> 8) & 0xFFF;
+      return s > startSurah || (s == startSurah && a >= startAyah);
+    });
+    _cumulativeVersion++;
+    notifyListeners();
+  }
+
   void _onPeerJoined(String peerId) {
     if (_connectedPeers.add(peerId)) {
       AppState.instance.showMaglisPeerJoinedBanner();

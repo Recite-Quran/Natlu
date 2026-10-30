@@ -73,21 +73,6 @@ class AppState extends ChangeNotifier {
 
   SharedPreferences? _prefs;
 
-  /// Persistent session word highlights: key = "${surah}_${ayah}_$word0", value = 1 (green), 2 (yellow), 3 (red)
-  final Map<String, int> _persistentWordHighlights = {};
-  Map<String, int> get persistentWordHighlights => _persistentWordHighlights;
-
-  int? getWordHighlight(int surah, int ayah, int word0) =>
-      _persistentWordHighlights['${surah}_${ayah}_$word0'];
-
-  void recordWordHighlight(int surah, int ayah, int word0, int colorType) {
-    _persistentWordHighlights['${surah}_${ayah}_$word0'] = colorType;
-  }
-
-  void clearPersistentWordHighlights() {
-    _persistentWordHighlights.clear();
-    notifyListeners();
-  }
 
   Future<SharedPreferences> _getPrefs() async {
     return _prefs ??= await SharedPreferences.getInstance();

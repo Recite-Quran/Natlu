@@ -228,9 +228,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final audioSurah = app.activeAudioSurah.value;
     final audioAyah = app.activeAudioAyah.value;
     final audioWordIdx = app.activeAudioWordIndex.value;
-    final bool isAudioActive = audioSurah != null &&
-        audioAyah != null &&
-        audioWordIdx != null;
+    final bool isAudioPlayingOrBuffering =
+        app.isAudioPlaying.value || app.isAudioBuffering.value;
+    final bool isAudioActive = isAudioPlayingOrBuffering &&
+        audioSurah != null &&
+        audioAyah != null;
 
     final provider = MushafProvider.instance;
 
@@ -250,7 +252,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: audioSurah, ayah: audioAyah);
 
     // Fast early exit: if this is an adjacent pre-cached page and not the reciter's page,
-    // and has no stale cursors to clear, exit immediately with zero allocations.
+    // and has no stale cursors or highlights to clear, exit immediately with zero allocations.
     if (widget.pageNumber != currentPage &&
         !hasMaglisAyah &&
         !hasRecitingAyah &&
@@ -258,6 +260,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         !hasMatchedAyah &&
         _lastActiveAyah == null &&
         _lastActiveWord == null &&
+        _lastGreenWords.isEmpty &&
+        _lastYellowWords.isEmpty &&
+        _lastRedWords.isEmpty &&
+        _lastHiddenWords.isEmpty &&
         _lastIsDark == app.isDarkMode) {
       return;
     }
@@ -316,7 +322,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             page.findWord(maglisSurah, maglisAyah, maglisWord + 1);
         if (idx >= 0) activeWord = idx;
       } else if (hasAudioAyah) {
-        final idx = page.findWord(audioSurah, audioAyah, audioWordIdx + 1);
+        final int targetWord1 = (audioWordIdx ?? 0) + 1;
+        int idx = page.findWord(audioSurah, audioAyah, targetWord1);
+        if (idx < 0) {
+          _ensurePageWordsIndexed(page);
+          idx = _pageWordMap[MaglisController.wordKey(audioSurah, audioAyah, targetWord1 - 1)] ?? -1;
+        }
         if (idx >= 0) activeWord = idx;
       } else if (widget.isRecording && (hasMatchedAyah || hasRecitingAyah)) {
         final int s = activeMatch?.verse.surah ?? targetSurah;
@@ -370,6 +381,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       final bool hasNewCumulative = maglis.hasCumulativeHighlights &&
           _appliedCumulativeVersion != maglis.cumulativeVersion;
 
+      // Blur/concealing is only effectively applied when actively recording or in a Maglis session
+      final bool isBlurEffective = app.isBlurMode &&
+          (widget.isRecording || maglis.inSession);
+
       // Smart guard: If remote user is reciting on another page and local device is not recording,
       // and there are no new cumulative highlights to apply, words on this page have not changed.
       final bool skipRemoteWordScan = isMaglisRemote &&
@@ -377,14 +392,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           !hasNewCumulative &&
           !widget.isRecording &&
           !isAudioActive &&
-          !app.isBlurMode &&
+          !isBlurEffective &&
           !themeChanged;
 
       final bool needsWordEvaluation = !skipRemoteWordScan &&
           (widget.isRecording ||
               hasRemoteReciterOnPage ||
               hasNewCumulative ||
-              app.isBlurMode ||
+              isBlurEffective ||
               themeChanged ||
               _lastGreenWords.isNotEmpty ||
               _lastYellowWords.isNotEmpty ||
@@ -400,7 +415,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         _ensurePageWordsIndexed(page);
 
         // Fast O(1) Path for Maglis remote recitation: direct wordKey mapping with zero scanning
-        if (isMaglisRemote && hasRemoteReciterOnPage && !widget.isRecording && !app.isBlurMode) {
+        if (isMaglisRemote && hasRemoteReciterOnPage && !widget.isRecording && !isBlurEffective) {
           final liveWordIndices = <int>{};
 
           for (final w0 in maglis.remoteGreenWords) {
@@ -440,35 +455,18 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             });
           }
         } else {
-          // Standard full-page evaluation for local recording / blur mode / theme changes
-          final bool hasCumulative = maglis.hasCumulativeHighlights;
-
+          // Standard full-page evaluation for local recitation / blur mode / theme changes
           for (final w in page.words) {
             final w0 = w.word - 1;
-            Color color;
-            final int? maglisColor = hasCumulative
-                ? maglis.getWordHighlight(w.surah, w.ayah, w0)
-                : null;
-            if (maglisColor != null) {
-              if (maglisColor == 1) {
-                color = c.green;
-              } else if (maglisColor == 2) {
-                color = c.warning;
-              } else if (maglisColor == 3) {
-                color = c.red;
-              } else {
-                color = c.text;
-              }
-            } else {
-              color = MushafActions.resolveWordDisplayColor(
-                ayah: w.ayah,
-                wordIndex: w0,
-                controller: ctrl,
-                app: app,
-                colors: c,
-                surah: w.surah,
-              );
-            }
+            final color = MushafActions.resolveWordDisplayColor(
+              ayah: w.ayah,
+              wordIndex: w0,
+              controller: ctrl,
+              app: app,
+              colors: c,
+              surah: w.surah,
+              isBlurEffective: isBlurEffective,
+            );
             if (color == Colors.transparent) {
               hidden.add(w.index);
             } else if (color == c.green) {

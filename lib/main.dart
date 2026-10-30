@@ -500,15 +500,64 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         _engine.resetBuffer();
 
         if (_ctrl != null) {
-          await MushafView.ensureActiveAyahOnCurrentPage(
-            controller: _ctrl!,
-          );
+          final int currentPage = AppState.instance.currentMushafPage.value;
+          final int? activeAyah = _ctrl!.activeAyah.value;
+          final int activeSurah = _ctrl!.targetSurah != 0
+              ? _ctrl!.targetSurah
+              : AppState.instance.lastSurah;
+
+          int selectedSurah = (activeSurah >= 1 && activeSurah <= 114) ? activeSurah : 1;
+          int selectedAyah = (activeAyah != null && activeAyah > 0)
+              ? activeAyah
+              : AppState.instance.lastAyah;
+
+          // If the active ayah is not on the currently displayed page,
+          // the current selected verse is the first ayah of this page!
+          if (selectedAyah <= 0 ||
+              !MushafProvider.instance.isAyahOnPage(
+                pageNumber: currentPage,
+                surah: selectedSurah,
+                ayah: selectedAyah,
+              )) {
+            final firstOnPage = MushafProvider.instance.getFirstAyahOnPage(currentPage);
+            if (firstOnPage != null) {
+              selectedSurah = firstOnPage.$1;
+              selectedAyah = firstOnPage.$2;
+            } else {
+              selectedAyah = selectedAyah > 0 ? selectedAyah : 1;
+            }
+          }
+
+          if (_ctrl!.targetSurah != selectedSurah) {
+            await _ctrl!.setTargetSurah(
+              selectedSurah,
+              preserveOtherSurahStates: true,
+              clearTargetSurah: false,
+            );
+          }
+          _ctrl!.setManualAyah(selectedSurah, selectedAyah);
+          AppState.instance.saveLastPosition(selectedSurah, selectedAyah);
+
+          // Only clear highlighting when the reciter presses the record button:
+          // The current verse and any verse coming after it clears its coloring/highlighting
+          // so it can be recolored by the new record. Verses before are strictly preserved.
+          _ctrl!.clearHighlightsFromAyah(selectedAyah);
+          for (int s = selectedSurah + 1; s <= 114; s++) {
+            _ctrl!.clearHighlightsForSurah(s);
+          }
+          MaglisController.instance.clearHighlightsFrom(selectedSurah, selectedAyah);
+
+          _lastProcessedAyah = null;
+          _lastProcessedSurah = null;
+
+          _ctrl!.globalRevision.value++;
+
           _ctrl!.startRecordingSession();
           if (MaglisController.instance.inSession) {
             unawaited(MaglisController.instance.claimFloor(
-              page: AppState.instance.currentMushafPage.value,
-              surah: _ctrl!.targetSurah,
-              ayah: _ctrl!.activeAyah.value ?? 1,
+              page: currentPage,
+              surah: selectedSurah,
+              ayah: selectedAyah,
             ));
           }
           if (mounted) setState(() => _isRecording = true);
@@ -760,8 +809,11 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       }
       _voiceSearchCtrl.clear();
       if (result != null && _ctrl != null) {
-        // Automatically navigate to the found Ayah!
-        await _ctrl!.setTargetSurah(result.surah);
+        await _ctrl!.setTargetSurah(
+          result.surah,
+          preserveOtherSurahStates: true,
+          clearTargetSurah: false,
+        );
         _ctrl!.setManualAyah(result.surah, result.ayah);
 
 
