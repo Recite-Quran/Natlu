@@ -147,7 +147,8 @@ class MaglisNetworkEngine {
 
   final String roomCode;
   final String localPeerId;
-  final bool isHost;
+  bool _isHost;
+  bool get isHost => _isHost;
   final MaglisPacket Function() onBuildSnapshot;
 
   late final String _privHex = MaglisCrypto.randomHex32();
@@ -194,9 +195,9 @@ class MaglisNetworkEngine {
   MaglisNetworkEngine({
     required this.roomCode,
     required this.localPeerId,
-    this.isHost = true,
+    bool isHost = true,
     required this.onBuildSnapshot,
-  });
+  }) : _isHost = isHost;
 
   Stream<MaglisPacket> get onPacket => _packetCtrl.stream;
   Stream<Map<String, RTCIceConnectionState>> get onPeerStates =>
@@ -910,10 +911,12 @@ class MaglisNetworkEngine {
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         _lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
         _checkSocketSleepState();
-        // Catch up newly connected peer with full room state snapshot
-        try {
-          dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
-        } catch (_) {}
+        // Catch up newly connected peer with full room state snapshot ONLY if host or established room member
+        if (isHost || _peers.length > 1) {
+          try {
+            dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+          } catch (_) {}
+        }
         // Send any vital packets that were queued while channel was establishing
         if (_pendingVitalPackets.isNotEmpty) {
           for (final vital in List<String>.from(_pendingVitalPackets)) {
@@ -1152,6 +1155,14 @@ class MaglisNetworkEngine {
     _negotiatingPeers.remove(peerId);
     _lastSeq.remove(peerId);
     _participantCountCtrl.add(_roomParticipants.length + 1);
+
+    // Host Migration: If current host departed, deterministically elect remaining peer with smallest ID
+    if (!_isHost && _roomParticipants.isNotEmpty) {
+      final allPeers = [localPeerId, ..._roomParticipants]..sort();
+      if (allPeers.first == localPeerId) {
+        _isHost = true;
+      }
+    }
     final remoteTracks = _remoteTracks.remove(peerId);
     if (remoteTracks != null) {
       for (final t in remoteTracks) {

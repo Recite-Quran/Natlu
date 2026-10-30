@@ -559,6 +559,7 @@ class MaglisController extends ChangeNotifier {
           notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         } else {
+          if (isLocalReciting) break;
           _remotePage = pkt.page;
           _remoteSurah = pkt.surah;
           _remoteAyah = pkt.ayah;
