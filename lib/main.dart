@@ -670,6 +670,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final greenWords = <int>[];
     final yellowWords = <int>[];
     final redWords = <int>[];
+    Map<int, List<ReciterError>>? wordErrors;
     int? activeWord;
     bool foundAyah = false;
 
@@ -684,6 +685,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
           yellowWords.add(w0);
           maglis.recordWordHighlight(targetSurah, activeAyah, w0, 2);
+          final errs = _ctrl!.getWordErrors(activeAyah, w0, surah: targetSurah);
+          if (errs != null && errs.isNotEmpty) {
+            (wordErrors ??= {})[w0] = errs;
+          }
         } else if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
           redWords.add(w0);
           maglis.recordWordHighlight(targetSurah, activeAyah, w0, 3);
@@ -716,6 +721,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       greenWords: greenWords,
       yellowWords: yellowWords,
       redWords: redWords,
+      errors: wordErrors,
     );
   }
 

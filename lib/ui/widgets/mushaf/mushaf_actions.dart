@@ -57,6 +57,7 @@ abstract final class MushafActions {
     VoidCallback? onWordErrorTap,
     VoidCallback? onAyahTap,
     bool playWordDirectly = false,
+    List<ReciterError>? overrideErrors,
   }) {
 
     final bool isAlreadySelected =
@@ -69,20 +70,22 @@ abstract final class MushafActions {
       onTap: onAyahTap,
     );
 
-    if (controller.isWordYellow(ayah, wordIndex, surah: surah)) {
+    final errors = overrideErrors ??
+        (controller.isWordYellow(ayah, wordIndex, surah: surah)
+            ? controller.getWordErrors(ayah, wordIndex, surah: surah)
+            : null);
+
+    if (errors != null && errors.isNotEmpty) {
       AppState.instance.markTajweedWordClicked();
-      final errors = controller.getWordErrors(ayah, wordIndex);
-      if (errors != null && errors.isNotEmpty) {
-        ErrorDetailDialog.show(
-          context,
-          word: wordText,
-          errors: errors,
-          surah: surah,
-          ayah: ayah,
-          wordIndex: wordIndex,
-        );
-        onWordErrorTap?.call();
-      }
+      ErrorDetailDialog.show(
+        context,
+        word: wordText,
+        errors: errors,
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+      );
+      onWordErrorTap?.call();
     } else if (isAlreadySelected || playWordDirectly) {
       QuranAudioService.instance.playWord(
         surah: surah,

@@ -33,6 +33,7 @@ class MaglisPacket {
   final List<int> redWords;
   final String? activeReciterId;
   final Map<String, int>? cumulative;
+  final Map<String, List<Map<String, dynamic>>>? errors;
   final int ts;
 
   const MaglisPacket({
@@ -48,6 +49,7 @@ class MaglisPacket {
     this.redWords = const [],
     this.activeReciterId,
     this.cumulative,
+    this.errors,
     required this.ts,
   });
 
@@ -67,6 +69,7 @@ class MaglisPacket {
     if (redWords.isNotEmpty) map['r'] = redWords;
     if (activeReciterId != null) map['c'] = activeReciterId;
     if (cumulative != null && cumulative!.isNotEmpty) map['k'] = cumulative;
+    if (errors != null && errors!.isNotEmpty) map['e'] = errors;
     return jsonEncode(map);
   }
 
@@ -92,6 +95,14 @@ class MaglisPacket {
       activeReciterId: m['c'] as String?,
       cumulative: (m['k'] as Map<String, dynamic>?)?.map(
         (k, v) => MapEntry(k, v as int),
+      ),
+      errors: (m['e'] as Map<String, dynamic>?)?.map(
+        (k, v) => MapEntry(
+          k,
+          (v as List<dynamic>)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList(),
+        ),
       ),
       ts: (m['m'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
     );

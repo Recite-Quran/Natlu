@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:recite_quran/recite_quran.dart';
 import '../state/app_state.dart';
 import 'maglis_core.dart';
 import 'maglis_network.dart';
@@ -40,9 +41,15 @@ class MaglisController extends ChangeNotifier {
   int? _lastBroadcastSurah;
   int? _lastBroadcastAyah;
   int? _lastBroadcastWord;
-  int _lastGreenCount = -1;
-  int _lastYellowCount = -1;
-  int _lastRedCount = -1;
+
+
+  // Delta tracking: strictly ensure each word highlight and Tajweed error is broadcast once per verse!
+  int? _sentSurah;
+  int? _sentAyah;
+  final Set<int> _sentGreenWords = <int>{};
+  final Set<int> _sentYellowWords = <int>{};
+  final Set<int> _sentRedWords = <int>{};
+  final Set<int> _sentErrorWords = <int>{};
 
   Map<String, RTCIceConnectionState> _peers = {};
   final Set<String> _connectedPeers = <String>{};
@@ -59,9 +66,46 @@ class MaglisController extends ChangeNotifier {
   static int wordKey(int surah, int ayah, int word0) =>
       ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF);
 
+  /// Ultra-compact structured error map for minimum bandwidth over WebRTC.
+  /// Pre-rendered human strings are omitted because ReciterError dynamically computes them.
+  static Map<String, dynamic> compactErrorMap(ReciterError e) {
+    final m = <String, dynamic>{
+      'errorType': e.errorType.index,
+      'speechErrorType': e.speechErrorType.index,
+      'expectedPh': e.expectedPh,
+      'predictedPh': e.predictedPh,
+    };
+    if (e.durationStatus != null) {
+      m['durationStatus'] = e.durationStatus!.index;
+    }
+    if (e.expectedRule != null) {
+      m['expectedRule'] = {
+        'type': e.expectedRule.runtimeType.toString(),
+        'nameAr': e.expectedRule!.name.ar,
+        'nameEn': e.expectedRule!.name.en,
+        'goldenLen': e.expectedRule!.goldenLen,
+      };
+    }
+    if (e.expectedDuration != null) {
+      m['expectedDuration'] =
+          double.parse(e.expectedDuration!.toStringAsFixed(2));
+    }
+    if (e.actualDuration != null) {
+      m['actualDuration'] =
+          double.parse(e.actualDuration!.toStringAsFixed(2));
+    }
+    return m;
+  }
+
   // Cumulative session word highlights: key = wordKey(surah, ayah, word0), value = 1 (green), 2 (yellow), 3 (red)
   final Map<int, int> _cumulativeHighlights = {};
   int _cumulativeVersion = 0;
+
+  // Remote word errors received from peers: key = wordKey(surah, ayah, word0)
+  final Map<int, List<ReciterError>> _remoteWordErrors = {};
+
+  List<ReciterError>? getWordErrors(int surah, int ayah, int word0) =>
+      _remoteWordErrors[wordKey(surah, ayah, word0)];
 
   int? getWordHighlight(int surah, int ayah, int word0) =>
       _cumulativeHighlights[wordKey(surah, ayah, word0)];
@@ -87,6 +131,21 @@ class MaglisController extends ChangeNotifier {
       final a = (key >> 8) & 0xFFF;
       return s > startSurah || (s == startSurah && a >= startAyah);
     });
+    _remoteWordErrors.removeWhere((key, _) {
+      final s = (key >> 20) & 0xFF;
+      final a = (key >> 8) & 0xFFF;
+      return s > startSurah || (s == startSurah && a >= startAyah);
+    });
+    _sentGreenWords.clear();
+    _sentYellowWords.clear();
+    _sentRedWords.clear();
+    _sentErrorWords.clear();
+    _sentSurah = null;
+    _sentAyah = null;
+    _lastBroadcastPage = null;
+    _lastBroadcastSurah = null;
+    _lastBroadcastAyah = null;
+    _lastBroadcastWord = null;
     _cumulativeVersion++;
     notifyListeners();
   }
@@ -283,6 +342,19 @@ class MaglisController extends ChangeNotifier {
       stringMap[k.toRadixString(16)] = v;
     });
 
+    Map<String, List<Map<String, dynamic>>>? snapshotErrors;
+    if (_remoteWordErrors.isNotEmpty) {
+      _remoteWordErrors.forEach((key, list) {
+        final s = (key >> 20) & 0xFF;
+        final a = (key >> 8) & 0xFFF;
+        final w = key & 0xFF;
+        if (s == _remoteSurah && a == _remoteAyah) {
+          (snapshotErrors ??= {})[w.toString()] =
+              list.map((e) => compactErrorMap(e)).toList();
+        }
+      });
+    }
+
     return MaglisPacket(
       type: MaglisPacketType.snapshot,
       seq: ++_seq,
@@ -296,6 +368,7 @@ class MaglisController extends ChangeNotifier {
       redWords: _remoteRedWords,
       activeReciterId: _activeReciterId,
       cumulative: stringMap,
+      errors: snapshotErrors,
       ts: DateTime.now().millisecondsSinceEpoch,
     );
   }
@@ -357,6 +430,18 @@ class MaglisController extends ChangeNotifier {
       _cumulativeVersion++;
     }
 
+    if (pkt.errors != null && pkt.errors!.isNotEmpty) {
+      pkt.errors!.forEach((k, list) {
+        final w0 = int.tryParse(k);
+        if (w0 != null) {
+          final key = wordKey(pkt.surah, pkt.ayah, w0);
+          _remoteWordErrors[key] = list
+              .map((m) => ReciterError.fromMap(m))
+              .toList();
+        }
+      });
+    }
+
     if (isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
       // Local reciter drives their own UI from local engine. Do not let incoming packets stutter local screen.
       return;
@@ -394,32 +479,54 @@ class MaglisController extends ChangeNotifier {
 
       case MaglisPacketType.recitationUpdate:
         final bool isRewindingOrRestarting = pkt.surah < _remoteSurah ||
-            (pkt.surah == _remoteSurah && pkt.ayah < _remoteAyah) ||
-            (pkt.surah == _remoteSurah && pkt.ayah == _remoteAyah && pkt.greenWords.isEmpty && _remoteGreenWords.isNotEmpty);
+            (pkt.surah == _remoteSurah && pkt.ayah < _remoteAyah);
         if (isRewindingOrRestarting) {
           clearHighlightsFrom(pkt.surah, pkt.ayah);
         }
 
         final bool pageChanged = _remotePage != pkt.page;
-        final bool posChanged = pageChanged ||
-            _remoteSurah != pkt.surah ||
-            _remoteAyah != pkt.ayah ||
-            _remoteWord != pkt.activeWord;
+        final bool ayahChanged =
+            pkt.surah != _remoteSurah || pkt.ayah != _remoteAyah;
 
-        bool wordsMatch(List<int> a, List<int> b) {
-          if (identical(a, b)) return true;
-          if (a.length != b.length) return false;
-          if (a.isEmpty) return true;
-          if (a.first != b.first || a.last != b.last) return false;
-          return listEquals(a, b);
+        // When verse advances, clear live word sets for the new active verse
+        final updatedGreen =
+            ayahChanged ? <int>{} : Set<int>.from(_remoteGreenWords);
+        final updatedYellow =
+            ayahChanged ? <int>{} : Set<int>.from(_remoteYellowWords);
+        final updatedRed =
+            ayahChanged ? <int>{} : Set<int>.from(_remoteRedWords);
+
+        for (final w in pkt.greenWords) {
+          updatedGreen.add(w);
+          updatedYellow.remove(w);
+          updatedRed.remove(w);
+        }
+        for (final w in pkt.yellowWords) {
+          updatedYellow.add(w);
+          updatedGreen.remove(w);
+          updatedRed.remove(w);
+        }
+        for (final w in pkt.redWords) {
+          updatedRed.add(w);
+          updatedGreen.remove(w);
+          updatedYellow.remove(w);
         }
 
-        final bool wordsChanged =
-            !wordsMatch(_remoteGreenWords, pkt.greenWords) ||
-            !wordsMatch(_remoteYellowWords, pkt.yellowWords) ||
-            !wordsMatch(_remoteRedWords, pkt.redWords);
+        final newGreenList = updatedGreen.toList()..sort();
+        final newYellowList = updatedYellow.toList()..sort();
+        final newRedList = updatedRed.toList()..sort();
 
-        if (!posChanged && !wordsChanged && _activeReciterId == pkt.senderId) {
+        final bool wordsChanged =
+            !listEquals(_remoteGreenWords, newGreenList) ||
+            !listEquals(_remoteYellowWords, newYellowList) ||
+            !listEquals(_remoteRedWords, newRedList);
+
+        final bool posChanged = pageChanged ||
+            ayahChanged ||
+            _remoteWord != pkt.activeWord ||
+            _activeReciterId != pkt.senderId;
+
+        if (!posChanged && !wordsChanged && !cumulativeChanged) {
           return;
         }
 
@@ -428,9 +535,9 @@ class MaglisController extends ChangeNotifier {
         _remoteSurah = pkt.surah;
         _remoteAyah = pkt.ayah;
         _remoteWord = pkt.activeWord;
-        _remoteGreenWords = pkt.greenWords;
-        _remoteYellowWords = pkt.yellowWords;
-        _remoteRedWords = pkt.redWords;
+        _remoteGreenWords = newGreenList;
+        _remoteYellowWords = newYellowList;
+        _remoteRedWords = newRedList;
 
         notifyListeners();
         if (pageChanged) {
@@ -445,9 +552,9 @@ class MaglisController extends ChangeNotifier {
           _remoteSurah = pkt.surah;
           _remoteAyah = pkt.ayah;
           _remoteWord = pkt.activeWord;
-          _remoteGreenWords = pkt.greenWords;
-          _remoteYellowWords = pkt.yellowWords;
-          _remoteRedWords = pkt.redWords;
+          _remoteGreenWords = List<int>.from(pkt.greenWords)..sort();
+          _remoteYellowWords = List<int>.from(pkt.yellowWords)..sort();
+          _remoteRedWords = List<int>.from(pkt.redWords)..sort();
           _notifySessionChanged();
           notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
@@ -487,9 +594,12 @@ class MaglisController extends ChangeNotifier {
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;
     _lastBroadcastWord = null;
-    _lastGreenCount = -1;
-    _lastYellowCount = -1;
-    _lastRedCount = -1;
+    _sentGreenWords.clear();
+    _sentYellowWords.clear();
+    _sentRedWords.clear();
+    _sentErrorWords.clear();
+    _sentSurah = null;
+    _sentAyah = null;
 
     _net?.sendPacket(
       MaglisPacket(
@@ -538,7 +648,9 @@ class MaglisController extends ChangeNotifier {
     }
   }
 
-  /// Broadcasts live recitation position and word highlights (green/yellow/red)
+  /// Broadcasts live recitation position and word highlights (green/yellow/red).
+  /// Strictly transmits only DELTAS (newly colored words) and transmits each Tajweed error ONCE
+  /// to achieve the absolute minimum packet size and network bandwidth.
   void broadcastRecitation({
     required int page,
     required int surah,
@@ -547,6 +659,7 @@ class MaglisController extends ChangeNotifier {
     List<int> greenWords = const [],
     List<int> yellowWords = const [],
     List<int> redWords = const [],
+    Map<int, List<ReciterError>>? errors,
   }) {
     if (!_inSession || _activeReciterId != localPeerId) return;
 
@@ -577,6 +690,14 @@ class MaglisController extends ChangeNotifier {
       _cumulativeVersion++;
     }
 
+    // Save local errors into _remoteWordErrors as well so local reciter has exact same lookup map
+    if (errors != null && errors.isNotEmpty) {
+      errors.forEach((w0, errList) {
+        final key = wordKey(surah, ayah, w0);
+        _remoteWordErrors[key] = errList;
+      });
+    }
+
     _remotePage = page;
     _remoteSurah = surah;
     _remoteAyah = ayah;
@@ -585,23 +706,103 @@ class MaglisController extends ChangeNotifier {
     _remoteYellowWords = yellowWords;
     _remoteRedWords = redWords;
 
-    // Deduplicate: avoid sending redundant packets if state hasn't changed
-    if (page == _lastBroadcastPage &&
-        surah == _lastBroadcastSurah &&
-        ayah == _lastBroadcastAyah &&
-        activeWord == _lastBroadcastWord &&
-        greenWords.length == _lastGreenCount &&
-        yellowWords.length == _lastYellowCount &&
-        redWords.length == _lastRedCount) {
-      return;
+    // Reset delta-tracking sets if ayah transitioned
+    if (surah != _sentSurah || ayah != _sentAyah) {
+      _sentSurah = surah;
+      _sentAyah = ayah;
+      _sentGreenWords.clear();
+      _sentYellowWords.clear();
+      _sentRedWords.clear();
+      _sentErrorWords.clear();
     }
+
+    // Compute DELTAS: only transmit words that are newly colored or changed color
+    final deltaGreen = <int>[];
+    for (final w in greenWords) {
+      if (!_sentGreenWords.contains(w) ||
+          _sentYellowWords.contains(w) ||
+          _sentRedWords.contains(w)) {
+        deltaGreen.add(w);
+      }
+    }
+
+    final deltaYellow = <int>[];
+    for (final w in yellowWords) {
+      if (!_sentYellowWords.contains(w) ||
+          _sentGreenWords.contains(w) ||
+          _sentRedWords.contains(w)) {
+        deltaYellow.add(w);
+      }
+    }
+
+    final deltaRed = <int>[];
+    for (final w in redWords) {
+      if (!_sentRedWords.contains(w) ||
+          _sentGreenWords.contains(w) ||
+          _sentYellowWords.contains(w)) {
+        deltaRed.add(w);
+      }
+    }
+
+    // Compute DELTA errors: each Tajweed error is serialized and transmitted ONCE!
+    Map<String, List<Map<String, dynamic>>>? deltaErrors;
+    if (errors != null && errors.isNotEmpty) {
+      for (final entry in errors.entries) {
+        final w0 = entry.key;
+        if (!_sentErrorWords.contains(w0)) {
+          (deltaErrors ??= {})[w0.toString()] =
+              entry.value.map((e) => compactErrorMap(e)).toList();
+        }
+      }
+    }
+
+    final bool hasErrorDeltas = deltaErrors != null && deltaErrors.isNotEmpty;
+
+    // Deduplication check:
+    final bool hasNewDeltas = deltaGreen.isNotEmpty ||
+        deltaYellow.isNotEmpty ||
+        deltaRed.isNotEmpty ||
+        hasErrorDeltas;
+
+    final bool pageOrVerseChanged = page != _lastBroadcastPage ||
+        surah != _lastBroadcastSurah ||
+        ayah != _lastBroadcastAyah;
+
+    final bool cursorMoved = activeWord != _lastBroadcastWord;
+
+    if (!hasNewDeltas && !pageOrVerseChanged && !cursorMoved) {
+      return; // Absolute zero packets sent if reciter pauses or stays on current word!
+    }
+
     _lastBroadcastPage = page;
     _lastBroadcastSurah = surah;
     _lastBroadcastAyah = ayah;
     _lastBroadcastWord = activeWord;
-    _lastGreenCount = greenWords.length;
-    _lastYellowCount = yellowWords.length;
-    _lastRedCount = redWords.length;
+
+    // Update sent tracking sets
+    for (final w in deltaGreen) {
+      _sentGreenWords.add(w);
+      _sentYellowWords.remove(w);
+      _sentRedWords.remove(w);
+      _sentErrorWords.remove(w);
+    }
+    for (final w in deltaYellow) {
+      _sentYellowWords.add(w);
+      _sentGreenWords.remove(w);
+      _sentRedWords.remove(w);
+    }
+    for (final w in deltaRed) {
+      _sentRedWords.add(w);
+      _sentGreenWords.remove(w);
+      _sentYellowWords.remove(w);
+      _sentErrorWords.remove(w);
+    }
+    if (deltaErrors != null) {
+      for (final k in deltaErrors.keys) {
+        final w0 = int.tryParse(k);
+        if (w0 != null) _sentErrorWords.add(w0);
+      }
+    }
 
     _net?.sendPacket(
       MaglisPacket(
@@ -612,10 +813,11 @@ class MaglisController extends ChangeNotifier {
         surah: surah,
         ayah: ayah,
         activeWord: activeWord,
-        greenWords: greenWords,
-        yellowWords: yellowWords,
-        redWords: redWords,
+        greenWords: deltaGreen,
+        yellowWords: deltaYellow,
+        redWords: deltaRed,
         activeReciterId: localPeerId,
+        errors: deltaErrors,
         ts: DateTime.now().millisecondsSinceEpoch,
       ),
       throttle: true,
@@ -641,13 +843,17 @@ class MaglisController extends ChangeNotifier {
     _remoteRedWords = const [];
     _cumulativeHighlights.clear();
     _cumulativeVersion = 0;
+    _remoteWordErrors.clear();
+    _sentGreenWords.clear();
+    _sentYellowWords.clear();
+    _sentRedWords.clear();
+    _sentErrorWords.clear();
+    _sentSurah = null;
+    _sentAyah = null;
     _lastBroadcastPage = null;
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;
     _lastBroadcastWord = null;
-    _lastGreenCount = -1;
-    _lastYellowCount = -1;
-    _lastRedCount = -1;
     for (final t in _peerDisconnectTimers.values) {
       t.cancel();
     }

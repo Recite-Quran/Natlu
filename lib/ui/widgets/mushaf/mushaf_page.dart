@@ -572,16 +572,26 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     var ayah = w.ayah;
     var wordIndex0 = w.word - 1;
 
+    final maglis = MaglisController.instance;
+    final bool isMaglisRemote = maglis.inSession && maglis.isRemoteReciting;
+
+    bool isWordYellow(int a, int w0, int s) =>
+        widget.controller.isWordYellow(a, w0, surah: s) ||
+        (isMaglisRemote &&
+            (maglis.remoteYellowWords.contains(w0) ||
+                maglis.getWordHighlight(s, a, w0) == 2 ||
+                maglis.getWordErrors(s, a, w0) != null));
+
     // Smart yellow word magnetism:
     // If the hit word is not yellow, check if an immediately adjacent neighbor on the same line is yellow.
     // Small Arabic words often result in touch points landing on the neighboring word or gap.
-    if (!widget.controller.isWordYellow(ayah, wordIndex0, surah: surah)) {
+    if (!isWordYellow(ayah, wordIndex0, surah)) {
       if (effectiveIndex > 0 &&
           page.words[effectiveIndex - 1].line == w.line &&
-          widget.controller.isWordYellow(
+          isWordYellow(
             page.words[effectiveIndex - 1].ayah,
             page.words[effectiveIndex - 1].word - 1,
-            surah: page.words[effectiveIndex - 1].surah,
+            page.words[effectiveIndex - 1].surah,
           )) {
         effectiveIndex = effectiveIndex - 1;
         w = page.words[effectiveIndex];
@@ -590,10 +600,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         wordIndex0 = w.word - 1;
       } else if (effectiveIndex + 1 < page.words.length &&
           page.words[effectiveIndex + 1].line == w.line &&
-          widget.controller.isWordYellow(
+          isWordYellow(
             page.words[effectiveIndex + 1].ayah,
             page.words[effectiveIndex + 1].word - 1,
-            surah: page.words[effectiveIndex + 1].surah,
+            page.words[effectiveIndex + 1].surah,
           )) {
         effectiveIndex = effectiveIndex + 1;
         w = page.words[effectiveIndex];
@@ -603,7 +613,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       }
     }
 
-    if (widget.controller.isWordYellow(ayah, wordIndex0, surah: surah)) {
+    if (isWordYellow(ayah, wordIndex0, surah)) {
+      final overrideErrors = isMaglisRemote
+          ? maglis.getWordErrors(surah, ayah, wordIndex0)
+          : null;
       MushafActions.handleWordTap(
         context: context,
         surah: surah,
@@ -613,6 +626,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         controller: widget.controller,
         onAyahTap: widget.onStateChangeRequested,
         playWordDirectly: false,
+        overrideErrors: overrideErrors,
       );
       return;
     }
