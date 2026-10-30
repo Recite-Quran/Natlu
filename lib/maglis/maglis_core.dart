@@ -350,11 +350,11 @@ class MaglisPlatform {
         manageAudioFocus: true,
         androidAudioMode: AndroidAudioMode.inCommunication,
         androidAudioFocusMode: AndroidAudioFocusMode.gain,
-        androidAudioStreamType: AndroidAudioStreamType.voiceCall,
+        androidAudioStreamType: AndroidAudioStreamType.music,
         androidAudioAttributesUsageType:
-            AndroidAudioAttributesUsageType.voiceCommunication,
+            AndroidAudioAttributesUsageType.media,
         androidAudioAttributesContentType:
-            AndroidAudioAttributesContentType.speech,
+            AndroidAudioAttributesContentType.music,
         forceHandleAudioRouting: true,
       );
 
@@ -413,8 +413,8 @@ class MaglisPlatform {
                       AVAudioSessionCategoryOptions.allowAirPlay,
               avAudioSessionMode: AVAudioSessionMode.videoChat,
               androidAudioAttributes: const AndroidAudioAttributes(
-                contentType: AndroidAudioContentType.speech,
-                usage: AndroidAudioUsage.voiceCommunication,
+                contentType: AndroidAudioContentType.music,
+                usage: AndroidAudioUsage.media,
               ),
               androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
               androidWillPauseWhenDucked: false,

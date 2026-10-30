@@ -1,29 +1,21 @@
 {
-  "version": 1,
+  "version": 2,
   "updated_at": "2026-10-30",
   "relays": [
     "wss://quran-maglis.recitequrankarem.workers.dev",
     "wss://relay.primal.net",
-    "wss://nos.lol",
-    "wss://relay.nostr.band",
     "wss://nostr.mom",
-    "wss://relay.snort.social"
+    "wss://nos.lol",
+    "wss://relay.damus.io",
+    "wss://relay.snort.social",
+    "wss://offchain.pub",
+    "wss://nostr.bitcoiner.social"
   ],
   "iceServers": [
     {"urls": "stun:stun.l.google.com:19302"},
     {"urls": "stun:stun1.l.google.com:19302"},
     {"urls": "stun:stun2.l.google.com:19302"},
     {"urls": "stun:stun.cloudflare.com:3478"},
-    {"urls": "stun:stun.services.mozilla.com:3478"},
-    {
-      "urls": [
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-        "turn:openrelay.metered.ca:3478",
-        "turn:openrelay.metered.ca:3478?transport=tcp"
-      ],
-      "username": "openrelayproject",
-      "credential": "openrelayproject"
-    }
+    {"urls": "stun:global.stun.twilio.com:3478"}
   ]
 }
