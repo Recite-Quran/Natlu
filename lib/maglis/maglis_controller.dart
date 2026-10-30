@@ -93,6 +93,7 @@ class MaglisController extends ChangeNotifier {
 
   bool get inSession => _inSession;
   String get roomCode => _roomCode;
+  bool get isHost => _net?.isHost ?? false;
   String? get activeReciterId => _activeReciterId;
   String? get natFailedPeer => _natFailedPeer;
   int get participantCount => max(_participantCount, _connectedPeers.length + 1);
@@ -123,6 +124,7 @@ class MaglisController extends ChangeNotifier {
 
   Future<bool> startSession({
     String? code,
+    bool isHost = true,
     int page = 1,
     int surah = 1,
     int ayah = 1,
@@ -134,7 +136,7 @@ class MaglisController extends ChangeNotifier {
 
     _roomCode = (code != null && code.trim().isNotEmpty)
         ? code.trim()
-        : (100000 + Random.secure().nextInt(900000)).toString();
+        : (10000 + Random.secure().nextInt(90000)).toString();
 
     _remotePage = page;
     _remoteSurah = surah;
@@ -149,6 +151,7 @@ class MaglisController extends ChangeNotifier {
     _net = MaglisNetworkEngine(
       roomCode: _roomCode,
       localPeerId: localPeerId,
+      isHost: isHost,
       onBuildSnapshot: _buildSnapshot,
     );
 

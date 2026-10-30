@@ -5,7 +5,7 @@ import 'dart:math';
 import 'package:audio_session/audio_session.dart';
 import 'package:bip340/bip340.dart' as bip340;
 import 'package:crypto/crypto.dart';
-import 'package:cryptography/cryptography.dart';
+import 'package:cryptography/cryptography.dart' hide Hmac;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -133,14 +133,39 @@ class MaglisCrypto {
   static final Random _rng = Random.secure();
   static final AesGcm _aes = AesGcm.with256bits();
 
+  // Internal 256-bit application pepper to prevent public relay rainbow-table attacks on 5-digit room codes
+  static const List<int> _appPepper = [
+    0x51, 0x75, 0x72, 0x61, 0x6e, 0x4d, 0x61, 0x67,
+    0x6c, 0x69, 0x73, 0x53, 0x65, 0x63, 0x75, 0x72,
+    0x65, 0x50, 0x65, 0x70, 0x70, 0x65, 0x72, 0x32,
+    0x30, 0x32, 0x36, 0x5f, 0x76, 0x32, 0x21, 0x24,
+  ];
+
+  static int get currentEpoch =>
+      DateTime.now().millisecondsSinceEpoch ~/ (15 * 60 * 1000); // 15-minute rotation window
+
   static String randomHex32() {
     final bytes = List<int>.generate(32, (_) => _rng.nextInt(256));
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
-  static String blindedTag(String code) {
-    final digest = sha256.convert(utf8.encode('maglis_v1_tag_${code.trim()}'));
+  /// Derives blinded tag using HMAC-SHA256 with 256-bit app pepper and dynamic 15-minute epoch.
+  /// Without the internal app pepper, no third-party relay scraper can rainbow-table 5-digit codes.
+  static String blindedTag(String code, {int? epoch}) {
+    final ep = epoch ?? currentEpoch;
+    final hmac = Hmac(sha256, _appPepper);
+    final digest = hmac.convert(utf8.encode('maglis_v2_${ep}_${code.trim()}'));
     return digest.toString().substring(0, 32);
+  }
+
+  /// Returns current and previous 15-minute epoch tags to ensure uninterrupted connection
+  /// across 15-minute boundary transitions.
+  static List<String> activeBlindedTags(String code) {
+    final ep = currentEpoch;
+    return [
+      blindedTag(code, epoch: ep),
+      blindedTag(code, epoch: ep - 1),
+    ];
   }
 
   static final Map<String, SecretKey> _keyCache = {};
@@ -148,10 +173,23 @@ class MaglisCrypto {
   static SecretKey _deriveKey(String code) {
     final trimmed = code.trim();
     return _keyCache.putIfAbsent(trimmed, () {
-      final bytes =
-          sha256.convert(utf8.encode('maglis_v1_aes_$trimmed')).bytes;
+      final hmac = Hmac(sha256, _appPepper);
+      final bytes = hmac.convert(utf8.encode('maglis_v2_aes_$trimmed')).bytes;
       return SecretKey(bytes);
     });
+  }
+
+  /// Generates a HMAC admission token proving knowledge of the room code and peer identity
+  static String admissionToken(String code, String peerId) {
+    final hmac = Hmac(sha256, _appPepper);
+    final digest =
+        hmac.convert(utf8.encode('maglis_v2_auth_${code.trim()}_$peerId'));
+    return digest.toString().substring(0, 16);
+  }
+
+  /// Validates an incoming admission token
+  static bool verifyAdmissionToken(String code, String peerId, String token) {
+    return admissionToken(code, peerId) == token;
   }
 
   static Future<String> encrypt(String plain, String code) async {
@@ -190,6 +228,7 @@ class MaglisCrypto {
     required String privHex,
     String? pubHex,
     required String tag,
+    List<String>? additionalTags,
     required String content,
   }) {
     final pub = pubHex ?? getPublicKey(privHex);
@@ -197,6 +236,8 @@ class MaglisCrypto {
     const kind = 20000; // Ephemeral Nostr Event
     final tags = <List<String>>[
       ['t', tag],
+      if (additionalTags != null)
+        for (final t in additionalTags) ['t', t],
     ];
     final serialized = jsonEncode([0, pub, createdAt, kind, tags, content]);
     final idHex = sha256.convert(utf8.encode(serialized)).toString();
@@ -221,6 +262,7 @@ class MaglisCrypto {
     required String privHex,
     String? pubHex,
     required String tag,
+    List<String>? additionalTags,
     required String content,
   }) {
     return compute(
@@ -229,6 +271,7 @@ class MaglisCrypto {
         privHex: privHex,
         pubHex: pubHex,
         tag: tag,
+        additionalTags: additionalTags,
         content: content,
       ),
     );
@@ -239,12 +282,14 @@ class _NostrSignParams {
   final String privHex;
   final String? pubHex;
   final String tag;
+  final List<String>? additionalTags;
   final String content;
 
   const _NostrSignParams({
     required this.privHex,
     this.pubHex,
     required this.tag,
+    this.additionalTags,
     required this.content,
   });
 }
@@ -254,6 +299,7 @@ String _signNostrEventWorker(_NostrSignParams p) {
     privHex: p.privHex,
     pubHex: p.pubHex,
     tag: p.tag,
+    additionalTags: p.additionalTags,
     content: p.content,
   );
 }
@@ -261,6 +307,7 @@ String _signNostrEventWorker(_NostrSignParams p) {
 class MaglisPlatform {
   static StreamSubscription? _deviceChangeSub;
   static StreamSubscription? _interruptionSub;
+  static bool _audioInitialized = false;
 
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return true;
@@ -278,11 +325,13 @@ class MaglisPlatform {
 
   static Future<void> initAudio() async {
     if (kIsWeb) return;
+    if (_audioInitialized) return;
+    _audioInitialized = true;
+
     try {
-      // 1. Initialize WebRTC field trials and 48kHz audio pipeline (WARP enabled for ultra-fast setup)
+      // 1. Initialize WebRTC audio pipeline cleanly without WARP race condition
       try {
         await WebRTC.initialize(options: {
-          'enableWARP': true,
           'audioSampleRate': 48000,
           'audioOutputSampleRate': 48000,
           'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation

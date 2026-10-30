@@ -45,7 +45,7 @@ class AppAudioProcessor {
       sampleRate: recordSampleRate,
       numChannels: numChannels,
       autoGain: false,
-      echoCancel: false,
+      echoCancel: inMaglis,
       noiseSuppress: false,
       androidConfig: AndroidRecordConfig(
         audioSource: inMaglis
@@ -55,6 +55,14 @@ class AppAudioProcessor {
             ? AudioManagerMode.modeInCommunication
             : AudioManagerMode.modeNormal,
         manageBluetooth: !inMaglis,
+      ),
+      iosConfig: const IosRecordConfig(
+        categoryOptions: [
+          IosAudioCategoryOption.defaultToSpeaker,
+          IosAudioCategoryOption.allowBluetooth,
+          IosAudioCategoryOption.allowBluetoothA2DP,
+          IosAudioCategoryOption.allowAirPlay,
+        ],
       ),
     );
 

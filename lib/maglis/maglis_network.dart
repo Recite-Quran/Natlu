@@ -32,17 +32,14 @@ class MaglisNetworkEngine {
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
       {'urls': 'stun:stun2.l.google.com:19302'},
-      {'urls': 'stun:stun3.l.google.com:19302'},
-      {'urls': 'stun:stun4.l.google.com:19302'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
       {'urls': 'stun:stun.services.mozilla.com:3478'},
       {
         'urls': [
-          'turn:openrelay.metered.ca:80',
-          'turn:openrelay.metered.ca:80?transport=tcp',
           'turn:openrelay.metered.ca:443',
           'turn:openrelay.metered.ca:443?transport=tcp',
-          'turn:openrelay.metered.ca:443?transport=udp',
+          'turn:openrelay.metered.ca:3478',
+          'turn:openrelay.metered.ca:3478?transport=tcp',
         ],
         'username': 'openrelayproject',
         'credential': 'openrelayproject',
@@ -51,7 +48,7 @@ class MaglisNetworkEngine {
     'sdpSemantics': 'unified-plan',
     'bundlePolicy': 'max-bundle',
     'rtcpMuxPolicy': 'require',
-    'iceCandidatePoolSize': 4,
+    'iceCandidatePoolSize': 2,
   };
 
   static bool _isValidCandidate(String? cand) {
@@ -69,11 +66,13 @@ class MaglisNetworkEngine {
 
   final String roomCode;
   final String localPeerId;
+  final bool isHost;
   final MaglisPacket Function() onBuildSnapshot;
 
   late final String _privHex = MaglisCrypto.randomHex32();
   late final String _pubHex = MaglisCrypto.getPublicKey(_privHex);
-  late final String _blindedTag = MaglisCrypto.blindedTag(roomCode);
+  List<String> get _activeTags => MaglisCrypto.activeBlindedTags(roomCode);
+  final Set<String> _admittedPeers = <String>{};
 
   final Map<String, WebSocketChannel> _sockets = {};
   final LinkedHashSet<String> _seenNostrIds = LinkedHashSet<String>();
@@ -113,6 +112,7 @@ class MaglisNetworkEngine {
   MaglisNetworkEngine({
     required this.roomCode,
     required this.localPeerId,
+    this.isHost = true,
     required this.onBuildSnapshot,
   });
 
@@ -253,14 +253,13 @@ class MaglisNetworkEngine {
   }
 
   void _subscribeRelay(WebSocketChannel ws) {
-    final since = (DateTime.now().millisecondsSinceEpoch ~/ 1000) - 120;
+    final tags = _activeTags;
     ws.sink.add(jsonEncode([
       'REQ',
-      'maglis_$_blindedTag',
+      'maglis_${tags.first}',
       {
         'kinds': [20000],
-        '#t': [_blindedTag],
-        'since': since,
+        '#t': tags,
       }
     ]));
     _isSocketSubscribed = true;
@@ -293,9 +292,10 @@ class MaglisNetworkEngine {
             (dc) => dc.state == RTCDataChannelState.RTCDataChannelOpen);
 
     if (isFullAndStable && _isSocketSubscribed) {
+      final tag = _activeTags.first;
       for (final ws in _sockets.values) {
         try {
-          ws.sink.add(jsonEncode(['CLOSE', 'maglis_$_blindedTag']));
+          ws.sink.add(jsonEncode(['CLOSE', 'maglis_$tag']));
         } catch (_) {}
       }
       _isSocketSubscribed = false;
@@ -316,17 +316,25 @@ class MaglisNetworkEngine {
     required Map<String, dynamic> data,
   }) async {
     if (_disposed) return;
+    final payloadData = Map<String, dynamic>.from(data);
+    payloadData['auth'] = MaglisCrypto.admissionToken(roomCode, localPeerId);
+    if (isHost) {
+      payloadData['host'] = true;
+    }
+
     final sig = MaglisSignal(
       type: type,
       senderId: localPeerId,
       targetId: targetId,
-      data: data,
+      data: payloadData,
     );
     final cipher = await MaglisCrypto.encrypt(sig.pack(), roomCode);
+    final tags = _activeTags;
     final frame = await MaglisCrypto.signNostrEventAsync(
       privHex: _privHex,
       pubHex: _pubHex,
-      tag: _blindedTag,
+      tag: tags.first,
+      additionalTags: tags.length > 1 ? [tags[1]] : null,
       content: cipher,
     );
     for (final ws in _sockets.values) {
@@ -358,6 +366,20 @@ class MaglisNetworkEngine {
       final sig = MaglisSignal.unpack(clear);
       if (sig.senderId == localPeerId) return;
       if (sig.targetId != null && sig.targetId != localPeerId) return;
+
+      // Host Admission Shield: Authenticate admission token derived from roomCode + peerId + pepper
+      final auth = sig.data['auth'] as String?;
+      if (auth == null || !MaglisCrypto.verifyAdmissionToken(roomCode, sig.senderId, auth)) {
+        return; // Reject unauthenticated probes
+      }
+
+      // Host capacity shield: Max 3 remote peers (4 total participants)
+      if (isHost) {
+        if (!_admittedPeers.contains(sig.senderId) && _admittedPeers.length >= maxRemotePeers) {
+          return; // Drop probes exceeding room capacity
+        }
+        _admittedPeers.add(sig.senderId);
+      }
 
       _lastSeenPeerMs[sig.senderId] = DateTime.now().millisecondsSinceEpoch;
       if (!_roomParticipants.contains(sig.senderId)) {
@@ -419,7 +441,6 @@ class MaglisNetworkEngine {
             await pc.setLocalDescription(
               RTCSessionDescription(mungedSdp, offer.type),
             );
-            await _configureAudioSendersForPeer(pc);
             await _sendSignal('offer',
                 targetId: remoteId, data: {'sdp': mungedSdp});
           } finally {
@@ -486,7 +507,6 @@ class MaglisNetworkEngine {
           await pc.setLocalDescription(
             RTCSessionDescription(mungedSdp, answer.type),
           );
-          await _configureAudioSendersForPeer(pc);
           await _sendSignal('answer',
               targetId: remoteId, data: {'sdp': mungedSdp});
         } finally {
@@ -510,7 +530,6 @@ class MaglisNetworkEngine {
           await pc.setRemoteDescription(RTCSessionDescription(sdp, 'answer'));
           _remoteDescSet[remoteId] = true;
           await _flushIceQueue(remoteId);
-          await _configureAudioSendersForPeer(pc);
         } catch (e) {
           debugPrint('[MaglisNetwork] setRemoteDescription answer error: $e');
         } finally {
@@ -580,7 +599,6 @@ class MaglisNetworkEngine {
           final senders = await pc.getSenders();
           if (!senders.any((s) => s.track?.kind == 'audio')) {
             await pc.addTrack(track, _localStream!);
-            await _configureAudioSendersForPeer(pc);
           }
         } catch (e) {
           debugPrint('[MaglisNetwork] addTrack error: $e');
@@ -657,34 +675,6 @@ class MaglisNetworkEngine {
     return pc;
   }
 
-  Future<void> _configureAudioSendersForPeer(RTCPeerConnection pc) async {
-    try {
-      final senders = await pc.getSenders();
-      for (final sender in senders) {
-        if (sender.track?.kind == 'audio') {
-          final params = sender.parameters;
-          if (params.encodings == null || params.encodings!.isEmpty) {
-            params.encodings = [
-              RTCRtpEncoding(
-                maxBitrate: 48000,
-                priority: RTCPriorityType.high,
-                networkPriority: RTCPriorityType.high,
-              ),
-            ];
-          } else {
-            for (final encoding in params.encodings!) {
-              encoding.maxBitrate = 48000;
-              encoding.networkPriority = RTCPriorityType.high;
-              encoding.priority = RTCPriorityType.high;
-            }
-          }
-          params.degradationPreference =
-              RTCDegradationPreference.MAINTAIN_FRAMERATE;
-          await sender.setParameters(params);
-        }
-      }
-    } catch (_) {}
-  }
 
   Future<void> _triggerIceRestart(String remoteId) async {
     final pc = _peers[remoteId];
@@ -704,7 +694,6 @@ class MaglisNetworkEngine {
       await pc.setLocalDescription(
         RTCSessionDescription(mungedSdp, offer.type),
       );
-      await _configureAudioSendersForPeer(pc);
       await _sendSignal('offer', targetId: remoteId, data: {
         'sdp': mungedSdp,
         'iceRestart': true,
@@ -952,6 +941,7 @@ class MaglisNetworkEngine {
   }
 
   Future<void> _cleanupPeer(String peerId) async {
+    _admittedPeers.remove(peerId);
     _iceQueues.remove(peerId);
     _pendingOutboundCandidates.remove(peerId);
     _iceDebounceTimers.remove(peerId)?.cancel();
@@ -973,11 +963,25 @@ class MaglisNetworkEngine {
       }
     }
     try {
-      await _channels.remove(peerId)?.close();
+      final dc = _channels.remove(peerId);
+      if (dc != null) {
+        dc.onDataChannelState = null;
+        dc.onMessage = null;
+        await dc.close();
+      }
     } catch (_) {}
     try {
       final pc = _peers.remove(peerId);
       if (pc != null) {
+        // Detach all callbacks to prevent asynchronous native TURN/STUN events hitting dying objects
+        pc.onIceCandidate = null;
+        pc.onIceConnectionState = null;
+        pc.onConnectionState = null;
+        pc.onSignalingState = null;
+        pc.onTrack = null;
+        pc.onDataChannel = null;
+        pc.onRenegotiationNeeded = null;
+
         try {
           final senders = await pc.getSenders();
           for (final s in senders) {
@@ -1017,13 +1021,15 @@ class MaglisNetworkEngine {
       final leaveSig = MaglisSignal(
         type: 'leave',
         senderId: localPeerId,
-        data: const {},
+        data: {'auth': MaglisCrypto.admissionToken(roomCode, localPeerId)},
       );
       final cipher = await MaglisCrypto.encrypt(leaveSig.pack(), roomCode);
+      final tags = _activeTags;
       final frame = await MaglisCrypto.signNostrEventAsync(
         privHex: _privHex,
         pubHex: _pubHex,
-        tag: _blindedTag,
+        tag: tags.first,
+        additionalTags: tags.length > 1 ? [tags[1]] : null,
         content: cipher,
       );
       for (final ws in _sockets.values) {
@@ -1032,6 +1038,7 @@ class MaglisNetworkEngine {
       }
     } catch (_) {}
     _sockets.clear();
+    _admittedPeers.clear();
 
     for (final id in List<String>.from(_peers.keys)) {
       await _cleanupPeer(id);

@@ -48,7 +48,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab;
-    _newCode = (100000 + Random().nextInt(900000)).toString();
+    _newCode = (10000 + Random().nextInt(90000)).toString();
   }
 
   @override
@@ -58,7 +58,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   }
 
   void _onCodeChanged(String text) {
-    final isValid = text.trim().length == 6;
+    final isValid = text.trim().length == 5;
     if (_canJoin != isValid) {
       setState(() => _canJoin = isValid);
     }
@@ -66,7 +66,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
 
   void _submitSession(String code) {
     final trimmed = code.trim();
-    if (trimmed.length != 6) return;
+    if (trimmed.length != 5) return;
 
     AppHaptics.lightImpact();
     // 1. Immediately dismiss modal so animations are fluid at 60/120fps with zero frame drop
@@ -87,6 +87,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     MaglisController.instance
         .startSession(
       code: trimmed,
+      isHost: _selectedTab == 1,
       page: app.currentMushafPage.value,
       surah: app.lastSurah,
       ayah: app.lastAyah,
@@ -116,7 +117,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final text = data?.text?.trim() ?? '';
-      final match = RegExp(r'\d{6}').firstMatch(text);
+      final match = RegExp(r'\d{5}').firstMatch(text);
       if (match != null) {
         _codeCtrl.text = match.group(0)!;
         _onCodeChanged(_codeCtrl.text);
@@ -331,22 +332,22 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
           inputFormatters: [
             FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(6),
+            LengthLimitingTextInputFormatter(5),
           ],
           style: TextStyle(
             color: c.text,
-            letterSpacing: 6.0,
-            fontSize: 20,
+            letterSpacing: 8.0,
+            fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
           textAlign: TextAlign.center,
           decoration: InputDecoration(
             counterText: '',
-            hintText: '• • • • • •',
+            hintText: '• • • • •',
             hintStyle: TextStyle(
               color: c.muted.withValues(alpha: 0.35),
-              letterSpacing: 6.0,
-              fontSize: 18,
+              letterSpacing: 8.0,
+              fontSize: 20,
             ),
             filled: true,
             fillColor: isDark
