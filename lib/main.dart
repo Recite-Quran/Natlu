@@ -41,6 +41,7 @@ import 'services/app_audio_processor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'services/quran_audio_service.dart';
 
 void main() async {
   runZonedGuarded(
@@ -280,10 +281,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.detached ||
+        QuranAudioService.instance.isSingleWordMode) {
       AppState.instance.stopVerseAudio();
     }
   }

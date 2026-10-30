@@ -17,7 +17,7 @@ class PermissionDialog extends StatelessWidget {
     final app = AppState.instance;
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: app,
+        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;
@@ -32,10 +32,12 @@ class PermissionDialog extends StatelessWidget {
                   ? 'Microphone access is needed for recitation tracking. Please enable it in Settings.'
                   : 'Microphone access is needed for Voice Search. Please enable it in Settings.');
 
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Container(
+          return Directionality(
+            textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+            child: Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Container(
               decoration: BoxDecoration(
                 color: c.surface,
                 borderRadius: BorderRadius.circular(24),
@@ -141,8 +143,9 @@ class PermissionDialog extends StatelessWidget {
                 ],
               ),
             ),
-          );
-        },
+          ),
+        );
+      },
       ),
     );
   }

@@ -18,16 +18,18 @@ class _ThemeSelectionDialogState extends State<ThemeSelectionDialog> {
     final app = AppState.instance;
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: app,
+        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;
           final isDark = app.isDarkMode;
 
-          return Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Container(
+          return Directionality(
+            textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+            child: Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Container(
               decoration: BoxDecoration(
                 color: c.surface,
                 borderRadius: BorderRadius.circular(24),
@@ -111,8 +113,9 @@ class _ThemeSelectionDialogState extends State<ThemeSelectionDialog> {
                 ],
               ),
             ),
-          );
-        },
+          ),
+        );
+      },
       ),
     );
   }

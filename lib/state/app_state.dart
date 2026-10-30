@@ -414,7 +414,7 @@ class AppState extends ChangeNotifier {
       id: 'maglis_peer_joined',
       messageAr: 'انضم مشارك جديد إلى المجلس',
       messageEn: 'A participant joined the Maglis',
-      icon: Icons.person_add_rounded,
+      icon: Icons.person_rounded,
       isWarning: false,
     ));
   }
@@ -425,7 +425,7 @@ class AppState extends ChangeNotifier {
       id: 'maglis_peer_left',
       messageAr: 'غادر أحد المشاركين المجلس',
       messageEn: 'A participant left the Maglis',
-      icon: Icons.person_remove_rounded,
+      icon: Icons.logout_rounded,
       isWarning: false,
     ));
   }

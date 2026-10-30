@@ -552,10 +552,11 @@ class _MushafViewState extends State<MushafView> {
       );
     }
 
-    final media = MediaQuery.of(context);
-    final safeTop = math.max(media.padding.top, media.viewPadding.top);
-    final safeBottom = math.max(media.padding.bottom, media.viewPadding.bottom);
-    final safeLeft = math.max(media.padding.left, media.viewPadding.left);
+    final padding = MediaQuery.paddingOf(context);
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final safeTop = math.max(padding.top, viewPadding.top);
+    final safeBottom = math.max(padding.bottom, viewPadding.bottom);
+    final safeLeft = math.max(padding.left, viewPadding.left);
 
     // Stretch to the top: on notch/cutout devices, safeTop protects the notch/status bar.
     // Adding a tight 4.0dp buffer (or 8.0dp when safeTop == 0 on desktop/immersive) prevents

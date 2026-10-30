@@ -31,7 +31,7 @@ class WhatsNewDialog extends StatelessWidget {
 
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: app,
+        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;
@@ -119,7 +119,7 @@ class WhatsNewDialog extends StatelessWidget {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                isAr ? 'مجلس التلاوة التدارسي' : 'Live Quran Study Circle',
+                                isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Circle',
                                 style: TextStyle(
                                   color: c.primary,
                                   fontSize: 14,
@@ -131,7 +131,7 @@ class WhatsNewDialog extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             isAr
-                                ? 'حلقة تلاوة وتسميع مباشرة حتى 4 أفراد بمحادثة صوتية وتزامن حي للمصحف مع القارئ عبر رمز بسيط من 5 أرقام'
+                                ? 'حلقة مباركة لتلاوة آيات الذكر الحكيم وتدارسها حتى 4 أفراد بمحادثة صوتية وتزامن حي للمصحف'
                                 : 'Interactive Quran study circle for up to 4 peers with open voice call and live Mushaf sync using a 5-digit code',
                             style: TextStyle(
                               color: c.text,

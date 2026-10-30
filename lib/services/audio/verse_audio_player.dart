@@ -161,7 +161,6 @@ class VerseAudioPlayer {
   // Gapless continuous playlist state
   List<int> _playlistAyahs = [];
   int? _playlistSurah;
-  bool _isAppending = false;
 
   // Single word auditioning mode state
   bool _isSingleWordMode = false;
@@ -212,7 +211,7 @@ class VerseAudioPlayer {
   }
 
   /// Creates an AudioSource for an Ayah, utilizing local cached file if present,
-  /// or streaming URL while downloading in the background.
+  /// or progressive streaming URL.
   static Future<AudioSource> createAyahAudioSource(int surah, int ayah) async {
     final url = getAyahAudioUrl(surah, ayah);
     try {
@@ -220,7 +219,6 @@ class VerseAudioPlayer {
       if (file.existsSync() && file.lengthSync() > 1024) {
         return AudioSource.file(file.path);
       }
-      unawaited(_downloadAndCacheAyah(surah, ayah, file));
       return AudioSource.uri(Uri.parse(url));
     } catch (_) {
       return AudioSource.uri(Uri.parse(url));
@@ -343,62 +341,40 @@ class VerseAudioPlayer {
     });
   }
 
-  /// Handles playlist index changes for seamless 0ms gapless transition between Ayahs.
+  /// Handles playlist index changes for seamless gapless transition between Ayahs.
   void _handleIndexChanged(int? index) {
     if (index == null || index < 0 || index >= _playlistAyahs.length) return;
     if (_isSingleWordMode || _isPaused) return;
 
     final newAyah = _playlistAyahs[index];
-    if (_currentAyah == newAyah) return;
+    final surah = _playlistSurah;
+    if (surah == null) return;
 
-    _currentAyah = newAyah;
-    final app = AppState.instance;
-    app.activeAudioAyah.value = newAyah;
-    app.activeAudioWordIndex.value = 0;
-    if (_currentSurah != null) {
-      app.saveLastPosition(_currentSurah!, newAyah);
+    if (_currentAyah != newAyah || _currentSurah != surah) {
+      _currentAyah = newAyah;
+      _currentSurah = surah;
+      final app = AppState.instance;
+      if (app.activeAudioSurah.value != surah) {
+        app.activeAudioSurah.value = surah;
+      }
+      if (app.activeAudioAyah.value != newAyah) {
+        app.activeAudioAyah.value = newAyah;
+      }
+      app.activeAudioWordIndex.value = 0;
+      app.saveLastPosition(surah, newAyah);
     }
+
+    final maxAyahs = (surah >= 1 && surah <= 114)
+        ? surahAyahCounts[surah - 1]
+        : 286;
 
     // Pre-cache next Ayah to disk in background
-    if (_currentSurah != null) {
-      final maxAyahs = (_currentSurah! >= 1 && _currentSurah! <= 114)
-          ? surahAyahCounts[_currentSurah! - 1]
-          : 286;
-      if (newAyah < maxAyahs) {
-        unawaited(ensureAyahDownloaded(_currentSurah!, newAyah + 1));
-      }
-    }
-
-    // Expand sliding playlist window ahead of time for uninterrupted playback
-    if (_isContinuous && !_isAppending && _currentSurah != null) {
-      final remaining = _playlistAyahs.length - 1 - index;
-      final lastInPlaylist = _playlistAyahs.last;
-      final maxAyahs = (_currentSurah! >= 1 && _currentSurah! <= 114)
-          ? surahAyahCounts[_currentSurah! - 1]
-          : 286;
-      if (remaining <= 2 && lastInPlaylist < maxAyahs) {
-        _expandPlaylist(_currentSurah!, maxAyahs);
-      }
-    }
-  }
-
-  Future<void> _expandPlaylist(int surah, int maxAyahs) async {
-    if (_isAppending) return;
-    _isAppending = true;
-    try {
-      final last = _playlistAyahs.last;
-      final nextStart = last + 1;
-      final nextEnd = (nextStart + 3).clamp(nextStart, maxAyahs);
-      for (int a = nextStart; a <= nextEnd; a++) {
-        final source = await createAyahAudioSource(surah, a);
-        if (_player != null && _playlistSurah == surah && !_isSingleWordMode) {
-          await _player!.addAudioSource(source);
-          _playlistAyahs.add(a);
-        }
-      }
-    } catch (_) {
-    } finally {
-      _isAppending = false;
+    if (newAyah < maxAyahs) {
+      unawaited(ensureAyahDownloaded(surah, newAyah + 1));
+    } else if (surah < 114) {
+      // Near end of Surah: pre-load next Surah's first Ayah and timings!
+      unawaited(ensureAyahDownloaded(surah + 1, 1));
+      unawaited(QuranTimingService.instance.ensureSurahLoaded(surah + 1));
     }
   }
 
@@ -545,9 +521,9 @@ class VerseAudioPlayer {
       final int maxAyahs =
           (surah >= 1 && surah <= 114) ? surahAyahCounts[surah - 1] : 286;
 
-      // Build sliding playlist window: 5 Ayahs ahead for instant gapless buffering
-      final int windowSize = continuous ? 5 : 1;
-      final int endAyah = (ayah + windowSize - 1).clamp(ayah, maxAyahs);
+      // In continuous mode, build full remaining playlist for the Surah:
+      // from [ayah] to [maxAyahs]! Zero dynamic additions needed later!
+      final int endAyah = continuous ? maxAyahs : ayah;
       _playlistAyahs = [for (int a = ayah; a <= endAyah; a++) a];
 
       final sources = await Future.wait(
@@ -574,6 +550,12 @@ class VerseAudioPlayer {
       app.activeAudioWordIndex.value =
           0; // Highlight first word as sound starts
 
+      // Pre-cache current and next Ayah in background
+      unawaited(ensureAyahDownloaded(surah, ayah));
+      if (ayah < maxAyahs) {
+        unawaited(ensureAyahDownloaded(surah, ayah + 1));
+      }
+
       await player.play();
     } catch (e, stack) {
       if (session == _sessionId) {
@@ -589,25 +571,47 @@ class VerseAudioPlayer {
     if (_isPaused || !isPlaying || !(_player?.playing ?? false)) return;
     if (_player?.processingState != ProcessingState.ready) return;
 
-    final surah = _currentSurah;
-    final ayah = _currentAyah;
-    if (surah == null || ayah == null) return;
-
-    final int posMs = pos.inMilliseconds;
-
     // Single-word mode: stop cleanly when target word end timestamp is reached
     if (_isSingleWordMode) {
+      final int posMs = pos.inMilliseconds;
       if (_targetWordEndMs != null && posMs >= _targetWordEndMs!) {
         stop();
       }
       return;
     }
 
+    final int? playerIndex = _player?.currentIndex;
+    if (playerIndex == null ||
+        playerIndex < 0 ||
+        playerIndex >= _playlistAyahs.length) {
+      return;
+    }
+
+    final int playingAyah = _playlistAyahs[playerIndex];
+    final int? playingSurah = _playlistSurah;
+    if (playingSurah == null) return;
+
+    // Synchronize current Ayah state with the exact track playing in hardware
+    if (_currentAyah != playingAyah || _currentSurah != playingSurah) {
+      _currentAyah = playingAyah;
+      _currentSurah = playingSurah;
+      final app = AppState.instance;
+      if (app.activeAudioSurah.value != playingSurah) {
+        app.activeAudioSurah.value = playingSurah;
+      }
+      if (app.activeAudioAyah.value != playingAyah) {
+        app.activeAudioAyah.value = playingAyah;
+      }
+      app.saveLastPosition(playingSurah, playingAyah);
+    }
+
+    final int posMs = pos.inMilliseconds;
+
     // Single-ayah mode (e.g. record mode):
-    // Stop immediately when the reciter finishes the last word (no 1-second trailing silence delay!)
+    // Stop immediately when the reciter finishes the last word (no trailing silence delay)
     if (!_isContinuous) {
-      final ayahTiming =
-          QuranTimingService.instance.getCachedAyahTiming(surah, ayah);
+      final ayahTiming = QuranTimingService.instance
+          .getCachedAyahTiming(playingSurah, playingAyah);
       if (ayahTiming != null && ayahTiming.words.isNotEmpty) {
         final lastWordEndMs = ayahTiming.words.last.endMs;
         if (posMs >= lastWordEndMs + 80) {
@@ -619,8 +623,8 @@ class VerseAudioPlayer {
 
     // Continuous recitation mode: lookup active word index
     final int? activeIdx = QuranTimingService.instance.getActiveWordIndexAtMs(
-      surah: surah,
-      ayah: ayah,
+      surah: playingSurah,
+      ayah: playingAyah,
       positionMs: posMs,
     );
 
@@ -637,14 +641,26 @@ class VerseAudioPlayer {
     _lastCompleteTime = now;
 
     try {
-      if (_isSingleWordMode) {
+      if (_isSingleWordMode || !_isContinuous) {
         stop();
         return;
       }
 
       final surah = _currentSurah;
-      if (_isContinuous && surah != null && surah < 114) {
-        // Entire Surah finished in playlist; roll seamlessly to next Surah
+      final ayah = _currentAyah;
+      if (surah == null || ayah == null) {
+        stop();
+        return;
+      }
+
+      final maxAyahs = (surah >= 1 && surah <= 114)
+          ? surahAyahCounts[surah - 1]
+          : 286;
+
+      // Verify that the Surah has TRULY reached its final Ayah before advancing.
+      // This strictly prevents premature jumping between Surahs.
+      if (ayah >= maxAyahs && surah < 114) {
+        // Entire Surah finished in playlist; roll seamlessly to next Surah Ayah 1
         play(
           surah: surah + 1,
           ayah: 1,
@@ -717,7 +733,6 @@ class VerseAudioPlayer {
     _currentAyah = null;
     _playlistAyahs = [];
     _playlistSurah = null;
-    _isAppending = false;
 
     final app = AppState.instance;
     app.activeAudioWordIndex.value = null;

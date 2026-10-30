@@ -4,8 +4,8 @@ import '../../services/app_haptics.dart';
 import '../../state/app_state.dart';
 import 'surah/surah_list_tile.dart';
 
-/// 2026 Surah Navigator Sheet with segmented categories (All, Meccan, n),
-/// instant Arabic/English search, voice search trigger, and frosted glassmorphism.
+/// Ultra-responsive Surah Navigator Sheet with instant Arabic/English search,
+/// voice search trigger, and zero-jank 120 FPS scrolling architecture.
 class SurahPickerSheet extends StatefulWidget {
   final int current;
   final void Function(int surah, {int? ayah}) onPick;
@@ -31,37 +31,35 @@ class SurahPickerSheet extends StatefulWidget {
 }
 
 class _SurahPickerSheetState extends State<SurahPickerSheet> {
-  static List<String>? _cachedNormalizedNames;
-  static List<String>? _cachedLowerEnNames;
+  static final List<int> _allIndices =
+      List<int>.generate(114, (i) => i, growable: false);
+
+  static final List<String> _arabicDigits = List<String>.generate(114, (i) {
+    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return (i + 1)
+        .toString()
+        .split('')
+        .map((e) => digits[int.parse(e)])
+        .join('');
+  }, growable: false);
+
+  static List<String>? _cachedNormalizedAr;
+  static List<String>? _cachedLowerEn;
 
   String _query = '';
-  late final List<QuranVerse> _surahs;
-  late final List<String> _normalizedNames;
-  late final List<String> _lowerEnNames;
   final TextEditingController _searchCtrl = TextEditingController();
   late final ScrollController _scrollCtrl;
+  late final List<QuranVerse> _surahs;
 
   @override
   void initState() {
     super.initState();
     _surahs = widget.controller.repository.surahMetadata;
-    _normalizedNames = _cachedNormalizedNames ??=
-        _surahs.map((s) => _normalizeArabic(s.surahName)).toList();
-    _lowerEnNames = _cachedLowerEnNames ??=
-        _surahs.map((s) => s.surahNameEn.toLowerCase()).toList();
-    // Each SurahListTile is exactly 76.0px (44px badge + 24px container padding + 8px tile margin)
+    // Set initial scroll offset immediately so the sheet renders directly at the target position,
+    // eliminating any post-frame layout jumps that would stall the opening animation.
     final double initialOffset =
-        ((widget.current - 1) * 76.0).clamp(0.0, double.infinity);
+        ((widget.current - 1) * 70.0 - 70.0).clamp(0.0, double.infinity);
     _scrollCtrl = ScrollController(initialScrollOffset: initialOffset);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _scrollCtrl.hasClients && _query.isEmpty) {
-        final double max = _scrollCtrl.position.maxScrollExtent;
-        if (_scrollCtrl.offset > max) {
-          _scrollCtrl.jumpTo(max);
-        }
-      }
-    });
   }
 
   @override
@@ -71,15 +69,52 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
     super.dispose();
   }
 
-  static String _normalizeArabic(String text) {
-    final RegExp diacritics = RegExp(r'[\u064B-\u065F\u0670]');
-    String normalized = text.replaceAll(diacritics, '');
-    normalized = normalized.replaceAll(RegExp(r'[أإآٱ]'), 'ا');
-    normalized = normalized.replaceAll('ة', 'ه');
-    normalized = normalized.replaceAll('ى', 'ي');
-    normalized = normalized.replaceAll('ؤ', 'و');
-    normalized = normalized.replaceAll('ئ', 'ي');
-    return normalized;
+  /// Lazy initialize search cache only when the user actually types in search,
+  /// keeping initial sheet opening completely instantaneous.
+  void _ensureSearchCache() {
+    if (_cachedNormalizedAr == null || _cachedNormalizedAr!.length != _surahs.length) {
+      final norm = List<String>.filled(_surahs.length, '');
+      final lower = List<String>.filled(_surahs.length, '');
+      for (int i = 0; i < _surahs.length; i++) {
+        norm[i] = _normalizeArabicFast(_surahs[i].surahName);
+        lower[i] = _surahs[i].surahNameEn.toLowerCase();
+      }
+      _cachedNormalizedAr = norm;
+      _cachedLowerEn = lower;
+    }
+  }
+
+  /// High-performance single-pass Arabic text normalizer (zero regex allocations).
+  static String _normalizeArabicFast(String text) {
+    final sb = StringBuffer();
+    for (int i = 0; i < text.length; i++) {
+      final code = text.codeUnitAt(i);
+      // Skip tashkeel: 0x064B to 0x065F, and 0x0670 (superscript alef)
+      if ((code >= 0x064B && code <= 0x065F) || code == 0x0670) {
+        continue;
+      }
+      switch (code) {
+        case 0x0622: // آ
+        case 0x0623: // أ
+        case 0x0625: // إ
+        case 0x0671: // ٱ
+          sb.write('ا');
+          break;
+        case 0x0629: // ة
+          sb.write('ه');
+          break;
+        case 0x0649: // ى
+        case 0x0626: // ئ
+          sb.write('ي');
+          break;
+        case 0x0624: // ؤ
+          sb.write('و');
+          break;
+        default:
+          sb.writeCharCode(code);
+      }
+    }
+    return sb.toString();
   }
 
   @override
@@ -88,25 +123,33 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
     final ThemeColors c = app.colors;
     final isDark = app.isDarkMode;
     final isAr = app.isArabic;
-    final normQuery = _normalizeArabic(_query);
-    final lowerQuery = _query.toLowerCase();
 
-    final List<int> items = [];
-    for (int i = 0; i < _surahs.length; i++) {
-      final sNum = i + 1;
-      if (_query.isEmpty ||
-          _normalizedNames[i].contains(normQuery) ||
-          _lowerEnNames[i].contains(lowerQuery) ||
-          '$sNum'.contains(_query)) {
-        items.add(i);
+    final trimmedQuery = _query.trim();
+    final List<int> items;
+    if (trimmedQuery.isEmpty) {
+      items = _allIndices;
+    } else {
+      _ensureSearchCache();
+      final normQuery = _normalizeArabicFast(trimmedQuery);
+      final lowerQuery = trimmedQuery.toLowerCase();
+      final filtered = <int>[];
+      for (int i = 0; i < _surahs.length; i++) {
+        final sNum = i + 1;
+        if (_cachedNormalizedAr![i].contains(normQuery) ||
+            _cachedLowerEn![i].contains(lowerQuery) ||
+            '$sNum'.contains(trimmedQuery) ||
+            _arabicDigits[i].contains(trimmedQuery)) {
+          filtered.add(i);
+        }
       }
+      items = filtered;
     }
 
     return RepaintBoundary(
       child: Directionality(
         textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
         child: Container(
-          height: MediaQuery.of(context).size.height * 0.82,
+          height: MediaQuery.sizeOf(context).height * 0.82,
           decoration: BoxDecoration(
             color: c.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
@@ -139,9 +182,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
               ),
               const SizedBox(height: 12),
 
-
-
-              // ── Search Bar & 2026 Popping Voice Search Action ──
+              // ── Search Bar & Voice Search Action ──
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(
@@ -202,7 +243,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
 
                     const SizedBox(width: 10),
 
-                    // 2. 2026 Popping Voice Search Action Button
+                    // 2. Voice Search Action Button
                     _TactileScaleButton(
                       onTap: () {
                         AppHaptics.mediumImpact();
@@ -232,9 +273,8 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                             BoxShadow(
                               color: c.primary
                                   .withValues(alpha: isDark ? 0.35 : 0.22),
-                              blurRadius: 18,
-                              spreadRadius: 1,
-                              offset: const Offset(0, 4),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
                             ),
                           ],
                         ),
@@ -297,18 +337,14 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                       )
                     : ListView.builder(
                         controller: _scrollCtrl,
-                        physics: const BouncingScrollPhysics(),
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
+                        ),
                         padding: const EdgeInsets.only(bottom: 24, top: 4),
                         itemCount: items.length,
-                        prototypeItem: _surahs.isNotEmpty
-                            ? SurahListTile(
-                                surahNumber: 1,
-                                surahMeta: _surahs.first,
-                                isSelected: false,
-                                onTap: () {},
-                              )
-                            : null,
-                        itemBuilder: (_, i) {
+                        itemExtent: 70.0,
+                        addRepaintBoundaries: true,
+                        itemBuilder: (context, i) {
                           final int idx = items[i];
                           final int sNum = idx + 1;
                           final bool isSel = widget.current == sNum;
@@ -318,6 +354,9 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                             surahNumber: sNum,
                             surahMeta: surahMeta,
                             isSelected: isSel,
+                            isArabic: isAr,
+                            colors: c,
+                            arabicDigits: _arabicDigits[idx],
                             onTap: () => widget.onPick(sNum),
                           );
                         },
@@ -331,7 +370,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
   }
 }
 
-/// 2026 Spring-scale tactile feedback button wrapper.
+/// Tactile feedback button wrapper.
 class _TactileScaleButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;

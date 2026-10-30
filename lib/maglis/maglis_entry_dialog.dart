@@ -11,9 +11,9 @@ import 'maglis_explanation_dialog.dart';
 /// Minimal labels, crystal-clear actions, and zero UI-thread blocking.
 class MaglisEntryDialog extends StatefulWidget {
   final int initialTab;
-  const MaglisEntryDialog({super.key, this.initialTab = 0});
+  const MaglisEntryDialog({super.key, this.initialTab = 1});
 
-  static Future<void> show(BuildContext context, {int initialTab = 0}) {
+  static Future<void> show(BuildContext context, {int initialTab = 1}) {
     final isWide = MediaQuery.sizeOf(context).width > 600;
     if (isWide) {
       return showDialog(
@@ -52,6 +52,17 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     super.initState();
     _selectedTab = widget.initialTab;
     _newCode = (10000 + Random().nextInt(90000)).toString();
+    _focusNode.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _openKeyboard() {
+    AppHaptics.lightImpact();
+    if (!_focusNode.hasFocus) {
+      _focusNode.requestFocus();
+    }
+    SystemChannels.textInput.invokeMethod('TextInput.show');
   }
 
   @override
@@ -62,14 +73,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   }
 
   void _onCodeChanged(String text) {
-    final normalized = normalizeArabicDigits(text.trim());
-    if (normalized != text) {
-      _codeCtrl.value = TextEditingValue(
-        text: normalized,
-        selection: TextSelection.collapsed(offset: normalized.length),
-      );
-    }
-    final isValid = normalized.length == 5;
+    final isValid = text.length == 5;
     if (_canJoin != isValid) {
       setState(() => _canJoin = isValid);
     } else {
@@ -108,10 +112,10 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       if (success) {
         app.showBanner(AppBannerInfo(
           id: 'maglis_joined',
-          messageAr: 'تم الاتصال بالمجلس \u202A$codeAr\u202C • المحادثة مفتوحة للجميع • اضغط الميكروفون للتلاوة',
-          messageEn: 'Connected to Maglis $codeEn • Voice call active for all • Tap mic to recite',
+          messageAr: 'تم الاتصال بمجلس القرآن \u202A$codeAr\u202C • اضغط الميكروفون للتلاوة',
+          messageEn: 'Joined Quran Circle $codeEn • Tap mic to recite',
           icon: Icons.groups_rounded,
-          customDuration: const Duration(seconds: 4),
+          customDuration: const Duration(seconds: 3),
         ));
       } else {
         app.showBanner(AppBannerInfo(
@@ -136,12 +140,26 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   Future<void> _pasteFromClipboard() async {
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
-      final text = data?.text?.trim() ?? '';
-      final normalized = normalizeArabicDigits(text);
-      final match = RegExp(r'\d{5}').firstMatch(normalized);
-      if (match != null) {
-        _codeCtrl.text = match.group(0)!;
-        _onCodeChanged(_codeCtrl.text);
+      final raw = data?.text?.trim() ?? '';
+      if (raw.isEmpty) return;
+      final normalized = normalizeArabicDigits(raw);
+      final digitsOnly = normalized.replaceAll(RegExp(r'\D'), '');
+      if (digitsOnly.length >= 5) {
+        final code = digitsOnly.substring(0, 5);
+        _codeCtrl.text = code;
+        _onCodeChanged(code);
+        AppHaptics.mediumImpact();
+        AppState.instance.showBanner(AppBannerInfo(
+          id: 'maglis_pasted',
+          messageAr: 'تم لصق رمز المجلس: \u202A${formatMaglisCode(code, isArabic: true)}\u202C',
+          messageEn: 'Pasted room code: $code',
+          icon: Icons.paste_rounded,
+          customDuration: const Duration(seconds: 2),
+        ));
+      } else if (digitsOnly.isNotEmpty) {
+        _codeCtrl.text = digitsOnly;
+        _onCodeChanged(digitsOnly);
+        _focusNode.requestFocus();
         AppHaptics.lightImpact();
       }
     } catch (_) {}
@@ -160,13 +178,13 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         ? Colors.white.withValues(alpha: 0.12)
         : Colors.black.withValues(alpha: 0.08);
 
-    return RepaintBoundary(
-      child: Directionality(
-        textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(context).bottom,
-          ),
+    return Directionality(
+      textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: RepaintBoundary(
           child: Container(
             decoration: BoxDecoration(
               color: surfaceColor,
@@ -195,62 +213,115 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
 
                 // 1. Clean Header
                 Row(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.groups_rounded,
-                          color: Color(0xFF10B981), size: 20),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isAr ? 'مجلس التلاوة' : 'Maglis Circle',
-                            style: TextStyle(
-                              color: c.text,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15.5,
+                  children: isAr
+                      ? [
+                          IconButton(
+                            tooltip: 'إغلاق',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
+                          ),
+                          IconButton(
+                            tooltip: 'إرشادات المجلس',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () {
+                              AppHaptics.lightImpact();
+                              MaglisExplanationDialog.show(context);
+                            },
+                            icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'مجلس القرآن المجيد',
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(
+                                    color: c.text,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Text(
+                                  'اجتمع في مجلس لتلاوة القرآن الحكيم',
+                                  textAlign: TextAlign.right,
+                                  style: TextStyle(
+                                    color: c.muted,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          Text(
-                            isAr
-                                ? 'حلقة تلاوة وتسميع مباشرة'
-                                : 'Live Quran study circle',
-                            style: TextStyle(
-                              color: c.muted,
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w500,
+                          const SizedBox(width: 10),
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
                             ),
+                            child: const Icon(Icons.auto_stories_rounded,
+                                color: Color(0xFF10B981), size: 20),
+                          ),
+                        ]
+                      : [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.auto_stories_rounded,
+                                color: Color(0xFF10B981), size: 20),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'The Glorious Quran Circle',
+                                  style: TextStyle(
+                                    color: c.text,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15.5,
+                                  ),
+                                ),
+                                Text(
+                                  'Gather in a circle to recite the Wise Quran',
+                                  style: TextStyle(
+                                    color: c.muted,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'How it works',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () {
+                              AppHaptics.lightImpact();
+                              MaglisExplanationDialog.show(context);
+                            },
+                            icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
                           ),
                         ],
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: isAr ? 'كيف يعمل المجلس؟' : 'How it works',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () {
-                        AppHaptics.lightImpact();
-                        MaglisExplanationDialog.show(context);
-                      },
-                      icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
-                    ),
-                  ],
                 ),
                 const SizedBox(height: 16),
 
-                // 2. Modern 44dp Segmented Tab Picker
+                // 2. Modern 44dp Segmented Tab Picker (NO plus icon, NO 'create' label!)
                 Container(
                   height: 44,
                   padding: const EdgeInsets.all(3),
@@ -264,7 +335,22 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     children: [
                       Expanded(
                         child: _tabButton(
-                          title: isAr ? 'انضمام لمجلس' : 'Join Circle',
+                          title: isAr ? 'عقد المجلس' : 'Make Room',
+                          icon: Icons.meeting_room_rounded,
+                          isSelected: _selectedTab == 1,
+                          isDark: isDark,
+                          c: c,
+                          onTap: () {
+                            if (_selectedTab != 1) {
+                              AppHaptics.selectionClick();
+                              setState(() => _selectedTab = 1);
+                            }
+                          },
+                        ),
+                      ),
+                      Expanded(
+                        child: _tabButton(
+                          title: isAr ? 'دخول المجلس' : 'Join Circle',
                           icon: Icons.login_rounded,
                           isSelected: _selectedTab == 0,
                           isDark: isDark,
@@ -277,29 +363,14 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                           },
                         ),
                       ),
-                      Expanded(
-                        child: _tabButton(
-                          title: isAr ? 'إنشاء مجلس' : 'Create Room',
-                          icon: Icons.add_rounded,
-                          isSelected: _selectedTab == 1,
-                          isDark: isDark,
-                          c: c,
-                          onTap: () {
-                            if (_selectedTab != 1) {
-                              AppHaptics.selectionClick();
-                              setState(() => _selectedTab = 1);
-                            }
-                          },
-                        ),
-                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 18),
 
-                // 3. Tab Body (Fixed 180dp height — ZERO height jumping when switching tabs)
+                // 3. Tab Body (Fixed height — ZERO height jumping when switching tabs)
                 SizedBox(
-                  height: 180,
+                  height: 204,
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 180),
                     child: _selectedTab == 0
@@ -367,166 +438,256 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  /// Modern, intuitive Join UI with 5 digit slots and instant paste
+  /// Modern, intuitive Join UI matching Make Room's exact card styling, with interactive slots and smart paste
   Widget _buildModernJoinBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     final text = _codeCtrl.text.trim();
 
     return SizedBox(
-      height: 180,
+      height: 204,
       child: Column(
         key: const ValueKey('join_tab_body'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // 5 Interactive Digit Slots — strictly LTR so first digit is always on the left
+          // Hero Room Code Card (matching Make Room styling)
           GestureDetector(
-            onTap: () => _focusNode.requestFocus(),
+            onTap: _openKeyboard,
             behavior: HitTestBehavior.opaque,
             child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.03)
-                    : Colors.black.withValues(alpha: 0.02),
+                color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.08 : 0.06),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: _canJoin
-                      ? const Color(0xFF10B981).withValues(alpha: 0.40)
-                      : borderColor,
+                  color: _focusNode.hasFocus
+                      ? const Color(0xFF10B981).withValues(alpha: 0.50)
+                      : const Color(0xFF10B981).withValues(alpha: 0.25),
+                  width: _focusNode.hasFocus ? 1.4 : 1.0,
                 ),
               ),
-              child: Directionality(
-                textDirection: TextDirection.ltr,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(5, (index) {
-                    final hasChar = index < text.length;
-                    final isCurrent = index == text.length;
-                    final char = hasChar
-                        ? formatMaglisCode(text[index], isArabic: isAr)
-                        : '•';
-
-                    return Container(
-                      width: 44,
-                      height: 48,
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? (hasChar ? Colors.white12 : Colors.white.withValues(alpha: 0.04))
-                            : (hasChar ? const Color(0xFFF1F5F9) : Colors.black.withValues(alpha: 0.03)),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isCurrent
-                              ? const Color(0xFF10B981)
-                              : (hasChar
-                                  ? const Color(0xFF10B981).withValues(alpha: 0.5)
-                                  : borderColor),
-                          width: isCurrent ? 1.8 : 1.0,
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        char,
-                        style: TextStyle(
-                          fontFamily: 'cairo',
-                          color: hasChar
-                              ? (isDark ? Colors.white : const Color(0xFF0F172A))
-                              : c.muted.withValues(alpha: 0.35),
-                          fontSize: hasChar ? 21 : 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-              ),
-            ),
-          ),
-
-          // Hidden input field supporting both Western digits and Arabic digits
-          Offstage(
-            offstage: true,
-            child: TextField(
-              focusNode: _focusNode,
-              controller: _codeCtrl,
-              keyboardType: TextInputType.number,
-              onChanged: _onCodeChanged,
-              onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[\d\u0660-\u0669]')),
-                LengthLimitingTextInputFormatter(5),
-              ],
-            ),
-          ),
-
-          // Quick action: Paste or Clear chip
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: _pasteFromClipboard,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.paste_rounded, size: 14, color: c.muted),
+                      Icon(
+                        Icons.touch_app_rounded,
+                        size: 14,
+                        color: c.muted,
+                      ),
                       const SizedBox(width: 5),
                       Text(
-                        isAr ? 'لصق الرمز من الحافظة' : 'Paste from clipboard',
+                        isAr
+                            ? 'اضغط هنا لكتابة الرمز (5 أرقام)'
+                            : 'Tap here to type 5-digit room code',
                         style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
                           color: c.muted,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-              if (text.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () {
-                    _codeCtrl.clear();
-                    _onCodeChanged('');
-                    AppHaptics.selectionClick();
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.clear_rounded, size: 14, color: c.muted),
-                        const SizedBox(width: 4),
-                        Text(
-                          isAr ? 'مسح' : 'Clear',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: c.muted,
+                  const SizedBox(height: 8),
+
+                  // 5 Discrete Digit Slots strictly in Left-to-Right order (NO bullet dots!)
+                  // Overlay transparent TextField directly so touching the slots reliably opens/reopens the keyboard
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IgnorePointer(
+                        child: Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(5, (index) {
+                              final hasChar = index < text.length;
+                              final isCurrent = index == text.length && _focusNode.hasFocus;
+                              final char = hasChar
+                                  ? formatMaglisCode(text[index], isArabic: isAr)
+                                  : '';
+
+                              return Container(
+                                width: 40,
+                                height: 44,
+                                margin: const EdgeInsets.symmetric(horizontal: 3),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? (hasChar ? Colors.white.withValues(alpha: 0.12) : Colors.white.withValues(alpha: 0.05))
+                                      : (hasChar ? Colors.white : Colors.white.withValues(alpha: 0.60)),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: isCurrent
+                                        ? const Color(0xFF10B981)
+                                        : (hasChar
+                                            ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.45 : 0.35)
+                                            : (isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.12))),
+                                    width: isCurrent ? 1.8 : 1.2,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: (isCurrent || hasChar)
+                                          ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.20 : 0.10)
+                                          : Colors.transparent,
+                                      blurRadius: isCurrent ? 6 : 3,
+                                      offset: const Offset(0, 1),
+                                    ),
+                                  ],
+                                ),
+                                alignment: Alignment.center,
+                                child: hasChar
+                                    ? Text(
+                                        char,
+                                        style: const TextStyle(
+                                          fontFamily: 'cairo',
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 22,
+                                          color: Color(0xFF10B981),
+                                        ),
+                                      )
+                                    : (isCurrent
+                                        ? Container(
+                                            width: 2,
+                                            height: 18,
+                                            color: const Color(0xFF10B981),
+                                          )
+                                        : Container(
+                                            width: 12,
+                                            height: 2,
+                                            decoration: BoxDecoration(
+                                              color: isDark ? Colors.white24 : Colors.black26,
+                                              borderRadius: BorderRadius.circular(1),
+                                            ),
+                                          )),
+                              );
+                            }),
+                          ),
+                        ),
+                      ),
+
+                      // Transparent Native Input Overlay
+                      Positioned.fill(
+                        child: Opacity(
+                          opacity: 0.0,
+                          child: TextField(
+                            focusNode: _focusNode,
+                            controller: _codeCtrl,
+                            keyboardType: TextInputType.number,
+                            autofocus: false, // Never open automatically!
+                            showCursor: false,
+                            cursorWidth: 0,
+                            enableInteractiveSelection: false,
+                            onChanged: _onCodeChanged,
+                            onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(RegExp(r'[\d\u0660-\u0669]')),
+                              LengthLimitingTextInputFormatter(5),
+                              TextInputFormatter.withFunction((oldValue, newValue) {
+                                final norm = normalizeArabicDigits(newValue.text);
+                                return newValue.copyWith(
+                                  text: norm,
+                                  selection: TextSelection.collapsed(offset: norm.length),
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Dedicated Action Pill: Smart Paste from clipboard & Clear (Tall 38dp pill buttons)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      InkWell(
+                        borderRadius: BorderRadius.circular(22),
+                        onTap: _pasteFromClipboard,
+                        child: Container(
+                          height: 38,
+                          padding: const EdgeInsets.symmetric(horizontal: 18),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.07)
+                                : Colors.black.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.14)
+                                  : Colors.black.withValues(alpha: 0.10),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.paste_rounded, color: Color(0xFF10B981), size: 17),
+                              const SizedBox(width: 7),
+                              Text(
+                                isAr ? 'لصق الرمز من الحافظة' : 'Paste from Clipboard',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (text.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(22),
+                          onTap: () {
+                            _codeCtrl.clear();
+                            _onCodeChanged('');
+                            AppHaptics.selectionClick();
+                          },
+                          child: Container(
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.07)
+                                  : Colors.black.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(22),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.14)
+                                    : Colors.black.withValues(alpha: 0.10),
+                                width: 1.0,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.clear_rounded, size: 16, color: c.muted),
+                                const SizedBox(width: 5),
+                                Text(
+                                  isAr ? 'مسح' : 'Clear',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: c.muted,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                ),
-              ],
-            ],
+                ],
+              ),
+            ),
           ),
 
-          // Submit Button
+          // Submit Button (matching Make Room button)
           SizedBox(
             height: 46,
             child: FilledButton.icon(
@@ -542,9 +703,9 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 ),
               ),
               onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
-              icon: const Icon(Icons.login_rounded, size: 19),
+              icon: const Icon(Icons.login_rounded, size: 20),
               label: Text(
-                isAr ? 'انضمام للمجلس' : 'Join Maglis',
+                isAr ? 'دخول المجلس الآن' : 'Join Room Now',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),
@@ -554,13 +715,14 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  /// Modern, intuitive Create UI with glowing room code card and one-tap copy
+  /// Modern, intuitive Create UI with strictly LTR room code slots, separate copy button, and human copy
   Widget _buildModernCreateBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     final displayCode = formatMaglisCode(_newCode, isArabic: isAr);
+    final displayDigits = displayCode.split('');
 
     return SizedBox(
-      height: 180,
+      height: 204,
       child: Column(
         key: const ValueKey('create_tab_body'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -568,7 +730,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         children: [
           // Hero Room Code Card
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
               color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.08 : 0.06),
               borderRadius: BorderRadius.circular(14),
@@ -579,16 +741,62 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             child: Column(
               children: [
                 Text(
-                  isAr ? 'رمز مجلسك المخصص للمشاركة' : 'Your 5-Digit Room Code',
+                  isAr ? 'رمز المجلس لمشاركته مع إخوانك' : 'Your 5-Digit Room Code',
                   style: TextStyle(
                     color: c.muted,
                     fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 8),
+
+                // 5 Discrete Digit Slots strictly in Left-to-Right order (Zero BiDi inversion!)
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(displayDigits.length, (index) {
+                      return Container(
+                        width: 40,
+                        height: 44,
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.07)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.45 : 0.35),
+                            width: 1.2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.15 : 0.08),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          displayDigits[index],
+                          style: const TextStyle(
+                            fontFamily: 'cairo',
+                            fontWeight: FontWeight.w900,
+                            fontSize: 22,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // Dedicated Copy Button (Tall 38dp, comfortable pill button)
                 InkWell(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(22),
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: _newCode));
                     AppHaptics.lightImpact();
@@ -600,46 +808,43 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                       customDuration: const Duration(seconds: 2),
                     ));
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  child: Container(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.07)
+                          : Colors.black.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.14)
+                            : Colors.black.withValues(alpha: 0.10),
+                        width: 1.0,
+                      ),
+                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: Text(
-                            displayCode.split('').join('  '),
-                            style: const TextStyle(
-                              fontFamily: 'cairo',
-                              letterSpacing: 2.0,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 25,
-                              color: Color(0xFF10B981),
-                            ),
+                        const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 17),
+                        const SizedBox(width: 7),
+                        Text(
+                          isAr ? 'نسخ رمز المجلس' : 'Copy Room Code',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 18),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  isAr
-                      ? 'شارك هذا الرمز مع من تريد انضمامه للمجلس'
-                      : 'Share this code with whoever you want to join',
-                  style: TextStyle(
-                    color: c.muted,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
           ),
 
-          // Start Room Button
+          // Start Room Button (NO 'create' label!)
           SizedBox(
             height: 46,
             child: FilledButton.icon(
@@ -653,7 +858,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
               onPressed: () => _submitSession(_newCode),
               icon: const Icon(Icons.play_arrow_rounded, size: 21),
               label: Text(
-                isAr ? 'بدء المجلس الآن' : 'Start Room Now',
+                isAr ? 'افتتاح المجلس الآن' : 'Start Room Now',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),

@@ -227,7 +227,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
     final app = AppState.instance;
     final c = app.colors;
     final isAr = app.isArabic;
-    final media = MediaQuery.of(context);
+    final size = MediaQuery.sizeOf(context);
 
     return RepaintBoundary(
       child: Dialog(
@@ -237,7 +237,7 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
         child: Container(
           constraints: BoxConstraints(
             maxWidth: 480,
-            maxHeight: media.size.height * 0.82,
+            maxHeight: size.height * 0.82,
           ),
           decoration: BoxDecoration(
             color: c.surface,

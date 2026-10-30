@@ -284,6 +284,7 @@ class _TrackingScreenState extends State<TrackingScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      enableDrag: false,
       builder: (_) => SurahPickerSheet(
         current: _effectiveSurah,
         controller: widget.controller,
@@ -299,9 +300,6 @@ class _TrackingScreenState extends State<TrackingScreen>
           if (Navigator.of(context).canPop()) {
             Navigator.pop(context);
           }
-
-          // Let the sheet pop animation finish cleanly before page transition
-          await Future.delayed(const Duration(milliseconds: 100));
           if (!mounted) return;
 
           final targetAyah = ayah ?? 1;
@@ -334,7 +332,7 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.of(context).padding.bottom;
+    final bottom = MediaQuery.paddingOf(context).bottom;
     final app = AppState.instance;
 
     return ListenableBuilder(
@@ -373,9 +371,10 @@ class _TrackingScreenState extends State<TrackingScreen>
                       final maglis = MaglisController.instance;
                       final int peerCount = maglis.participantCount;
 
-                      return BottomActionBar(
-                        key: const ValueKey('unified_dock_bar'),
-                        isRecording: widget.isRecording,
+                      return RepaintBoundary(
+                        child: BottomActionBar(
+                          key: const ValueKey('unified_dock_bar'),
+                          isRecording: widget.isRecording,
                         isLoadingEngine: widget.isLoadingEngine,
                         c: c,
                         onMic: () {
@@ -447,8 +446,9 @@ class _TrackingScreenState extends State<TrackingScreen>
                             icon: Icons.exit_to_app_rounded,
                           ));
                         },
-                      );
-                    },
+                      ),
+                    );
+                  },
                   ),
                 ),
 
@@ -507,17 +507,18 @@ class _TrackingScreenState extends State<TrackingScreen>
     final String message = isAr ? banner.messageAr : banner.messageEn;
 
     return AnimatedPositioned(
-      duration: Duration(milliseconds: isVisible ? 600 : 300),
-      curve: isVisible ? Curves.elasticOut : Curves.easeOutCubic,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
       bottom: isVisible ? (bottom + 84) : (bottom + 16),
       left: 16,
       right: 16,
       child: IgnorePointer(
         ignoring: !isVisible,
         child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 260),
+          duration: const Duration(milliseconds: 240),
           opacity: isVisible ? 1.0 : 0.0,
-          child: Center(
+          child: RepaintBoundary(
+            child: Center(
             child: GestureDetector(
               onTap: () {
                 app.dismissBanner();
@@ -583,6 +584,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                   ],
                 ),
               ),
+            ),
             ),
           ),
         ),

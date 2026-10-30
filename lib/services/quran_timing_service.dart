@@ -61,27 +61,20 @@ class AyahTiming {
     required this.words,
   });
 
-  /// Binary search to find the active 0-based word index at [positionMs] in milliseconds.
+  /// Finds the active 0-based word index at [positionMs] in milliseconds.
+  /// Retains the highlight on the current word through silent gaps between words
+  /// so highlighting never flickers, drops out, or glitches.
   int? getWordIndexAtMs(int positionMs) {
     if (words.isEmpty) return null;
-    int low = 0;
-    int high = words.length - 1;
-    while (low <= high) {
-      final mid = (low + high) >> 1;
-      final w = words[mid];
-      if (w.startMs <= positionMs) {
-        if (positionMs < w.endMs) {
-          return w.wordIndex;
-        }
-        low = mid + 1;
-      } else {
-        high = mid - 1;
+    if (positionMs <= words.first.startMs) return words.first.wordIndex;
+    if (positionMs >= words.last.startMs) return words.last.wordIndex;
+
+    for (int i = words.length - 1; i >= 0; i--) {
+      if (words[i].startMs <= positionMs) {
+        return words[i].wordIndex;
       }
     }
-    // If between or slightly before/after words
-    if (positionMs < words.first.startMs) return words.first.wordIndex;
-    if (positionMs >= words.last.endMs) return words.last.wordIndex;
-    return null;
+    return words.first.wordIndex;
   }
 
   /// Backward-compatible lookup by seconds.

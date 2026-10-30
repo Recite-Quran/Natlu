@@ -63,7 +63,7 @@ class ErrorDetailDialog extends StatelessWidget {
     final app = AppState.instance;
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: app,
+        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;
@@ -73,7 +73,7 @@ class ErrorDetailDialog extends StatelessWidget {
             textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
             child: Container(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.82,
+                maxHeight: MediaQuery.sizeOf(context).height * 0.82,
               ),
               decoration: BoxDecoration(
                 color: c.surface,

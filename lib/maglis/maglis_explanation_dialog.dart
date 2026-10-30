@@ -26,7 +26,7 @@ class MaglisExplanationDialog extends StatelessWidget {
 
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: app,
+        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;
@@ -75,7 +75,7 @@ class MaglisExplanationDialog extends StatelessWidget {
 
                     // 2. Dialog Title
                     Text(
-                      isAr ? 'مجلس التلاوة والتسميع' : 'Live Quran Study Circle',
+                      isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Circle',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: c.text,
@@ -114,8 +114,8 @@ class MaglisExplanationDialog extends StatelessWidget {
                       number: '1',
                       title: isAr ? 'الرمز (5 أرقام)' : '5-Digit Room Code',
                       body: isAr
-                          ? '• المعلم: يضغط "إنشاء مجلس" ويشارك الرمز مع الطلاب.\n• الطالب: يضغط "انضمام" ويكتب الرمز للانضمام فوراً.'
-                          : '• Teacher: Taps "Create Room" and shares the code.\n• Student: Taps "Join", types code, and enters instantly.',
+                          ? '• المعلم: يضغط "عقد المجلس" ويشارك الرمز مع الطلاب.\n• الطالب: يضغط "دخول المجلس" ويكتب الرمز للانضمام فوراً.'
+                          : '• Teacher: Taps "Make Room" and shares the code.\n• Student: Taps "Join", types code, and enters instantly.',
                       c: c,
                     ),
                     const SizedBox(height: 10),

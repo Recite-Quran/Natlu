@@ -68,8 +68,8 @@ class BottomActionBar extends StatelessWidget {
 
           final double recBtnSize = isNarrow ? 56.0 : 62.0;
           final double btnSize = isNarrow ? 34.0 : 38.0;
-          final double settingsBtnSize = isNarrow ? 26.0 : 30.0;
-          final double settingsIconSize = isNarrow ? 14.0 : 16.0;
+          final double settingsBtnSize = isNarrow ? 30.0 : 34.0;
+          final double settingsIconSize = isNarrow ? 15.0 : 17.0;
           final double iconSize = isNarrow ? 17.0 : 19.0;
           final double gap = isNarrow ? 4.0 : 6.0;
           const double padH = 8.0;
@@ -78,16 +78,22 @@ class BottomActionBar extends StatelessWidget {
           // Full & Collapsed widths
           final double fullDockWidth = math.min(maxW - 24.0, 520.0);
           final double collapsedDockWidth = (padH * 2) + recBtnSize + (gap + btnSize) * 2;
-          final double leftSpaceForPage = isNarrow ? 48.0 : 54.0;
-          // In Maglis: Stretch dock across the bottom leaving only a small space on the left for the page number
-          final double maglisDockWidth = math.min(maxW - 12.0 - leftSpaceForPage, 520.0);
+          // In Maglis: Stretch dock across the bottom all the way to the page number label (safe clearance at left: 44.0)
+          final double maglisDockWidth = math.max(280.0, maxW - 12.0 - 44.0);
           final double targetDockWidth = isInMaglis
               ? maglisDockWidth
               : (isRecording ? collapsedDockWidth : fullDockWidth);
 
           // Stationary right margin: locks right buttons to exact screen coordinates!
-          final double rightMargin = math.max(12.0, (maxW - fullDockWidth) / 2.0);
+          // When in Maglis: stays fixed at 12.0 on the right so it stretches completely to the page label on the left!
+          final double rightMargin = isInMaglis
+              ? 12.0
+              : math.max(12.0, (maxW - fullDockWidth) / 2.0);
           final double fullContentWidth = targetDockWidth - (padH * 2);
+
+          // In Maglis mode: use optimized button sizing so the session card has generous width
+          final double activeBtnSize = isInMaglis ? (isNarrow ? 32.0 : 36.0) : btnSize;
+          final double activeGap = isInMaglis ? (isNarrow ? 3.5 : 5.0) : gap;
 
           // Clean, consistent dock styling (Zero red tint/shadow on the bar itself)
           final Color dockBg = isDark ? c.surfaceHigh : c.surface;
@@ -111,7 +117,7 @@ class BottomActionBar extends StatelessWidget {
                       bottom: 3.0,
                       right: 0,
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
+                        duration: const Duration(milliseconds: 260),
                         curve: Curves.easeInOutCubic,
                         width: targetDockWidth,
                         height: dockHeight,
@@ -140,7 +146,7 @@ class BottomActionBar extends StatelessWidget {
                                 children: [
                                   // Transparent horizontal slot reserved for the Hero Record Orb
                                   SizedBox(width: recBtnSize),
-                                  SizedBox(width: gap),
+                                  SizedBox(width: activeGap),
 
                                   // Dynamic actions: Collapsed [Hide, Tajweed, (if Maglis: Surah, Room Code, Close Call)]
                                   // vs [Community, Surah Selector, Settings] when idle
@@ -171,11 +177,11 @@ class BottomActionBar extends StatelessWidget {
                                                       : 'Hide Verses for Memorization',
                                                   isActive: isBlur,
                                                   isDark: isDark,
-                                                  size: btnSize,
+                                                  size: activeBtnSize,
                                                   iconSize: iconSize,
                                                   onTap: onToggleBlur,
                                                 ),
-                                                SizedBox(width: gap),
+                                                SizedBox(width: activeGap),
                                                 _buildButton(
                                                   icon: isTajweed
                                                       ? Icons.record_voice_over_rounded
@@ -183,37 +189,37 @@ class BottomActionBar extends StatelessWidget {
                                                   tooltip: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
                                                   isActive: isTajweed,
                                                   isDark: isDark,
-                                                  size: btnSize,
+                                                  size: activeBtnSize,
                                                   iconSize: iconSize,
                                                   onTap: onToggleTajweed,
                                                 ),
                                                 if (isInMaglis) ...[
-                                                  SizedBox(width: gap),
+                                                  SizedBox(width: activeGap),
                                                   _buildButton(
                                                     icon: Icons.menu_book_rounded,
                                                     tooltip: isAr ? 'اختيار السورة' : 'Select Surah',
                                                     isActive: false,
                                                     isDark: isDark,
-                                                    size: btnSize,
+                                                    size: activeBtnSize,
                                                     iconSize: iconSize,
                                                     onTap: onSurahTap,
                                                   ),
-                                                  SizedBox(width: gap),
+                                                  SizedBox(width: activeGap),
                                                   Expanded(
                                                     child: _buildSessionInfoCard(
-                                                      height: btnSize,
+                                                      height: dockHeight - 16.0,
                                                       isDark: isDark,
                                                       isAr: isAr,
                                                       isNarrow: isNarrow,
                                                     ),
                                                   ),
-                                                  SizedBox(width: gap),
+                                                  SizedBox(width: activeGap),
                                                   _buildButton(
                                                     icon: Icons.call_end_rounded,
                                                     tooltip: isAr ? 'إنهاء المكالمة والمغادرة' : 'Leave Maglis Call',
                                                     isActive: true,
                                                     isDark: isDark,
-                                                    size: btnSize,
+                                                    size: activeBtnSize,
                                                     iconSize: 18.0,
                                                     customActiveColor: const Color(0xFFF43F5E),
                                                     onTap: onMaglisExitTap ?? () {},
@@ -290,112 +296,90 @@ class BottomActionBar extends StatelessWidget {
     final count = maglisPeerCount > 0 ? maglisPeerCount : 1;
     final countDisplay = formatMaglisCode(count.toString(), isArabic: isAr);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(height * 0.34),
-      onTap: () {
-        if (maglisRoomCode != null && maglisRoomCode!.isNotEmpty) {
-          Clipboard.setData(ClipboardData(text: maglisRoomCode!));
-          AppHaptics.lightImpact();
-          AppState.instance.showBanner(AppBannerInfo(
-            id: 'maglis_code_copied',
-            messageAr: 'تم نسخ رمز المجلس: \u202A${formatMaglisCode(maglisRoomCode!, isArabic: true)}\u202C',
-            messageEn: 'Maglis code copied: $maglisRoomCode',
-            icon: Icons.copy_rounded,
-            customDuration: const Duration(seconds: 2),
-          ));
-        }
-      },
-      child: Container(
-        height: height,
-        padding: EdgeInsets.symmetric(horizontal: isNarrow ? 6.0 : 8.0),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.04),
-          borderRadius: BorderRadius.circular(height * 0.34),
-          border: Border.all(
+    return Tooltip(
+      message: isAr ? 'رمز المجلس (اضغط لنسخ الرمز)' : 'Room Code (tap to copy)',
+      waitDuration: const Duration(milliseconds: 350),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14.0),
+        onTap: () {
+          if (maglisRoomCode != null && maglisRoomCode!.isNotEmpty) {
+            Clipboard.setData(ClipboardData(text: maglisRoomCode!));
+            AppHaptics.lightImpact();
+            AppState.instance.showBanner(AppBannerInfo(
+              id: 'maglis_code_copied',
+              messageAr: 'تم نسخ رمز المجلس: \u202A${formatMaglisCode(maglisRoomCode!, isArabic: true)}\u202C',
+              messageEn: 'Maglis code copied: $maglisRoomCode',
+              icon: Icons.copy_rounded,
+              customDuration: const Duration(seconds: 2),
+            ));
+          }
+        },
+        child: Container(
+          height: height,
+          padding: EdgeInsets.symmetric(horizontal: isNarrow ? 8.0 : 12.0),
+          decoration: BoxDecoration(
             color: isDark
-                ? Colors.white.withValues(alpha: 0.12)
-                : Colors.black.withValues(alpha: 0.08),
-            width: 0.9,
+                ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                : const Color(0xFF10B981).withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14.0),
+            border: Border.all(
+              color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.35 : 0.25),
+              width: 1.1,
+            ),
           ),
-        ),
-        alignment: Alignment.center,
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Live Audio Pulse Dot
-              Container(
-                width: 6.0,
-                height: 6.0,
-                decoration: BoxDecoration(
-                  color: isRemoteReciting
-                      ? const Color(0xFF38BDF8)
-                      : const Color(0xFF10B981),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: (isRemoteReciting
-                              ? const Color(0xFF38BDF8)
-                              : const Color(0xFF10B981))
-                          .withValues(alpha: 0.5),
-                      blurRadius: 4,
+          alignment: Alignment.center,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Room Code (Strictly LTR so digits never invert, prominent font)
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    displayCode,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontFamily: 'cairo',
+                      color: const Color(0xFF10B981),
+                      fontWeight: FontWeight.w900,
+                      fontSize: isNarrow ? 13.5 : 15.0,
+                      letterSpacing: 1.2,
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 5.0),
-
-              // Room Code (Strictly LTR so digits never invert)
-              Directionality(
-                textDirection: TextDirection.ltr,
-                child: Text(
-                  displayCode,
-                  maxLines: 1,
-                  style: const TextStyle(
-                    fontFamily: 'cairo',
-                    color: Color(0xFF10B981),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12.0,
-                    letterSpacing: 0.8,
                   ),
                 ),
-              ),
 
-              // Subtle vertical separator
-              Container(
-                width: 1.0,
-                height: height * 0.42,
-                margin: EdgeInsets.symmetric(horizontal: isNarrow ? 5.0 : 6.5),
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.15)
-                    : Colors.black.withValues(alpha: 0.12),
-              ),
+                // Subtle vertical separator
+                Container(
+                  width: 1.0,
+                  height: 16.0,
+                  margin: EdgeInsets.symmetric(horizontal: isNarrow ? 6.0 : 8.0),
+                  color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.35 : 0.25),
+                ),
 
-              // Users count (icon + count)
-              Icon(
-                Icons.groups_rounded,
-                size: isNarrow ? 13.0 : 14.5,
-                color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
-              ),
-              const SizedBox(width: 3.5),
-              Directionality(
-                textDirection: TextDirection.ltr,
-                child: Text(
-                  countDisplay,
-                  maxLines: 1,
-                  style: TextStyle(
-                    fontFamily: 'cairo',
-                    color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 11.5,
+                // Users count (group icon + count)
+                Icon(
+                  Icons.groups_rounded,
+                  size: isNarrow ? 15.0 : 16.5,
+                  color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                ),
+                const SizedBox(width: 4.0),
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(
+                    countDisplay,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontFamily: 'cairo',
+                      color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B),
+                      fontWeight: FontWeight.w800,
+                      fontSize: isNarrow ? 12.5 : 13.5,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -413,7 +397,7 @@ class BottomActionBar extends StatelessWidget {
   }) {
     final btn = _buildButton(
       icon: Icons.groups_rounded,
-      tooltip: isAr ? 'مجلس التلاوة التشاركي' : 'Maglis P2P',
+      tooltip: isAr ? 'مجلس القرآن المجيد' : 'The Glorious Quran Circle',
       isActive: false,
       isDark: isDark,
       size: size,
@@ -618,54 +602,53 @@ class BottomActionBar extends StatelessWidget {
     );
   }
 
-  /// Modern Surah Selector Capsule
+  /// Ultra-Responsive, Zero-Latency Surah Selector Button Presser
   Widget _buildSurahSelector(bool isDark, bool isAr, bool isNarrow, double height) {
-    return Tooltip(
-      message: isAr ? 'اختيار السورة' : 'Select Surah',
-      waitDuration: const Duration(milliseconds: 350),
-      child: _TapScale(
-        onTap: () {
-          AppHaptics.lightImpact();
-          onSurahTap();
-        },
-        child: Container(
-          height: height,
-          padding: EdgeInsets.symmetric(horizontal: isNarrow ? 6.0 : 9.0),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.black.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(13.0),
-            border: Border.all(
-              color: isDark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.08),
-              width: 0.9,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.menu_book_rounded,
-                color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
-                size: isNarrow ? 17.0 : 19.0,
+    return _TapScale(
+      onTapDown: () {
+        AppHaptics.lightImpact();
+      },
+      onTap: onSurahTap,
+      child: Container(
+            height: height,
+            padding: EdgeInsets.symmetric(horizontal: isNarrow ? 6.0 : 9.0),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(13.0),
+              border: Border.all(
+                color: isDark ? Colors.white.withValues(alpha: 0.12) : Colors.black.withValues(alpha: 0.08),
+                width: 0.9,
               ),
-              SizedBox(width: isNarrow ? 4.0 : 6.0),
-              Expanded(
-                child: Text(
-                  surahName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A),
-                    fontSize: isNarrow ? 12.0 : (isAr ? 13.5 : 12.5),
-                    fontWeight: FontWeight.bold,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.menu_book_rounded,
+                  color: isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155),
+                  size: isNarrow ? 17.0 : 19.0,
+                ),
+                SizedBox(width: isNarrow ? 4.0 : 6.0),
+                Expanded(
+                  child: Text(
+                    surahName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isDark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A),
+                      fontSize: isNarrow ? 12.0 : (isAr ? 13.5 : 12.5),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
-              ),
-              Icon(Icons.keyboard_arrow_down_rounded, color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B), size: isNarrow ? 15.0 : 17.0),
-            ],
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                  size: isNarrow ? 15.0 : 17.0,
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
-    );
+        );
   }
 }
 
@@ -762,12 +745,16 @@ class _SmoothWaveformPainter extends CustomPainter {
   }
 }
 
-/// Ultra-lightweight tactile scale gesture wrapper
+/// Ultra-lightweight tactile scale gesture wrapper with professional touch-target expansion
 class _TapScale extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
   final VoidCallback? onTapDown;
-  const _TapScale({required this.child, required this.onTap, this.onTapDown});
+  const _TapScale({
+    required this.child,
+    required this.onTap,
+    this.onTapDown,
+  });
 
   @override
   State<_TapScale> createState() => _TapScaleState();
@@ -787,11 +774,21 @@ class _TapScaleState extends State<_TapScale> {
       onTapCancel: () => setState(() => _down = false),
       onTap: widget.onTap,
       behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _down ? 0.93 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
-        child: widget.child,
+      child: Container(
+        constraints: const BoxConstraints(
+          minWidth: 40.0,
+          minHeight: 48.0,
+        ),
+        alignment: Alignment.center,
+        color: Colors.transparent,
+        child: RepaintBoundary(
+          child: AnimatedScale(
+            scale: _down ? 0.93 : 1.0,
+            duration: const Duration(milliseconds: 100),
+            curve: _down ? Curves.easeOutCubic : Curves.easeOutBack,
+            child: widget.child,
+          ),
+        ),
       ),
     );
   }
