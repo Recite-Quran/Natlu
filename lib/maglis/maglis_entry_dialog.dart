@@ -4,9 +4,10 @@ import 'package:flutter/services.dart';
 import '../services/app_haptics.dart';
 import '../state/app_state.dart';
 import 'maglis_controller.dart';
+import 'maglis_explanation_dialog.dart';
 
-/// Ultra-lightweight, high-performance modal for creating or joining a Maglis session.
-/// Operates with zero UI-thread blocking: dismisses immediately and connects asynchronously.
+/// Ultra-modern, tactile modal for creating or joining a Maglis session.
+/// Minimal labels, crystal-clear actions, and zero UI-thread blocking.
 class MaglisEntryDialog extends StatefulWidget {
   final int initialTab;
   const MaglisEntryDialog({super.key, this.initialTab = 0});
@@ -20,7 +21,7 @@ class MaglisEntryDialog extends StatefulWidget {
           backgroundColor: Colors.transparent,
           insetPadding: const EdgeInsets.all(24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 380),
+            constraints: const BoxConstraints(maxWidth: 400),
             child: MaglisEntryDialog(initialTab: initialTab),
           ),
         ),
@@ -42,6 +43,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   late int _selectedTab;
   late final String _newCode;
   final TextEditingController _codeCtrl = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   bool _canJoin = false;
 
   @override
@@ -54,6 +56,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   @override
   void dispose() {
     _codeCtrl.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -61,6 +64,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     final isValid = text.trim().length == 5;
     if (_canJoin != isValid) {
       setState(() => _canJoin = isValid);
+    } else {
+      setState(() {});
     }
   }
 
@@ -69,12 +74,10 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     if (trimmed.length != 5) return;
 
     AppHaptics.lightImpact();
-    // 1. Immediately dismiss modal so animations are fluid at 60/120fps with zero frame drop
     Navigator.of(context).pop();
 
     final app = AppState.instance;
 
-    // 2. Immediate feedback banner
     app.showBanner(AppBannerInfo(
       id: 'maglis_connecting',
       messageAr: 'جاري الاتصال بالمجلس $trimmed...',
@@ -83,7 +86,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       customDuration: const Duration(seconds: 2),
     ));
 
-    // 3. Connect asynchronously in background without blocking UI
     MaglisController.instance
         .startSession(
       code: trimmed,
@@ -96,8 +98,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       if (success) {
         app.showBanner(AppBannerInfo(
           id: 'maglis_joined',
-          messageAr: 'تم الانضمام إلى المجلس $trimmed • اضغط على الميكروفون للتلاوة',
-          messageEn: 'Joined Maglis $trimmed • Tap mic to recite',
+          messageAr: 'تم الاتصال بالمجلس $trimmed • المحادثة مفتوحة للجميع • اضغط الميكروفون للتلاوة',
+          messageEn: 'Connected to Maglis $trimmed • Voice call active for all • Tap mic to recite',
           icon: Icons.groups_rounded,
           customDuration: const Duration(seconds: 4),
         ));
@@ -110,6 +112,14 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           customDuration: const Duration(seconds: 4),
         ));
       }
+    }).catchError((e) {
+      app.showBanner(AppBannerInfo(
+        id: 'maglis_error',
+        messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
+        messageEn: 'Could not connect. Check mic permissions and network.',
+        icon: Icons.error_outline_rounded,
+        customDuration: const Duration(seconds: 4),
+      ));
     });
   }
 
@@ -136,7 +146,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
 
     final Color surfaceColor = isDark ? const Color(0xFF131726) : Colors.white;
     final Color borderColor = isDark
-        ? Colors.white.withValues(alpha: 0.10)
+        ? Colors.white.withValues(alpha: 0.12)
         : Colors.black.withValues(alpha: 0.08);
 
     return RepaintBoundary(
@@ -150,11 +160,11 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             decoration: BoxDecoration(
               color: surfaceColor,
               borderRadius: isWide
-                  ? BorderRadius.circular(20)
-                  : const BorderRadius.vertical(top: Radius.circular(20)),
+                  ? BorderRadius.circular(24)
+                  : const BorderRadius.vertical(top: Radius.circular(24)),
               border: Border.all(color: borderColor),
             ),
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -162,9 +172,9 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 if (!isWide)
                   Center(
                     child: Container(
-                      width: 32,
+                      width: 36,
                       height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
+                      margin: const EdgeInsets.only(bottom: 14),
                       decoration: BoxDecoration(
                         color: isDark ? Colors.white24 : Colors.black12,
                         borderRadius: BorderRadius.circular(2),
@@ -172,18 +182,18 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     ),
                   ),
 
-                // Header
+                // 1. Clean Header
                 Row(
                   children: [
                     Container(
-                      width: 34,
-                      height: 34,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
                         color: const Color(0xFF10B981).withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(9),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Icon(Icons.groups_rounded,
-                          color: Color(0xFF10B981), size: 19),
+                          color: Color(0xFF10B981), size: 20),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -191,21 +201,34 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            isAr ? 'مجلس التلاوة التشاركي' : 'Live Maglis P2P',
+                            isAr ? 'مجلس التلاوة' : 'Maglis Circle',
                             style: TextStyle(
                               color: c.text,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15.5,
                             ),
                           ),
                           Text(
                             isAr
-                                ? 'صوت مفتوح للجميع وتزامن شاشة للقارئ فقط'
-                                : 'Open mic for all, mushaf sync for active reciter',
-                            style: TextStyle(color: c.muted, fontSize: 11),
+                                ? 'حلقة تلاوة وتسميع مباشرة'
+                                : 'Live Quran study circle',
+                            style: TextStyle(
+                              color: c.muted,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
+                    ),
+                    IconButton(
+                      tooltip: isAr ? 'كيف يعمل المجلس؟' : 'How it works',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        AppHaptics.lightImpact();
+                        MaglisExplanationDialog.show(context);
+                      },
+                      icon: Icon(Icons.help_outline_rounded, color: c.muted, size: 20),
                     ),
                     IconButton(
                       visualDensity: VisualDensity.compact,
@@ -214,23 +237,23 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
-                // Segmented Tab Picker
+                // 2. Modern 44dp Segmented Tab Picker
                 Container(
-                  height: 36,
-                  padding: const EdgeInsets.all(2),
+                  height: 44,
+                  padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
                     color: isDark
                         ? Colors.white.withValues(alpha: 0.05)
                         : Colors.black.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(13),
                   ),
                   child: Row(
                     children: [
                       Expanded(
                         child: _tabButton(
-                          title: isAr ? 'انضمام' : 'Join',
+                          title: isAr ? 'انضمام لمجلس' : 'Join Circle',
                           icon: Icons.login_rounded,
                           isSelected: _selectedTab == 0,
                           isDark: isDark,
@@ -261,13 +284,15 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 18),
 
-                // Tab Body
-                if (_selectedTab == 0)
-                  _buildJoinBody(isDark, isAr, c, borderColor)
-                else
-                  _buildCreateBody(isDark, isAr, c, borderColor),
+                // 3. Tab Body
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: _selectedTab == 0
+                      ? _buildModernJoinBody(isDark, isAr, c, borderColor)
+                      : _buildModernCreateBody(isDark, isAr, c, borderColor),
+                ),
               ],
             ),
           ),
@@ -287,12 +312,22 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
           color: isSelected
               ? (isDark ? const Color(0xFF22293F) : Colors.white)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: isDark ? 0.30 : 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ]
+              : null,
         ),
         alignment: Alignment.center,
         child: Row(
@@ -300,15 +335,15 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           children: [
             Icon(
               icon,
-              size: 15,
+              size: 16,
               color: isSelected ? const Color(0xFF10B981) : c.muted,
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: 6),
             Text(
               title,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 color: isSelected ? c.text : c.muted,
               ),
             ),
@@ -318,145 +353,217 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     );
   }
 
-  Widget _buildJoinBody(
+  /// Modern, intuitive Join UI with 5 digit slots and instant paste
+  Widget _buildModernJoinBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
+    final text = _codeCtrl.text.trim();
+
     return Column(
+      key: const ValueKey('join_tab_body'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        TextField(
-          controller: _codeCtrl,
-          keyboardType: TextInputType.number,
-          autofocus: false,
-          onChanged: _onCodeChanged,
-          onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(5),
-          ],
-          style: TextStyle(
-            color: c.text,
-            letterSpacing: 8.0,
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-          ),
-          textAlign: TextAlign.center,
-          decoration: InputDecoration(
-            counterText: '',
-            hintText: '• • • • •',
-            hintStyle: TextStyle(
-              color: c.muted.withValues(alpha: 0.35),
-              letterSpacing: 8.0,
-              fontSize: 20,
+        // 5 Interactive Digit Slots
+        GestureDetector(
+          onTap: () => _focusNode.requestFocus(),
+          behavior: HitTestBehavior.opaque,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : Colors.black.withValues(alpha: 0.02),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: _canJoin
+                    ? const Color(0xFF10B981).withValues(alpha: 0.40)
+                    : borderColor,
+              ),
             ),
-            filled: true,
-            fillColor: isDark
-                ? Colors.white.withValues(alpha: 0.04)
-                : Colors.black.withValues(alpha: 0.03),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            prefixIcon: IconButton(
-              tooltip: isAr ? 'لصق' : 'Paste',
-              icon: const Icon(Icons.paste_rounded, size: 18),
-              color: c.muted,
-              onPressed: _pasteFromClipboard,
-            ),
-            suffixIcon: _codeCtrl.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear_rounded, size: 16),
-                    color: c.muted,
-                    onPressed: () {
-                      _codeCtrl.clear();
-                      _onCodeChanged('');
-                      AppHaptics.selectionClick();
-                    },
-                  )
-                : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: borderColor),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: borderColor),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(5, (index) {
+                final hasChar = index < text.length;
+                final isCurrent = index == text.length;
+
+                return Container(
+                  width: 44,
+                  height: 50,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? (hasChar ? Colors.white12 : Colors.white.withValues(alpha: 0.04))
+                        : (hasChar ? const Color(0xFFF1F5F9) : Colors.black.withValues(alpha: 0.03)),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isCurrent
+                          ? const Color(0xFF10B981)
+                          : (hasChar
+                              ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                              : borderColor),
+                      width: isCurrent ? 1.8 : 1.0,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    hasChar ? text[index] : '•',
+                    style: TextStyle(
+                      color: hasChar
+                          ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                          : c.muted.withValues(alpha: 0.35),
+                      fontSize: hasChar ? 22 : 18,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                );
+              }),
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF10B981),
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: isDark
-                ? Colors.white.withValues(alpha: 0.07)
-                : Colors.black.withValues(alpha: 0.05),
-            disabledForegroundColor: c.muted,
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
+
+        // Hidden input field for native keyboard input
+        Offstage(
+          offstage: true,
+          child: TextField(
+            focusNode: _focusNode,
+            controller: _codeCtrl,
+            keyboardType: TextInputType.number,
+            onChanged: _onCodeChanged,
+            onSubmitted: _canJoin ? (v) => _submitSession(v) : null,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(5),
+            ],
           ),
-          onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
-          icon: const Icon(Icons.login_rounded, size: 18),
-          label: Text(
-            isAr ? 'انضمام إلى المجلس' : 'Join Maglis',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+        ),
+        const SizedBox(height: 10),
+
+        // Quick action: Paste or Clear chip
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: _pasteFromClipboard,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.paste_rounded, size: 14, color: c.muted),
+                    const SizedBox(width: 5),
+                    Text(
+                      isAr ? 'لصق الرمز من الحافظة' : 'Paste from clipboard',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: c.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (text.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  _codeCtrl.clear();
+                  _onCodeChanged('');
+                  AppHaptics.selectionClick();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.clear_rounded, size: 14, color: c.muted),
+                      const SizedBox(width: 4),
+                      Text(
+                        isAr ? 'مسح' : 'Clear',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: c.muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Submit Button
+        SizedBox(
+          height: 46,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06),
+              disabledForegroundColor: c.muted,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: _canJoin ? () => _submitSession(_codeCtrl.text) : null,
+            icon: const Icon(Icons.login_rounded, size: 19),
+            label: Text(
+              isAr ? 'انضمام للمجلس' : 'Join Maglis',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildCreateBody(
+  /// Modern, intuitive Create UI with glowing room code card and one-tap copy
+  Widget _buildModernCreateBody(
       bool isDark, bool isAr, dynamic c, Color borderColor) {
     return Column(
+      key: const ValueKey('create_tab_body'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Hero Room Code Card
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.04)
-                : Colors.black.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor),
+            color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.08 : 0.06),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFF10B981).withValues(alpha: 0.25),
+            ),
           ),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isAr ? 'رمز المجلس الجديد' : 'New Maglis Code',
-                      style: TextStyle(
-                        color: c.muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _newCode,
-                      style: const TextStyle(
-                        letterSpacing: 4.0,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 21,
-                        color: Color(0xFF10B981),
-                      ),
-                    ),
-                  ],
+              Text(
+                isAr ? 'رمز مجلسك المخصص للمشاركة' : 'Your 5-Digit Room Code',
+                style: TextStyle(
+                  color: c.muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              IconButton.filledTonal(
-                tooltip: isAr ? 'نسخ الرمز' : 'Copy Code',
-                visualDensity: VisualDensity.compact,
-                onPressed: () {
+              const SizedBox(height: 6),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
                   Clipboard.setData(ClipboardData(text: _newCode));
                   AppHaptics.lightImpact();
                   AppState.instance.showBanner(AppBannerInfo(
@@ -467,26 +574,59 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     customDuration: const Duration(seconds: 2),
                   ));
                 },
-                icon: const Icon(Icons.copy_rounded, size: 17),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _newCode.split('').join('  '),
+                        style: const TextStyle(
+                          letterSpacing: 2.0,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 26,
+                          color: Color(0xFF10B981),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.copy_rounded, color: Color(0xFF10B981), size: 18),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                isAr
+                    ? 'شارك هذا الرمز مع من تريد انضمامه للمجلس'
+                    : 'Share this code with whoever you want to join',
+                style: TextStyle(
+                  color: c.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF10B981),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
+        const SizedBox(height: 16),
+
+        // Start Room Button
+        SizedBox(
+          height: 46,
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-          ),
-          onPressed: () => _submitSession(_newCode),
-          icon: const Icon(Icons.play_arrow_rounded, size: 19),
-          label: Text(
-            isAr ? 'بدء هذا المجلس' : 'Start This Maglis',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            onPressed: () => _submitSession(_newCode),
+            icon: const Icon(Icons.play_arrow_rounded, size: 21),
+            label: Text(
+              isAr ? 'بدء المجلس الآن' : 'Start Room Now',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
           ),
         ),
       ],

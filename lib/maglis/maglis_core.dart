@@ -315,10 +315,9 @@ class MaglisPlatform {
       if (Platform.isAndroid || Platform.isIOS) {
         final mic = await Permission.microphone.request();
         return mic.isGranted;
-      } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
-        final devices = await navigator.mediaDevices.enumerateDevices();
-        return devices.any((d) => d.kind == 'audioinput');
       }
+      // On Desktop (Windows, macOS, Linux), permissions are handled by the OS settings
+      return true;
     } catch (_) {}
     return true;
   }
@@ -332,6 +331,7 @@ class MaglisPlatform {
       // 1. Initialize WebRTC audio pipeline cleanly without WARP race condition
       try {
         await WebRTC.initialize(options: {
+          'zeroPlayoutDelay': true, // Pins playout delay to 0 ms! Plays audio immediately as decoded instead of holding in NetEQ jitter buffer
           'audioSampleRate': 48000,
           'audioOutputSampleRate': 48000,
           'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation

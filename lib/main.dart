@@ -36,6 +36,7 @@ import 'ui/widgets/dialogs/permission_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
+import 'maglis/maglis_core.dart';
 import 'services/app_audio_processor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -373,7 +374,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   Future<void> _checkAndShowWhatsNew() async {
     final prefs = await SharedPreferences.getInstance();
-    final hasSeen = prefs.getBool('has_seen_mushaf_whats_new') ?? false;
+    final hasSeen = prefs.getBool('has_seen_v1_2_maglis_whats_new') ?? false;
     if (!hasSeen && mounted) {
       await WhatsNewDialog.show(context);
     }
@@ -473,6 +474,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
             surah: _ctrl?.targetSurah ?? AppState.instance.lastSurah,
             ayah: _ctrl?.activeAyah.value ?? AppState.instance.lastAyah,
           ));
+          MaglisPlatform.setSpeaker(true);
         }
         if (!AppState.instance.isAudioPlaying.value) {
           try { await WakelockPlus.disable(); } catch (_) {}

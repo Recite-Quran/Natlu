@@ -130,6 +130,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ── Maglis Community Tap Tracking ──────────────────────────────────────────
+
+  int maglisCommunityTapCount = 0;
+  bool get showMaglisNewBadge => maglisCommunityTapCount < 5;
+
+  Future<void> recordMaglisTap() async {
+    if (maglisCommunityTapCount < 5) {
+      maglisCommunityTapCount++;
+      notifyListeners();
+      final prefs = await _getPrefs();
+      await prefs.setInt('maglis_community_tap_count', maglisCommunityTapCount);
+    }
+  }
+
   // ── Theme ──────────────────────────────────────────────────────────────────
 
   AppTheme _theme = AppTheme.white;
@@ -627,6 +641,7 @@ class AppState extends ChangeNotifier {
       }
 
       mushafAudioClickCount = prefs.getInt('mushaf_audio_click_count') ?? 0;
+      maglisCommunityTapCount = prefs.getInt('maglis_community_tap_count') ?? 0;
 
       final seenBanners = prefs.getStringList('seen_banner_ids');
       if (seenBanners != null) {

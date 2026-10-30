@@ -129,102 +129,107 @@ class MaglisController extends ChangeNotifier {
     int surah = 1,
     int ayah = 1,
   }) async {
-    final granted = await MaglisPlatform.requestPermissions();
-    if (!granted) return false;
+    try {
+      final granted = await MaglisPlatform.requestPermissions();
+      if (!granted) return false;
 
-    await leaveSession();
+      await leaveSession();
 
-    _roomCode = (code != null && code.trim().isNotEmpty)
-        ? code.trim()
-        : (10000 + Random.secure().nextInt(90000)).toString();
+      _roomCode = (code != null && code.trim().isNotEmpty)
+          ? code.trim()
+          : (10000 + Random.secure().nextInt(90000)).toString();
 
-    _remotePage = page;
-    _remoteSurah = surah;
-    _remoteAyah = ayah;
-    _remoteWord = null;
-    _remoteGreenWords = const [];
-    _remoteYellowWords = const [];
-    _remoteRedWords = const [];
-    _activeReciterId = null;
-    _natFailedPeer = null;
+      _remotePage = page;
+      _remoteSurah = surah;
+      _remoteAyah = ayah;
+      _remoteWord = null;
+      _remoteGreenWords = const [];
+      _remoteYellowWords = const [];
+      _remoteRedWords = const [];
+      _activeReciterId = null;
+      _natFailedPeer = null;
 
-    _net = MaglisNetworkEngine(
-      roomCode: _roomCode,
-      localPeerId: localPeerId,
-      isHost: isHost,
-      onBuildSnapshot: _buildSnapshot,
-    );
+      _net = MaglisNetworkEngine(
+        roomCode: _roomCode,
+        localPeerId: localPeerId,
+        isHost: isHost,
+        onBuildSnapshot: _buildSnapshot,
+      );
 
-    _pktSub = _net!.onPacket.listen(_handleIncomingPacket);
-    _stateSub = _net!.onPeerStates.listen((map) {
-      bool peersChanged = false;
-      final currentConnected = map.entries
-          .where((e) =>
-              e.value == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-              e.value == RTCIceConnectionState.RTCIceConnectionStateCompleted)
-          .map((e) => e.key)
-          .toSet();
+      _pktSub = _net!.onPacket.listen(_handleIncomingPacket);
+      _stateSub = _net!.onPeerStates.listen((map) {
+        bool peersChanged = false;
+        final currentConnected = map.entries
+            .where((e) =>
+                e.value == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+                e.value == RTCIceConnectionState.RTCIceConnectionStateCompleted)
+            .map((e) => e.key)
+            .toSet();
 
-      for (final peerId in currentConnected) {
-        _peerDisconnectTimers.remove(peerId)?.cancel();
-        if (!_connectedPeers.contains(peerId)) {
-          _onPeerJoined(peerId);
-          peersChanged = true;
-        }
-      }
-
-      for (final peerId in _connectedPeers.toList()) {
-        final state = map[peerId];
-        final bool isExplicitlyGone = !map.containsKey(peerId) ||
-            state == RTCIceConnectionState.RTCIceConnectionStateClosed;
-        final bool isUnstable =
-            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-            state == RTCIceConnectionState.RTCIceConnectionStateFailed;
-
-        if (isExplicitlyGone) {
+        for (final peerId in currentConnected) {
           _peerDisconnectTimers.remove(peerId)?.cancel();
-          _onPeerLeft(peerId);
-          peersChanged = true;
-        } else if (isUnstable) {
-          if (!_peerDisconnectTimers.containsKey(peerId)) {
-            // Give a 5-second grace period for ICE to recover or renegotiate
-            // before considering the peer departed. Eliminates banner/state flapping!
-            _peerDisconnectTimers[peerId] =
-                Timer(const Duration(seconds: 5), () {
-              _peerDisconnectTimers.remove(peerId);
-              if (_connectedPeers.contains(peerId)) {
-                _onPeerLeft(peerId);
-                _notifySessionChanged();
-              }
-            });
+          if (!_connectedPeers.contains(peerId)) {
+            _onPeerJoined(peerId);
+            peersChanged = true;
           }
         }
-      }
 
-      _peers = map;
-      if (peersChanged) {
-        _notifySessionChanged();
-      }
-    });
-    _natSub = _net!.onNatFailure.listen((peerId) {
-      if (_natFailedPeer != peerId) {
-        _natFailedPeer = peerId;
-        _notifySessionChanged();
-      }
-    });
-    _participantSub = _net!.onParticipantCount.listen((count) {
-      if (_participantCount != count) {
-        _participantCount = count;
-        _notifySessionChanged();
-      }
-    });
-    _participantCount = _net!.participantCount;
+        for (final peerId in _connectedPeers.toList()) {
+          final state = map[peerId];
+          final bool isExplicitlyGone = !map.containsKey(peerId) ||
+              state == RTCIceConnectionState.RTCIceConnectionStateClosed;
+          final bool isUnstable =
+              state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+              state == RTCIceConnectionState.RTCIceConnectionStateFailed;
 
-    await _net!.start();
-    _inSession = true;
-    _notifySessionChanged();
-    notifyListeners();
-    return true;
+          if (isExplicitlyGone) {
+            _peerDisconnectTimers.remove(peerId)?.cancel();
+            _onPeerLeft(peerId);
+            peersChanged = true;
+          } else if (isUnstable) {
+            if (!_peerDisconnectTimers.containsKey(peerId)) {
+              // Give a 5-second grace period for ICE to recover or renegotiate
+              // before considering the peer departed. Eliminates banner/state flapping!
+              _peerDisconnectTimers[peerId] =
+                  Timer(const Duration(seconds: 5), () {
+                _peerDisconnectTimers.remove(peerId);
+                if (_connectedPeers.contains(peerId)) {
+                  _onPeerLeft(peerId);
+                  _notifySessionChanged();
+                }
+              });
+            }
+          }
+        }
+
+        _peers = map;
+        if (peersChanged) {
+          _notifySessionChanged();
+        }
+      });
+      _natSub = _net!.onNatFailure.listen((peerId) {
+        if (_natFailedPeer != peerId) {
+          _natFailedPeer = peerId;
+          _notifySessionChanged();
+        }
+      });
+      _participantSub = _net!.onParticipantCount.listen((count) {
+        if (_participantCount != count) {
+          _participantCount = count;
+          _notifySessionChanged();
+        }
+      });
+      _participantCount = _net!.participantCount;
+
+      await _net!.start();
+      _inSession = true;
+      _notifySessionChanged();
+      notifyListeners();
+      return true;
+    } catch (e, st) {
+      debugPrint('Maglis startSession failed: $e\n$st');
+      return false;
+    }
   }
 
   MaglisPacket _buildSnapshot() {

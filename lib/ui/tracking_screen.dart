@@ -15,8 +15,11 @@ import 'widgets/mic_bar.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
 import 'widgets/mushaf/mushaf_view.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../maglis/maglis_controller.dart';
 import '../maglis/maglis_entry_dialog.dart';
+import '../maglis/maglis_explanation_dialog.dart';
+import 'widgets/dialogs/whats_new_dialog.dart';
 
 /// Main interactive screen for real-time recitation tracking and reading.
 /// Powered by the high-performance Mushaf vector layout.
@@ -84,6 +87,15 @@ class _TrackingScreenState extends State<TrackingScreen>
         .ensureSurahLoaded(widget.controller.targetSurah));
     unawaited(QuranAudioService.ensureAyahDownloaded(
         widget.controller.targetSurah, 1));
+
+    // Show What's New dialog for new updates if not seen yet
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      final hasSeen = prefs.getBool('has_seen_v1_2_maglis_whats_new') ?? false;
+      if (!hasSeen && mounted) {
+        await WhatsNewDialog.show(context);
+      }
+    });
   }
 
   void _syncScreenWakeLock() {
@@ -377,7 +389,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                         isBlur: app.isBlurMode,
                         onToggleBlur: () {
                           app.toggleBlurMode();
-                          if (app.isBlurMode && !widget.isRecording) {
+                          if (app.isBlurMode) {
                             app.showBlurBanner(true);
                           } else {
                             app.dismissBanner();
@@ -407,9 +419,20 @@ class _TrackingScreenState extends State<TrackingScreen>
                         maglisRoomCode: maglis.roomCode,
                         maglisPeerCount: peerCount,
                         isRemoteReciting: maglis.isRemoteReciting,
-                        onMaglisTap: () {
+                        onMaglisTap: () async {
                           AppHaptics.lightImpact();
-                          MaglisEntryDialog.show(context);
+                          app.recordMaglisTap();
+                          final prefs = await SharedPreferences.getInstance();
+                          final hasSeen = prefs.getBool('has_seen_maglis_explanation') ?? false;
+                          if (!context.mounted) return;
+                          if (!hasSeen) {
+                            await MaglisExplanationDialog.show(context);
+                            if (context.mounted) {
+                              MaglisEntryDialog.show(context);
+                            }
+                          } else {
+                            MaglisEntryDialog.show(context);
+                          }
                         },
                         onMaglisExitTap: () async {
                           AppHaptics.heavyImpact();

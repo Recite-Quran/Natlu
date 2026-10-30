@@ -3,6 +3,8 @@ import 'dart:collection';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'maglis_core.dart';
 
@@ -18,16 +20,20 @@ import 'maglis_core.dart';
 class MaglisNetworkEngine {
   static const int maxRemotePeers = 3; // Up to 4 total participants in a Maglis room
 
-  static const List<String> _relays = [
+  static const List<String> _defaultRelays = [
+    'wss://quran-maglis.recitequrankarem.workers.dev',
     'wss://relay.damus.io',
     'wss://nos.lol',
     'wss://relay.primal.net',
-    'wss://nostr.mom',
+    'wss://relay.nostr.band',
     'wss://relay.snort.social',
-    'wss://nostr.bitcoiner.social',
+    'wss://nostr.mom',
+    'wss://hive.damus.io',
   ];
 
-  static const Map<String, dynamic> _rtcConfig = {
+  static List<String> _relays = List.from(_defaultRelays);
+
+  static const Map<String, dynamic> _defaultRtcConfig = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
@@ -50,6 +56,82 @@ class MaglisNetworkEngine {
     'rtcpMuxPolicy': 'require',
     'iceCandidatePoolSize': 2,
   };
+
+  static Map<String, dynamic> _rtcConfig = Map.from(_defaultRtcConfig);
+  static bool _configSyncAttempted = false;
+
+  /// Fetches latest dynamic fleet configuration from GitHub raw / CDN in the background.
+  /// Completely non-blocking with 4-second timeout, falling back seamlessly on network errors.
+  static Future<void> syncRemoteConfig() async {
+    if (_configSyncAttempted) return;
+    _configSyncAttempted = true;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 1. Immediately load any previously cached relays and ICE config
+      final cachedRelaysJson = prefs.getString('maglis_cached_relays');
+      if (cachedRelaysJson != null) {
+        final List<dynamic> list = jsonDecode(cachedRelaysJson);
+        if (list.isNotEmpty) {
+          _relays = list.map((e) => e.toString()).toList();
+        }
+      }
+      final cachedRtcJson = prefs.getString('maglis_cached_rtc');
+      if (cachedRtcJson != null) {
+        final Map<String, dynamic> rtc = jsonDecode(cachedRtcJson);
+        if (rtc.isNotEmpty) {
+          _rtcConfig = rtc;
+        }
+      }
+
+      // 2. Fetch fresh config in the background from GitHub raw (with CDN fallback)
+      const primaryUrl =
+          'https://raw.githubusercontent.com/Recite-Quran/Natlu/Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
+      const cdnUrl =
+          'https://cdn.jsdelivr.net/gh/Recite-Quran/Natlu@Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
+
+      http.Response? res;
+      try {
+        res = await http
+            .get(Uri.parse(primaryUrl))
+            .timeout(const Duration(seconds: 4));
+      } catch (_) {}
+
+      if (res == null || res.statusCode != 200) {
+        try {
+          res = await http
+              .get(Uri.parse(cdnUrl))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {}
+      }
+
+      if (res != null && res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (data is Map<String, dynamic>) {
+          if (data['relays'] is List) {
+            final List<String> fetchedRelays = (data['relays'] as List)
+                .map((e) => e.toString().trim())
+                .where((s) => s.startsWith('ws://') || s.startsWith('wss://'))
+                .toList();
+            if (fetchedRelays.length >= 2) {
+              _relays = fetchedRelays;
+              await prefs.setString(
+                  'maglis_cached_relays', jsonEncode(fetchedRelays));
+            }
+          }
+          if (data['iceServers'] is List && (data['iceServers'] as List).isNotEmpty) {
+            final updatedRtc = Map<String, dynamic>.from(_defaultRtcConfig);
+            updatedRtc['iceServers'] = data['iceServers'];
+            _rtcConfig = updatedRtc;
+            await prefs.setString('maglis_cached_rtc', jsonEncode(updatedRtc));
+          }
+        }
+      }
+    } catch (_) {
+      // Fail-safe: silently continue with built-in defaults or existing cache
+    }
+  }
 
   static bool _isValidCandidate(String? cand) {
     if (cand == null || cand.isEmpty) return false;
@@ -174,6 +256,7 @@ class MaglisNetworkEngine {
   }
 
   Future<void> start({String? inputDeviceId}) async {
+    unawaited(syncRemoteConfig());
     await MaglisPlatform.initAudio();
     await MaglisPlatform.setWakeLock(true);
 
@@ -190,11 +273,15 @@ class MaglisNetworkEngine {
       } catch (_) {}
     }
 
-    // Unmute mic audio track so all room members hear each other
+    // Unmute mic audio track so all room members hear each other continuously in conference call
     _localStream?.getAudioTracks().forEach((track) {
       track.enabled = true;
+      try {
+        Helper.setMicrophoneMute(false, track);
+      } catch (_) {}
     });
     _isMicMuted = false;
+    MaglisPlatform.setSpeaker(true);
 
     // Connect to decentralized relay fleet
     for (final url in _relays) {
@@ -596,6 +683,9 @@ class MaglisNetworkEngine {
       for (final track in _localStream!.getAudioTracks()) {
         track.enabled = !_isMicMuted;
         try {
+          Helper.setMicrophoneMute(_isMicMuted, track);
+        } catch (_) {}
+        try {
           final senders = await pc.getSenders();
           if (!senders.any((s) => s.track?.kind == 'audio')) {
             await pc.addTrack(track, _localStream!);
@@ -798,8 +888,9 @@ class MaglisNetworkEngine {
       'useinbandfec=1',
       'usedtx=0',
       'cbr=0',
-      'ptime=20',
+      'ptime=10',
       'minptime=10',
+      'maxptime=20',
       'stereo=0',
       'sprop-stereo=0',
       'maxaveragebitrate=48000',

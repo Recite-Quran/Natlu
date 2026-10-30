@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
 import '../maglis/maglis_controller.dart';
+import '../maglis/maglis_core.dart';
 
 /// AppAudioProcessor
 ///
@@ -128,5 +129,10 @@ class AppAudioProcessor {
     _recorder = null;
 
     _frameBuffer = Uint8List(0);
+
+    // If still in Maglis room session, preserve WebRTC voice communication mode & loud speakerphone
+    if (MaglisController.instance.inSession) {
+      MaglisPlatform.setSpeaker(true);
+    }
   }
 }

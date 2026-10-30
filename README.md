@@ -94,6 +94,13 @@ Natlu is the flagship reference application built upon [`recite_quran`](https://
 ### 7. Multi-Riwayah Architecture (الروايات المتواترة ومذاهب العد)
 - Architecture designed to support the 10 Mutawatir Qira'at and canonical counting schools.
 
+### 8. Collaborative Recitation Circles — Maglis P2P (مجلس التلاوة التشاركي)
+- Real-time P2P study circles for up to 4 participants with zero central database or user accounts.
+- **Sub-15ms Recitation Sync**: Direct WebRTC DataChannels replicate live word highlights across participants' Mus'hafs as the active reciter reads.
+- **High-Fidelity Voice Call**: Dedicated Opus audio profile (voiceCommunication mode) configured specifically for natural Quran recitation without gating or aggressive cutoffs.
+- **BIP-340 Schnorr Cryptography**: 5-digit room codes derive deterministic AES-256-GCM tokens and rotating blinded tags, ensuring complete room isolation over public Nostr relays.
+- **Smart Socket Sleep**: Nostr relays automatically sleep once peers connect, dropping idle data consumption to 0 KB/s.
+
 ---
 
 ## Modern Architecture
@@ -116,6 +123,80 @@ Natlu is structured into a clean presentation and application layer, delegating 
 │ └── QuranData (6,236 Ayahs, Myers phonetic search)     │
 └────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Maglis P2P Signaling & Cloudflare Relay Setup
+
+Natlu uses a decentralized signaling fleet combining a **private Cloudflare Edge Relay** with **7 public Nostr backbones** and dynamic remote fleet configuration.
+
+### Signaling Architecture
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                     Natlu P2P Room (5-Digit Code)                      │
+│                                                                        │
+│   Peer A (Reciter) ◄── Direct WebRTC DataChannel (Highlights) ──► Peer B │
+│   Peer A (Mic)     ◄── Direct WebRTC Audio (Opus 48 kHz)    ──► Peer B │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Ephemeral SDP & ICE
+                                    ▼
+                    ┌───────────────────────────────┐
+                    │   Signaling Fleet (8 Relays)   │
+                    ├───────────────────────────────┤
+                    │ 1. Private Cloudflare Worker  │
+                    │    (Durable Objects / Edge)   │
+                    │ 2. Public Nostr Relays        │
+                    │    (damus, nos.lol, primal...)│
+                    └───────────────────────────────┘
+```
+
+### Setting Up Your Own Cloudflare Relay (`maglis_relay/`)
+
+The `maglis_relay/` directory contains a self-contained Cloudflare Worker with SQLite-backed Durable Objects and WebSocket Hibernation (100% free on the Cloudflare Workers Free plan).
+
+#### 1. Prerequisites
+- [Node.js](https://nodejs.org/) v18 or later.
+- A free [Cloudflare Account](https://dash.cloudflare.com/sign-up).
+
+#### 2. Deploy the Worker
+Open your terminal in the repository root and run:
+```bash
+cd maglis_relay
+npx wrangler deploy
+```
+- Wrangler will open your browser to authorize your Cloudflare account.
+- Click **Allow**.
+- Wrangler will provision the Durable Object binding and output your live URL:
+  ```text
+  Deployed quran-maglis triggers
+    https://quran-maglis.<your-account>.workers.dev
+  ```
+
+#### 3. Update Dynamic Fleet Configuration
+Open `maglis_relay/maglis_config.json`:
+```json
+{
+  "version": 1,
+  "relays": [
+    "wss://quran-maglis.<your-account>.workers.dev",
+    "wss://relay.damus.io",
+    "wss://nos.lol",
+    "wss://relay.primal.net",
+    "wss://relay.nostr.band",
+    "wss://relay.snort.social",
+    "wss://nostr.mom",
+    "wss://hive.damus.io"
+  ]
+}
+```
+Commit and push your changes to GitHub.
+
+#### 4. How Client Apps Consume the Config
+Natlu fetches `maglis_config.json` in the background on startup (via GitHub raw with a jsDelivr CDN fallback):
+- **Zero App Updates**: When you add or swap relays in `maglis_config.json`, mobile clients pick up the new fleet dynamically without waiting for store reviews.
+- **Local Cache**: Saved in `SharedPreferences` so the app connects even when offline.
+- **Fail-Safe**: If GitHub is blocked or unreachable, the app falls back to built-in hardcoded relays automatically.
 
 ## Guide
 

@@ -22,7 +22,7 @@ class WhatsNewDialog extends StatelessWidget {
       builder: (_) => const WhatsNewDialog(),
     );
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_seen_mushaf_whats_new', true);
+    await prefs.setBool('has_seen_v1_2_maglis_whats_new', true);
   }
 
   @override
@@ -43,7 +43,7 @@ class WhatsNewDialog extends StatelessWidget {
             textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
             child: Dialog(
               backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 32),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 28),
               child: Container(
                 decoration: BoxDecoration(
                   color: c.surface,
@@ -61,24 +61,24 @@ class WhatsNewDialog extends StatelessWidget {
                     ),
                   ],
                 ),
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(22),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // ── 1. Circular Top Icon Badge ──
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(15),
                       decoration: BoxDecoration(
                         color: c.primary.withValues(alpha: 0.10),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
-                        Icons.auto_stories_rounded,
+                        Icons.groups_rounded,
                         color: c.primary,
-                        size: 34,
+                        size: 32,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
 
                     // ── 2. Dialog Title ──
                     Text(
@@ -86,7 +86,7 @@ class WhatsNewDialog extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: c.text,
-                        fontSize: 19,
+                        fontSize: 18.5,
                         fontWeight: FontWeight.bold,
                         letterSpacing: isAr ? 0.0 : -0.3,
                         height: isAr ? 1.3 : 1.2,
@@ -94,11 +94,11 @@ class WhatsNewDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
 
-                    // ── 3. Feature Card 1: Mushaf Layout ──
+                    // ── 3. Feature Card 1: Maglis Study Circle ──
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                          horizontal: 13, vertical: 11),
                       decoration: BoxDecoration(
                         color: c.primary.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(14),
@@ -113,31 +113,31 @@ class WhatsNewDialog extends StatelessWidget {
                           Row(
                             children: [
                               Icon(
-                                Icons.auto_stories_rounded,
+                                Icons.groups_rounded,
                                 color: c.primary,
                                 size: 18,
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                isAr ? 'طريقة عرض المصحف' : 'Mushaf View',
+                                isAr ? 'مجلس التلاوة التدارسي' : 'Live Quran Study Circle',
                                 style: TextStyle(
                                   color: c.primary,
-                                  fontSize: 14.5,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 5),
+                          const SizedBox(height: 4),
                           Text(
                             isAr
-                                ? 'يمكنك التبديل بين المصحف وقائمة الآيات في أي وقت من أعلى قائمة السور'
-                                : 'You can switch between Mushaf and List view anytime from the top of the Surah list',
+                                ? 'حلقة تلاوة وتسميع مباشرة حتى 4 أفراد بمحادثة صوتية وتزامن حي للمصحف مع القارئ عبر رمز بسيط من 5 أرقام'
+                                : 'Interactive Quran study circle for up to 4 peers with open voice call and live Mushaf sync using a 5-digit code',
                             style: TextStyle(
                               color: c.text,
-                              fontSize: 13,
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w500,
-                              height: 1.4,
+                              height: 1.38,
                             ),
                           ),
                         ],
@@ -145,11 +145,11 @@ class WhatsNewDialog extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
 
-                    // ── 4. Feature Card 2: One-Tap Verse Audio ──
+                    // ── 4. Feature Card 2: Smart Collapsible Dock ──
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                          horizontal: 13, vertical: 11),
                       decoration: BoxDecoration(
                         color: c.gold.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(14),
@@ -164,39 +164,39 @@ class WhatsNewDialog extends StatelessWidget {
                           Row(
                             children: [
                               Icon(
-                                Icons.headphones_rounded,
+                                Icons.mic_none_rounded,
                                 color: c.gold,
                                 size: 18,
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 isAr
-                                    ? 'الاستماع المباشر للآية'
-                                    : 'One-Tap Verse Audio',
+                                    ? 'شريط التلاوة الذكي'
+                                    : 'Smart Action Dock',
                                 style: TextStyle(
                                   color: c.gold,
-                                  fontSize: 14.5,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 5),
+                          const SizedBox(height: 4),
                           Text(
                             isAr
-                                ? 'في وضع المصحف، المس رقم أي آية للاستماع لتلاوتها مباشرة'
-                                : 'In Mushaf mode, tap any verse number to hear instant recitation',
+                                ? 'شريط سفلي انسيابي ينكمش تلقائياً أثناء التلاوة ليوفر لك وصولاً سريعاً ومريحاً لخصائص التجويد والإخفاء'
+                                : 'A streamlined bottom bar that collapses dynamically during recitation, giving quick access to Tajweed and Hide tools',
                             style: TextStyle(
                               color: c.text,
-                              fontSize: 13,
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w500,
-                              height: 1.4,
+                              height: 1.38,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 20),
 
                     // ── 5. Standard Confirmation Button ──
                     SizedBox(
@@ -206,7 +206,7 @@ class WhatsNewDialog extends StatelessWidget {
                           AppHaptics.lightImpact();
                           final prefs = await SharedPreferences.getInstance();
                           await prefs.setBool(
-                              'has_seen_mushaf_whats_new', true);
+                              'has_seen_v1_2_maglis_whats_new', true);
                           if (context.mounted) {
                             Navigator.of(context).pop();
                           }
