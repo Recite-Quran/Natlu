@@ -372,6 +372,7 @@ class MaglisController extends ChangeNotifier {
         _remoteGreenWords = pkt.greenWords;
         _remoteYellowWords = pkt.yellowWords;
         _remoteRedWords = pkt.redWords;
+        clearHighlightsFrom(pkt.surah, pkt.ayah);
 
         // Unconditionally stop local recitation recording when another peer takes the floor
         if (pkt.senderId != localPeerId) {
@@ -392,6 +393,13 @@ class MaglisController extends ChangeNotifier {
         break;
 
       case MaglisPacketType.recitationUpdate:
+        final bool isRewindingOrRestarting = pkt.surah < _remoteSurah ||
+            (pkt.surah == _remoteSurah && pkt.ayah < _remoteAyah) ||
+            (pkt.surah == _remoteSurah && pkt.ayah == _remoteAyah && pkt.greenWords.isEmpty && _remoteGreenWords.isNotEmpty);
+        if (isRewindingOrRestarting) {
+          clearHighlightsFrom(pkt.surah, pkt.ayah);
+        }
+
         final bool pageChanged = _remotePage != pkt.page;
         final bool posChanged = pageChanged ||
             _remoteSurah != pkt.surah ||
