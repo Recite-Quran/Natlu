@@ -180,13 +180,11 @@ Open `maglis_relay/maglis_config.json`:
   "version": 1,
   "relays": [
     "wss://quran-maglis.<your-account>.workers.dev",
-    "wss://relay.damus.io",
-    "wss://nos.lol",
     "wss://relay.primal.net",
+    "wss://nos.lol",
     "wss://relay.nostr.band",
-    "wss://relay.snort.social",
     "wss://nostr.mom",
-    "wss://hive.damus.io"
+    "wss://relay.snort.social"
   ]
 }
 ```

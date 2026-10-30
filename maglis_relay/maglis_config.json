@@ -3,13 +3,11 @@
   "updated_at": "2026-10-30",
   "relays": [
     "wss://quran-maglis.recitequrankarem.workers.dev",
-    "wss://relay.damus.io",
-    "wss://nos.lol",
     "wss://relay.primal.net",
+    "wss://nos.lol",
     "wss://relay.nostr.band",
-    "wss://relay.snort.social",
     "wss://nostr.mom",
-    "wss://hive.damus.io"
+    "wss://relay.snort.social"
   ],
   "iceServers": [
     {"urls": "stun:stun.l.google.com:19302"},

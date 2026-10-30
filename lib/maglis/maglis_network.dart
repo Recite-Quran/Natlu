@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
@@ -22,13 +23,11 @@ class MaglisNetworkEngine {
 
   static const List<String> _defaultRelays = [
     'wss://quran-maglis.recitequrankarem.workers.dev',
-    'wss://relay.damus.io',
-    'wss://nos.lol',
     'wss://relay.primal.net',
+    'wss://nos.lol',
     'wss://relay.nostr.band',
-    'wss://relay.snort.social',
     'wss://nostr.mom',
-    'wss://hive.damus.io',
+    'wss://relay.snort.social',
   ];
 
   static List<String> _relays = List.from(_defaultRelays);
@@ -276,9 +275,11 @@ class MaglisNetworkEngine {
     // Unmute mic audio track so all room members hear each other continuously in conference call
     _localStream?.getAudioTracks().forEach((track) {
       track.enabled = true;
-      try {
-        Helper.setMicrophoneMute(false, track);
-      } catch (_) {}
+      if (Platform.isAndroid || Platform.isIOS) {
+        try {
+          Helper.setMicrophoneMute(false, track);
+        } catch (_) {}
+      }
     });
     _isMicMuted = false;
     MaglisPlatform.setSpeaker(true);
@@ -327,12 +328,21 @@ class MaglisNetworkEngine {
       final ws = WebSocketChannel.connect(Uri.parse(url));
       _sockets[url] = ws;
 
-      _subscribeRelay(ws);
+      ws.ready.then((_) {
+        if (_disposed) {
+          try { ws.sink.close(); } catch (_) {}
+          return;
+        }
+        _subscribeRelay(ws);
+      }).catchError((_) {
+        _scheduleReconnect(url);
+      });
 
       ws.stream.listen(
         _onRelayFrame,
         onDone: () => _scheduleReconnect(url),
         onError: (_) => _scheduleReconnect(url),
+        cancelOnError: true,
       );
     } catch (_) {
       _scheduleReconnect(url);
@@ -394,7 +404,14 @@ class MaglisNetworkEngine {
   void _scheduleReconnect(String url) {
     _sockets.remove(url);
     if (_disposed) return;
-    Future.delayed(const Duration(seconds: 4), () => _connectRelay(url));
+    // Backoff reconnect: only retry if room is actively searching and active sockets are below 2
+    if (_peers.isEmpty && _sockets.length < 2) {
+      Future.delayed(const Duration(seconds: 12), () {
+        if (!_disposed && _peers.isEmpty) {
+          _connectRelay(url);
+        }
+      });
+    }
   }
 
   Future<void> _sendSignal(
