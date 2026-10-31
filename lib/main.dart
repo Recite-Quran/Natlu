@@ -295,14 +295,21 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached ||
-        QuranAudioService.instance.isSingleWordMode) {
+    if (state == AppLifecycleState.detached) {
+      AppState.instance.stopVerseAudio();
+      if (MaglisController.instance.inSession) {
+        unawaited(MaglisController.instance.leaveSession());
+      }
+    } else if (QuranAudioService.instance.isSingleWordMode) {
       AppState.instance.stopVerseAudio();
     }
   }
 
   @override
   void dispose() {
+    if (MaglisController.instance.inSession) {
+      unawaited(MaglisController.instance.leaveSession());
+    }
     MaglisController.instance.onRemoteFloorClaimed = null;
     _maglisBroadcastThrottle?.cancel();
     _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
