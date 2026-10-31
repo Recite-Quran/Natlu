@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Page;
 import 'package:qvp_flutter/qvp_flutter.dart';
@@ -128,12 +129,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _loadPage();
     }
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.removeListener(_syncVisuals);
-      oldWidget.controller.activeAyah.removeListener(_syncVisuals);
-      oldWidget.controller.globalRevision.removeListener(_syncVisuals);
-      widget.controller.addListener(_syncVisuals);
-      widget.controller.activeAyah.addListener(_syncVisuals);
-      widget.controller.globalRevision.addListener(_syncVisuals);
+      oldWidget.controller.removeListener(_requestSyncVisuals);
+      oldWidget.controller.activeAyah.removeListener(_requestSyncVisuals);
+      oldWidget.controller.globalRevision.removeListener(_requestSyncVisuals);
+      widget.controller.addListener(_requestSyncVisuals);
+      widget.controller.activeAyah.addListener(_requestSyncVisuals);
+      widget.controller.globalRevision.addListener(_requestSyncVisuals);
     }
     _checkSpinnerAnimation();
     _syncVisuals();
@@ -151,46 +152,76 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     super.dispose();
   }
 
+  bool _syncScheduled = false;
+
+  void _requestSyncVisuals() {
+    if (!mounted) return;
+    if (_syncScheduled) return;
+    _syncScheduled = true;
+    scheduleMicrotask(() {
+      _syncScheduled = false;
+      if (mounted) _syncVisuals();
+    });
+  }
+
   void _onCurrentMushafPageChanged() {
     updateKeepAlive();
-    _syncVisuals();
+    _requestSyncVisuals();
+  }
+
+  void _onAudioWordChanged() {
+    final app = AppState.instance;
+    final surah = app.activeAudioSurah.value;
+    final ayah = app.activeAudioAyah.value;
+    if (surah == null || ayah == null) {
+      if (_wordHighlightHandle != 0) _requestSyncVisuals();
+      return;
+    }
+    final bool hasAudioAyah = MushafProvider.instance.isAyahOnPage(
+      pageNumber: widget.pageNumber,
+      surah: surah,
+      ayah: ayah,
+    );
+    if (hasAudioAyah || _wordHighlightHandle != 0) {
+      _requestSyncVisuals();
+    }
+  }
+
+  void _onAudioStateChanged() {
+    _checkSpinnerAnimation();
+    _requestSyncVisuals();
   }
 
   void _attachListeners() {
     final app = AppState.instance;
     app.currentMushafPage.addListener(_onCurrentMushafPageChanged);
-    app.activeAudioWordIndex.addListener(_syncVisuals);
+    app.activeAudioWordIndex.addListener(_onAudioWordChanged);
     app.activeAudioAyah.addListener(_onAudioStateChanged);
     app.activeAudioSurah.addListener(_onAudioStateChanged);
     app.isAudioPlaying.addListener(_onAudioStateChanged);
     app.isAudioBuffering.addListener(_onAudioStateChanged);
-    app.blurModeNotifier.addListener(_syncVisuals);
-    app.themeNotifier.addListener(_syncVisuals);
-    widget.controller.addListener(_syncVisuals);
-    widget.controller.activeAyah.addListener(_syncVisuals);
-    widget.controller.globalRevision.addListener(_syncVisuals);
-    MaglisController.instance.addListener(_syncVisuals);
+    app.blurModeNotifier.addListener(_requestSyncVisuals);
+    app.themeNotifier.addListener(_requestSyncVisuals);
+    widget.controller.addListener(_requestSyncVisuals);
+    widget.controller.activeAyah.addListener(_requestSyncVisuals);
+    widget.controller.globalRevision.addListener(_requestSyncVisuals);
+    MaglisController.instance.addListener(_requestSyncVisuals);
   }
 
   void _detachListeners() {
     final app = AppState.instance;
     app.currentMushafPage.removeListener(_onCurrentMushafPageChanged);
-    app.activeAudioWordIndex.removeListener(_syncVisuals);
+    app.activeAudioWordIndex.removeListener(_onAudioWordChanged);
     app.activeAudioAyah.removeListener(_onAudioStateChanged);
     app.activeAudioSurah.removeListener(_onAudioStateChanged);
     app.isAudioPlaying.removeListener(_onAudioStateChanged);
     app.isAudioBuffering.removeListener(_onAudioStateChanged);
-    app.blurModeNotifier.removeListener(_syncVisuals);
-    app.themeNotifier.removeListener(_syncVisuals);
-    widget.controller.removeListener(_syncVisuals);
-    widget.controller.activeAyah.removeListener(_syncVisuals);
-    widget.controller.globalRevision.removeListener(_syncVisuals);
-    MaglisController.instance.removeListener(_syncVisuals);
-  }
-
-  void _onAudioStateChanged() {
-    _checkSpinnerAnimation();
-    _syncVisuals();
+    app.blurModeNotifier.removeListener(_requestSyncVisuals);
+    app.themeNotifier.removeListener(_requestSyncVisuals);
+    widget.controller.removeListener(_requestSyncVisuals);
+    widget.controller.activeAyah.removeListener(_requestSyncVisuals);
+    widget.controller.globalRevision.removeListener(_requestSyncVisuals);
+    MaglisController.instance.removeListener(_requestSyncVisuals);
   }
 
   void _checkSpinnerAnimation() {
@@ -263,17 +294,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     // Fast early exit: if this is an adjacent pre-cached page and not the reciter's page,
     // and has no stale cursors or highlights to clear, exit immediately with zero allocations.
+    final bool hasNewCumulative = maglis.inSession &&
+        _appliedCumulativeVersion != maglis.cumulativeVersion;
+
     if (widget.pageNumber != currentPage &&
         !hasMaglisAyah &&
         !hasRecitingAyah &&
         !hasAudioAyah &&
         !hasMatchedAyah &&
+        !hasNewCumulative &&
         _lastActiveAyah == null &&
         _lastActiveWord == null &&
-        _lastGreenWords.isEmpty &&
-        _lastYellowWords.isEmpty &&
-        _lastRedWords.isEmpty &&
-        _lastHiddenWords.isEmpty &&
         _lastIsDark == app.isDarkMode) {
       return;
     }
@@ -352,6 +383,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               activeWord = w.index;
               break;
             }
+          } else if (w.surah > s || (w.surah == s && w.ayah > a)) {
+            break;
           }
         }
       }
@@ -486,6 +519,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         } else {
           // Standard full-page evaluation for local recitation / blur mode / theme changes
           for (final w in page.words) {
+            if (!isBlurEffective &&
+                activeAyah != null &&
+                ((w.surah == targetSurah && w.ayah > activeAyah) || w.surah > targetSurah)) {
+              continue;
+            }
             final w0 = w.word - 1;
             final color = MushafActions.resolveWordDisplayColor(
               ayah: w.ayah,

@@ -2,15 +2,23 @@
 setlocal
 cd /d "%~dp0\..\.."
 
-echo === [1/3] Preparing Asset Placeholders for Web ===
+echo === [1/5] Preparing Asset Placeholders for Web ===
 if not exist assets\model mkdir assets\model
 type nul > assets\model\zipformer_p_arabic_v3.int8.onnx
 
-echo === [2/3] Building Flutter Web App ===
+echo === [2/5] Building Flutter Web App ===
 call flutter pub get
-call flutter build web --release --base-href "/" --no-web-resources-cdn --dart-define=RECITATION_MODEL_URL="/download-model?model=zipformer_p_arabic_v3.int8.onnx"
+call flutter build web --release --base-href "/" --pwa-strategy=none --no-web-resources-cdn --dart-define=RECITATION_MODEL_URL="/download-model?model=zipformer_p_arabic_v3.int8.onnx"
 
-echo === [3/3] Setting Up Cloudflare Pages Artifacts ===
+echo === [3/5] Configuring Custom Service Worker & Local CanvasKit ===
+echo // Neutralized to protect custom sw.js > build\web\flutter_service_worker.js
+
+node -e "const fs = require('fs'); const p = 'build/web/flutter_bootstrap.js'; if (fs.existsSync(p)) { let s = fs.readFileSync(p, 'utf8'); s = s.replace(/serviceWorkerSettings:\s*\{[\s\S]*?\}\s*,?/g, ''); s = s.replace('if (!window._flutter) {\n  window._flutter = {};\n}\n_flutter.buildConfig', 'var _flutter = window._flutter = window._flutter || {};\n_flutter.buildConfig'); s = s.replace(/\"builds\":/, '\"useLocalCanvasKit\":true,\"builds\":'); s = s.replace(/_flutter\.loader\.load\(\);?/, '_flutter.loader.load({config:{canvasKitBaseUrl:\"canvaskit/\"}});'); fs.writeFileSync(p, s, 'utf8'); }"
+
+echo === [4/5] Stamping Service Worker Cache Version ===
+node web\scripts\update_cache_version.js
+
+echo === [5/5] Setting Up Cloudflare Pages Artifacts ===
 if exist web\cloudflare\_headers copy /Y web\cloudflare\_headers build\web\_headers >nul
 if exist web\cloudflare\_redirects copy /Y web\cloudflare\_redirects build\web\_redirects >nul
 if not exist functions mkdir functions
@@ -20,4 +28,3 @@ if exist web\cloudflare\functions\download-model.js copy /Y web\cloudflare\funct
 if exist web\cloudflare\wrangler.toml copy /Y web\cloudflare\wrangler.toml build\web\wrangler.toml >nul
 
 echo === Build Complete! Output directory: build\web ===
-

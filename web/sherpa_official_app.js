@@ -1,5 +1,5 @@
 // Bridge between Sherpa-ONNX WebAssembly and Flutter Dart application
-// Handles AudioContext capture, AudioWorklet processing, IndexedDB caching, and model streaming.
+// Handles VFS initialization, audio chunk feeding, and IndexedDB model caching.
 
 Module = {};
 
@@ -12,6 +12,8 @@ let recognizerStream = null;
 let isRecognizerReady = false;
 let isWasmLoaded = false;
 let initializationError = '';
+let lastResult = '';
+const SAMPLE_RATE = 16000;
 
 Module.printErr = function(text) {
   console.error('[Sherpa WASM Error]', text);
@@ -44,7 +46,6 @@ window.writeSherpaAssetToVFS = function(filename, bytes) {
         }
       } catch (_) {}
       Module.FS.writeFile(fullPath, bytes);
-      console.log(`[Sherpa] Wrote ${cleanName} to ${fullPath} via Module.FS`);
       return true;
     }
 
@@ -54,7 +55,6 @@ window.writeSherpaAssetToVFS = function(filename, bytes) {
         try { Module.FS_unlink(fullPath); } catch (_) {}
       }
       Module.FS_createDataFile('/', cleanName, bytes, true, true, true);
-      console.log(`[Sherpa] Wrote ${cleanName} to ${fullPath} via FS_createDataFile`);
       return true;
     }
 
@@ -105,16 +105,6 @@ window.initSherpaRecognizer = function(modelFilename, tokensFilename) {
   }
 };
 
-// Audio state
-let audioCtx = null;
-let mediaStream = null;
-let workletNode = null;
-let scriptProcessor = null;
-let activeMicrophoneStream = null;
-let lastResult = '';
-const SAMPLE_RATE = 16000;
-const RECORD_CHUNK_SAMPLES = 5120; // 320ms at 16kHz
-
 function primeRecognizer() {
   if (recognizer && recognizerStream) {
     const priming = new Float32Array(4800); // 300ms silence
@@ -123,10 +113,6 @@ function primeRecognizer() {
       recognizer.decode(recognizerStream);
     }
   }
-}
-
-function processAudioSamples(samples) {
-  window.feedSherpaAudioChunk(samples, false);
 }
 
 // Feed audio samples from Dart AudioProcessor into the Sherpa recognizer
@@ -177,112 +163,6 @@ window.feedSherpaAudioChunk = function(chunk, isFinal) {
   }
 };
 globalThis.feedSherpaAudioChunk = window.feedSherpaAudioChunk;
-
-
-window.startOfficialSherpa = async function() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    console.error('[Sherpa] getUserMedia is not supported.');
-    return;
-  }
-
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { autoGainControl: false, echoCancellation: false, noiseSuppression: false }
-    });
-    activeMicrophoneStream = stream;
-
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!audioCtx) {
-      try {
-        audioCtx = new AudioContextClass({ sampleRate: SAMPLE_RATE });
-      } catch (_) {
-        audioCtx = new AudioContextClass();
-      }
-    }
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-    mediaStream = audioCtx.createMediaStreamSource(stream);
-
-    // Prefer AudioWorklet
-    let workletSuccess = false;
-    if (audioCtx.audioWorklet) {
-      try {
-        await audioCtx.audioWorklet.addModule('audio_worklet.js');
-        workletNode = new AudioWorkletNode(audioCtx, 'audio-stream-processor');
-        workletNode.port.onmessage = (e) => {
-          if (e.data && e.data.samples) {
-            processAudioSamples(new Float32Array(e.data.samples));
-          }
-        };
-        mediaStream.connect(workletNode);
-        workletNode.connect(audioCtx.destination);
-        workletSuccess = true;
-      } catch (err) {
-        console.warn('[Sherpa] AudioWorklet failed, using fallback:', err);
-      }
-    }
-
-    // Fallback: ScriptProcessorNode with downsampler
-    if (!workletSuccess && audioCtx.createScriptProcessor) {
-      scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-      let buffer = new Float32Array(0);
-      const ratio = audioCtx.sampleRate / SAMPLE_RATE;
-
-      scriptProcessor.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        const resampledLength = Math.round(input.length / ratio);
-        const resampled = new Float32Array(resampledLength);
-        for (let i = 0; i < resampledLength; i++) {
-          resampled[i] = input[Math.min(Math.round(i * ratio), input.length - 1)];
-        }
-
-        const merged = new Float32Array(buffer.length + resampled.length);
-        merged.set(buffer);
-        merged.set(resampled, buffer.length);
-        buffer = merged;
-
-        while (buffer.length >= RECORD_CHUNK_SAMPLES) {
-          processAudioSamples(buffer.slice(0, RECORD_CHUNK_SAMPLES));
-          buffer = buffer.slice(RECORD_CHUNK_SAMPLES);
-        }
-      };
-
-      mediaStream.connect(scriptProcessor);
-      scriptProcessor.connect(audioCtx.destination);
-    }
-  } catch (err) {
-    console.error('[Sherpa] Microphone error:', err);
-  }
-};
-
-window.stopOfficialSherpa = function() {
-  if (workletNode) {
-    try { workletNode.disconnect(); workletNode.port.close(); } catch (_) {}
-    workletNode = null;
-  }
-  if (scriptProcessor) {
-    try { scriptProcessor.disconnect(); } catch (_) {}
-    scriptProcessor = null;
-  }
-  if (mediaStream) {
-    try { mediaStream.disconnect(); } catch (_) {}
-    mediaStream = null;
-  }
-  if (activeMicrophoneStream) {
-    try { activeMicrophoneStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
-    activeMicrophoneStream = null;
-  }
-
-  if (lastResult && window.dartSherpaOnResult) {
-    window.dartSherpaOnResult(JSON.stringify({ text: lastResult, isFinal: true }), true);
-  }
-  lastResult = '';
-
-  if (recognizer && recognizerStream) {
-    recognizer.reset(recognizerStream);
-    primeRecognizer();
-  }
-};
 
 window.resetOfficialSherpaBuffer = function() {
   if (recognizer && recognizerStream) {
@@ -337,15 +217,15 @@ async function cacheModel(url, buffer) {
 window.isSherpaModelCached = async function(modelFilename) {
   try {
     const filename = modelFilename || 'zipformer_p_arabic_v3.int8.onnx';
-    const url = '/download-model?model=' + filename;
-    const cached = await getCachedModel(url);
+    const targetUrl = '/download-model?model=' + filename;
+    const cached = await getCachedModel(targetUrl);
     return Boolean(cached && cached.byteLength > 50000000);
   } catch (_) {
     return false;
   }
 };
 
-// --- Chunk Downloader ---
+// --- Multi-Chunk Downloader ---
 let activeModelDownloadPromise = null;
 
 window.fetchSherpaModel = async function(url) {
