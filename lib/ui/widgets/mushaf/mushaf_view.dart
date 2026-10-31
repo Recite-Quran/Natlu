@@ -633,24 +633,19 @@ class _MushafViewState extends State<MushafView> {
     // collision while maximizing vertical screen space.
     final double topPadding = safeTop > 0 ? safeTop + 4.0 : 8.0;
 
-    // Bottom command dock is at safeBottom + 14.0 (margin) + 56.0 (height) = safeBottom + 70.0.
-    // When idle: page number sits snugly 1.5dp above the dock at the bottom-left (safeBottom + 71.5).
-    // When recording or in Maglis session: page number drops down to be
-    // vertically centered with the 56dp bottom bar at the left:
-    // safeBottom + 14.0 + (56.0 - 10.5) / 2 = safeBottom + 36.75 ~ safeBottom + 36.5.
+    // Bar dock: height = 46dp, bottom margin = 10dp.
+    // Idle: page number sits just above the dock band (safeBottom + 60dp).
+    // Recording/Maglis: page number drops into the left clearance (safeBottom + 27dp).
     final bool isSessionActive = widget.isRecording || MaglisController.instance.inSession;
 
     final double pageLabelBottom = isSessionActive
-        ? (safeBottom + 36.5)
-        : (safeBottom + 71.5);
+        ? (safeBottom + 27.0)
+        : (safeBottom + 60.0);
 
-    // Constrain the mushaf content:
-    // When idle: stops just above the page number (safeBottom + 84.5).
-    // When recording or in Maglis session: page number drops down to the bottom bar row, allowing the ayahs to
-    // stretch down right to the top of the dock (safeBottom + 71.0).
+    // Content bottom padding keeps ayahs clear of the bar:
     final double bottomPadding = isSessionActive
-        ? (safeBottom + 71.0)
-        : (safeBottom + 84.5);
+        ? (safeBottom + 62.0)
+        : (safeBottom + 74.0);
 
     const ScrollPhysics physics = ClampingScrollPhysics();
 

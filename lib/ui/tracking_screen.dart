@@ -546,7 +546,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
-      bottom: isVisible ? (bottom + 84) : (bottom + 16),
+      bottom: isVisible ? (bottom + 78) : (bottom + 16),
       left: 16,
       right: 16,
       child: IgnorePointer(
