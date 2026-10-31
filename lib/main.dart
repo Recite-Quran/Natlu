@@ -33,6 +33,7 @@ import 'state/app_state.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
 import 'ui/widgets/dialogs/permission_dialog.dart';
+import 'ui/widgets/dialogs/model_download_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
@@ -87,7 +88,8 @@ void main() async {
         };
       }
 
-      // Transparent system bars for immersive experience
+      if (!kIsWeb) {
+        // Transparent system bars for immersive experience
       SystemChrome.setSystemUIOverlayStyle(
         const SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
@@ -95,6 +97,7 @@ void main() async {
         ),
       );
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      }
 
       await AppState.instance.load();
       runApp(const QuranApp());
@@ -104,7 +107,7 @@ void main() async {
     },
     zoneSpecification: ZoneSpecification(
       print: (Zone self, ZoneDelegate parent, Zone zone, String line) {
-        if (!kReleaseMode) {
+        if (!kReleaseMode || kIsWeb) {
           parent.print(zone, line);
         }
       },
@@ -312,7 +315,9 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     MaglisController.instance.onRemoteFloorClaimed = null;
     _maglisBroadcastThrottle?.cancel();
     _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
-    WidgetsBinding.instance.removeObserver(this);
+    if (!kIsWeb) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
     AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
     _transcriptionSub?.cancel();
     AppState.instance.stopVerseAudio();
@@ -326,7 +331,14 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   Future<void> _init() async {
     try {
       if (mounted) setState(() => _initStatus = 'Preparing ASR engine…');
-      _engine.initialize(); // Fire-and-forget in background Isolate
+      if (kIsWeb) {
+        // On Web, warm up silently only if model is already cached in IndexedDB.
+        _engine.isModelCached().then((isCached) {
+          if (isCached) _engine.initialize();
+        });
+      } else {
+        _engine.initialize(); // Fire-and-forget in background Isolate
+      }
 
       if (mounted) setState(() => _initStatus = 'Loading Quran database…');
       final service = QuranMetadataService();
@@ -362,9 +374,11 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       _ctrl!.addListener(_throttledBroadcastMaglisProgress);
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
-      try {
-        WakelockPlus.enable().catchError((_) {});
-      } catch (_) {}
+      if (!kIsWeb) {
+        try {
+          WakelockPlus.enable().catchError((_) {});
+        } catch (_) {}
+      }
 
       if (mounted) setState(() => _isInit = false);
 
@@ -407,6 +421,20 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   /// Ensures the ASR engine is initialized.
   Future<bool> _ensureEngineReady() async {
     if (_engine.isInitialized) return true;
+
+    if (kIsWeb) {
+      final bool isCached = await _engine.isModelCached();
+      if (!isCached && mounted) {
+        final bool? proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: true,
+          builder: (ctx) => const ModelDownloadDialog(),
+        );
+        if (proceed != true) {
+          return false;
+        }
+      }
+    }
 
     if (!_engine.isInitialized) {
       if (mounted) setState(() => _isEngineLoading = true);

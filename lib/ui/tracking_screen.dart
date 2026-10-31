@@ -74,11 +74,13 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    try {
-      WakelockPlus.enable().catchError((_) {});
-    } catch (_) {}
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addObserver(this);
+      try {
+        WakelockPlus.enable().catchError((_) {});
+      } catch (_) {}
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
     widget.controller.addListener(_onControllerUpdate);
     widget.controller.activeAyah.addListener(_onActiveAyahChanged);
     AppState.instance.activeAudioAyah.addListener(_onActiveAudioAyahChanged);
@@ -86,21 +88,26 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
 
     // Listen for explicit native user leave hint (Home button pressed or app switched)
-    _lifecycleChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onUserLeaveHome') {
-        AppState.instance.stopVerseAudio();
-      }
-    });
+    if (!kIsWeb) {
+      _lifecycleChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onUserLeaveHome') {
+          AppState.instance.stopVerseAudio();
+        }
+      });
+    }
 
     // Warm up Surah timings and Ayah 1 audio in memory/disk in the background for zero-latency instant play
     unawaited(QuranTimingService.instance
         .ensureSurahLoaded(widget.controller.targetSurah));
-    unawaited(QuranAudioService.ensureAyahDownloaded(
-        widget.controller.targetSurah, 1));
+    if (!kIsWeb) {
+      unawaited(QuranAudioService.ensureAyahDownloaded(
+          widget.controller.targetSurah, 1));
+    }
 
   }
 
   void _syncScreenWakeLock() {
+    if (kIsWeb) return;
     // Keep screen awake continuously throughout the app session (idle and recording)
     try {
       WakelockPlus.enable().catchError((_) {});
@@ -145,6 +152,7 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (kIsWeb) return;
     if (state == AppLifecycleState.detached) {
       AppState.instance.stopVerseAudio();
     } else if (state == AppLifecycleState.paused ||
@@ -190,10 +198,12 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void dispose() {
     AppState.instance.stopVerseAudio();
-    WidgetsBinding.instance.removeObserver(this);
-    try {
-      WakelockPlus.disable().catchError((_) {});
-    } catch (_) {}
+    if (!kIsWeb) {
+      WidgetsBinding.instance.removeObserver(this);
+      try {
+        WakelockPlus.disable().catchError((_) {});
+      } catch (_) {}
+    }
     widget.controller.removeListener(_onControllerUpdate);
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
     AppState.instance.activeAudioAyah.removeListener(_onActiveAudioAyahChanged);

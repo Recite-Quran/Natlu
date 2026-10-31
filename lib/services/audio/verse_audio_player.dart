@@ -259,6 +259,7 @@ class VerseAudioPlayer {
     int ayah,
     File file,
   ) async {
+    if (kIsWeb) return;
     final key = '$surah:$ayah';
     if (_inFlightDownloads.contains(key)) return;
     _inFlightDownloads.add(key);
@@ -268,8 +269,8 @@ class VerseAudioPlayer {
       final url = getAyahAudioUrl(surah, ayah);
       final res = await client.get(
         Uri.parse(url),
-        headers: const {
-          'User-Agent': 'Flutter/Natlu',
+        headers: {
+          if (!kIsWeb) 'User-Agent': 'Flutter/Natlu',
         },
       ).timeout(const Duration(seconds: 15));
 

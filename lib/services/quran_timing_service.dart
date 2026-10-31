@@ -164,6 +164,7 @@ class QuranTimingService {
   static String? _cachedTimingsDirPath;
 
   Future<File?> _getDiskCacheFile(int surah) async {
+    if (kIsWeb) return null;
     try {
       if (_cachedTimingsDirPath == null) {
         final dir = await getApplicationSupportDirectory();
@@ -242,9 +243,9 @@ class QuranTimingService {
     try {
       final response = await _client.get(
         uri,
-        headers: const {
+        headers: {
           'Accept': 'application/json',
-          'User-Agent': 'Flutter/Natlu',
+          if (!kIsWeb) 'User-Agent': 'Flutter/Natlu',
         },
       ).timeout(const Duration(seconds: 15));
 
@@ -275,7 +276,7 @@ class QuranTimingService {
 
   /// Automatically parses in background Isolate when payload > 25KB to guarantee zero UI frame drops.
   static Future<SurahTiming?> _parseJsonAuto(int surah, String content) async {
-    if (content.length > 25000) {
+    if (content.length > 25000 && !kIsWeb) {
       try {
         return await Isolate.run(() => _parseQuranComJson(surah, content));
       } catch (_) {
