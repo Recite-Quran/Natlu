@@ -205,9 +205,12 @@ class MaglisNetworkEngine {
   final Map<String, RTCIceConnectionState> _peerStates = {};
   final Set<String> _roomParticipants = <String>{};
   final Map<String, int> _lastSeenPeerMs = {};
+  final Map<String, int> _peerLatency = {};
   final Map<String, List<Map<String, dynamic>>> _pendingOutboundCandidates = {};
   final Map<String, Timer> _iceDebounceTimers = {};
   final Map<String, Timer> _iceRestartGraceTimers = {};
+  final Map<String, int> _reconnectAttempts = {};
+  final Map<String, bool> _isRestartInProgress = {};
   final Map<String, bool> _answerInFlight = {};
   final Set<String> _negotiatingPeers = {};
   final Map<String, List<MediaStreamTrack>> _remoteTracks = {};
@@ -217,6 +220,23 @@ class MaglisNetworkEngine {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   List<ConnectivityResult> _lastConnectivity = const [];
   Timer? _networkChangeDebounceTimer;
+
+  // Maximum buffered amount threshold for WebRTC SCTP DataChannels (128 KB safety window)
+  static const int _maxDataChannelBufferedAmount = 128 * 1024;
+
+  // Jittered exponential backoff retry delays (LiveKit production standard)
+  static const List<int> _defaultRetryDelaysInMs = [0, 300, 1200, 2700, 4800, 7000];
+
+  static int _reconnectDelayInMs(int retryCount) {
+    final delay = _defaultRetryDelaysInMs[
+        retryCount.clamp(0, _defaultRetryDelaysInMs.length - 1)];
+    if (delay == 0) {
+      return (Random().nextDouble() * 150).round();
+    }
+    return (delay * (0.5 + Random().nextDouble())).round();
+  }
+
+  int getPeerLatency(String peerId) => _peerLatency[peerId] ?? 0;
 
   Future<T> _runPeerExclusive<T>(
       String peerId, Future<T> Function() block) {
@@ -497,7 +517,7 @@ class MaglisNetworkEngine {
               state == RTCIceConnectionState.RTCIceConnectionStateNew ||
               _negotiatingPeers.contains(p);
       final lastSeen = _lastSeenPeerMs[p] ?? 0;
-      return isAlive || (now - lastSeen) < 35000;
+      return isAlive || (now - lastSeen) < 22000;
     }).length;
   }
 
@@ -518,19 +538,24 @@ class MaglisNetworkEngine {
       final isExplicitlyDead =
           state == RTCIceConnectionState.RTCIceConnectionStateClosed;
 
-      // 1. Never prune an actively connected peer
-      if (isConnected) continue;
+      // 1. If actively connected but completely silent for > 20s (3+ missed pings), flag for recovery
+      if (isConnected) {
+        if ((now - lastSeen) > 20000) {
+          _recoverDataChannel(peerId);
+        }
+        continue;
+      }
 
-      // 2. Allow up to 35s for WebRTC handshake & ICE checks to complete on mobile networks
+      // 2. Allow up to 20s for WebRTC handshake & ICE checks to complete on mobile networks
       if (isConnecting) {
-        if ((now - lastSeen) > 35000) {
+        if ((now - lastSeen) > 20000) {
           stalePeers.add(peerId);
         }
         continue;
       }
 
-      // 3. If explicitly closed or silent without connection for > 30s, prune ghost peer
-      if (isExplicitlyDead || (now - lastSeen) > 30000) {
+      // 3. If explicitly closed or silent without connection for > 16s, prune ghost peer
+      if (isExplicitlyDead || (now - lastSeen) > 16000) {
         stalePeers.add(peerId);
       }
     }
@@ -757,6 +782,32 @@ class MaglisNetworkEngine {
         ws.sink.add(frame);
       } catch (_) {}
     }
+
+    // Hedge critical reconnection signals to the primary relay to eliminate split-brain relay partitioning
+    final bool isCriticalSignaling = type == 'reconnect_request' ||
+        (type == 'offer' &&
+            (data['iceRestart'] == true || data['dcRecovery'] == true)) ||
+        type == 'answer';
+
+    if (isCriticalSignaling && _sockets.length < 2 && _roomRelays.isNotEmpty) {
+      final primaryUrl = _roomRelays.first;
+      if (!_sockets.containsKey(primaryUrl)) {
+        unawaited(_sendSignalToRelay(primaryUrl, frame));
+      }
+    }
+  }
+
+  Future<void> _sendSignalToRelay(String url, String frame) async {
+    try {
+      final targetUrl = formatRelayUrl(url, roomCode);
+      final ws = WebSocketChannel.connect(Uri.parse(targetUrl));
+      await ws.ready.timeout(const Duration(milliseconds: 1200));
+      ws.sink.add(frame);
+      await Future.delayed(const Duration(milliseconds: 150));
+      try {
+        await ws.sink.close();
+      } catch (_) {}
+    } catch (_) {}
   }
 
   Future<void> _onRelayFrame(dynamic rawFrame) async {
@@ -991,6 +1042,8 @@ class MaglisNetworkEngine {
             }
 
             await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
+            _remoteDescSet[remoteId] = true;
+            await _flushIceQueue(remoteId);
 
             final answer = await pc.createAnswer(const {
               'mandatory': {
@@ -1003,8 +1056,6 @@ class MaglisNetworkEngine {
             await pc.setLocalDescription(
               RTCSessionDescription(mungedSdp, answer.type),
             );
-            _remoteDescSet[remoteId] = true;
-            await _flushIceQueue(remoteId);
             await _sendSignal('answer',
                 targetId: remoteId, data: {'sdp': mungedSdp});
           } finally {
@@ -1182,6 +1233,8 @@ class MaglisNetworkEngine {
 
       if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        _reconnectAttempts.remove(remoteId);
+        _isRestartInProgress[remoteId] = false;
         _iceRestartGraceTimers[remoteId]?.cancel();
         _iceRestartGraceTimers.remove(remoteId);
         _checkSocketSleepState();
@@ -1189,14 +1242,20 @@ class MaglisNetworkEngine {
               RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         _checkSocketSleepState(); // Ensure Nostr relays are awake for renegotiation on both sides
-        final isInitiator = localPeerId.compareTo(remoteId) < 0;
-        final int graceSeconds =
-            (state == RTCIceConnectionState.RTCIceConnectionStateFailed)
-                ? 4
-                : 8;
+        if (_isRestartInProgress[remoteId] == true) {
+          return; // Restart already underway, avoid flapping
+        }
+        final attempts = _reconnectAttempts[remoteId] ?? 0;
+        final isFailed =
+            state == RTCIceConnectionState.RTCIceConnectionStateFailed;
+
+        // Jittered exponential delay + base failure offset (LiveKit standard)
+        final delayMs =
+            _reconnectDelayInMs(attempts) + (isFailed ? 1200 : 2500);
+
         _iceRestartGraceTimers[remoteId]?.cancel();
         _iceRestartGraceTimers[remoteId] =
-            Timer(Duration(seconds: graceSeconds), () {
+            Timer(Duration(milliseconds: delayMs), () {
           if (!_disposed &&
               (_peerStates[remoteId] ==
                       RTCIceConnectionState.RTCIceConnectionStateFailed ||
@@ -1205,6 +1264,8 @@ class MaglisNetworkEngine {
                           .RTCIceConnectionStateDisconnected)) {
             _natFailCtrl.add(remoteId);
             _checkSocketSleepState();
+            _reconnectAttempts[remoteId] = attempts + 1;
+            final isInitiator = localPeerId.compareTo(remoteId) < 0;
             if (isInitiator) {
               _triggerIceRestart(remoteId);
             } else {
@@ -1234,7 +1295,10 @@ class MaglisNetworkEngine {
     pc.onTrack = (RTCTrackEvent ev) {
       if (ev.track.kind == 'audio') {
         ev.track.enabled = true;
-        _remoteTracks.putIfAbsent(remoteId, () => []).add(ev.track);
+        final list = _remoteTracks.putIfAbsent(remoteId, () => []);
+        if (!list.any((t) => t.id == ev.track.id)) {
+          list.add(ev.track);
+        }
         try {
           Helper.setVolume(1.0, ev.track);
         } catch (_) {}
@@ -1256,6 +1320,8 @@ class MaglisNetworkEngine {
   Future<void> _triggerIceRestartInternal(String remoteId) async {
     final pc = _peers[remoteId];
     if (pc == null || _disposed) return;
+    if (_isRestartInProgress[remoteId] == true) return;
+    _isRestartInProgress[remoteId] = true;
     try {
       final curSigState = await pc.getSignalingState() ?? pc.signalingState;
       if (curSigState != RTCSignalingState.RTCSignalingStateStable) {
@@ -1318,6 +1384,10 @@ class MaglisNetworkEngine {
       // If native restartIce fails on corrupted state, recreate peer deterministically
       await _cleanupPeerInternal(remoteId);
       await _sendSignal('beacon', targetId: remoteId, data: const {});
+    } finally {
+      Timer(const Duration(milliseconds: 2500), () {
+        _isRestartInProgress[remoteId] = false;
+      });
     }
   }
 
@@ -1417,10 +1487,22 @@ class MaglisNetworkEngine {
       dc.bufferedAmountLowThreshold = 64 * 1024;
     } catch (_) {}
     dc.onBufferedAmountLow = (_) {
-      if (!isLossy && _peersNeedingCatchup.remove(remoteId) && !_disposed) {
-        try {
-          dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
-        } catch (_) {}
+      if (!isLossy && !_disposed) {
+        // Drain any pending vital packets queued during buffer backpressure
+        if (_pendingVitalPackets.isNotEmpty) {
+          final toSend = List<String>.from(_pendingVitalPackets);
+          _pendingVitalPackets.clear();
+          for (final vital in toSend) {
+            try {
+              dc.send(RTCDataChannelMessage(vital));
+            } catch (_) {}
+          }
+        }
+        if (_peersNeedingCatchup.remove(remoteId)) {
+          try {
+            dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+          } catch (_) {}
+        }
       }
     };
     dc.onDataChannelState = (RTCDataChannelState state) {
@@ -1532,11 +1614,17 @@ class MaglisNetworkEngine {
         _dispatchRaw(jsonEncode({
           't': 5,
           'u': localPeerId,
-          'm': DateTime.now().millisecondsSinceEpoch,
+          'm': pkt.ts,
         }));
         return;
       }
-      if (pkt.type == MaglisPacketType.pong) return;
+      if (pkt.type == MaglisPacketType.pong) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final rtt = (now - pkt.ts).clamp(0, 10000);
+        _peerLatency[pkt.senderId] = rtt;
+        _lastSeenPeerMs[pkt.senderId] = now;
+        return;
+      }
 
       if (pkt.type == MaglisPacketType.floorClaim ||
           pkt.type == MaglisPacketType.snapshot) {
@@ -1667,20 +1755,30 @@ class MaglisNetworkEngine {
     for (final entry in _channels.entries) {
       final dc = entry.value;
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        try {
-          dc.send(msg);
-          anyChannelOpen = true;
-        } catch (_) {}
+        anyChannelOpen = true;
+        final buf = dc.bufferedAmount ?? 0;
+        if (buf <= _maxDataChannelBufferedAmount) {
+          try {
+            dc.send(msg);
+          } catch (_) {}
+        } else {
+          // SCTP buffer congested: queue vital packet so it will flush upon onBufferedAmountLow
+          _queueVitalPacket(raw);
+        }
       }
     }
 
     // Queue vital packets (floor claim, release, snapshot) if channels are still connecting
     if (!anyChannelOpen) {
-      if (!_pendingVitalPackets.contains(raw)) {
-        _pendingVitalPackets.add(raw);
-        if (_pendingVitalPackets.length > 20) {
-          _pendingVitalPackets.removeAt(0);
-        }
+      _queueVitalPacket(raw);
+    }
+  }
+
+  void _queueVitalPacket(String raw) {
+    if (!_pendingVitalPackets.contains(raw)) {
+      _pendingVitalPackets.add(raw);
+      if (_pendingVitalPackets.length > 30) {
+        _pendingVitalPackets.removeAt(0);
       }
     }
   }
@@ -1693,19 +1791,28 @@ class MaglisNetworkEngine {
       final lossyDc = _lossyChannels[remoteId];
       if (lossyDc != null &&
           lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        try {
-          lossyDc.send(msg);
+        final buf = lossyDc.bufferedAmount ?? 0;
+        if (buf <= _maxDataChannelBufferedAmount) {
+          try {
+            lossyDc.send(msg);
+            continue;
+          } catch (_) {}
+        } else {
+          // Socket congested on cellular: drop outdated lossy delta to prevent native buffer overflow
           continue;
-        } catch (_) {}
+        }
       }
 
       // 2. Fallback to reliable channel if lossy channel is still opening or unsupported
       final relDc = _channels[remoteId];
       if (relDc != null &&
           relDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        try {
-          relDc.send(msg);
-        } catch (_) {}
+        final buf = relDc.bufferedAmount ?? 0;
+        if (buf <= _maxDataChannelBufferedAmount) {
+          try {
+            relDc.send(msg);
+          } catch (_) {}
+        }
       }
     }
   }
@@ -1783,6 +1890,9 @@ class MaglisNetworkEngine {
     _pendingOutboundCandidates.remove(peerId);
     _iceDebounceTimers.remove(peerId)?.cancel();
     _iceRestartGraceTimers.remove(peerId)?.cancel();
+    _reconnectAttempts.remove(peerId);
+    _isRestartInProgress.remove(peerId);
+    _peerLatency.remove(peerId);
     _remoteDescSet.remove(peerId);
     _peerStates.remove(peerId);
     _lastSeenPeerMs.remove(peerId);
@@ -1807,7 +1917,8 @@ class MaglisNetworkEngine {
     if (remoteTracks != null) {
       for (final t in remoteTracks) {
         try {
-          t.stop();
+          t.enabled = false;
+          Helper.setVolume(0.0, t);
         } catch (_) {}
       }
     }
@@ -1871,6 +1982,9 @@ class MaglisNetworkEngine {
       t.cancel();
     }
     _iceRestartGraceTimers.clear();
+    _reconnectAttempts.clear();
+    _isRestartInProgress.clear();
+    _peerLatency.clear();
     _pendingOutboundCandidates.clear();
     _pendingVitalPackets.clear();
     _connectivitySub?.cancel();

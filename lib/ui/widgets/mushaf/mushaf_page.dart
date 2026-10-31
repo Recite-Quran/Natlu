@@ -40,7 +40,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   QvpPage? _page;
-  bool _isLoading = true;
+  bool _isLoading = false;
   int _loadAttempts = 0;
   static const int _maxAttempts = 3;
   late final AnimationController _spinnerController;
@@ -66,7 +66,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   int _lastIndexedPage = -1;
 
   void _ensurePageWordsIndexed(QvpPage page) {
-    if (_lastIndexedPage == widget.pageNumber && _pageWordMap.isNotEmpty) return;
+    if (_lastIndexedPage == widget.pageNumber && _pageWordMap.isNotEmpty)
+      return;
     final map = <int, int>{};
     for (final w in page.words) {
       map[MaglisController.wordKey(w.surah, w.ayah, w.word - 1)] = w.index;
@@ -116,7 +117,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       } else if (_loadAttempts < _maxAttempts) {
         Future.delayed(const Duration(milliseconds: 400), () {
           if (mounted && (_page == null || _page!.isDisposed)) {
-            _safeLoadPage();
+            _page = null;
+            _isLoading = false;
+            _page = null;
+        _isLoading = false;
+        _safeLoadPage();
           }
         });
       }
@@ -129,7 +134,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   @override
   void didUpdateWidget(MushafPageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.pageNumber != widget.pageNumber || _page == null || _page!.isDisposed) {
+    if (oldWidget.pageNumber != widget.pageNumber ||
+        _page == null ||
+        _page!.isDisposed) {
       _loadAttempts = 0;
       _lastActiveAyah = null;
       _lastActiveWord = null;
@@ -153,6 +160,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         _isLoading = false;
         _syncVisuals();
       } else {
+        _page = null;
+        _isLoading = false;
         _safeLoadPage();
       }
     }
@@ -291,7 +300,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     final ctrl = widget.controller;
     final activeAyah = ctrl.activeAyah.value;
-    final targetSurah = ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
+    final targetSurah =
+        ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
     final activeMatch = ctrl.currentMatchedVerse;
 
     final audioSurah = app.activeAudioSurah.value;
@@ -299,9 +309,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final audioWordIdx = app.activeAudioWordIndex.value;
     final bool isAudioPlayingOrBuffering =
         app.isAudioPlaying.value || app.isAudioBuffering.value;
-    final bool isAudioActive = isAudioPlayingOrBuffering &&
-        audioSurah != null &&
-        audioAyah != null;
+    final bool isAudioActive =
+        isAudioPlayingOrBuffering && audioSurah != null && audioAyah != null;
 
     final provider = MushafProvider.instance;
 
@@ -311,14 +320,24 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final int maglisAyah = maglis.remoteAyah;
     final int? maglisWord = maglis.remoteWord;
     final bool hasMaglisAyah = isMaglisRemote &&
-        provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: maglisSurah, ayah: maglisAyah);
+        provider.isAyahOnPage(
+            pageNumber: widget.pageNumber,
+            surah: maglisSurah,
+            ayah: maglisAyah);
 
     final bool hasRecitingAyah = activeAyah != null &&
-        provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: targetSurah, ayah: activeAyah);
+        provider.isAyahOnPage(
+            pageNumber: widget.pageNumber,
+            surah: targetSurah,
+            ayah: activeAyah);
     final bool hasMatchedAyah = activeMatch != null &&
-        provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: activeMatch.verse.surah, ayah: activeMatch.verse.ayah);
+        provider.isAyahOnPage(
+            pageNumber: widget.pageNumber,
+            surah: activeMatch.verse.surah,
+            ayah: activeMatch.verse.ayah);
     final bool hasAudioAyah = isAudioActive &&
-        provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: audioSurah, ayah: audioAyah);
+        provider.isAyahOnPage(
+            pageNumber: widget.pageNumber, surah: audioSurah, ayah: audioAyah);
 
     // Fast early exit: if this is an adjacent pre-cached page and not the reciter's page,
     // and has no stale cursors or highlights to clear, exit immediately with zero allocations.
@@ -387,7 +406,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       int? activeWord;
       if (isMaglisRemote && hasMaglisAyah && maglisWord != null) {
         _ensurePageWordsIndexed(page);
-        final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, maglisWord)] ??
+        final idx = _pageWordMap[MaglisController.wordKey(
+                maglisSurah, maglisAyah, maglisWord)] ??
             page.findWord(maglisSurah, maglisAyah, maglisWord + 1);
         if (idx >= 0) activeWord = idx;
       } else if (hasAudioAyah) {
@@ -395,7 +415,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         int idx = page.findWord(audioSurah, audioAyah, targetWord1);
         if (idx < 0) {
           _ensurePageWordsIndexed(page);
-          idx = _pageWordMap[MaglisController.wordKey(audioSurah, audioAyah, targetWord1 - 1)] ?? -1;
+          idx = _pageWordMap[MaglisController.wordKey(
+                  audioSurah, audioAyah, targetWord1 - 1)] ??
+              -1;
         }
         if (idx >= 0) activeWord = idx;
       } else if (widget.isRecording && (hasMatchedAyah || hasRecitingAyah)) {
@@ -420,7 +442,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       if (activeWord != _lastActiveWord || themeChanged) {
         _lastActiveWord = activeWord;
         if (activeWord != null) {
-          final Color wordColor = c.wordHighlight.withValues(alpha: isDark ? 0.35 : 0.25);
+          final Color wordColor =
+              c.wordHighlight.withValues(alpha: isDark ? 0.35 : 0.25);
 
           final style = QvpHighlightStyle(
             mode: 'band',
@@ -450,12 +473,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
       final bool inMaglis = maglis.inSession;
       final bool hasRemoteReciterOnPage = isMaglisRemote && hasMaglisAyah;
-      final bool hasNewCumulative = inMaglis &&
-          _appliedCumulativeVersion != maglis.cumulativeVersion;
+      final bool hasNewCumulative =
+          inMaglis && _appliedCumulativeVersion != maglis.cumulativeVersion;
 
       // Blur/concealing is only effectively applied when actively recording or in a Maglis session
-      final bool isBlurEffective = app.isBlurMode &&
-          (widget.isRecording || inMaglis);
+      final bool isBlurEffective =
+          app.isBlurMode && (widget.isRecording || inMaglis);
 
       // Smart guard: If in Maglis and not recording, and no new highlights/events, skip redundant scanning
       final bool skipRemoteWordScan = inMaglis &&
@@ -508,21 +531,24 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
           if (hasRemoteReciterOnPage) {
             for (final w0 in maglis.remoteGreenWords) {
-              final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+              final idx = _pageWordMap[
+                  MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
               if (idx != null) {
                 green.add(idx);
                 liveWordIndices.add(idx);
               }
             }
             for (final w0 in maglis.remoteYellowWords) {
-              final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+              final idx = _pageWordMap[
+                  MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
               if (idx != null) {
                 yellow.add(idx);
                 liveWordIndices.add(idx);
               }
             }
             for (final w0 in maglis.remoteRedWords) {
-              final idx = _pageWordMap[MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
+              final idx = _pageWordMap[
+                  MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
               if (idx != null) {
                 red.add(idx);
                 liveWordIndices.add(idx);
@@ -549,7 +575,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           for (final w in page.words) {
             if (!isBlurEffective &&
                 activeAyah != null &&
-                ((w.surah == targetSurah && w.ayah > activeAyah) || w.surah > targetSurah)) {
+                ((w.surah == targetSurah && w.ayah > activeAyah) ||
+                    w.surah > targetSurah)) {
               continue;
             }
             final w0 = w.word - 1;
@@ -787,7 +814,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       if (!_isLoading && _loadAttempts < _maxAttempts) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && (_page == null || _page!.isDisposed)) {
-            _safeLoadPage();
+            _page = null;
+            _isLoading = false;
+            _page = null;
+        _isLoading = false;
+        _safeLoadPage();
           }
         });
       }

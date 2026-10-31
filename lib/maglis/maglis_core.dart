@@ -81,9 +81,9 @@ class MaglisPacket {
           .values[tIdx.clamp(0, MaglisPacketType.values.length - 1)],
       seq: (m['q'] as int?) ?? 0,
       senderId: (m['u'] as String?) ?? '',
-      page: (m['p'] as int?) ?? 1,
-      surah: (m['s'] as int?) ?? 1,
-      ayah: (m['a'] as int?) ?? 1,
+      page: ((m['p'] as int?) ?? 1).clamp(1, 604),
+      surah: ((m['s'] as int?) ?? 1).clamp(1, 114),
+      ayah: ((m['a'] as int?) ?? 1).clamp(1, 286),
       activeWord: m['w'] as int?,
       greenWords: (m['g'] as List<dynamic>?)?.map((e) => e as int).toList() ??
           const [],

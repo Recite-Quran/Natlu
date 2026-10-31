@@ -452,10 +452,29 @@ class MaglisController extends ChangeNotifier {
           return;
         }
 
-        // Strict Single Reciter Rule:
-        // When any peer claims the floor, any local recording must stop immediately
-        // and yield the floor to the new reciter.
+        // Strict Single Reciter Rule with Deterministic Collision Arbitration:
+        // When any peer claims the floor:
         if (pkt.senderId != localPeerId) {
+          if (isLocalReciting) {
+            // Concurrent claim collision: smaller peer ID deterministically wins
+            final localWins = localPeerId.compareTo(pkt.senderId) < 0;
+            if (localWins) {
+              // Local peer retains the floor; re-assert claim so the other peer yields
+              _net?.sendPacket(
+                MaglisPacket(
+                  type: MaglisPacketType.floorClaim,
+                  seq: ++_seq,
+                  senderId: localPeerId,
+                  page: _remotePage,
+                  surah: _remoteSurah,
+                  ayah: _remoteAyah,
+                  activeReciterId: localPeerId,
+                  ts: DateTime.now().millisecondsSinceEpoch,
+                ),
+              );
+              return;
+            }
+          }
           onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
         }
         _activeReciterId = pkt.senderId;
