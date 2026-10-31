@@ -176,37 +176,69 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         ));
       });
     } else {
-      // ── MAKING A NEW MAGLIS AS HOST ──
+      // ── MAKING A NEW MAGLIS AS HOST: Pre-flight check to prevent code collision ──
+      setState(() => _isJoining = true);
       AppHaptics.lightImpact();
-      Navigator.of(context).pop();
 
-      app.showBanner(AppBannerInfo(
-        id: 'maglis_connecting',
-        messageAr: 'جاري افتتاح المجلس \u202A$codeAr\u202C...',
-        messageEn: 'Starting Maglis $codeEn...',
-        icon: Icons.wifi_calling_3_rounded,
-        customDuration: const Duration(seconds: 2),
-      ));
-
-      MaglisController.instance
-          .startSession(
-        code: trimmed,
-        isHost: true,
-        page: app.currentMushafPage.value,
-        surah: app.lastSurah,
-        ayah: app.lastAyah,
-      )
-          .then((success) {
-        if (success) {
+      MaglisNetworkEngine.isRoomCodeInUse(trimmed).then((inUse) async {
+        if (!mounted) return;
+        if (inUse) {
+          // Room code became occupied while dialog was open! Regenerate a fresh unique code
+          await _ensureUniqueNewCode();
+          if (!mounted) return;
+          setState(() => _isJoining = false);
           app.showBanner(AppBannerInfo(
-            id: 'maglis_created',
+            id: 'maglis_code_regenerated',
             messageAr:
-                'تم افتتاح مجلس القرآن \u202A$codeAr\u202C • شارك الرمز مع إخوانك',
-            messageEn: 'Started Quran Maglis $codeEn • Share code with peers',
-            icon: Icons.meeting_room_rounded,
-            customDuration: const Duration(seconds: 3),
+                'الرمز السابق أصبح مستخدماً، تم توليد رمز جديد تلقائياً: \u202A${formatMaglisCode(_newCode, isArabic: true)}\u202C',
+            messageEn:
+                'Previous code was in use, generated new code: $_newCode',
+            icon: Icons.refresh_rounded,
+            isWarning: true,
+            customDuration: const Duration(seconds: 4),
           ));
-        } else {
+          return;
+        }
+
+        setState(() => _isJoining = false);
+        Navigator.of(context).pop();
+
+        app.showBanner(AppBannerInfo(
+          id: 'maglis_connecting',
+          messageAr: 'جاري افتتاح المجلس \u202A$codeAr\u202C...',
+          messageEn: 'Starting Maglis $codeEn...',
+          icon: Icons.wifi_calling_3_rounded,
+          customDuration: const Duration(seconds: 2),
+        ));
+
+        MaglisController.instance
+            .startSession(
+          code: trimmed,
+          isHost: true,
+          page: app.currentMushafPage.value,
+          surah: app.lastSurah,
+          ayah: app.lastAyah,
+        )
+            .then((success) {
+          if (success) {
+            app.showBanner(AppBannerInfo(
+              id: 'maglis_created',
+              messageAr:
+                  'تم افتتاح مجلس القرآن \u202A$codeAr\u202C • شارك الرمز مع إخوانك',
+              messageEn: 'Started Quran Maglis $codeEn • Share code with peers',
+              icon: Icons.meeting_room_rounded,
+              customDuration: const Duration(seconds: 3),
+            ));
+          } else {
+            app.showBanner(AppBannerInfo(
+              id: 'maglis_error',
+              messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
+              messageEn: 'Could not connect. Check mic permissions and network.',
+              icon: Icons.error_outline_rounded,
+              customDuration: const Duration(seconds: 4),
+            ));
+          }
+        }).catchError((_) {
           app.showBanner(AppBannerInfo(
             id: 'maglis_error',
             messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
@@ -214,15 +246,19 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             icon: Icons.error_outline_rounded,
             customDuration: const Duration(seconds: 4),
           ));
-        }
+        });
       }).catchError((_) {
-        app.showBanner(AppBannerInfo(
-          id: 'maglis_error',
-          messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
-          messageEn: 'Could not connect. Check mic permissions and network.',
-          icon: Icons.error_outline_rounded,
-          customDuration: const Duration(seconds: 4),
-        ));
+        // If presence probe network error, proceed gracefully with creation
+        if (!mounted) return;
+        setState(() => _isJoining = false);
+        Navigator.of(context).pop();
+        MaglisController.instance.startSession(
+          code: trimmed,
+          isHost: true,
+          page: app.currentMushafPage.value,
+          surah: app.lastSurah,
+          ayah: app.lastAyah,
+        );
       });
     }
   }

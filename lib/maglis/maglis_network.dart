@@ -369,7 +369,7 @@ class MaglisNetworkEngine {
         if (isConnected) {
           final dc = _channels[peerId];
           if (dc == null ||
-              dc.state != RTCDataChannelState.RTCDataChannelOpen) {
+              dc.state == RTCDataChannelState.RTCDataChannelClosed) {
             _recoverDataChannel(peerId);
           }
         }
@@ -793,16 +793,18 @@ class MaglisNetworkEngine {
 
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         final bool isIceRestart = sig.data['iceRestart'] == true;
+        final bool isDataChannelRecovery = sig.data['dcRecovery'] == true;
+        final bool isRenegotiation = isIceRestart || isDataChannelRecovery;
 
-        // If we are initiator and this is not an ICE restart, ignore unexpected reverse offer
-        if (isInitiator && !isIceRestart && _peers.containsKey(remoteId)) {
+        // If we are initiator and this is not a renegotiation, ignore unexpected reverse offer
+        if (isInitiator && !isRenegotiation && _peers.containsKey(remoteId)) {
           return;
         }
 
         final existingOfferPc = _peers[remoteId];
         final existingOfferState = _peerStates[remoteId];
         if (existingOfferPc != null &&
-            !isIceRestart &&
+            !isRenegotiation &&
             (existingOfferState ==
                     RTCIceConnectionState.RTCIceConnectionStateConnected ||
                 existingOfferState ==
@@ -1175,8 +1177,10 @@ class MaglisNetworkEngine {
         await pc.setLocalDescription(
           RTCSessionDescription(mungedSdp, offer.type),
         );
-        await _sendSignal('offer',
-            targetId: remoteId, data: {'sdp': mungedSdp});
+        await _sendSignal('offer', targetId: remoteId, data: {
+          'sdp': mungedSdp,
+          'dcRecovery': true,
+        });
       } catch (e) {
         debugPrint('[MaglisNetwork] recoverDataChannel error: $e');
       } finally {
@@ -1511,6 +1515,7 @@ class MaglisNetworkEngine {
   }
 
   Future<void> _cleanupPeer(String peerId) async {
+    _peersNeedingCatchup.remove(peerId);
     _admittedPeers.remove(peerId);
     _iceQueues.remove(peerId);
     _pendingOutboundCandidates.remove(peerId);
@@ -1892,7 +1897,14 @@ class MaglisNetworkEngine {
           final sig = MaglisSignal.unpack(clear);
           if (sig.senderId == probePeerId) return;
 
-          if (!completer.isCompleted) completer.complete(true);
+          final isRealPresence = sig.type == 'presence_pong' ||
+              sig.type == 'beacon' ||
+              sig.type == 'offer' ||
+              sig.type == 'join_ack';
+
+          if (isRealPresence && !completer.isCompleted) {
+            completer.complete(true);
+          }
         } catch (_) {}
       }, onError: (_) {}, onDone: () {});
 
