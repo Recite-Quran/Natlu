@@ -121,9 +121,41 @@ export class MaglisRelay extends DurableObject {
   }
 }
 
+const FLEET_CONFIG = {
+  version: 2,
+  updated_at: "2026-10-31",
+  relays: [
+    "wss://quran-maglis.recitequrankarem.workers.dev",
+    "wss://relay.primal.net",
+    "wss://nostr.mom",
+    "wss://nos.lol",
+    "wss://relay.damus.io",
+    "wss://relay.snort.social",
+    "wss://offchain.pub",
+    "wss://nostr.bitcoiner.social",
+  ],
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:global.stun.twilio.com:3478" },
+  ],
+};
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/config") {
+      return new Response(JSON.stringify(FLEET_CONFIG), {
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "public, max-age=300",
+        },
+      });
+    }
 
     if (request.headers.get("Upgrade") === "websocket") {
       // Extract room identifier from query param ?room=12345 or path /room/12345

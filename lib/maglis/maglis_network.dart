@@ -78,24 +78,41 @@ class MaglisNetworkEngine {
         }
       }
 
-      // 2. Fetch fresh config in the background from GitHub raw (with CDN fallback)
-      const primaryUrl =
-          'https://raw.githubusercontent.com/Recite-Quran/Natlu/Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
+      // 2. Multi-tier fallback config sync:
+      // Tier 1: Cloudflare Edge Worker (/config) - Sub-30ms, no IP rate limits
+      // Tier 2: jsDelivr Global CDN - Worldwide distribution, bypasses worker blocking and GitHub rate limits
+      // Tier 3: GitHub Raw - Direct repository fallback
+      // Tier 4: Built-in hardcoded defaults (_defaultRelays, _defaultRtcConfig)
+      const edgeUrl =
+          'https://quran-maglis.recitequrankarem.workers.dev/config';
       const cdnUrl =
           'https://cdn.jsdelivr.net/gh/Recite-Quran/Natlu@Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
+      const primaryUrl =
+          'https://raw.githubusercontent.com/Recite-Quran/Natlu/Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
 
       http.Response? res;
+      // Try Tier 1: Cloudflare Edge
       try {
         res = await http
-            .get(Uri.parse(primaryUrl))
-            .timeout(const Duration(seconds: 4));
+            .get(Uri.parse(edgeUrl))
+            .timeout(const Duration(milliseconds: 2500));
       } catch (_) {}
 
+      // Try Tier 2: jsDelivr CDN
       if (res == null || res.statusCode != 200) {
         try {
           res = await http
               .get(Uri.parse(cdnUrl))
-              .timeout(const Duration(seconds: 4));
+              .timeout(const Duration(milliseconds: 2500));
+        } catch (_) {}
+      }
+
+      // Try Tier 3: GitHub Raw
+      if (res == null || res.statusCode != 200) {
+        try {
+          res = await http
+              .get(Uri.parse(primaryUrl))
+              .timeout(const Duration(milliseconds: 2500));
         } catch (_) {}
       }
 
@@ -154,6 +171,7 @@ class MaglisNetworkEngine {
   final Map<String, WebSocketChannel> _sockets = {};
   final Set<String> _reconnectingRelays = {};
   int _activeRelayIndex = 0;
+  int _consecutiveRelayFailures = 0;
   String get _currentRelayUrl =>
       _relays.isNotEmpty ? _relays[_activeRelayIndex % _relays.length] : '';
   DateTime? _lastPrimaryProbeTime;
@@ -426,6 +444,7 @@ class MaglisNetworkEngine {
         }
         // Primary relay is healthy again! Gracefully switch back to primary.
         _activeRelayIndex = 0;
+        _consecutiveRelayFailures = 0;
         for (final entry in _sockets.entries.toList()) {
           try {
             entry.value.sink.close();
@@ -471,6 +490,7 @@ class MaglisNetworkEngine {
           } catch (_) {}
           return;
         }
+        _consecutiveRelayFailures = 0;
         _subscribeRelay(ws);
       }).catchError((_) {
         handleFail();
@@ -532,13 +552,18 @@ class MaglisNetworkEngine {
     if (_reconnectingRelays.contains(url)) return;
     _reconnectingRelays.add(url);
 
-    // If active relay failed, advance to the next fallback relay in the pool
+    // 3-Strike Rule: Only advance to fallback relay after 3 consecutive failures on current relay.
+    // This prevents a momentary cellular blip or Wi-Fi flicker from immediately abandoning Cloudflare.
     if (url == _currentRelayUrl && _relays.isNotEmpty) {
-      _activeRelayIndex = (_activeRelayIndex + 1) % _relays.length;
+      _consecutiveRelayFailures++;
+      if (_consecutiveRelayFailures >= 3) {
+        _consecutiveRelayFailures = 0;
+        _activeRelayIndex = (_activeRelayIndex + 1) % _relays.length;
+      }
     }
 
-    // Connect to next active relay with 3s backoff
-    Future.delayed(const Duration(seconds: 3), () {
+    // Connect to next active relay with 2s backoff
+    Future.delayed(const Duration(seconds: 2), () {
       _reconnectingRelays.remove(url);
       if (!_disposed && _sockets.isEmpty) {
         _connectActiveRelay();

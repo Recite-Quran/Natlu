@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/app_haptics.dart';
@@ -74,389 +73,374 @@ class BottomActionBar extends StatelessWidget {
 
     return SafeArea(
       top: false,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final double maxW = constraints.maxWidth;
-          final bool isNarrow = maxW < 360.0;
+      child: RepaintBoundary(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final double maxW = constraints.maxWidth;
+            final bool isNarrow = maxW < 360.0;
 
-          final double dockHeight = isNarrow ? 46.0 : 48.0;
-          const double dockRadius = 14.0; // Less rounded, closer to a rectangle
-          const double hPad = 6.0;
-          const double borderW = 1.1;
-          const double rightTuck =
-              4.0; // Tucks right pill edge under record button
-          final double btnHeight = isNarrow ? 36.0 : 38.0;
+            final double dockHeight = isNarrow ? 46.0 : 48.0;
+            const double dockRadius = 14.0;
+            const double hPad = 6.0;
+            const double borderW = 1.1;
+            const double rightTuck = 4.0;
+            final double btnHeight = isNarrow ? 36.0 : 38.0;
 
-          const double protrusion = 4.5;
-          final double recHeight = dockHeight + (protrusion * 2.0);
-          final double micWidth = isNarrow ? 58.0 : 64.0;
+            const double protrusion = 4.5;
+            final double recHeight = dockHeight + (protrusion * 2.0);
+            final double micWidth = isNarrow ? 58.0 : 64.0;
 
-          final double stdBtnWidth = isNarrow ? 38.0 : 42.0;
-          final double gap = isNarrow ? 5.0 : 6.0;
-          final double maglisGap = isNarrow ? 4.0 : 5.0;
+            final double stdBtnWidth = isNarrow ? 38.0 : 42.0;
+            final double gap = isNarrow ? 5.0 : 6.0;
+            final double maglisGap = isNarrow ? 4.0 : 5.0;
 
-          final double normalWidth = math.min(maxW - 20.0, 480.0);
-          final double recordingWidth = hPad +
-              borderW +
-              micWidth +
-              gap +
-              stdBtnWidth +
-              gap +
-              stdBtnWidth +
-              1.0;
-          final double maglisWidth = math.max(300.0, maxW - 42.0);
+            final double normalWidth = math.min(maxW - 20.0, 480.0);
+            final double recordingWidth = hPad +
+                borderW +
+                micWidth +
+                gap +
+                stdBtnWidth +
+                gap +
+                stdBtnWidth +
+                1.0;
 
-          final double targetWidth = switch (mode) {
-            MicBarMode.recording => recordingWidth,
-            MicBarMode.maglis => maglisWidth,
-            MicBarMode.normal => normalWidth,
-          };
+            // Ensures 3-digit page numbers on narrow screens remain visible and right next to the bar
+            final double maglisLeftClearance = isNarrow ? 64.0 : 50.0;
+            final double maglisWidth =
+                math.max(200.0, maxW - maglisLeftClearance);
 
-          final double normalRightMargin =
-              math.max(10.0, (maxW - normalWidth) / 2.0);
-          final double rightMargin =
-              mode == MicBarMode.maglis ? 8.0 : normalRightMargin;
+            final double targetWidth = switch (mode) {
+              MicBarMode.recording => recordingWidth,
+              MicBarMode.maglis => maglisWidth,
+              MicBarMode.normal => normalWidth,
+            };
 
-          final double minNormalActionWidth =
-              (stdBtnWidth * 2.0) + (gap * 2.0) + 68.0;
-          final double minMaglisActionWidth = 210.0;
+            final double normalRightMargin =
+                math.max(10.0, (maxW - normalWidth) / 2.0);
+            final double rightMargin =
+                mode == MicBarMode.maglis ? 8.0 : normalRightMargin;
 
-          final Color pillBg =
-              isDark ? const Color(0xEE0F151D) : const Color(0xF6FFFFFF);
-          final Color pillBorder = isRecording
-              ? const Color(0xFFF43F5E).withValues(alpha: isDark ? 0.45 : 0.35)
-              : (isDark
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : Colors.black.withValues(alpha: 0.08));
+            final double minNormalActionWidth =
+                (stdBtnWidth * 2.0) + (gap * 2.0) + 68.0;
+            const double minMaglisActionWidth = 145.0;
 
-          return Padding(
-            padding: EdgeInsets.only(
-              bottom: 10.0,
-              right: rightMargin,
-              left: 8.0,
-            ),
-            child: Align(
-              alignment: Alignment.bottomRight,
-              child: SizedBox(
-                width: targetWidth,
-                height: dockHeight,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.centerRight,
-                  children: [
-                    // 1. Rectangular-Pill Back Chassis (tucked under record button on the right)
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeOutCubic,
-                      width: targetWidth,
-                      height: dockHeight,
-                      margin: const EdgeInsets.only(right: rightTuck),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(dockRadius),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black
-                                .withValues(alpha: isDark ? 0.48 : 0.10),
-                            blurRadius: 22,
-                            offset: const Offset(0, 7),
+            final Color pillBg =
+                isDark ? const Color(0xF40F151D) : const Color(0xFAFFFFFF);
+            final Color pillBorder = isRecording
+                ? const Color(0xFFF43F5E)
+                    .withValues(alpha: isDark ? 0.45 : 0.35)
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.08));
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: 10.0 - protrusion,
+                right: rightMargin,
+                left: 8.0,
+              ),
+              child: Align(
+                alignment: Alignment.bottomRight,
+                child: SizedBox(
+                  width: targetWidth,
+                  height: recHeight,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.centerRight,
+                    children: [
+                      // 1. Rectangular-Pill Back Chassis
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOutCubic,
+                        width: targetWidth,
+                        height: dockHeight,
+                        margin: const EdgeInsets.only(right: rightTuck),
+                        padding: const EdgeInsets.only(left: hPad),
+                        decoration: BoxDecoration(
+                          color: pillBg,
+                          borderRadius: BorderRadius.circular(dockRadius),
+                          border: Border.all(
+                            color: pillBorder,
+                            width: borderW,
                           ),
-                          if (isRecording)
+                          boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFF43F5E)
-                                  .withValues(alpha: isDark ? 0.22 : 0.14),
-                              blurRadius: 18,
-                              offset: const Offset(0, 3),
-                            ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(dockRadius),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 220),
-                            padding: const EdgeInsets.only(left: hPad),
-                            decoration: BoxDecoration(
-                              color: pillBg,
-                              borderRadius: BorderRadius.circular(dockRadius),
-                              border: Border.all(
-                                color: pillBorder,
-                                width: borderW,
-                              ),
-                            ),
-                            child: Directionality(
-                              textDirection: TextDirection.rtl,
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: micWidth - rightTuck - borderW,
-                                  ),
-                                  SizedBox(
-                                    width: mode == MicBarMode.maglis
-                                        ? maglisGap
-                                        : gap,
-                                  ),
-                                  Expanded(
-                                    child: AnimatedSwitcher(
-                                      duration:
-                                          const Duration(milliseconds: 200),
-                                      switchInCurve: Curves.easeOutCubic,
-                                      switchOutCurve: Curves.easeInCubic,
-                                      layoutBuilder:
-                                          (currentChild, previousChildren) {
-                                        return Stack(
-                                          clipBehavior: Clip.hardEdge,
-                                          alignment: Alignment.centerRight,
-                                          children: [
-                                            ...previousChildren.map(
-                                              (w) => IgnorePointer(child: w),
-                                            ),
-                                            if (currentChild != null)
-                                              currentChild,
-                                          ],
-                                        );
-                                      },
-                                      child: switch (mode) {
-                                        // CASE 1: SOLO RECORDING
-                                        MicBarMode.recording =>
-                                          SingleChildScrollView(
-                                            key: const ValueKey(
-                                              'mode_recording',
-                                            ),
-                                            scrollDirection: Axis.horizontal,
-                                            physics:
-                                                const NeverScrollableScrollPhysics(),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                _buildActionButton(
-                                                  child: Icon(
-                                                    isBlur
-                                                        ? Icons
-                                                            .visibility_off_rounded
-                                                        : Icons
-                                                            .visibility_rounded,
-                                                    size: 18.5,
-                                                    color: _btnFg(
-                                                      isDark,
-                                                      isActive: isBlur,
-                                                    ),
-                                                  ),
-                                                  tooltip: isAr
-                                                      ? 'إخفاء الآيات'
-                                                      : 'Hide Verses',
-                                                  isActive: isBlur,
-                                                  isDark: isDark,
-                                                  width: stdBtnWidth,
-                                                  height: btnHeight,
-                                                  dockHeight: dockHeight,
-                                                  onTap: onToggleBlur,
-                                                ),
-                                                SizedBox(width: gap),
-                                                _buildActionButton(
-                                                  child: Icon(
-                                                    isTajweed
-                                                        ? Icons
-                                                            .record_voice_over_rounded
-                                                        : Icons
-                                                            .record_voice_over_outlined,
-                                                    size: 18.5,
-                                                    color: _btnFg(
-                                                      isDark,
-                                                      isActive: isTajweed,
-                                                    ),
-                                                  ),
-                                                  tooltip: isAr
-                                                      ? 'أحكام التجويد'
-                                                      : 'Tajweed Rules',
-                                                  isActive: isTajweed,
-                                                  isDark: isDark,
-                                                  width: stdBtnWidth,
-                                                  height: btnHeight,
-                                                  dockHeight: dockHeight,
-                                                  onTap: onToggleTajweed,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-
-                                        // CASE 2: MAGLIS SESSION
-                                        MicBarMode.maglis =>
-                                          _NonOverflowingActionRow(
-                                            key: const ValueKey('mode_maglis'),
-                                            minWidth: minMaglisActionWidth,
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  flex: 10,
-                                                  child: _buildActionButton(
-                                                    child: Icon(
-                                                      isBlur
-                                                          ? Icons
-                                                              .visibility_off_rounded
-                                                          : Icons
-                                                              .visibility_rounded,
-                                                      size: 18.0,
-                                                      color: _btnFg(
-                                                        isDark,
-                                                        isActive: isBlur,
-                                                      ),
-                                                    ),
-                                                    tooltip: isAr
-                                                        ? 'إخفاء الآيات'
-                                                        : 'Hide Verses',
-                                                    isActive: isBlur,
-                                                    isDark: isDark,
-                                                    height: btnHeight,
-                                                    dockHeight: dockHeight,
-                                                    onTap: onToggleBlur,
-                                                  ),
-                                                ),
-                                                SizedBox(width: maglisGap),
-                                                Expanded(
-                                                  flex: 10,
-                                                  child: _buildActionButton(
-                                                    child: Icon(
-                                                      isTajweed
-                                                          ? Icons
-                                                              .record_voice_over_rounded
-                                                          : Icons
-                                                              .record_voice_over_outlined,
-                                                      size: 18.0,
-                                                      color: _btnFg(
-                                                        isDark,
-                                                        isActive: isTajweed,
-                                                      ),
-                                                    ),
-                                                    tooltip: isAr
-                                                        ? 'أحكام التجويد'
-                                                        : 'Tajweed Rules',
-                                                    isActive: isTajweed,
-                                                    isDark: isDark,
-                                                    height: btnHeight,
-                                                    dockHeight: dockHeight,
-                                                    onTap: onToggleTajweed,
-                                                  ),
-                                                ),
-                                                SizedBox(width: maglisGap),
-                                                Expanded(
-                                                  flex: 10,
-                                                  child: _buildActionButton(
-                                                    child: _EmptyMushafIcon(
-                                                      size: 18.0,
-                                                      color: _btnFg(isDark),
-                                                    ),
-                                                    tooltip: isAr
-                                                        ? 'اختيار السورة'
-                                                        : 'Select Surah',
-                                                    isActive: false,
-                                                    isDark: isDark,
-                                                    height: btnHeight,
-                                                    dockHeight: dockHeight,
-                                                    onTap: onSurahTap,
-                                                  ),
-                                                ),
-                                                SizedBox(width: maglisGap),
-                                                Expanded(
-                                                  flex: 25,
-                                                  child: _buildMaglisSessionBox(
-                                                    height: btnHeight,
-                                                    dockHeight: dockHeight,
-                                                    isDark: isDark,
-                                                    isAr: isAr,
-                                                    isNarrow: isNarrow,
-                                                  ),
-                                                ),
-                                                SizedBox(width: maglisGap),
-                                                Expanded(
-                                                  flex: 11,
-                                                  child: _buildLeaveButton(
-                                                    height: btnHeight,
-                                                    dockHeight: dockHeight,
-                                                    isAr: isAr,
-                                                    onTap: onMaglisExitTap ??
-                                                        () {},
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-
-                                        // CASE 3: NORMAL READING
-                                        MicBarMode.normal =>
-                                          _NonOverflowingActionRow(
-                                            key: const ValueKey('mode_normal'),
-                                            minWidth: minNormalActionWidth,
-                                            child: Row(
-                                              children: [
-                                                _buildMaglisEntryButton(
-                                                  isDark: isDark,
-                                                  isAr: isAr,
-                                                  width: stdBtnWidth,
-                                                  height: btnHeight,
-                                                  dockHeight: dockHeight,
-                                                  showNewBadge:
-                                                      app.showMaglisNewBadge,
-                                                  onTap: onMaglisTap ?? () {},
-                                                ),
-                                                SizedBox(width: gap),
-                                                Expanded(
-                                                  child: _buildSurahPill(
-                                                    isDark: isDark,
-                                                    isAr: isAr,
-                                                    isNarrow: isNarrow,
-                                                    height: btnHeight,
-                                                    dockHeight: dockHeight,
-                                                  ),
-                                                ),
-                                                SizedBox(width: gap),
-                                                _buildActionButton(
-                                                  child: Icon(
-                                                    Icons.tune_rounded,
-                                                    size: 18.5,
-                                                    color: _btnFg(isDark),
-                                                  ),
-                                                  tooltip: isAr
-                                                      ? 'الإعدادات'
-                                                      : 'Settings',
-                                                  isActive: false,
-                                                  isDark: isDark,
-                                                  width: stdBtnWidth,
-                                                  height: btnHeight,
-                                                  dockHeight: dockHeight,
-                                                  onTap: onSettingsTap,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                      },
+                              color: isRecording
+                                  ? const Color(0xFFF43F5E).withValues(
+                                      alpha: isDark ? 0.22 : 0.14,
+                                    )
+                                  : Colors.black.withValues(
+                                      alpha: isDark ? 0.40 : 0.08,
                                     ),
-                                  ),
-                                ],
-                              ),
+                              blurRadius: 14,
+                              offset: const Offset(0, 4),
                             ),
+                          ],
+                        ),
+                        child: Directionality(
+                          textDirection: TextDirection.rtl,
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: micWidth - rightTuck - borderW,
+                              ),
+                              SizedBox(
+                                width:
+                                    mode == MicBarMode.maglis ? maglisGap : gap,
+                              ),
+                              Expanded(
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 160),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  layoutBuilder:
+                                      (currentChild, previousChildren) {
+                                    return Stack(
+                                      clipBehavior: Clip.hardEdge,
+                                      alignment: Alignment.centerRight,
+                                      children: [
+                                        ...previousChildren.map(
+                                          (w) => IgnorePointer(child: w),
+                                        ),
+                                        if (currentChild != null) currentChild,
+                                      ],
+                                    );
+                                  },
+                                  child: switch (mode) {
+                                    // CASE 1: SOLO RECORDING
+                                    MicBarMode.recording =>
+                                      SingleChildScrollView(
+                                        key: const ValueKey('mode_recording'),
+                                        scrollDirection: Axis.horizontal,
+                                        physics:
+                                            const NeverScrollableScrollPhysics(),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            _buildActionButton(
+                                              child: Icon(
+                                                isBlur
+                                                    ? Icons
+                                                        .visibility_off_rounded
+                                                    : Icons.visibility_rounded,
+                                                size: 18.5,
+                                                color: _btnFg(
+                                                  isDark,
+                                                  isActive: isBlur,
+                                                ),
+                                              ),
+                                              tooltip: isAr
+                                                  ? 'إخفاء الآيات'
+                                                  : 'Hide Verses',
+                                              isActive: isBlur,
+                                              isDark: isDark,
+                                              width: stdBtnWidth,
+                                              height: btnHeight,
+                                              dockHeight: dockHeight,
+                                              onTap: onToggleBlur,
+                                            ),
+                                            SizedBox(width: gap),
+                                            _buildActionButton(
+                                              child: Icon(
+                                                isTajweed
+                                                    ? Icons
+                                                        .record_voice_over_rounded
+                                                    : Icons
+                                                        .record_voice_over_outlined,
+                                                size: 18.5,
+                                                color: _btnFg(
+                                                  isDark,
+                                                  isActive: isTajweed,
+                                                ),
+                                              ),
+                                              tooltip: isAr
+                                                  ? 'أحكام التجويد'
+                                                  : 'Tajweed Rules',
+                                              isActive: isTajweed,
+                                              isDark: isDark,
+                                              width: stdBtnWidth,
+                                              height: btnHeight,
+                                              dockHeight: dockHeight,
+                                              onTap: onToggleTajweed,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                    // CASE 2: MAGLIS SESSION
+                                    MicBarMode.maglis =>
+                                      _NonOverflowingActionRow(
+                                        key: const ValueKey('mode_maglis'),
+                                        minWidth: minMaglisActionWidth,
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              flex: 10,
+                                              child: _buildActionButton(
+                                                child: Icon(
+                                                  isBlur
+                                                      ? Icons
+                                                          .visibility_off_rounded
+                                                      : Icons
+                                                          .visibility_rounded,
+                                                  size: 18.0,
+                                                  color: _btnFg(
+                                                    isDark,
+                                                    isActive: isBlur,
+                                                  ),
+                                                ),
+                                                tooltip: isAr
+                                                    ? 'إخفاء الآيات'
+                                                    : 'Hide Verses',
+                                                isActive: isBlur,
+                                                isDark: isDark,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                onTap: onToggleBlur,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 10,
+                                              child: _buildActionButton(
+                                                child: Icon(
+                                                  isTajweed
+                                                      ? Icons
+                                                          .record_voice_over_rounded
+                                                      : Icons
+                                                          .record_voice_over_outlined,
+                                                  size: 18.0,
+                                                  color: _btnFg(
+                                                    isDark,
+                                                    isActive: isTajweed,
+                                                  ),
+                                                ),
+                                                tooltip: isAr
+                                                    ? 'أحكام التجويد'
+                                                    : 'Tajweed Rules',
+                                                isActive: isTajweed,
+                                                isDark: isDark,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                onTap: onToggleTajweed,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 10,
+                                              child: _buildActionButton(
+                                                child: _EmptyMushafIcon(
+                                                  size: 18.0,
+                                                  color: _btnFg(isDark),
+                                                ),
+                                                tooltip: isAr
+                                                    ? 'اختيار السورة'
+                                                    : 'Select Surah',
+                                                isActive: false,
+                                                isDark: isDark,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                onTap: onSurahTap,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 25,
+                                              child: _buildMaglisSessionBox(
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                isDark: isDark,
+                                                isAr: isAr,
+                                                isNarrow: isNarrow,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 11,
+                                              child: _buildLeaveButton(
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                isAr: isAr,
+                                                onTap: onMaglisExitTap ?? () {},
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                    // CASE 3: NORMAL READING
+                                    MicBarMode.normal =>
+                                      _NonOverflowingActionRow(
+                                        key: const ValueKey('mode_normal'),
+                                        minWidth: minNormalActionWidth,
+                                        child: Row(
+                                          children: [
+                                            _buildMaglisEntryButton(
+                                              isDark: isDark,
+                                              isAr: isAr,
+                                              width: stdBtnWidth,
+                                              height: btnHeight,
+                                              dockHeight: dockHeight,
+                                              showNewBadge:
+                                                  app.showMaglisNewBadge,
+                                              onTap: onMaglisTap ?? () {},
+                                            ),
+                                            SizedBox(width: gap),
+                                            Expanded(
+                                              child: _buildSurahPill(
+                                                isDark: isDark,
+                                                isAr: isAr,
+                                                isNarrow: isNarrow,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                              ),
+                                            ),
+                                            SizedBox(width: gap),
+                                            _buildActionButton(
+                                              child: Icon(
+                                                Icons.tune_rounded,
+                                                size: 18.5,
+                                                color: _btnFg(isDark),
+                                              ),
+                                              tooltip: isAr
+                                                  ? 'الإعدادات'
+                                                  : 'Settings',
+                                              isActive: false,
+                                              isDark: isDark,
+                                              width: stdBtnWidth,
+                                              height: btnHeight,
+                                              dockHeight: dockHeight,
+                                              onTap: onSettingsTap,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
 
-                    // 2. Protruding Hero Record Key (Flush with right edge)
-                    Positioned(
-                      top: -protrusion,
-                      bottom: -protrusion,
-                      right: 0.0,
-                      child: _buildMicButton(
-                        width: micWidth,
-                        height: recHeight,
-                        isDark: isDark,
+                      // 2. Protruding Hero Record Key (Flush with right edge)
+                      Positioned(
+                        top: 0.0,
+                        bottom: 0.0,
+                        right: 0.0,
+                        child: _buildMicButton(
+                          width: micWidth,
+                          height: recHeight,
+                          isDark: isDark,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -473,9 +457,7 @@ class BottomActionBar extends StatelessWidget {
     return _TapScale(
       onTapDown: AppHaptics.heavyImpact,
       onTap: onMic,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
+      child: Container(
         width: width,
         height: height,
         decoration: BoxDecoration(
@@ -491,14 +473,9 @@ class BottomActionBar extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: gradient[0].withValues(alpha: isDark ? 0.45 : 0.30),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.14),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+              color: gradient[0].withValues(alpha: isDark ? 0.38 : 0.25),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
@@ -543,8 +520,7 @@ class BottomActionBar extends StatelessWidget {
           width: width,
           height: dockHeight,
           child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+            child: Container(
               width: width ?? double.infinity,
               height: height,
               decoration: BoxDecoration(
@@ -564,7 +540,6 @@ class BottomActionBar extends StatelessWidget {
     );
   }
 
-  // Maglis Session Box (Unchanged except 1-member vector icon for extra number space)
   Widget _buildMaglisSessionBox({
     required double height,
     required double dockHeight,
@@ -604,10 +579,9 @@ class BottomActionBar extends StatelessWidget {
         child: SizedBox(
           height: dockHeight,
           child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+            child: Container(
               height: height,
-              padding: EdgeInsets.symmetric(horizontal: isNarrow ? 6.0 : 8.0),
+              padding: EdgeInsets.symmetric(horizontal: isNarrow ? 5.0 : 8.0),
               decoration: BoxDecoration(
                 color: _btnBg(isDark, isActive: isRemoteReciting),
                 borderRadius: BorderRadius.circular(8.0),
@@ -644,7 +618,6 @@ class BottomActionBar extends StatelessWidget {
                             ? Colors.white.withValues(alpha: 0.14)
                             : Colors.black.withValues(alpha: 0.12),
                       ),
-                      // 1-Member Vector Logo (saves horizontal space for numbers)
                       _OneMemberIcon(
                         size: isNarrow ? 13.5 : 14.5,
                         color: fgColor,
@@ -717,8 +690,8 @@ class BottomActionBar extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final btn = _buildActionButton(
-      child: _FourPersonsIcon(
-        size: 20.0,
+      child: _FivePersonsIcon(
+        size: 20.5,
         isDark: isDark,
       ),
       tooltip: isAr ? 'مجلس القرآن' : 'Quran Maglis',
@@ -863,112 +836,153 @@ class _NonOverflowingActionRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Eye-Comfort 4-Members Vector Icon (Two-Tier Non-Intersecting Slate Outlines)
+// Eye-Comfort 5-Members Community Maglis Icon (All 5 Have Heads + Shoulders)
 // ─────────────────────────────────────────────────────────────────────────────
-class _FourPersonsIcon extends StatelessWidget {
+class _FivePersonsIcon extends StatelessWidget {
   final double size;
   final bool isDark;
 
-  const _FourPersonsIcon({required this.size, required this.isDark});
+  const _FivePersonsIcon({required this.size, required this.isDark});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: size,
       height: size,
-      child: CustomPaint(painter: _FourPersonsPainter(isDark)),
+      child: CustomPaint(painter: _FivePersonsPainter(isDark)),
     );
   }
 }
 
-class _FourPersonsPainter extends CustomPainter {
+class _FivePersonsPainter extends CustomPainter {
   final bool isDark;
-  _FourPersonsPainter(this.isDark);
+  _FivePersonsPainter(this.isDark);
 
   @override
   void paint(Canvas canvas, Size size) {
     final double w = size.width;
     final double h = size.height;
 
-    // Soft eye-comfort slate tones (calm contrast, zero harsh black)
-    final Color frontColor =
-        isDark ? const Color(0xFFD8E2EE) : const Color(0xFF334155);
+    // Eye-comfort layered slate tones (foreground, mid-flank, back-row)
+    final Color centerColor =
+        isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155);
+    final Color midColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
     final Color backColor =
-        isDark ? const Color(0xFF7C8EA6) : const Color(0xFF8496AE);
+        isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8);
 
-    final Paint frontStroke = Paint()
-      ..color = frontColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.082
-      ..strokeCap = StrokeCap.round
+    // Back-row members (Head + Shoulderpaint)
+    final Paint backHead = Paint()
+      ..color = backColor
+      ..style = PaintingStyle.fill
       ..isAntiAlias = true;
 
-    final Paint backStroke = Paint()
+    final Paint backShoulder = Paint()
       ..color = backColor
       ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.074
+      ..strokeWidth = w * 0.072
       ..strokeCap = StrokeCap.round
       ..isAntiAlias = true;
 
-    // Back Left Member (Elevated tier, outer non-colliding shoulder arc)
-    canvas.drawCircle(Offset(w * 0.22, h * 0.25), w * 0.088, backStroke);
+    // Mid-flank members (Head + Shoulderpaint)
+    final Paint midHead = Paint()
+      ..color = midColor
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final Paint midShoulder = Paint()
+      ..color = midColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.080
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+
+    // Center foreground member (Head + Shoulderpaint)
+    final Paint centerHead = Paint()
+      ..color = centerColor
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    final Paint centerShoulder = Paint()
+      ..color = centerColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = w * 0.090
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+
+    // 1. Back-Left Member (Full head + curved shoulder arc)
+    canvas.drawCircle(Offset(w * 0.33, h * 0.17), w * 0.072, backHead);
     canvas.drawArc(
       Rect.fromCenter(
-        center: Offset(w * 0.21, h * 0.57),
-        width: w * 0.30,
+        center: Offset(w * 0.33, h * 0.43),
+        width: w * 0.24,
+        height: h * 0.25,
+      ),
+      math.pi * 1.12,
+      math.pi * 0.76,
+      false,
+      backShoulder,
+    );
+
+    // 2. Back-Right Member (Full head + curved shoulder arc)
+    canvas.drawCircle(Offset(w * 0.67, h * 0.17), w * 0.072, backHead);
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.67, h * 0.43),
+        width: w * 0.24,
+        height: h * 0.25,
+      ),
+      math.pi * 1.12,
+      math.pi * 0.76,
+      false,
+      backShoulder,
+    );
+
+    // 3. Front-Left Flanking Member (Full head + outer shoulder arc)
+    canvas.drawCircle(Offset(w * 0.16, h * 0.50), w * 0.082, midHead);
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.17, h * 0.82),
+        width: w * 0.27,
         height: h * 0.30,
       ),
-      math.pi * 1.05,
-      math.pi * 0.58,
+      math.pi * 1.06,
+      math.pi * 0.64,
       false,
-      backStroke,
+      midShoulder,
     );
 
-    // Back Right Member (Elevated tier, outer non-colliding shoulder arc)
-    canvas.drawCircle(Offset(w * 0.78, h * 0.25), w * 0.088, backStroke);
+    // 4. Front-Right Flanking Member (Full head + outer shoulder arc)
+    canvas.drawCircle(Offset(w * 0.84, h * 0.50), w * 0.082, midHead);
     canvas.drawArc(
       Rect.fromCenter(
-        center: Offset(w * 0.79, h * 0.57),
-        width: w * 0.30,
+        center: Offset(w * 0.83, h * 0.82),
+        width: w * 0.27,
         height: h * 0.30,
       ),
-      math.pi * 1.37,
-      math.pi * 0.58,
+      math.pi * 1.30,
+      math.pi * 0.64,
       false,
-      backStroke,
+      midShoulder,
     );
 
-    // Front Left Member (Foreground tier)
-    canvas.drawCircle(Offset(w * 0.36, h * 0.48), w * 0.102, frontStroke);
+    // 5. Center Foreground Member (Full head + full shoulder arc)
+    canvas.drawCircle(Offset(w * 0.50, h * 0.47), w * 0.098, centerHead);
     canvas.drawArc(
       Rect.fromCenter(
-        center: Offset(w * 0.35, h * 0.84),
-        width: w * 0.36,
-        height: h * 0.34,
+        center: Offset(w * 0.50, h * 0.86),
+        width: w * 0.38,
+        height: h * 0.35,
       ),
-      math.pi * 1.08,
-      math.pi * 0.78,
+      math.pi * 1.10,
+      math.pi * 0.80,
       false,
-      frontStroke,
-    );
-
-    // Front Right Member (Foreground tier)
-    canvas.drawCircle(Offset(w * 0.64, h * 0.48), w * 0.102, frontStroke);
-    canvas.drawArc(
-      Rect.fromCenter(
-        center: Offset(w * 0.65, h * 0.84),
-        width: w * 0.36,
-        height: h * 0.34,
-      ),
-      math.pi * 1.14,
-      math.pi * 0.78,
-      false,
-      frontStroke,
+      centerShoulder,
     );
   }
 
   @override
-  bool shouldRepaint(covariant _FourPersonsPainter old) => old.isDark != isDark;
+  bool shouldRepaint(covariant _FivePersonsPainter old) => old.isDark != isDark;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1164,7 +1178,7 @@ class _WaveformPainter extends CustomPainter {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tactile Scale Feedback
+// Ultra-Fast Forgiving Touch Handler (Zero GestureArena Delay, Zero setState)
 // ─────────────────────────────────────────────────────────────────────────────
 class _TapScale extends StatefulWidget {
   final Widget child;
@@ -1182,23 +1196,49 @@ class _TapScale extends StatefulWidget {
 }
 
 class _TapScaleState extends State<_TapScale> {
-  bool _down = false;
+  final ValueNotifier<bool> _down = ValueNotifier<bool>(false);
+  Offset? _downPos;
+
+  @override
+  void dispose() {
+    _down.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Listener(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) {
+      onPointerDown: (event) {
+        _downPos = event.position;
+        _down.value = true;
         widget.onTapDown?.call();
-        setState(() => _down = true);
       },
-      onTapUp: (_) => setState(() => _down = false),
-      onTapCancel: () => setState(() => _down = false),
-      onTap: widget.onTap,
-      child: AnimatedScale(
-        scale: _down ? 0.94 : 1.0,
-        duration: const Duration(milliseconds: 90),
-        curve: Curves.easeOutCubic,
+      onPointerUp: (event) {
+        final bool wasDown = _down.value;
+        _down.value = false;
+        if (wasDown && _downPos != null) {
+          // 36px forgiving radius so natural thumb roll or light tap never cancels
+          if ((event.position - _downPos!).distance <= 36.0) {
+            widget.onTap();
+          }
+        }
+        _downPos = null;
+      },
+      onPointerCancel: (_) {
+        _down.value = false;
+        _downPos = null;
+      },
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _down,
+        builder: (context, isDown, child) {
+          return AnimatedScale(
+            scale: isDown ? 0.94 : 1.0,
+            duration: const Duration(milliseconds: 60),
+            curve: Curves.easeOutCubic,
+            child: child,
+          );
+        },
         child: widget.child,
       ),
     );
