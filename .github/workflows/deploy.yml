@@ -26,15 +26,23 @@ jobs:
         with:
           node-version: 20
 
+      - name: Verify Cloudflare Token
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is missing or empty! Go to GitHub repo -> Settings -> Secrets and variables -> Actions -> and add 'CLOUDFLARE_API_TOKEN'."
+            exit 1
+          fi
+
       - name: Build Web App
         run: |
           chmod +x web/scripts/build.sh
           bash web/scripts/build.sh
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: 2aeefaef3564273a570980d9f70af9dc
-          command: pages deploy build/web --project-name=natlu --branch=${{ github.ref_name }}
-
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 2aeefaef3564273a570980d9f70af9dc
+        run: |
+          npx --yes wrangler pages deploy build/web --project-name=natlu --branch=main --commit-dirty=true

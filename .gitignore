@@ -106,5 +106,6 @@ windows/runner/*.dll
 windows/runner/*.exp
 windows/runner/*.lib
 
+pubspec.lock
 
 test
