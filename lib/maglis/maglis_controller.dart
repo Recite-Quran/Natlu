@@ -271,17 +271,17 @@ class MaglisController extends ChangeNotifier {
 
         for (final peerId in _connectedPeers.toList()) {
           final state = map[peerId];
-          final bool isExplicitlyGone = !map.containsKey(peerId) ||
+          final bool isExplicitlyClosed =
               state == RTCIceConnectionState.RTCIceConnectionStateClosed;
-          final bool isUnstable =
+          final bool isUnstableOrMissing = !map.containsKey(peerId) ||
               state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
               state == RTCIceConnectionState.RTCIceConnectionStateFailed;
 
-          if (isExplicitlyGone) {
+          if (isExplicitlyClosed) {
             _peerDisconnectTimers.remove(peerId)?.cancel();
             _onPeerLeft(peerId);
             peersChanged = true;
-          } else if (isUnstable) {
+          } else if (isUnstableOrMissing) {
             if (!_peerDisconnectTimers.containsKey(peerId)) {
               // Give an 8-second grace period for ICE to recover or renegotiate
               // before considering the peer departed. Eliminates banner/state flapping!
@@ -555,14 +555,10 @@ class MaglisController extends ChangeNotifier {
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         } else {
           if (isLocalReciting) break;
-          _remotePage = pkt.page;
-          _remoteSurah = pkt.surah;
-          _remoteAyah = pkt.ayah;
+          // When NO ONE is reciting, do NOT force-navigate Mushaf UI to another idle peer's page!
+          // Only update cumulative session highlights.
           if (cumulativeChanged || _cumulativeHighlights.isNotEmpty) {
             notifyListeners();
-          }
-          if (pkt.page >= 1 && pkt.page <= 604) {
-            onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
           }
         }
         break;
@@ -615,9 +611,33 @@ class MaglisController extends ChangeNotifier {
 
     // Periodic 2.5s recitation state sync: heals any packet dropped over cellular/VPN
     _recitationSyncTimer?.cancel();
+    int syncTicks = 0;
     _recitationSyncTimer =
         Timer.periodic(const Duration(milliseconds: 2500), (_) {
       if (!_inSession || !isLocalReciting) return;
+      syncTicks++;
+      final bool includeCumulative = (syncTicks % 3 == 0);
+
+      Map<String, int>? cumulativeMap;
+      if (includeCumulative && _cumulativeHighlights.isNotEmpty) {
+        cumulativeMap = <String, int>{};
+        _cumulativeHighlights.forEach((k, v) {
+          cumulativeMap![k.toRadixString(16)] = v;
+        });
+      }
+
+      Map<String, List<Map<String, dynamic>>>? currentVerseErrors;
+      if (_remoteWordErrors.isNotEmpty) {
+        _remoteWordErrors.forEach((key, list) {
+          final s = (key >> 20) & 0xFF;
+          final a = (key >> 8) & 0xFFF;
+          if (s == _remoteSurah && a == _remoteAyah) {
+            (currentVerseErrors ??= {})[key.toRadixString(16)] =
+                list.map((e) => compactErrorMap(e)).toList();
+          }
+        });
+      }
+
       _net?.sendPacket(
         MaglisPacket(
           type: MaglisPacketType.recitationUpdate,
@@ -631,6 +651,8 @@ class MaglisController extends ChangeNotifier {
           yellowWords: _remoteYellowWords,
           redWords: _remoteRedWords,
           activeReciterId: localPeerId,
+          cumulative: cumulativeMap,
+          errors: currentVerseErrors,
           ts: DateTime.now().millisecondsSinceEpoch,
         ),
       );
