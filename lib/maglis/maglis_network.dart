@@ -45,6 +45,21 @@ class MaglisNetworkEngine {
       {'urls': 'stun:stun4.l.google.com:19302'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
       {'urls': 'stun:global.stun.twilio.com:3478'},
+      {
+        'urls': 'turn:a.relay.metered.ca:80',
+        'username': 'e8dd65b92f6ec01359e4045c',
+        'credential': 'uWdWNmkhvyqTESwO',
+      },
+      {
+        'urls': 'turn:a.relay.metered.ca:443',
+        'username': 'e8dd65b92f6ec01359e4045c',
+        'credential': 'uWdWNmkhvyqTESwO',
+      },
+      {
+        'urls': 'turns:a.relay.metered.ca:443',
+        'username': 'e8dd65b92f6ec01359e4045c',
+        'credential': 'uWdWNmkhvyqTESwO',
+      },
     ],
     'iceTransportPolicy': 'all',
     'sdpSemantics': 'unified-plan',
@@ -259,6 +274,7 @@ class MaglisNetworkEngine {
   bool _disposed = false;
   bool _isSocketSubscribed = false;
   final int _engineStartTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  DateTime _lastRelayFrameTime = DateTime.now();
   Timer? _beaconTimer;
   Timer? _pingTimer;
   Timer? _throttleTimer;
@@ -446,8 +462,25 @@ class MaglisNetworkEngine {
       if (_disposed) return;
       if (_sockets.isEmpty) {
         _connectActiveRelay();
-      } else if (_activeRelayIndex != 0) {
-        _tryRestorePrimaryRelay();
+      } else {
+        // Detect dead half-open TCP zombie sockets on cellular (LiveKit ping watchdog standard)
+        final now = DateTime.now();
+        if (now.difference(_lastRelayFrameTime).inSeconds > 35) {
+          debugPrint(
+              '[MaglisNetwork] Zombie relay socket detected (no traffic for 35s), recycling...');
+          _lastRelayFrameTime = now;
+          for (final ws in _sockets.values) {
+            try {
+              ws.sink.close();
+            } catch (_) {}
+          }
+          _sockets.clear();
+          _connectActiveRelay();
+          return;
+        }
+        if (_activeRelayIndex != 0) {
+          _tryRestorePrimaryRelay();
+        }
       }
       // DataChannel health check on active WebRTC audio peers
       for (final entry in _peers.entries) {
@@ -812,6 +845,7 @@ class MaglisNetworkEngine {
 
   Future<void> _onRelayFrame(dynamic rawFrame) async {
     if (_disposed || rawFrame is! String) return;
+    _lastRelayFrameTime = DateTime.now();
     try {
       final list = jsonDecode(rawFrame);
       if (list is! List || list.length < 3 || list[0] != 'EVENT') return;
