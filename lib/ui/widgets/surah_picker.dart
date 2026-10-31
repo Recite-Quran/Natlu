@@ -72,7 +72,8 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
   /// Lazy initialize search cache only when the user actually types in search,
   /// keeping initial sheet opening completely instantaneous.
   void _ensureSearchCache() {
-    if (_cachedNormalizedAr == null || _cachedNormalizedAr!.length != _surahs.length) {
+    if (_cachedNormalizedAr == null ||
+        _cachedNormalizedAr!.length != _surahs.length) {
       final norm = List<String>.filled(_surahs.length, '');
       final lower = List<String>.filled(_surahs.length, '');
       for (int i = 0; i < _surahs.length; i++) {
@@ -149,7 +150,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
       child: Directionality(
         textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
         child: Container(
-          height: MediaQuery.sizeOf(context).height * 0.82,
+          height: MediaQuery.sizeOf(context).height * 0.70,
           decoration: BoxDecoration(
             color: c.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),

@@ -31,12 +31,14 @@ class SettingsDialog extends StatelessWidget {
                   top: Radius.circular(28),
                 ),
                 border: Border.all(
-                  color: c.border.withValues(alpha: app.isDarkMode ? 0.35 : 0.6),
+                  color:
+                      c.border.withValues(alpha: app.isDarkMode ? 0.35 : 0.6),
                   width: 1,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: app.isDarkMode ? 0.35 : 0.08),
+                    color: Colors.black
+                        .withValues(alpha: app.isDarkMode ? 0.35 : 0.08),
                     blurRadius: 16,
                     offset: const Offset(0, -4),
                   ),
@@ -97,7 +99,8 @@ class SettingsDialog extends StatelessWidget {
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: app.isDarkMode ? 0.20 : 0.03),
+                                  color: Colors.black.withValues(
+                                      alpha: app.isDarkMode ? 0.20 : 0.03),
                                   blurRadius: 10,
                                 ),
                               ],
@@ -114,7 +117,8 @@ class SettingsDialog extends StatelessWidget {
                                     selected: isAr ? 0 : 1,
                                     c: c,
                                     onSelected: (i) {
-                                      if ((i == 0 && !isAr) || (i == 1 && isAr)) {
+                                      if ((i == 0 && !isAr) ||
+                                          (i == 1 && isAr)) {
                                         app.toggleLanguage();
                                       }
                                     },
@@ -133,7 +137,8 @@ class SettingsDialog extends StatelessWidget {
                                         : ['White', 'Black'],
                                     selected: app.theme.index,
                                     c: c,
-                                    onSelected: (i) => app.setTheme(AppTheme.values[i]),
+                                    onSelected: (i) =>
+                                        app.setTheme(AppTheme.values[i]),
                                   ),
                                 ),
                               ],
@@ -150,12 +155,14 @@ class SettingsDialog extends StatelessWidget {
                               color: c.surfaceHigh,
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: const Color(0xFF229ED9).withValues(alpha: app.isDarkMode ? 0.35 : 0.25),
+                                color: const Color(0xFF229ED9).withValues(
+                                    alpha: app.isDarkMode ? 0.35 : 0.25),
                                 width: 1,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withValues(alpha: app.isDarkMode ? 0.20 : 0.03),
+                                  color: Colors.black.withValues(
+                                      alpha: app.isDarkMode ? 0.20 : 0.03),
                                   blurRadius: 10,
                                 ),
                               ],
@@ -165,36 +172,47 @@ class SettingsDialog extends StatelessWidget {
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(16),
                                 onTap: () async {
-                                  final uri = Uri.parse('https://t.me/AlQuranElMageed');
+                                  final uri =
+                                      Uri.parse('https://t.me/AlQuranElMageed');
                                   try {
-                                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                    await launchUrl(uri,
+                                        mode: LaunchMode.externalApplication);
                                   } catch (_) {}
                                 },
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 14, vertical: 11),
                                   child: Row(
                                     children: [
-                                      Container(
-                                        width: 36,
-                                        height: 36,
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF229ED9).withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(11),
-                                        ),
-                                        child: const Icon(
-                                          Icons.send_rounded,
-                                          color: Color(0xFF229ED9),
-                                          size: 19,
-                                        ),
+                                      Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          Container(
+                                            width: 22,
+                                            height: 22,
+                                            decoration: const BoxDecoration(
+                                              color: Colors.white,
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                          const Icon(
+                                            Icons.telegram,
+                                            color: Color(0xFF229ED9),
+                                            size: 36,
+                                          ),
+                                        ],
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             Text(
-                                              isAr ? 'تواصل معنا عبر تيليجرام' : 'Contact on Telegram',
+                                              isAr
+                                                  ? 'وأمرهم شورى بينهم'
+                                                  : 'Their affair is mutual consultation',
                                               style: TextStyle(
                                                 color: c.text,
                                                 fontSize: 13.5,
@@ -205,7 +223,8 @@ class SettingsDialog extends StatelessWidget {
                                             Text(
                                               '@AlQuranElMageed',
                                               style: TextStyle(
-                                                color: c.textSecondary.withValues(alpha: 0.8),
+                                                color: c.textSecondary
+                                                    .withValues(alpha: 0.8),
                                                 fontSize: 11.5,
                                                 fontWeight: FontWeight.w500,
                                               ),
@@ -214,13 +233,15 @@ class SettingsDialog extends StatelessWidget {
                                         ),
                                       ),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 6),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFF229ED9),
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
                                         ),
                                         child: Text(
-                                          isAr ? 'مراسلة' : 'Open',
+                                          isAr ? 'مراسلة' : 'Message',
                                           style: const TextStyle(
                                             color: Colors.white,
                                             fontSize: 12,
@@ -243,12 +264,15 @@ class SettingsDialog extends StatelessWidget {
                           child: InkWell(
                             borderRadius: BorderRadius.circular(8),
                             onTap: () async {
-                              final prefs = await SharedPreferences.getInstance();
+                              final prefs =
+                                  await SharedPreferences.getInstance();
                               final savedSurah = prefs.getInt('last_surah');
                               final savedAyah = prefs.getInt('last_ayah');
                               await prefs.clear();
-                              if (savedSurah != null) await prefs.setInt('last_surah', savedSurah);
-                              if (savedAyah != null) await prefs.setInt('last_ayah', savedAyah);
+                              if (savedSurah != null)
+                                await prefs.setInt('last_surah', savedSurah);
+                              if (savedAyah != null)
+                                await prefs.setInt('last_ayah', savedAyah);
                               if (context.mounted) {
                                 await app.load();
                                 if (context.mounted) {
@@ -258,20 +282,25 @@ class SettingsDialog extends StatelessWidget {
                               }
                             },
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
                                     Icons.refresh_rounded,
                                     size: 13,
-                                    color: c.textSecondary.withValues(alpha: 0.65),
+                                    color:
+                                        c.textSecondary.withValues(alpha: 0.65),
                                   ),
                                   const SizedBox(width: 5),
                                   Text(
-                                    isAr ? 'إعادة ضبط الإعدادات الافتراضية' : 'Reset to Default Settings',
+                                    isAr
+                                        ? 'إعادة ضبط الإعدادات الافتراضية'
+                                        : 'Reset to Default Settings',
                                     style: TextStyle(
-                                      color: c.textSecondary.withValues(alpha: 0.70),
+                                      color: c.textSecondary
+                                          .withValues(alpha: 0.70),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
                                       height: 1.1,
