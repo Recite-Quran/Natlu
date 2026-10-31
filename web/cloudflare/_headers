@@ -26,6 +26,9 @@
 /apple-touch-icon.png
   Cache-Control: no-cache, no-store, must-revalidate
 
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+
 /index.html
   Cache-Control: no-cache, no-store, must-revalidate
 

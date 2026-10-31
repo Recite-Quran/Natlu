@@ -1,7 +1,7 @@
 // Service Worker for Recite Quran (اتلو القران)
 // Provides complete offline caching, dynamic caching, and Cross-Origin Isolation (COOP/COEP) for WebAssembly.
 
-const CACHE_NAME = 'recite-quran-pwa-v21-1793468743';
+const CACHE_NAME = 'recite-quran-pwa-v21-1793472779';
 
 const STATIC_PRECACHE = [
   './',
@@ -42,6 +42,8 @@ const STATIC_PRECACHE = [
   'assets/packages/recite_quran/assets/model/tokens.txt',
   'assets/packages/qvp_flutter/assets/wasm/qvp_ffi.wasm',
   'assets/packages/qvp_flutter/assets/js/qvp.js',
+  'assets/packages/record_web/assets/js/record.worklet.js',
+  'assets/packages/wakelock_plus/assets/no_sleep.js',
   'assets/shaders/ink_sparkle.frag',
   'assets/shaders/stretch_effect.frag'
 ];

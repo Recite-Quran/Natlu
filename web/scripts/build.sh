@@ -48,6 +48,6 @@ mkdir -p functions build/web/functions
 cp web/cloudflare/functions/download-model.js functions/download-model.js 2>/dev/null || true
 cp web/cloudflare/functions/download-model.js build/web/functions/download-model.js 2>/dev/null || true
 cp web/cloudflare/wrangler.toml build/web/wrangler.toml 2>/dev/null || true
-rm -rf build/web/scripts build/web/cloudflare 2>/dev/null || true
+rm -rf build/web/scripts build/web/cloudflare build/web/assets/packages/sherpa_onnx_web 2>/dev/null || true
 
 echo "=== Build Complete! Deploy directory: build/web ==="

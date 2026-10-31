@@ -421,12 +421,12 @@
       }
     });
 
-    // Fallback: warm up Sherpa WASM in background after 2.5s
+    // Fallback: warm up Sherpa WASM in background after 8s (prioritizing initial UI render)
     setTimeout(function () {
       if (hasAcceptedBandwidth && typeof window.loadSherpaWasmRuntime === 'function') {
         window.loadSherpaWasmRuntime();
       }
-    }, 2500);
+    }, 8000);
 
     // Fallback: Observe Flutter elements entering DOM
     domObserver = new MutationObserver(function () {

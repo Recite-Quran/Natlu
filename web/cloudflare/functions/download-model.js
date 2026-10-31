@@ -43,7 +43,8 @@ export async function onRequest(context) {
   headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
   headers.set('Accept-Ranges', 'bytes');
   headers.set('Content-Type', 'application/octet-stream');
-  headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  // Allow Cloudflare Edge to cache immutable 72MB model for maximum download performance and zero GitHub throttling
+  headers.set('Cache-Control', 'public, max-age=604800, s-maxage=2592000');
 
   const contentLength = fetchResponse.headers.get('content-length');
   if (contentLength) {
