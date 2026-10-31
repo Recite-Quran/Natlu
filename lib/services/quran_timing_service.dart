@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer' show log;
 import 'dart:io';
 import 'dart:isolate';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../state/app_state.dart';
@@ -193,8 +194,8 @@ class QuranTimingService {
 
     () async {
       try {
-        // 1. Check local persistent disk cache first (instant ~1ms)
-        final cacheFile = await _getDiskCacheFile(surah);
+        // 1. Check local persistent disk cache first (instant ~1ms on native)
+        final cacheFile = kIsWeb ? null : await _getDiskCacheFile(surah);
         if (cacheFile != null && await cacheFile.exists()) {
           try {
             final content = await cacheFile.readAsString();
@@ -250,10 +251,12 @@ class QuranTimingService {
       if (response.statusCode == 200) {
         final body = utf8.decode(response.bodyBytes);
 
-        // Cache to disk asynchronously for instant future loads
-        _getDiskCacheFile(surah).then((file) {
-          if (file != null) file.writeAsString(body).catchError((_) => file);
-        }).catchError((_) {});
+        // Cache to disk asynchronously for instant future loads on native
+        if (!kIsWeb) {
+          _getDiskCacheFile(surah).then((file) {
+            if (file != null) file.writeAsString(body).catchError((_) => file);
+          }).catchError((_) {});
+        }
 
         return await _parseJsonAuto(surah, body);
       }

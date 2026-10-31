@@ -215,6 +215,9 @@ class VerseAudioPlayer {
   /// or progressive streaming URL.
   static Future<AudioSource> createAyahAudioSource(int surah, int ayah) async {
     final url = getAyahAudioUrl(surah, ayah);
+    if (kIsWeb) {
+      return AudioSource.uri(Uri.parse(url));
+    }
     try {
       final file = await getLocalAyahFile(surah, ayah);
       if (file.existsSync() && file.lengthSync() > 1024) {
@@ -232,6 +235,9 @@ class VerseAudioPlayer {
   /// the tiny ~20KB file to disk once for instant offline playback.
   static Future<String> ensureAyahDownloaded(int surah, int ayah) async {
     final url = getAyahAudioUrl(surah, ayah);
+    if (kIsWeb) {
+      return url;
+    }
     try {
       final file = await getLocalAyahFile(surah, ayah);
       if (file.existsSync() && file.lengthSync() > 1024) {
@@ -298,8 +304,9 @@ class VerseAudioPlayer {
   /// Explicitly configures and activates the native media audio session (STREAM_MUSIC)
   /// so recitation plays through high-fidelity media speakers at full volume.
   static Future<void> ensureMediaAudioSession() async {
-    if (defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS) {
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+         defaultTargetPlatform == TargetPlatform.iOS)) {
       try {
         final session = await AudioSession.instance;
         await session.configure(const AudioSessionConfiguration.music());

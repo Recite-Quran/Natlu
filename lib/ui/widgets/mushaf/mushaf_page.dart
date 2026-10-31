@@ -32,7 +32,11 @@ class MushafPageWidget extends StatefulWidget {
 class _MushafPageWidgetState extends State<MushafPageWidget>
     with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive {
+    final curr = AppState.instance.currentMushafPage.value;
+    if (curr <= 0) return true;
+    return (widget.pageNumber - curr).abs() <= 1;
+  }
 
   QvpPage? _page;
   bool _isLoading = true;
@@ -120,6 +124,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _recitationGreenHandle = 0;
       _recitationYellowHandle = 0;
       _recitationRedHandle = 0;
+      updateKeepAlive();
       _loadPage();
     }
     if (oldWidget.controller != widget.controller) {
@@ -146,9 +151,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     super.dispose();
   }
 
+  void _onCurrentMushafPageChanged() {
+    updateKeepAlive();
+    _syncVisuals();
+  }
+
   void _attachListeners() {
     final app = AppState.instance;
-    app.currentMushafPage.addListener(_syncVisuals);
+    app.currentMushafPage.addListener(_onCurrentMushafPageChanged);
     app.activeAudioWordIndex.addListener(_syncVisuals);
     app.activeAudioAyah.addListener(_onAudioStateChanged);
     app.activeAudioSurah.addListener(_onAudioStateChanged);
@@ -164,7 +174,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _detachListeners() {
     final app = AppState.instance;
-    app.currentMushafPage.removeListener(_syncVisuals);
+    app.currentMushafPage.removeListener(_onCurrentMushafPageChanged);
     app.activeAudioWordIndex.removeListener(_syncVisuals);
     app.activeAudioAyah.removeListener(_onAudioStateChanged);
     app.activeAudioSurah.removeListener(_onAudioStateChanged);
@@ -397,17 +407,31 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           _lastHiddenWords.isEmpty &&
           !themeChanged;
 
+      final bool hasExistingRecitation = _lastGreenWords.isNotEmpty ||
+          _lastYellowWords.isNotEmpty ||
+          _lastRedWords.isNotEmpty ||
+          _lastHiddenWords.isNotEmpty;
+
+      bool hasLocalRecitation = false;
+      if (ctrl.activeAyah.value != null) {
+        hasLocalRecitation = true;
+      } else {
+        for (final s in page.surahs()) {
+          if (ctrl.completedAyahsFor(s.number).isNotEmpty) {
+            hasLocalRecitation = true;
+            break;
+          }
+        }
+      }
+
       final bool needsWordEvaluation = !skipRemoteWordScan &&
           (widget.isRecording ||
               hasRemoteReciterOnPage ||
               hasNewCumulative ||
               inMaglis ||
               isBlurEffective ||
-              themeChanged ||
-              _lastGreenWords.isNotEmpty ||
-              _lastYellowWords.isNotEmpty ||
-              _lastRedWords.isNotEmpty ||
-              _lastHiddenWords.isNotEmpty);
+              hasExistingRecitation ||
+              hasLocalRecitation);
 
       if (needsWordEvaluation) {
         final green = <int>[];
@@ -708,13 +732,15 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         ? Colors.white.withValues(alpha: 0.25)
         : const Color(0xFF64748B).withValues(alpha: 0.35);
 
+    final bool hasSurahHeaders = page.surahHeaders().isNotEmpty;
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          IgnorePointer(
-            child: RepaintBoundary(
+          if (hasSurahHeaders)
+            IgnorePointer(
               child: CustomPaint(
                 painter: SurahHeaderPainter(
                   page: page,
@@ -723,7 +749,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
                 ),
               ),
             ),
-          ),
           QvpPageView(
             key: ValueKey('qvp_page_view_${widget.pageNumber}'),
             page: page,
@@ -745,19 +770,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onDecorationTap: _onDecorationTap,
           ),
           IgnorePointer(
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: AyahMarkPainter(
-                  page: page,
-                  app: app,
-                  spinnerAnimation: _spinnerController,
-                  surfaceColor: c.surface,
-                  goldColor: c.gold,
-                  neutralRingColor: neutralRingColor,
-                  ayahHighlightColor: isDark
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : const Color(0xFF64748B).withValues(alpha: 0.09),
-                ),
+            child: CustomPaint(
+              painter: AyahMarkPainter(
+                page: page,
+                app: app,
+                spinnerAnimation: _spinnerController,
+                surfaceColor: c.surface,
+                goldColor: c.gold,
+                neutralRingColor: neutralRingColor,
+                ayahHighlightColor: isDark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : const Color(0xFF64748B).withValues(alpha: 0.09),
               ),
             ),
           ),

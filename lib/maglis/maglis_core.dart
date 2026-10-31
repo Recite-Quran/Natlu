@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 import 'package:audio_session/audio_session.dart';
 import 'package:bip340/bip340.dart' as bip340;
@@ -331,7 +330,7 @@ class MaglisPlatform {
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return true;
     try {
-      if (Platform.isAndroid || Platform.isIOS) {
+      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
         final mic = await Permission.microphone.request();
         return mic.isGranted;
       }
@@ -368,23 +367,23 @@ class MaglisPlatform {
           'audioSampleRate': 48000,
           'audioOutputSampleRate': 48000,
           'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
-          if (Platform.isAndroid)
+          if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android))
             'androidAudioConfiguration': androidConfig.toMap(),
         });
       } catch (_) {}
 
       // 2. Set silent microphone mute mode (prevents OS beep on iOS/macOS)
       try {
-        if (Platform.isIOS || Platform.isMacOS) {
+        if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS)) {
           await Helper.setMicrophoneMuteMode(MicrophoneMuteMode.inputMixer);
         }
       } catch (_) {}
 
       // 3. Configure platform audio routing for high-fidelity media loudspeaker playout
-      if (Platform.isAndroid) {
+      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android)) {
         await Helper.setAndroidAudioConfiguration(androidConfig);
         await Helper.setSpeakerphoneOn(true);
-      } else if (Platform.isIOS) {
+      } else if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
         try {
           await Helper.ensureAudioSession();
         } catch (_) {}
@@ -404,7 +403,7 @@ class MaglisPlatform {
       }
 
       // 4. Configure system audio_session for loud media playout & hardware speakerphone
-      if (Platform.isAndroid || Platform.isIOS) {
+      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
         try {
           final session = await AudioSession.instance;
           await session.configure(
@@ -454,7 +453,7 @@ class MaglisPlatform {
   static Future<void> setSpeaker(bool on) async {
     if (kIsWeb) return;
     try {
-      if (Platform.isAndroid || Platform.isIOS) {
+      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
         await Helper.setSpeakerphoneOn(on);
       }
     } catch (_) {}
@@ -469,13 +468,13 @@ class MaglisPlatform {
       _interruptionSub?.cancel();
       _interruptionSub = null;
 
-      if (Platform.isAndroid) {
+      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android)) {
         await Helper.setAndroidAudioConfiguration(
           AndroidAudioConfiguration.media,
         );
         await Helper.clearAndroidCommunicationDevice();
         await Helper.setSpeakerphoneOn(false);
-      } else if (Platform.isIOS) {
+      } else if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
             appleAudioCategory: AppleAudioCategory.playback,

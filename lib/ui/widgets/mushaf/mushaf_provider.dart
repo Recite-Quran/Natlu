@@ -48,6 +48,8 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
+  final Map<int, Uint8List> _webPageBytes = {};
+  Uint8List? _webAtlasBytes;
   static const int _maxCachedPages = 64;
   Timer? _preloadDebounce;
 
@@ -55,7 +57,7 @@ class MushafProvider {
     final size = viewportSize ?? lastViewportSize;
     if (size == null || size.width <= 0 || size.height <= 0) return;
     _preloadDebounce?.cancel();
-    _preloadDebounce = Timer(const Duration(milliseconds: 20), () {
+    _preloadDebounce = Timer(const Duration(milliseconds: 35), () {
       unawaited(_doPreloadAdjacentPages(pageNumber, size));
     });
   }
@@ -74,7 +76,7 @@ class MushafProvider {
       surahFrames: false,
     );
 
-    for (final target in [pageNumber + 1, pageNumber + 2, pageNumber - 1, pageNumber - 2]) {
+    for (final target in [pageNumber + 1, pageNumber - 1]) {
       if (target >= 1 && target <= 604) {
         await _preloadSinglePage(target, size, dpr, inkColor, layout);
       }
@@ -112,6 +114,31 @@ class MushafProvider {
   }
 
   Future<void> _ensureExtracted() async {
+    if (kIsWeb) {
+      if (_webAtlasBytes != null && _webPageBytes.length >= 604) return;
+      try {
+        final archiveData = await rootBundle.load('assets/pages.tar.xz');
+        final bytes = archiveData.buffer.asUint8List();
+        final tarBytes = XZDecoder().decodeBytes(bytes);
+        final archive = TarDecoder().decodeBytes(tarBytes);
+        for (final file in archive) {
+          if (file.isFile) {
+            final fileName = file.name.replaceAll(r'\', '/').split('/').last;
+            if (fileName == 'atlas.qva') {
+              _webAtlasBytes = file.content;
+            } else if (fileName.endsWith('.qvp')) {
+              final pageNum = int.tryParse(fileName.replaceAll('.qvp', ''));
+              if (pageNum != null) {
+                _webPageBytes[pageNum] = file.content;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error extracting pages.tar.xz on Web: $e');
+      }
+      return;
+    }
     if (_extractedPagesPath != null) return;
     try {
       final appDir = await getApplicationSupportDirectory();
@@ -171,18 +198,29 @@ class MushafProvider {
     _loadingCompleter = Completer<void>();
 
     try {
+      if (kIsWeb) {
+        await QvpEngine.initWeb();
+      }
       _engine ??= QvpEngine.open();
       await _ensureExtracted();
 
       if (_atlas == null) {
         final Uint8List atlasBytes;
-        final localAtlas = _extractedPagesPath != null
-            ? File('$_extractedPagesPath/atlas.qva')
-            : null;
-        if (localAtlas != null && localAtlas.existsSync()) {
-          atlasBytes = await localAtlas.readAsBytes();
+        if (kIsWeb) {
+          if (_webAtlasBytes != null) {
+            atlasBytes = _webAtlasBytes!;
+          } else {
+            throw StateError('Mushaf atlas.qva not found in Web memory');
+          }
         } else {
-          throw StateError('Mushaf atlas.qva not found at ${localAtlas?.path}');
+          final localAtlas = _extractedPagesPath != null
+              ? File('$_extractedPagesPath/atlas.qva')
+              : null;
+          if (localAtlas != null && localAtlas.existsSync()) {
+            atlasBytes = await localAtlas.readAsBytes();
+          } else {
+            throw StateError('Mushaf atlas.qva not found at ${localAtlas?.path}');
+          }
         }
         _atlas = _engine!.loadAtlas(atlasBytes);
       }
@@ -213,13 +251,22 @@ class MushafProvider {
 
     try {
       final Uint8List pageBytes;
-      final localPage = _extractedPagesPath != null
-          ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
-          : null;
-      if (localPage != null && localPage.existsSync()) {
-        pageBytes = await localPage.readAsBytes();
+      if (kIsWeb) {
+        final p = _webPageBytes[pageNumber];
+        if (p != null) {
+          pageBytes = p;
+        } else {
+          throw StateError('Mushaf page $pageNumber not found in Web memory');
+        }
       } else {
-        throw StateError('Mushaf page $pageNumber not found at ${localPage?.path}');
+        final localPage = _extractedPagesPath != null
+            ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
+            : null;
+        if (localPage != null && localPage.existsSync()) {
+          pageBytes = await localPage.readAsBytes();
+        } else {
+          throw StateError('Mushaf page $pageNumber not found at ${localPage?.path}');
+        }
       }
       final page = _engine!.loadPage(pageBytes);
       page.hide(Sel.kind(QvpKind.ayahMarkOrnament));

@@ -49,7 +49,7 @@ void main() async {
       WidgetsFlutterBinding.ensureInitialized();
 
       // Initialize Windows audio backend as in reference app (alquranalkareem / quran_library)
-      if (defaultTargetPlatform == TargetPlatform.windows) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
         try {
           JustAudioMediaKit.bufferSize = 2 * 1024 * 1024;
           JustAudioMediaKit.ensureInitialized(windows: true);
@@ -57,8 +57,7 @@ void main() async {
       }
 
       // Initialize audio session for standard media/recitation playback (STREAM_MUSIC)
-      if (defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.android) {
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android)) {
         try {
           final session = await AudioSession.instance;
           await session.configure(
@@ -259,7 +258,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     // during the critical startup window.
     Future.delayed(const Duration(seconds: 15), _checkForUpdates);
 
-    if (defaultTargetPlatform == TargetPlatform.android) {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         try {
           await FlutterDisplayMode.setHighRefreshRate();
@@ -274,7 +273,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   Future<void> _checkForUpdates() async {
-    if (defaultTargetPlatform != TargetPlatform.android) return;
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     try {
       const platform = MethodChannel('com.recitequran.app/playstore');
       final bool hasPlayStore = await platform.invokeMethod('isPlayStoreInstalled');
@@ -421,8 +420,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   Future<bool> _ensureMicPermission(PermissionReason reason) async {
-    if (defaultTargetPlatform != TargetPlatform.android &&
-        defaultTargetPlatform != TargetPlatform.iOS) {
+    if (kIsWeb || (defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS)) {
       return true;
     }
     final status = await Permission.microphone.status;
@@ -462,7 +460,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       if (isAudio) {
         // While verse audio is playing on Android, release the hardware mic
         // so playback doesn't conflict with capture or get invalidated by Android OS.
-        if (defaultTargetPlatform == TargetPlatform.android) {
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
           _audio.stop().catchError((_) {});
         }
       } else {
@@ -470,7 +468,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         _audio.clearBuffer();
         _engine.resetBuffer();
         // On Android, seamlessly re-open the mic stream so recitation works immediately!
-        if (defaultTargetPlatform == TargetPlatform.android) {
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
           _startAudioRecordingStream();
         }
       }

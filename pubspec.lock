@@ -760,7 +760,7 @@ packages:
     source: hosted
     version: "2.4.1"
   sherpa_onnx:
-    dependency: "direct main"
+    dependency: "direct overridden"
     description:
       name: sherpa_onnx
       sha256: "94f9fc851a97215e1990ba112aeb5d7c0e47444b1ad9088194f4417655cfd31b"

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
@@ -303,7 +302,7 @@ class MaglisNetworkEngine {
     // Unmute mic audio track so all room members hear each other continuously in conference call
     _localStream?.getAudioTracks().forEach((track) {
       track.enabled = true;
-      if (Platform.isAndroid || Platform.isIOS) {
+      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
         try {
           Helper.setMicrophoneMute(false, track);
         } catch (_) {}
