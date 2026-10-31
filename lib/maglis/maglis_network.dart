@@ -690,6 +690,15 @@ class MaglisNetworkEngine {
   Future<void> _handleSignal(MaglisSignal sig) async {
     final remoteId = sig.senderId;
 
+    // Deterministic Host Arbitration:
+    // If two peers both claim to be host on the same room code simultaneously,
+    // the lexicographically smaller ID remains Host while the other yields to participant role.
+    if (_isHost && sig.data['host'] == true && remoteId != localPeerId) {
+      if (localPeerId.compareTo(remoteId) > 0) {
+        _isHost = false;
+      }
+    }
+
     switch (sig.type) {
       case 'join_probe':
         if (isHost) {
