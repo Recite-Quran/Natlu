@@ -329,7 +329,9 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         // HighlightingController itself — that handles the flush-before-reset pattern.
         // We only clear the audio processor's frame buffer here (which is a no-op anyway).
         onAyahChanged: () {
-          _audio.clearBuffer();
+          // DO NOT call _audio.clearBuffer() here: in continuous recitation,
+          // clearing the frame buffer discards up to 480ms of audio, causing
+          // the model to drop the first 2 letters of the incoming ayah.
           // DO NOT call _engine.resetBuffer() here.
           // The correct reset path at ayah boundaries is flushAndResetForNextAyah()
           // which is triggered from _onIsolateWordMatched in HighlightingController.

@@ -206,8 +206,9 @@ class AppState extends ChangeNotifier {
   // ── Tracker Configuration ──────────────────────────────────────────────────
   // Tajweed and Dictation modes use standard normal calibration with auto-reanchor enabled (stall threshold: 50).
   TrackerConfig _trackerConfig = TrackerConfig.normal(
+    enableEarlyMatching: true,
     enableAutoReanchor: true,
-    reanchorStallThreshold: 50,
+    reanchorStallThreshold: 100,
   );
   TrackerConfig get trackerConfig => _trackerConfig;
 
