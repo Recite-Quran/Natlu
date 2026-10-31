@@ -88,7 +88,7 @@ abstract final class MushafActions {
       );
       onWordErrorTap?.call();
     } else if (isAlreadySelected || playWordDirectly) {
-      if (MaglisController.instance.inSession && MaglisController.instance.isRemoteReciting) {
+      if (MaglisController.instance.inSession) {
         return;
       }
       QuranAudioService.instance.playWord(
