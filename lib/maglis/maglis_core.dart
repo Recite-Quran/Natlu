@@ -343,7 +343,10 @@ class MaglisPlatform {
 
   static Future<void> initAudio() async {
     if (kIsWeb) return;
-    if (_audioInitialized) return;
+    if (_audioInitialized) {
+      await setSpeaker(true);
+      return;
+    }
     _audioInitialized = true;
 
     try {

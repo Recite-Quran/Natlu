@@ -394,9 +394,10 @@ class MaglisNetworkEngine {
     final now = DateTime.now().millisecondsSinceEpoch;
     return _roomParticipants.where((p) {
       final state = _peerStates[p];
-      final isAlive = state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
-          state == RTCIceConnectionState.RTCIceConnectionStateChecking;
+      final isAlive =
+          state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+              state == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
+              state == RTCIceConnectionState.RTCIceConnectionStateChecking;
       final lastSeen = _lastSeenPeerMs[p] ?? 0;
       return isAlive || (now - lastSeen) < 8000;
     }).length;
@@ -960,7 +961,8 @@ class MaglisNetworkEngine {
   }
 
   Future<void> _initiatePeerConnection(String remoteId) async {
-    if (_peers.containsKey(remoteId) || _negotiatingPeers.contains(remoteId)) return;
+    if (_peers.containsKey(remoteId) || _negotiatingPeers.contains(remoteId))
+      return;
     _negotiatingPeers.add(remoteId);
     try {
       final pc = await _createPeer(remoteId);
@@ -1001,7 +1003,7 @@ class MaglisNetworkEngine {
     _remoteDescSet[remoteId] = false;
     _iceQueues.putIfAbsent(remoteId, () => []);
 
-    // Add local mic audio track and configure sender encoding for QoS and bitrate control
+    // Add local mic audio track
     if (_localStream != null) {
       for (final track in _localStream!.getAudioTracks()) {
         track.enabled = !_isMicMuted;
@@ -1012,18 +1014,6 @@ class MaglisNetworkEngine {
           final senders = await pc.getSenders();
           if (!senders.any((s) => s.track?.kind == 'audio')) {
             await pc.addTrack(track, _localStream!);
-          }
-          final updatedSenders = await pc.getSenders();
-          for (final s in updatedSenders) {
-            if (s.track?.kind == 'audio') {
-              try {
-                final params = s.parameters;
-                if (params.encodings != null && params.encodings!.isNotEmpty) {
-                  params.encodings![0].maxBitrate = 48000;
-                  await s.setParameters(params);
-                }
-              } catch (_) {}
-            }
           }
         } catch (e) {
           debugPrint('[MaglisNetwork] addTrack error: $e');
@@ -1280,8 +1270,7 @@ class MaglisNetworkEngine {
           final peerState = _peerStates[remoteId];
           final isConnected = peerState ==
                   RTCIceConnectionState.RTCIceConnectionStateConnected ||
-              peerState ==
-                  RTCIceConnectionState.RTCIceConnectionStateCompleted;
+              peerState == RTCIceConnectionState.RTCIceConnectionStateCompleted;
           if (isConnected) {
             unawaited(_recoverDataChannel(remoteId));
           }
@@ -1413,37 +1402,6 @@ class MaglisNetworkEngine {
         match.group(0)!,
         '${match.group(0)!}${lineEnd}a=fmtp:$pt $opusParams',
       );
-    }
-
-    final int asKbps = maxAverageBitrate <= 48000 ? 64 : 128;
-    final int tiasBps = maxAverageBitrate <= 48000 ? 64000 : 128000;
-
-    final audioMlineRegex =
-        RegExp(r'(m=audio\s+\d+\s+[^\r\n]+)', caseSensitive: false);
-    final audioMatch = audioMlineRegex.firstMatch(result);
-    if (audioMatch != null) {
-      final mline = audioMatch.group(1)!;
-      final basRegex = RegExp(r'b=AS:\d+');
-      final btiasRegex = RegExp(r'b=TIAS:\d+');
-
-      final hasBas = result.contains(basRegex);
-      final hasBtias = result.contains(btiasRegex);
-
-      if (hasBas) {
-        result = result.replaceAll(basRegex, 'b=AS:$asKbps');
-      }
-      if (hasBtias) {
-        result = result.replaceAll(btiasRegex, 'b=TIAS:$tiasBps');
-      }
-
-      if (!hasBas && !hasBtias) {
-        result = result.replaceFirst(
-            mline, '$mline${lineEnd}b=AS:$asKbps${lineEnd}b=TIAS:$tiasBps');
-      } else if (!hasBas) {
-        result = result.replaceFirst(mline, '$mline${lineEnd}b=AS:$asKbps');
-      } else if (!hasBtias) {
-        result = result.replaceFirst(mline, '$mline${lineEnd}b=TIAS:$tiasBps');
-      }
     }
 
     return result;
@@ -1598,14 +1556,6 @@ class MaglisNetworkEngine {
         pc.onDataChannel = null;
         pc.onRenegotiationNeeded = null;
 
-        try {
-          final senders = await pc.getSenders().timeout(const Duration(milliseconds: 300));
-          for (final s in senders) {
-            try {
-              await pc.removeTrack(s).timeout(const Duration(milliseconds: 200));
-            } catch (_) {}
-          }
-        } catch (_) {}
         try {
           await pc.close();
         } catch (_) {}
@@ -1837,7 +1787,8 @@ class MaglisNetworkEngine {
               senderId: probePeerId,
               data: {'auth': MaglisCrypto.admissionToken(trimmed, probePeerId)},
             );
-            final cipher2 = await MaglisCrypto.encrypt(probeSig2.pack(), trimmed);
+            final cipher2 =
+                await MaglisCrypto.encrypt(probeSig2.pack(), trimmed);
             final frame2 = await MaglisCrypto.signNostrEventAsync(
               privHex: privHex,
               pubHex: pubHex,

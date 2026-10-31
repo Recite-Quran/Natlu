@@ -227,7 +227,7 @@ class MaglisController extends ChangeNotifier {
       final granted = await MaglisPlatform.requestPermissions();
       if (!granted) return false;
 
-      await leaveSession();
+      await leaveSession(resetHardwareAudio: false);
 
       _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
       _roomCode = (code != null && code.trim().isNotEmpty)
@@ -763,7 +763,7 @@ class MaglisController extends ChangeNotifier {
     );
   }
 
-  Future<void> leaveSession() async {
+  Future<void> leaveSession({bool resetHardwareAudio = true}) async {
     if (!_inSession && _net == null) return;
     _inSession = false;
     _activeReciterId = null;
@@ -794,7 +794,9 @@ class MaglisController extends ChangeNotifier {
       t.cancel();
     }
     _peerDisconnectTimers.clear();
-    await MaglisPlatform.resetAudio();
+    if (resetHardwareAudio) {
+      await MaglisPlatform.resetAudio();
+    }
     _notifySessionChanged();
     notifyListeners();
   }
