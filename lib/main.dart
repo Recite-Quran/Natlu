@@ -164,6 +164,42 @@ class QuranApp extends StatelessWidget {
             ),
             fontFamily: 'cairo',
           ),
+          builder: (context, child) {
+            if (!kIsWeb) return child!;
+            final media = MediaQuery.of(context);
+            final isWide = media.size.width > 480;
+            final constrainedWidth = isWide ? 480.0 : media.size.width;
+
+            return Scaffold(
+              backgroundColor: isDark ? Colors.black : const Color(0xFFE5E7EB),
+              body: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: Container(
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: c.bg,
+                      boxShadow: isWide
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.18),
+                                blurRadius: 25,
+                                spreadRadius: 5,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: MediaQuery(
+                      data: media.copyWith(
+                        size: Size(constrainedWidth, media.size.height),
+                      ),
+                      child: child ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
           home: const _Orchestrator(),
         );
       },
