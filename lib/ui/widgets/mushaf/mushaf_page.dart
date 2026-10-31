@@ -377,17 +377,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       }
 
       // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
+      final bool inMaglis = maglis.inSession;
       final bool hasRemoteReciterOnPage = isMaglisRemote && hasMaglisAyah;
-      final bool hasNewCumulative = maglis.hasCumulativeHighlights &&
+      final bool hasNewCumulative = inMaglis &&
           _appliedCumulativeVersion != maglis.cumulativeVersion;
 
       // Blur/concealing is only effectively applied when actively recording or in a Maglis session
       final bool isBlurEffective = app.isBlurMode &&
-          (widget.isRecording || maglis.inSession);
+          (widget.isRecording || inMaglis);
 
-      // Smart guard: If remote user is reciting on another page and local device is not recording,
-      // and there are no new cumulative highlights to apply, words on this page have not changed.
-      final bool skipRemoteWordScan = isMaglisRemote &&
+      // Smart guard: If in Maglis and not recording, and no new highlights/events, skip redundant scanning
+      final bool skipRemoteWordScan = inMaglis &&
           !hasRemoteReciterOnPage &&
           !hasNewCumulative &&
           !widget.isRecording &&
@@ -399,6 +399,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           (widget.isRecording ||
               hasRemoteReciterOnPage ||
               hasNewCumulative ||
+              inMaglis ||
               isBlurEffective ||
               themeChanged ||
               _lastGreenWords.isNotEmpty ||
@@ -414,8 +415,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
         _ensurePageWordsIndexed(page);
 
-        // Fast O(1) Path for Maglis remote recitation: direct wordKey mapping with zero scanning
-        if (isMaglisRemote && !widget.isRecording && !isBlurEffective) {
+        // Fast O(1) Path for Maglis recitation: direct wordKey mapping with zero scanning
+        if (inMaglis && !widget.isRecording && !isBlurEffective) {
           final liveWordIndices = <int>{};
 
           if (hasRemoteReciterOnPage) {
@@ -575,11 +576,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     var wordIndex0 = w.word - 1;
 
     final maglis = MaglisController.instance;
-    final bool isMaglisRemote = maglis.inSession && maglis.isRemoteReciting;
 
     bool isWordYellow(int a, int w0, int s) =>
         widget.controller.isWordYellow(a, w0, surah: s) ||
-        (isMaglisRemote &&
+        (maglis.inSession &&
             (maglis.remoteYellowWords.contains(w0) ||
                 maglis.getWordHighlight(s, a, w0) == 2 ||
                 maglis.getWordErrors(s, a, w0) != null));
@@ -616,7 +616,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
 
     if (isWordYellow(ayah, wordIndex0, surah)) {
-      final overrideErrors = isMaglisRemote
+      final overrideErrors = maglis.inSession
           ? maglis.getWordErrors(surah, ayah, wordIndex0)
           : null;
       MushafActions.handleWordTap(

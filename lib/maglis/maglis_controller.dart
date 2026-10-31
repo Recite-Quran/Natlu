@@ -12,7 +12,7 @@ class MaglisController extends ChangeNotifier {
   static final MaglisController instance = MaglisController._();
 
   void Function(int page, int surah, int ayah)? onSyncMushafUI;
-  VoidCallback? onRemoteFloorClaimed;
+  void Function(int surah, int ayah)? onRemoteFloorClaimed;
 
   MaglisNetworkEngine? _net;
   StreamSubscription<MaglisPacket>? _pktSub;
@@ -447,12 +447,11 @@ class MaglisController extends ChangeNotifier {
 
     switch (pkt.type) {
       case MaglisPacketType.floorClaim:
-        // Glare tie-breaking: If local user also claimed floor at roughly the same time
-        if (isLocalReciting && pkt.senderId != localPeerId) {
-          // If local peer ID has lexicographical precedence, ignore remote claim
-          if (localPeerId.compareTo(pkt.senderId) < 0) {
-            return;
-          }
+        // Strict Single Reciter Rule:
+        // When any peer claims the floor, any local recording must stop immediately
+        // and yield the floor to the new reciter.
+        if (pkt.senderId != localPeerId) {
+          onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
         }
         _activeReciterId = pkt.senderId;
         _remotePage = pkt.page;
@@ -462,12 +461,9 @@ class MaglisController extends ChangeNotifier {
         _remoteGreenWords = pkt.greenWords;
         _remoteYellowWords = pkt.yellowWords;
         _remoteRedWords = pkt.redWords;
+        // Clearing is synchronized across all peers from the chosen verse onwards
         clearHighlightsFrom(pkt.surah, pkt.ayah);
 
-        // Unconditionally stop local recitation recording when another peer takes the floor
-        if (pkt.senderId != localPeerId) {
-          onRemoteFloorClaimed?.call();
-        }
         _notifySessionChanged();
         notifyListeners();
         onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
@@ -483,12 +479,6 @@ class MaglisController extends ChangeNotifier {
         break;
 
       case MaglisPacketType.recitationUpdate:
-        final bool isRewindingOrRestarting = pkt.surah < _remoteSurah ||
-            (pkt.surah == _remoteSurah && pkt.ayah < _remoteAyah);
-        if (isRewindingOrRestarting) {
-          clearHighlightsFrom(pkt.surah, pkt.ayah);
-        }
-
         final bool pageChanged = _remotePage != pkt.page;
         final bool ayahChanged =
             pkt.surah != _remoteSurah || pkt.ayah != _remoteAyah;

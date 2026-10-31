@@ -206,8 +206,15 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
 
-    MaglisController.instance.onRemoteFloorClaimed = () {
+    MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted) {
+        if (_ctrl != null) {
+          _ctrl!.clearHighlightsFromAyah(ayah);
+          for (int s = surah + 1; s <= 114; s++) {
+            _ctrl!.clearHighlightsForSurah(s);
+          }
+          _ctrl!.globalRevision.value++;
+        }
         _stopRecordingForRemoteClaim();
       }
     };

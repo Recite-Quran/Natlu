@@ -5,6 +5,7 @@ import '../../../services/app_haptics.dart';
 
 import '../../../services/quran_audio_service.dart';
 import '../../../state/app_state.dart';
+import '../../../maglis/maglis_controller.dart';
 import '../dialogs/error_detail_dialog.dart';
 
 /// Core interactive actions for the Mushaf vector layout.
@@ -145,7 +146,7 @@ abstract final class MushafActions {
             ? controller.targetSurah
             : AppState.instance.lastSurah);
 
-    // HighlightingController is the single canonical authority for recitation highlights
+    // HighlightingController is the single canonical authority for local recitation highlights
     if (controller.isWordRed(ayah, wordIndex, surah: s)) {
       return colors.red;
     }
@@ -156,6 +157,15 @@ abstract final class MushafActions {
         controller.completedAyahsFor(s).contains(ayah)) {
       return colors.green;
     }
+
+    // In a Maglis session, check shared/saved highlights seamlessly
+    if (MaglisController.instance.inSession) {
+      final h = MaglisController.instance.getWordHighlight(s, ayah, wordIndex);
+      if (h == 1) return colors.green;
+      if (h == 2) return colors.warning;
+      if (h == 3) return colors.red;
+    }
+
     return colors.text;
   }
 
@@ -182,7 +192,9 @@ abstract final class MushafActions {
           controller.isWordGreen(ayah, wordIndex, surah: s) ||
           controller.isWordRed(ayah, wordIndex, surah: s) ||
           controller.isWordYellow(ayah, wordIndex, surah: s) ||
-          controller.isWordNeutral(ayah, wordIndex, surah: s);
+          controller.isWordNeutral(ayah, wordIndex, surah: s) ||
+          (MaglisController.instance.inSession &&
+              MaglisController.instance.getWordHighlight(s, ayah, wordIndex) != null);
       if (!isRead) return Colors.transparent;
     }
 

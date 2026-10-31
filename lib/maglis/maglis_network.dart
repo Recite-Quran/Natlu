@@ -746,36 +746,12 @@ class MaglisNetworkEngine {
         // This mathematically eliminates glare, collisions, and SDP rollback crashes!
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         if (isInitiator) {
-          _negotiatingPeers.add(remoteId);
-          try {
-            final pc = await _createPeer(remoteId);
-            final dc = await pc.createDataChannel(
-              'maglis_sync',
-              RTCDataChannelInit()
-                ..ordered = true
-                ..binaryType = 'binary',
-            );
-            _bindDataChannel(remoteId, dc);
-
-            final offer = await pc.createOffer(const {
-              'mandatory': {
-                'OfferToReceiveAudio': true,
-                'OfferToReceiveVideo': false,
-              },
-              'optional': [],
-            });
-            final mungedSdp = mungeOpusSdp(offer.sdp ?? '');
-            await pc.setLocalDescription(
-              RTCSessionDescription(mungedSdp, offer.type),
-            );
-            await _sendSignal('offer',
-                targetId: remoteId, data: {'sdp': mungedSdp});
-          } finally {
-            _negotiatingPeers.remove(remoteId);
-          }
-        } else if (sig.targetId == null) {
+          await _initiatePeerConnection(remoteId);
+        } else {
           // Answerer informs initiator of its presence so initiator can send offer
-          await _sendSignal('beacon', targetId: remoteId, data: const {});
+          if (!_peers.containsKey(remoteId)) {
+            await _sendSignal('beacon', targetId: remoteId, data: const {});
+          }
         }
         break;
 
@@ -921,6 +897,36 @@ class MaglisNetworkEngine {
             targetId: remoteId, data: {'candidates': list});
       }
     });
+  }
+
+  Future<void> _initiatePeerConnection(String remoteId) async {
+    if (_peers.containsKey(remoteId) || _negotiatingPeers.contains(remoteId)) return;
+    _negotiatingPeers.add(remoteId);
+    try {
+      final pc = await _createPeer(remoteId);
+      final dc = await pc.createDataChannel(
+        'maglis_sync',
+        RTCDataChannelInit()
+          ..ordered = true
+          ..binaryType = 'binary',
+      );
+      _bindDataChannel(remoteId, dc);
+
+      final offer = await pc.createOffer(const {
+        'mandatory': {
+          'OfferToReceiveAudio': true,
+          'OfferToReceiveVideo': false,
+        },
+        'optional': [],
+      });
+      final mungedSdp = mungeOpusSdp(offer.sdp ?? '');
+      await pc.setLocalDescription(
+        RTCSessionDescription(mungedSdp, offer.type),
+      );
+      await _sendSignal('offer', targetId: remoteId, data: {'sdp': mungedSdp});
+    } finally {
+      _negotiatingPeers.remove(remoteId);
+    }
   }
 
   Future<RTCPeerConnection> _createPeer(String remoteId) async {
@@ -1176,7 +1182,12 @@ class MaglisNetworkEngine {
                   _admittedPeers.add(id);
                   _roomParticipants.add(id);
                   _participantCountCtrl.add(_roomParticipants.length + 1);
-                  _sendSignal('beacon', targetId: id, data: const {});
+                  final isInitiator = localPeerId.compareTo(id) < 0;
+                  if (isInitiator) {
+                    unawaited(_initiatePeerConnection(id));
+                  } else {
+                    _sendSignal('beacon', targetId: id, data: const {});
+                  }
                 }
               }
             }
@@ -1302,12 +1313,6 @@ class MaglisNetworkEngine {
     String? targetId,
     required Map<String, dynamic> data,
   }) async {
-    // If direct WebRTC DataChannel is already open for floor claims, avoid unnecessary relay traffic
-    if (type == 'floor_claim' &&
-        _channels.values
-            .any((dc) => dc.state == RTCDataChannelState.RTCDataChannelOpen)) {
-      return;
-    }
     await _sendSignal(type, targetId: targetId, data: data);
   }
 
