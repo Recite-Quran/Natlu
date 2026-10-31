@@ -418,9 +418,9 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 ),
               ),
 
-              // ── Modern Floating Slide-Down Banner inside Dialog ──
+              // ── Modern Floating Banner positioned right ABOVE the Action Button ──
               Positioned(
-                top: isWide ? 10 : 18,
+                bottom: 76,
                 left: 16,
                 right: 16,
                 child: ValueListenableBuilder<AppBannerInfo?>(
@@ -432,7 +432,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                         opacity: anim,
                         child: SlideTransition(
                           position: Tween<Offset>(
-                            begin: const Offset(0, -0.25),
+                            begin: const Offset(0, 0.35),
                             end: Offset.zero,
                           ).animate(CurvedAnimation(
                             parent: anim,
