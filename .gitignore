@@ -36,6 +36,8 @@ migrate_working_dir/
 /functions/
 .dart_tool/
 **/.dart_tool/
+.wrangler/
+**/.wrangler/
 *.aab
 .kotlin
 

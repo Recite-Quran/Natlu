@@ -169,7 +169,7 @@ class MaglisController extends ChangeNotifier {
   bool get isHost => _net?.isHost ?? false;
   String? get activeReciterId => _activeReciterId;
   String? get natFailedPeer => _natFailedPeer;
-  int get participantCount => max(_participantCount, _connectedPeers.length + 1);
+  int get participantCount => _connectedPeers.length + 1;
   bool get isLocalReciting => _inSession && _activeReciterId == localPeerId;
   bool get isRemoteReciting =>
       _inSession && _activeReciterId != null && _activeReciterId != localPeerId;

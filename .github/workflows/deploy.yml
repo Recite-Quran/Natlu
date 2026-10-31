@@ -1,0 +1,40 @@
+name: Deploy Natlu to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - Natlu-الحمدلله
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Build & Deploy
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build Web App
+        run: |
+          chmod +x web/scripts/build.sh
+          bash web/scripts/build.sh
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 2aeefaef3564273a570980d9f70af9dc
+          command: pages deploy build/web --project-name=natlu --branch=${{ github.ref_name }}
+

@@ -39,6 +39,8 @@ class MaglisNetworkEngine {
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
       {'urls': 'stun:stun2.l.google.com:19302'},
+      {'urls': 'stun:stun3.l.google.com:19302'},
+      {'urls': 'stun:stun4.l.google.com:19302'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
       {'urls': 'stun:global.stun.twilio.com:3478'},
     ],
@@ -46,7 +48,7 @@ class MaglisNetworkEngine {
     'sdpSemantics': 'unified-plan',
     'bundlePolicy': 'max-bundle',
     'rtcpMuxPolicy': 'require',
-    'iceCandidatePoolSize': 2,
+    'iceCandidatePoolSize': 4,
   };
 
   static Map<String, dynamic> _rtcConfig = Map.from(_defaultRtcConfig);
@@ -320,7 +322,7 @@ class MaglisNetworkEngine {
 
     // Re-announce beacon every 12s ONLY when waiting for initial peer; completely idle once connected
     _beaconTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (!_disposed && _peers.isEmpty) {
+      if (!_disposed && _peers.isEmpty && _negotiatingPeers.isEmpty) {
         _sendSignal('beacon', data: const {});
       }
     });
@@ -396,9 +398,11 @@ class MaglisNetworkEngine {
       final isAlive =
           state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
               state == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
-              state == RTCIceConnectionState.RTCIceConnectionStateChecking;
+              state == RTCIceConnectionState.RTCIceConnectionStateChecking ||
+              state == RTCIceConnectionState.RTCIceConnectionStateNew ||
+              _negotiatingPeers.contains(p);
       final lastSeen = _lastSeenPeerMs[p] ?? 0;
-      return isAlive || (now - lastSeen) < 8000;
+      return isAlive || (now - lastSeen) < 35000;
     }).length;
   }
 
@@ -412,11 +416,26 @@ class MaglisNetworkEngine {
       final isConnected =
           state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
               state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
-      final isDead =
-          state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-              state == RTCIceConnectionState.RTCIceConnectionStateClosed;
-      // If WebRTC is failed/closed or peer has been silent for > 8s without connection, evict ghost peer
-      if (isDead || (!isConnected && (now - lastSeen) > 8000)) {
+      final isConnecting =
+          state == RTCIceConnectionState.RTCIceConnectionStateChecking ||
+              state == RTCIceConnectionState.RTCIceConnectionStateNew ||
+              _negotiatingPeers.contains(peerId);
+      final isExplicitlyDead =
+          state == RTCIceConnectionState.RTCIceConnectionStateClosed;
+
+      // 1. Never prune an actively connected peer
+      if (isConnected) continue;
+
+      // 2. Allow up to 35s for WebRTC handshake & ICE checks to complete on mobile networks
+      if (isConnecting) {
+        if ((now - lastSeen) > 35000) {
+          stalePeers.add(peerId);
+        }
+        continue;
+      }
+
+      // 3. If explicitly closed or silent without connection for > 30s, prune ghost peer
+      if (isExplicitlyDead || (now - lastSeen) > 30000) {
         stalePeers.add(peerId);
       }
     }
@@ -782,13 +801,16 @@ class MaglisNetworkEngine {
         final existingPc = _peers[remoteId];
         final existingState = _peerStates[remoteId];
         if (existingPc != null &&
-            (existingState ==
+            (existingState == null ||
+                existingState ==
                     RTCIceConnectionState.RTCIceConnectionStateConnected ||
                 existingState ==
                     RTCIceConnectionState.RTCIceConnectionStateCompleted ||
                 existingState ==
-                    RTCIceConnectionState.RTCIceConnectionStateChecking)) {
-          // Already happily connected or checking connectivity; keep active!
+                    RTCIceConnectionState.RTCIceConnectionStateChecking ||
+                existingState ==
+                    RTCIceConnectionState.RTCIceConnectionStateNew)) {
+          // Already happily connected, checking connectivity, or freshly created; keep active!
           return;
         }
         if (_negotiatingPeers.contains(remoteId)) {
@@ -871,8 +893,6 @@ class MaglisNetworkEngine {
           }
 
           await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
-          _remoteDescSet[remoteId] = true;
-          await _flushIceQueue(remoteId);
 
           final answer = await pc.createAnswer(const {
             'mandatory': {
@@ -885,6 +905,8 @@ class MaglisNetworkEngine {
           await pc.setLocalDescription(
             RTCSessionDescription(mungedSdp, answer.type),
           );
+          _remoteDescSet[remoteId] = true;
+          await _flushIceQueue(remoteId);
           await _sendSignal('answer',
               targetId: remoteId, data: {'sdp': mungedSdp});
         } finally {
@@ -1047,8 +1069,8 @@ class MaglisNetworkEngine {
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         final int graceSeconds =
             (state == RTCIceConnectionState.RTCIceConnectionStateFailed)
-                ? 2
-                : 4;
+                ? 4
+                : 8;
         _iceRestartGraceTimers[remoteId]?.cancel();
         _iceRestartGraceTimers[remoteId] =
             Timer(Duration(seconds: graceSeconds), () {
