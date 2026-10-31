@@ -122,6 +122,7 @@ class MushafProvider {
         final bytes = archiveData.buffer.asUint8List();
         final tarBytes = XZDecoder().decodeBytes(bytes);
         final archive = TarDecoder().decodeBytes(tarBytes);
+        int processed = 0;
         for (final file in archive) {
           if (file.isFile) {
             final fileName = file.name.replaceAll(r'\', '/').split('/').last;
@@ -133,6 +134,10 @@ class MushafProvider {
                 _webPageBytes[pageNum] = file.content;
               }
             }
+          }
+          processed++;
+          if (processed % 35 == 0) {
+            await Future<void>.delayed(Duration.zero);
           }
         }
       } catch (e) {

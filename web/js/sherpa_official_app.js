@@ -187,8 +187,8 @@ window.resetOfficialSherpaBuffer = function() {
 };
 
 // --- IndexedDB Caching ---
-const DB_NAME = 'SherpaModelDB';
-const STORE_NAME = 'models';
+var DB_NAME = window.SHERPA_DB_NAME || 'SherpaModelDB';
+var STORE_NAME = 'models';
 
 function openDB() {
   return new Promise((resolve, reject) => {

@@ -348,7 +348,14 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       await _repo!.loadSurahAsync(initialSurah);
       _voiceSearchCtrl.repository = _repo;
 
-      _voiceSearchCtrl.preloadIndex(); // Fire-and-forget in background
+      if (!kIsWeb) {
+        _voiceSearchCtrl.preloadIndex(); // Fire-and-forget in background Isolate
+      } else {
+        // On Web, defer index load until after the initial UI has painted
+        Future.delayed(const Duration(seconds: 4), () {
+          _voiceSearchCtrl.preloadIndex();
+        });
+      }
       MushafView.preloadData(); // Fire-and-forget in background Isolate
 
       _ctrl = HighlightingController(

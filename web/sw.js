@@ -1,7 +1,8 @@
 // Service Worker for Recite Quran (اتلو القران)
 // Provides complete offline caching, dynamic caching, and Cross-Origin Isolation (COOP/COEP) for WebAssembly.
 
-const CACHE_NAME = 'recite-quran-pwa-v21-1793474928';
+const CACHE_NAME = 'recite-quran-pwa-v21-1793475558';
+const PERMANENT_CACHE_NAME = 'recite-quran-permanent-assets';
 
 const STATIC_PRECACHE = [
   './',
@@ -19,16 +20,11 @@ const STATIC_PRECACHE = [
   'js/sherpa-onnx-asr.js',
   'js/sherpa_official_app.js',
   'js/sherpa-onnx-wasm-main-asr.js',
-  'wasm/sherpa-onnx-wasm-main-asr.wasm',
   'flutter_bootstrap.js',
   'flutter.js',
   'main.dart.js',
   'canvaskit/canvaskit.js',
   'canvaskit/canvaskit.wasm',
-  'canvaskit/skwasm.js',
-  'canvaskit/skwasm.wasm',
-  'canvaskit/chromium/canvaskit.js',
-  'canvaskit/chromium/canvaskit.wasm',
   'assets/AssetManifest.bin',
   'assets/AssetManifest.bin.json',
   'assets/FontManifest.json',
@@ -41,7 +37,6 @@ const STATIC_PRECACHE = [
   'assets/assets/icon/app_icon.png',
   'assets/packages/recite_quran/assets/model/tokens.txt',
   'assets/packages/qvp_flutter/assets/wasm/qvp_ffi.wasm',
-  'assets/packages/qvp_flutter/assets/js/qvp.js',
   'assets/packages/record_web/assets/js/record.worklet.js',
   'assets/packages/wakelock_plus/assets/no_sleep.js',
   'assets/shaders/ink_sparkle.frag',
@@ -51,56 +46,73 @@ const STATIC_PRECACHE = [
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) =>
-      Promise.allSettled(
-        STATIC_PRECACHE.map((url) =>
-          cache.add(new Request(url, { cache: 'reload' })).catch((err) =>
-            console.warn('[SW] Precache skipped:', url, err)
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Precache in batches of 4 to prevent QUIC stream congestion
+      const batchSize = 4;
+      for (let i = 0; i < STATIC_PRECACHE.length; i += batchSize) {
+        const batch = STATIC_PRECACHE.slice(i, i + batchSize);
+        await Promise.allSettled(
+          batch.map((url) =>
+            cache.add(url).catch((err) =>
+              console.warn('[SW] Precache skipped:', url, err)
+            )
           )
-        )
-      )
-    )
+        );
+      }
+    })
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(
+        keys
+          .filter((k) => k !== CACHE_NAME && !k.includes('permanent'))
+          .map((k) => caches.delete(k))
+      )
     ).then(() => self.clients.claim())
   );
 });
 
 function addCoopCoepHeaders(response) {
-  if (!response || response.status !== 200 || response.type === 'opaque') {
+  if (!response || response.status !== 200 || response.type === 'opaque' || response.bodyUsed) {
     return response;
   }
   if (response.headers.get('Cross-Origin-Opener-Policy') === 'same-origin') {
     return response;
   }
-  const headers = new Headers(response.headers);
-  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
-  headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
-  headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  try {
+    const headers = new Headers(response.headers);
+    headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+    headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
+    headers.set('Cross-Origin-Resource-Policy', 'cross-origin');
 
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  } catch (_) {
+    return response;
+  }
 }
 
 function ensureWasmMime(response, url) {
-  if (!response || response.type === 'opaque') return response;
+  if (!response || response.type === 'opaque' || response.bodyUsed) return response;
   if (url.pathname.endsWith('.wasm')) {
     if (response.headers.get('Content-Type') !== 'application/wasm') {
-      const headers = new Headers(response.headers);
-      headers.set('Content-Type', 'application/wasm');
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers
-      });
+      try {
+        const headers = new Headers(response.headers);
+        headers.set('Content-Type', 'application/wasm');
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers
+        });
+      } catch (_) {
+        return response;
+      }
     }
   }
   return response;

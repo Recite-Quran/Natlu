@@ -214,9 +214,9 @@
       color: #374151;
     }
 
-    /* First-time Professional Download Dialog */
+    /* Professional First-Time Setup Dialog */
     .consent-card {
-      max-width: 24rem;
+      max-width: 22rem;
       width: calc(100% - 2.5rem);
       background: #ffffff;
       border-radius: 1.5rem;
@@ -230,15 +230,15 @@
     }
 
     .consent-app-icon {
-      width: 54px;
-      height: 54px;
+      width: 52px;
+      height: 52px;
       border-radius: 1rem;
       margin-bottom: 0.65rem;
       box-shadow: 0 8px 20px -4px rgba(5, 150, 105, 0.25);
     }
 
     .consent-title {
-      font-size: 1.25rem;
+      font-size: 1.2rem;
       font-weight: 800;
       color: #111827;
       margin: 0 0 0.2rem 0;
@@ -271,7 +271,7 @@
       color: #ffffff;
       border: none;
       border-radius: 9999px;
-      padding: 0.8rem 1rem;
+      padding: 0.75rem 1rem;
       font-weight: 700;
       font-size: 0.85rem;
       cursor: pointer;
@@ -346,313 +346,369 @@
   </style>
 
   <script>
-    const BANDWIDTH_KEY = 'natlu_bandwidth_accepted';
-    let hasAcceptedBandwidth = false;
-    try {
-      hasAcceptedBandwidth = localStorage.getItem(BANDWIDTH_KEY) === 'true';
-    } catch (_) {}
+    // Self-contained Setup Engine (IIFE prevents any global identifier clashes)
+    (function () {
+      const BANDWIDTH_KEY = 'natlu_bandwidth_accepted';
+      const MODEL_DB_NAME = 'SherpaModelDB';
+      const MODEL_STORE_NAME = 'models';
+      const PAGES_DB_NAME = 'MushafPagesDB';
+      const PAGES_STORE_NAME = 'pages';
+      const PERMANENT_CACHE_NAME = 'recite-quran-permanent-assets';
 
-    // 1. Guard against third-party wakelock_plus web concurrency bug in no_sleep.js
-    if (typeof navigator !== 'undefined' && navigator.wakeLock && navigator.wakeLock.request) {
-      const _origWakeLock = navigator.wakeLock.request.bind(navigator.wakeLock);
-      let _pendingLock = null;
-      navigator.wakeLock.request = function(type) {
-        if (_pendingLock) return _pendingLock;
-        _pendingLock = _origWakeLock(type).catch(function() { return null; }).finally(function() { _pendingLock = null; });
-        return _pendingLock;
-      };
-    }
-
-    // 2. Flutter Web Bootstrapper
-    window.bootFlutterApp = function() {
-      if (window._flutterBootStarted) return;
-      window._flutterBootStarted = true;
-      if (typeof window.registerAppServiceWorker === 'function') {
-        window.registerAppServiceWorker();
-      }
-      const s = document.createElement('script');
-      s.src = 'flutter_bootstrap.js';
-      s.async = true;
-      document.body.appendChild(s);
-    };
-
-    // 3. IndexedDB Helpers for Offline Model Cache
-    const DB_NAME = 'SherpaModelDB';
-    const STORE_NAME = 'models';
-    function openModelDB() {
-      return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, 1);
-        req.onupgradeneeded = (e) => {
-          const db = e.target.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
-        };
-        req.onsuccess = (e) => resolve(e.target.result);
-        req.onerror = (e) => reject(e.target.error);
-      });
-    }
-
-    async function storeModelInDB(url, buffer) {
+      let hasAcceptedBandwidth = false;
       try {
-        const db = await openModelDB();
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).put(buffer, url);
-        if (navigator.storage && navigator.storage.persist) {
-          navigator.storage.persist().catch(() => {});
-        }
+        hasAcceptedBandwidth = localStorage.getItem(BANDWIDTH_KEY) === 'true';
       } catch (_) {}
-    }
 
-    async function hasCachedModel() {
-      try {
-        const db = await openModelDB();
-        return new Promise((resolve) => {
-          const tx = db.transaction(STORE_NAME, 'readonly');
-          const req = tx.objectStore(STORE_NAME).get('/download-model?model=zipformer_p_arabic_v3.int8.onnx');
-          req.onsuccess = () => resolve(Boolean(req.result && req.result.byteLength > 50000000));
-          req.onerror = () => resolve(false);
+      // 1. Guard against third-party wakelock_plus web concurrency bug in no_sleep.js
+      if (typeof navigator !== 'undefined' && navigator.wakeLock && navigator.wakeLock.request) {
+        const _origWakeLock = navigator.wakeLock.request.bind(navigator.wakeLock);
+        let _pendingLock = null;
+        navigator.wakeLock.request = function (type) {
+          if (_pendingLock) return _pendingLock;
+          _pendingLock = _origWakeLock(type).catch(function () { return null; }).finally(function () { _pendingLock = null; });
+          return _pendingLock;
+        };
+      }
+
+      // 2. Flutter Web Bootstrapper
+      window.bootFlutterApp = function () {
+        if (window._flutterBootStarted) return;
+        window._flutterBootStarted = true;
+        if (typeof window.registerAppServiceWorker === 'function') {
+          window.registerAppServiceWorker();
+        }
+        const s = document.createElement('script');
+        s.src = 'flutter_bootstrap.js';
+        s.async = true;
+        document.body.appendChild(s);
+      };
+
+      // 3. IndexedDB Helpers for Offline Model Cache
+      function openModelDB() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(MODEL_DB_NAME, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(MODEL_STORE_NAME)) db.createObjectStore(MODEL_STORE_NAME);
+          };
+          req.onsuccess = (e) => resolve(e.target.result);
+          req.onerror = (e) => reject(e.target.error);
         });
-      } catch (_) {
-        return false;
       }
-    }
 
-    // 4. Download Streamer with Real Byte Counter
-    function fetchWithProgress(url, onBytesProgress) {
-      return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.responseType = 'arraybuffer';
-        xhr.onprogress = (e) => {
-          if (onBytesProgress) onBytesProgress(e.loaded);
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(xhr.response);
-          } else {
-            reject(new Error(`HTTP ${xhr.status} loading ${url}`));
+      async function storeModelInDB(url, buffer) {
+        try {
+          const db = await openModelDB();
+          const tx = db.transaction(MODEL_STORE_NAME, 'readwrite');
+          tx.objectStore(MODEL_STORE_NAME).put(buffer, url);
+          if (navigator.storage && navigator.storage.persist) {
+            navigator.storage.persist().catch(() => {});
           }
-        };
-        xhr.onerror = () => reject(new Error(`Network error loading ${url}`));
-        xhr.send();
-      });
-    }
-
-    // Component Sizes (Total ~111.8 MB)
-    const MODEL_SIZE = 72705392;   // ~69.3 MB
-    const PAGES_SIZE = 25899364;   // ~24.7 MB
-    const WASM_SIZE = 13148431;    // ~12.5 MB
-    const TOTAL_BYTES = MODEL_SIZE + PAGES_SIZE + WASM_SIZE; // 111,753,187 bytes (~111.8 MB)
-
-    let isDownloading = false;
-
-    window.startDataDownload = async function() {
-      if (isDownloading) return;
-      isDownloading = true;
-
-      const consentCard = document.getElementById('consent-card');
-      const progressCard = document.getElementById('progress-card');
-      const exitCard = document.getElementById('exit-card');
-      const errorBox = document.getElementById('dl-error-box');
-
-      if (consentCard) consentCard.style.display = 'none';
-      if (exitCard) exitCard.style.display = 'none';
-      if (errorBox) errorBox.style.display = 'none';
-      if (progressCard) progressCard.style.display = 'block';
-
-      const fill = document.getElementById('dl-progress-fill');
-      const mbText = document.getElementById('dl-mb-text');
-      const pctText = document.getElementById('dl-pct-text');
-      const remainingText = document.getElementById('dl-remaining-text');
-      const statusText = document.getElementById('dl-status-text');
-
-      let completedBaseBytes = 0;
-
-      function updateUI(currentChunkLoaded) {
-        const totalLoaded = Math.min(TOTAL_BYTES, completedBaseBytes + currentChunkLoaded);
-        const pct = Math.min(99, Math.round((totalLoaded / TOTAL_BYTES) * 100));
-        const loadedMB = (totalLoaded / (1024 * 1024)).toFixed(1);
-        const totalMB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
-        const remainingMB = Math.max(0, (TOTAL_BYTES - totalLoaded) / (1024 * 1024)).toFixed(1);
-
-        if (fill) fill.style.width = pct + '%';
-        if (pctText) pctText.textContent = pct + '%';
-        if (mbText) mbText.textContent = loadedMB + ' MB / ' + totalMB + ' MB';
-        if (remainingText) remainingText.textContent = 'متبقي: ' + remainingMB + ' MB';
+        } catch (_) {}
       }
 
-      updateUI(0);
-
-      try {
-        // Step 1: AI Model (~72 MB)
-        if (statusText) statusText.textContent = '1/3 تحميل نموذج الذكاء الاصطناعي للتلاوة...';
-        const modelUrl = '/download-model?model=zipformer_p_arabic_v3.int8.onnx';
-        const modelBuffer = await fetchWithProgress(modelUrl, (loaded) => updateUI(loaded));
-        await storeModelInDB(modelUrl, modelBuffer);
-        completedBaseBytes += modelBuffer.byteLength;
-        updateUI(0);
-
-        // Step 2: Vector Quran Pages (~26 MB)
-        if (statusText) statusText.textContent = '2/3 تحميل صفحات المصحف الشريف...';
-        const pagesUrl = 'assets/assets/pages.tar.xz';
-        const pagesBuffer = await fetchWithProgress(pagesUrl, (loaded) => updateUI(loaded));
-        if ('caches' in window) {
-          try {
-            const keys = await caches.keys();
-            const cName = keys.find(k => k.startsWith('recite-quran-pwa-')) || 'recite-quran-pwa-assets';
-            const cache = await caches.open(cName);
-            const headers = { 'Content-Type': 'application/x-xz', 'Cache-Control': 'public, max-age=31536000, immutable' };
-            await cache.put('assets/assets/pages.tar.xz', new Response(pagesBuffer.slice(0), { headers }));
-            await cache.put('assets/pages.tar.xz', new Response(pagesBuffer.slice(0), { headers }));
-          } catch (_) {}
+      async function hasCachedModel() {
+        try {
+          const db = await openModelDB();
+          return new Promise((resolve) => {
+            const tx = db.transaction(MODEL_STORE_NAME, 'readonly');
+            const req = tx.objectStore(MODEL_STORE_NAME).get('/download-model?model=zipformer_p_arabic_v3.int8.onnx');
+            req.onsuccess = () => resolve(Boolean(req.result && req.result.byteLength > 50000000));
+            req.onerror = () => resolve(false);
+          });
+        } catch (_) {
+          return false;
         }
-        completedBaseBytes += pagesBuffer.byteLength;
-        updateUI(0);
+      }
 
-        // Step 3: WebAssembly Speech Engine (~13 MB)
-        if (statusText) statusText.textContent = '3/3 تحميل المحرك الصوتي...';
-        const wasmUrl = 'wasm/sherpa-onnx-wasm-main-asr.wasm';
-        const wasmBuffer = await fetchWithProgress(wasmUrl, (loaded) => updateUI(loaded));
-        if ('caches' in window) {
-          try {
-            const keys = await caches.keys();
-            const cName = keys.find(k => k.startsWith('recite-quran-pwa-')) || 'recite-quran-pwa-assets';
-            const cache = await caches.open(cName);
-            const headers = { 'Content-Type': 'application/wasm', 'Cache-Control': 'public, max-age=31536000, immutable' };
-            await cache.put('wasm/sherpa-onnx-wasm-main-asr.wasm', new Response(wasmBuffer.slice(0), { headers }));
-            await cache.put('sherpa-onnx-wasm-main-asr.wasm', new Response(wasmBuffer.slice(0), { headers }));
-          } catch (_) {}
+      // 4. IndexedDB Helpers for Decoded Mushaf Vector Pages
+      function openPagesDB() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(PAGES_DB_NAME, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(PAGES_STORE_NAME)) db.createObjectStore(PAGES_STORE_NAME);
+          };
+          req.onsuccess = (e) => resolve(e.target.result);
+          req.onerror = (e) => reject(e.target.error);
+        });
+      }
+
+      window.hasCachedPages = async function () {
+        try {
+          const db = await openPagesDB();
+          return new Promise((resolve) => {
+            const tx = db.transaction(PAGES_STORE_NAME, 'readonly');
+            const req = tx.objectStore(PAGES_STORE_NAME).count();
+            req.onsuccess = () => resolve(req.result >= 605);
+            req.onerror = () => resolve(false);
+          });
+        } catch (_) {
+          return false;
         }
-        completedBaseBytes += wasmBuffer.byteLength;
+      };
 
-        // Complete!
-        if (fill) fill.style.width = '100%';
-        if (pctText) pctText.textContent = '100%';
-        if (remainingText) remainingText.textContent = 'متبقي: 0 MB';
-        if (statusText) statusText.textContent = 'اكتمل التحميل! جارٍ فتح المصحف...';
+      window.getPageFromDB = async function (key) {
+        try {
+          const db = await openPagesDB();
+          return new Promise((resolve) => {
+            const tx = db.transaction(PAGES_STORE_NAME, 'readonly');
+            const req = tx.objectStore(PAGES_STORE_NAME).get(String(key));
+            req.onsuccess = () => resolve(req.result ? new Uint8Array(req.result) : null);
+            req.onerror = () => resolve(null);
+          });
+        } catch (_) {
+          return null;
+        }
+      };
+
+      window.saveMushafPageToDB = async function (key, bytes) {
+        try {
+          const db = await openPagesDB();
+          const tx = db.transaction(PAGES_STORE_NAME, 'readwrite');
+          tx.objectStore(PAGES_STORE_NAME).put(bytes, String(key));
+        } catch (_) {}
+      };
+
+      // 5. Download Streamer with Live Byte Counter
+      function fetchWithProgress(url, onBytesProgress) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.responseType = 'arraybuffer';
+          xhr.onprogress = (e) => {
+            if (onBytesProgress) onBytesProgress(e.loaded);
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(xhr.response);
+            } else {
+              reject(new Error(`HTTP ${xhr.status} loading ${url}`));
+            }
+          };
+          xhr.onerror = () => reject(new Error(`Network error loading ${url}`));
+          xhr.send();
+        });
+      }
+
+      const MODEL_SIZE = 72705392;   // ~69.3 MB
+      const PAGES_SIZE = 25899364;   // ~24.7 MB
+      const WASM_SIZE = 13148431;    // ~12.5 MB
+      const TOTAL_BYTES = MODEL_SIZE + PAGES_SIZE + WASM_SIZE; // ~111.8 MB
+
+      let isDownloading = false;
+
+      window.startDataDownload = async function () {
+        if (isDownloading) return;
+        isDownloading = true;
+
+        const consentCard = document.getElementById('consent-card');
+        const progressCard = document.getElementById('progress-card');
+        const exitCard = document.getElementById('exit-card');
+        const errorBox = document.getElementById('dl-error-box');
+
+        if (consentCard) consentCard.style.display = 'none';
+        if (exitCard) exitCard.style.display = 'none';
+        if (errorBox) errorBox.style.display = 'none';
+        if (progressCard) progressCard.style.display = 'block';
+
+        const fill = document.getElementById('dl-progress-fill');
+        const mbText = document.getElementById('dl-mb-text');
+        const pctText = document.getElementById('dl-pct-text');
+        const remainingText = document.getElementById('dl-remaining-text');
+        const statusText = document.getElementById('dl-status-text');
+
+        let completedBaseBytes = 0;
+
+        function updateUI(currentChunkLoaded) {
+          const totalLoaded = Math.min(TOTAL_BYTES, completedBaseBytes + currentChunkLoaded);
+          const pct = Math.min(99, Math.round((totalLoaded / TOTAL_BYTES) * 100));
+          const loadedMB = (totalLoaded / (1024 * 1024)).toFixed(1);
+          const totalMB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
+          const remainingMB = Math.max(0, (TOTAL_BYTES - totalLoaded) / (1024 * 1024)).toFixed(1);
+
+          if (fill) fill.style.width = pct + '%';
+          if (pctText) pctText.textContent = pct + '%';
+          if (mbText) mbText.textContent = loadedMB + ' MB / ' + totalMB + ' MB';
+          if (remainingText) remainingText.textContent = 'متبقي: ' + remainingMB + ' MB';
+        }
+
+        updateUI(0);
 
         try {
-          localStorage.setItem(BANDWIDTH_KEY, 'true');
-        } catch (_) {}
-        hasAcceptedBandwidth = true;
+          // Step 1: AI Speech Model (~72 MB)
+          if (statusText) statusText.textContent = '1/3 نموذج التعرف الصوتي...';
+          const modelUrl = '/download-model?model=zipformer_p_arabic_v3.int8.onnx';
+          const modelBuffer = await fetchWithProgress(modelUrl, (loaded) => updateUI(loaded));
+          await storeModelInDB(modelUrl, modelBuffer);
+          completedBaseBytes += modelBuffer.byteLength;
+          updateUI(0);
 
-        setTimeout(function() {
-          window.bootFlutterApp();
-        }, 500);
+          // Step 2: Vector Quran Pages (~26 MB)
+          if (statusText) statusText.textContent = '2/3 صفحات المصحف الشريف...';
+          const pagesUrl = 'assets/assets/pages.tar.xz';
+          const pagesBuffer = await fetchWithProgress(pagesUrl, (loaded) => updateUI(loaded));
+          if ('caches' in window) {
+            try {
+              const cache = await caches.open(PERMANENT_CACHE_NAME);
+              const headers = { 'Content-Type': 'application/x-xz', 'Cache-Control': 'public, max-age=31536000, immutable' };
+              await cache.put('assets/assets/pages.tar.xz', new Response(pagesBuffer.slice(0), { headers }));
+              await cache.put('assets/pages.tar.xz', new Response(pagesBuffer.slice(0), { headers }));
+            } catch (_) {}
+          }
+          completedBaseBytes += pagesBuffer.byteLength;
+          updateUI(0);
 
-      } catch (err) {
-        console.error('[Setup Download Error]', err);
-        isDownloading = false;
-        if (statusText) statusText.textContent = 'حدث خطأ أثناء التنزيل. يرجى التحقق من الاتصال.';
-        if (errorBox) errorBox.style.display = 'block';
-      }
-    };
+          // Step 3: WebAssembly Speech Engine (~13 MB)
+          if (statusText) statusText.textContent = '3/3 محرك المعالجة الصوتية...';
+          const wasmUrl = 'wasm/sherpa-onnx-wasm-main-asr.wasm';
+          const wasmBuffer = await fetchWithProgress(wasmUrl, (loaded) => updateUI(loaded));
+          if ('caches' in window) {
+            try {
+              const cache = await caches.open(PERMANENT_CACHE_NAME);
+              const headers = { 'Content-Type': 'application/wasm', 'Cache-Control': 'public, max-age=31536000, immutable' };
+              await cache.put('wasm/sherpa-onnx-wasm-main-asr.wasm', new Response(wasmBuffer.slice(0), { headers }));
+              await cache.put('sherpa-onnx-wasm-main-asr.wasm', new Response(wasmBuffer.slice(0), { headers }));
+            } catch (_) {}
+          }
+          completedBaseBytes += wasmBuffer.byteLength;
 
-    window.exitBandwidthSetup = function() {
-      const c = document.getElementById('consent-card');
-      const p = document.getElementById('progress-card');
-      const e = document.getElementById('exit-card');
-      if (c) c.style.display = 'none';
-      if (p) p.style.display = 'none';
-      if (e) e.style.display = 'block';
-    };
+          // Complete! Smooth seamless transition
+          if (fill) fill.style.width = '100%';
+          if (pctText) pctText.textContent = '100%';
+          if (remainingText) remainingText.textContent = 'متبقي: 0 MB';
+          if (statusText) statusText.textContent = 'اكتمل التحميل بنجاح';
 
-    async function initSplashState() {
-      if (hasAcceptedBandwidth) {
-        const n = document.getElementById('splash-normal-content');
-        if (n) n.style.display = 'flex';
-        window.bootFlutterApp();
-      } else {
-        const cached = await hasCachedModel();
-        if (cached) {
-          try { localStorage.setItem(BANDWIDTH_KEY, 'true'); } catch (_) {}
+          try {
+            localStorage.setItem(BANDWIDTH_KEY, 'true');
+          } catch (_) {}
           hasAcceptedBandwidth = true;
+
+          setTimeout(function () {
+            if (progressCard) progressCard.style.display = 'none';
+            const normal = document.getElementById('splash-normal-content');
+            if (normal) normal.style.display = 'flex';
+            const splashText = document.getElementById('splash-status-text');
+            if (splashText) splashText.textContent = 'جارٍ فتح المصحف الشريف...';
+            window.bootFlutterApp();
+          }, 350);
+
+        } catch (err) {
+          console.error('[Setup Download Error]', err);
+          isDownloading = false;
+          if (statusText) statusText.textContent = 'تعذر التنزيل. يرجى التحقق من الاتصال.';
+          if (errorBox) errorBox.style.display = 'block';
+        }
+      };
+
+      window.exitBandwidthSetup = function () {
+        const c = document.getElementById('consent-card');
+        const p = document.getElementById('progress-card');
+        const e = document.getElementById('exit-card');
+        if (c) c.style.display = 'none';
+        if (p) p.style.display = 'none';
+        if (e) e.style.display = 'block';
+      };
+
+      async function initSplashState() {
+        if (hasAcceptedBandwidth) {
           const n = document.getElementById('splash-normal-content');
           if (n) n.style.display = 'flex';
           window.bootFlutterApp();
         } else {
-          const c = document.getElementById('consent-card');
-          if (c) c.style.display = 'block';
+          const cached = await hasCachedModel();
+          if (cached) {
+            try { localStorage.setItem(BANDWIDTH_KEY, 'true'); } catch (_) {}
+            hasAcceptedBandwidth = true;
+            const n = document.getElementById('splash-normal-content');
+            if (n) n.style.display = 'flex';
+            window.bootFlutterApp();
+          } else {
+            const c = document.getElementById('consent-card');
+            if (c) c.style.display = 'block';
+          }
         }
       }
-    }
 
-    if (document.readyState === 'loading') {
-      window.addEventListener('DOMContentLoaded', initSplashState);
-    } else {
-      initSplashState();
-    }
+      if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', initSplashState);
+      } else {
+        initSplashState();
+      }
 
-    window.clearAppCacheAndReload = async function () {
-      try {
-        if ('serviceWorker' in navigator) {
-          const regs = await navigator.serviceWorker.getRegistrations();
-          for (const reg of regs) await reg.unregister();
+      window.clearAppCacheAndReload = async function () {
+        try {
+          if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            for (const reg of regs) await reg.unregister();
+          }
+          if ('caches' in window) {
+            const keys = await caches.keys();
+            for (const k of keys) await caches.delete(k);
+          }
+        } catch (_) {}
+        window.location.reload(true);
+      };
+
+      let domObserver = null;
+
+      window.hideAppSplash = function () {
+        if (domObserver) {
+          domObserver.disconnect();
+          domObserver = null;
         }
-        if ('caches' in window) {
-          const keys = await caches.keys();
-          for (const k of keys) await caches.delete(k);
+        const splash = document.getElementById('splash-overlay');
+        if (splash && splash.style.display !== 'none') {
+          splash.style.opacity = '0';
+          splash.style.pointerEvents = 'none';
+          setTimeout(function () { splash.remove(); }, 350);
         }
-      } catch (_) { }
-      window.location.reload(true);
-    };
+      };
 
-    let domObserver = null;
-
-    window.hideAppSplash = function () {
-      if (domObserver) {
-        domObserver.disconnect();
-        domObserver = null;
-      }
-      const splash = document.getElementById('splash-overlay');
-      if (splash && splash.style.display !== 'none') {
-        splash.style.opacity = '0';
-        splash.style.pointerEvents = 'none';
-        setTimeout(function () { splash.remove(); }, 350);
-      }
-    };
-
-    // Auto-hide when Flutter paints its first frame
-    window.addEventListener('flutter-first-frame', function () {
-      window.hideAppSplash();
-      if (typeof window.loadSherpaWasmRuntime === 'function') {
-        setTimeout(window.loadSherpaWasmRuntime, 300);
-      }
-    });
-
-    // Fallback: warm up Sherpa WASM in background after 8s (prioritizing initial UI render)
-    setTimeout(function () {
-      if (hasAcceptedBandwidth && typeof window.loadSherpaWasmRuntime === 'function') {
-        window.loadSherpaWasmRuntime();
-      }
-    }, 8000);
-
-    // Fallback: Observe Flutter elements entering DOM
-    domObserver = new MutationObserver(function () {
-      if (document.querySelector('flutter-view, flt-glass-pane')) {
-        setTimeout(window.hideAppSplash, 100);
-      }
-    });
-    domObserver.observe(document.documentElement, { childList: true, subtree: true });
-
-    // Graceful recovery if Flutter takes unusually long or encounters a stale cache block
-    setTimeout(function () {
-      if (!hasAcceptedBandwidth) return;
-      const splash = document.getElementById('splash-overlay');
-      if (splash && !document.querySelector('flutter-view, flt-glass-pane')) {
-        const spinner = document.querySelector('.splash-spinner');
-        if (spinner) spinner.style.display = 'none';
-        let errBox = document.getElementById('splash-retry-box');
-        if (!errBox) {
-          errBox = document.createElement('div');
-          errBox.id = 'splash-retry-box';
-          errBox.style.marginTop = '1.25rem';
-          errBox.style.textAlign = 'center';
-          errBox.innerHTML = '<div style="font-size:0.85rem;color:#4b5563;margin-bottom:0.75rem;direction:rtl;">استغرق التحميل وقتاً أطول من المعتاد...</div><button onclick="window.clearAppCacheAndReload()" style="background:#059669;color:#fff;border:none;padding:0.5rem 1.15rem;border-radius:9999px;font-weight:700;font-size:0.8rem;cursor:pointer;">تحديث وحذف الذاكرة المؤقتة • Reload</button>';
-          const content = document.getElementById('splash-normal-content');
-          if (content) content.appendChild(errBox);
+      // Auto-hide when Flutter paints its first frame
+      window.addEventListener('flutter-first-frame', function () {
+        window.hideAppSplash();
+        if (typeof window.loadSherpaWasmRuntime === 'function') {
+          setTimeout(window.loadSherpaWasmRuntime, 300);
         }
-      }
-    }, 12000);
+      });
+
+      // Fallback: warm up Sherpa WASM in background after 8s (prioritizing initial UI render)
+      setTimeout(function () {
+        if (hasAcceptedBandwidth && typeof window.loadSherpaWasmRuntime === 'function') {
+          window.loadSherpaWasmRuntime();
+        }
+      }, 8000);
+
+      // Fallback: Observe Flutter elements entering DOM
+      domObserver = new MutationObserver(function () {
+        if (document.querySelector('flutter-view, flt-glass-pane')) {
+          setTimeout(window.hideAppSplash, 100);
+        }
+      });
+      domObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+      // Graceful recovery if Flutter takes unusually long
+      setTimeout(function () {
+        if (!hasAcceptedBandwidth) return;
+        const splash = document.getElementById('splash-overlay');
+        if (splash && !document.querySelector('flutter-view, flt-glass-pane')) {
+          const spinner = document.querySelector('.splash-spinner');
+          if (spinner) spinner.style.display = 'none';
+          let errBox = document.getElementById('splash-retry-box');
+          if (!errBox) {
+            errBox = document.createElement('div');
+            errBox.id = 'splash-retry-box';
+            errBox.style.marginTop = '1.25rem';
+            errBox.style.textAlign = 'center';
+            errBox.innerHTML = '<div style="font-size:0.85rem;color:#4b5563;margin-bottom:0.75rem;direction:rtl;">استغرق التحميل وقتاً أطول من المعتاد...</div><button onclick="window.clearAppCacheAndReload()" style="background:#059669;color:#fff;border:none;padding:0.5rem 1.15rem;border-radius:9999px;font-weight:700;font-size:0.8rem;cursor:pointer;">تحديث وحذف الذاكرة المؤقتة • Reload</button>';
+            const content = document.getElementById('splash-normal-content');
+            if (content) content.appendChild(errBox);
+          }
+        }
+      }, 15000);
+    })();
   </script>
 </head>
 
@@ -664,17 +720,17 @@
       <h1 class="splash-title-ar">اتلو القران</h1>
       <div class="splash-title-en">Recite Quran</div>
       <div class="splash-spinner"></div>
-      <div id="splash-status-text" style="font-size:0.75rem;color:#6b7280;margin-top:0.85rem;direction:rtl;"></div>
+      <div id="splash-status-text" style="font-size:0.78rem;font-weight:600;color:#059669;margin-top:0.85rem;direction:rtl;"></div>
     </div>
 
     <!-- First-Time Clean Professional Download Dialog -->
     <div id="consent-card" class="consent-card" style="display: none;">
       <img src="icons/Icon-192.png" alt="Recite Quran" class="consent-app-icon" />
-      <h2 class="consent-title">تحميل بيانات المصحف</h2>
-      <div class="consent-subtitle">Offline Setup (~112 MB)</div>
+      <h2 class="consent-title">تحميل المصحف</h2>
+      <div class="consent-subtitle">~112 ميجابايت</div>
       
       <p class="consent-desc">
-        تنزيل لمرة واحدة لتشغيل المصحف وتتبع التلاوة بالذكاء الاصطناعي بدون إنترنت.
+        تنزيل لمرة واحدة لتشغيل المصحف والتتبع الصوتي بالذكاء الاصطناعي بدون إنترنت.
       </p>
 
       <div class="consent-actions">
@@ -690,8 +746,8 @@
     <!-- Live Download Progress Card -->
     <div id="progress-card" class="consent-card" style="display: none;">
       <img src="icons/Icon-192.png" alt="Recite Quran" class="consent-app-icon" />
-      <h2 class="consent-title">جارٍ تجهيز المصحف</h2>
-      <div id="dl-status-text" class="dl-status">1/3 تحميل نموذج الذكاء الاصطناعي...</div>
+      <h2 class="consent-title">جارٍ التجهيز</h2>
+      <div id="dl-status-text" class="dl-status">1/3 نموذج التعرف الصوتي...</div>
       
       <div class="dl-progress-track">
         <div id="dl-progress-fill" class="dl-progress-fill" style="width: 0%;"></div>
@@ -716,7 +772,7 @@
       <h2 class="consent-title">تم تأجيل التحميل</h2>
       <div class="consent-subtitle">Download Paused</div>
       <p class="consent-desc" style="text-align:center;">
-        يمكنك بدء التحميل في أي وقت عند اتصالك بشبكة Wi-Fi مجانية.
+        يمكنك بدء التحميل في أي وقت عند اتصالك بشبكة Wi-Fi.
       </p>
       <div class="consent-actions" style="margin-top:1rem;">
         <button onclick="window.startDataDownload()" class="consent-btn-primary">
