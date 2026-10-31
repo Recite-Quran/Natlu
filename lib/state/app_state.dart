@@ -20,7 +20,6 @@ enum AppLanguage { ar, en }
 // Application Mode: Word Checker (Sherpa) vs Tajweed (Muaalem)
 enum AppMode { wordChecker, tajweed }
 
-
 // Available color themes: White and Black.
 enum AppTheme { white, black }
 
@@ -68,11 +67,12 @@ class AppState extends ChangeNotifier {
   /// Dedicated ValueNotifiers for fine-grained reactivity without rebuilding the entire app tree.
   late final ValueNotifier<AppLanguage> languageNotifier;
   late final ValueNotifier<AppTheme> themeNotifier;
-  final ValueNotifier<AppMode> modeNotifier = ValueNotifier<AppMode>(AppMode.wordChecker);
-  final ValueNotifier<AppBannerInfo?> bannerNotifier = ValueNotifier<AppBannerInfo?>(null);
+  final ValueNotifier<AppMode> modeNotifier =
+      ValueNotifier<AppMode>(AppMode.wordChecker);
+  final ValueNotifier<AppBannerInfo?> bannerNotifier =
+      ValueNotifier<AppBannerInfo?>(null);
 
   SharedPreferences? _prefs;
-
 
   Future<SharedPreferences> _getPrefs() async {
     return _prefs ??= await SharedPreferences.getInstance();
@@ -186,7 +186,6 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
-
   // ── Last Recitation Position ──────────────────────────────────────────────
 
   int lastSurah = 1;
@@ -298,7 +297,8 @@ class AppState extends ChangeNotifier {
   }
 
   /// Dispatches an audio failure event to display the modern serene banner.
-  void triggerAudioError([AudioFailureReason reason = AudioFailureReason.networkOffline]) {
+  void triggerAudioError(
+      [AudioFailureReason reason = AudioFailureReason.networkOffline]) {
     lastAudioFailureReason = reason;
 
     final String arMsg;
@@ -318,8 +318,10 @@ class AppState extends ChangeNotifier {
       case AudioFailureReason.networkOffline:
       case AudioFailureReason.unknown:
         icon = Icons.wifi_off_rounded;
-        arMsg = 'يتطلب تشغيل التلاوة اتصالاً بالإنترنت • تحقق من الشبكة وحاول ثانية';
-        enMsg = 'Audio playback requires internet • Check connection and try again';
+        arMsg =
+            'يتطلب تشغيل التلاوة اتصالاً بالإنترنت • تحقق من الشبكة وحاول ثانية';
+        enMsg =
+            'Audio playback requires internet • Check connection and try again';
         break;
     }
 
@@ -386,7 +388,8 @@ class AppState extends ChangeNotifier {
       showBanner(const AppBannerInfo(
         id: 'blur_mode',
         messageAr: 'تم تفعيل وضع الحفظ • إخفاء الكلمات لاختبار التسميع',
-        messageEn: 'Memorization Mode Enabled • Words hidden for recitation test',
+        messageEn:
+            'Memorization Mode Enabled • Words hidden for recitation test',
         icon: Icons.visibility_off_rounded,
         isWarning: false,
       ));
@@ -420,7 +423,7 @@ class AppState extends ChangeNotifier {
     if (hasClickedMushafAudioAyah) return;
     showBanner(const AppBannerInfo(
       id: 'mushaf_audio_hint',
-      messageAr: 'المس رقم أي آية للاستماع إلى التلاوة العطرة',
+      messageAr: 'المس رقم أي آية للاستماع إلى التلاوة',
       messageEn: 'Tap any Ayah number to listen to recitation',
       icon: Icons.headphones_rounded,
       isWarning: false,
@@ -457,8 +460,8 @@ class AppState extends ChangeNotifier {
         isAudioPlaying.value) {
       QuranAudioService.instance.pause();
     } else if (activeAudioSurah.value == surah &&
-               activeAudioAyah.value == ayah &&
-               QuranAudioService.instance.isPaused) {
+        activeAudioAyah.value == ayah &&
+        QuranAudioService.instance.isPaused) {
       QuranAudioService.instance.resume();
     } else {
       QuranAudioService.instance.play(
@@ -530,33 +533,37 @@ class AppState extends ChangeNotifier {
   // deep charcoal typography (#1E293B) to avoid harsh optical glare.
   // ──────────────────────────────────────────────────────────────────────────
   static const ThemeColors _whiteColors = ThemeColors(
-    bg: Color(0xFFFAF8F5),             // Warm natural linen paper (minimizes blue light)
-    surface: Color(0xFFFFFFFF),        // Clean white card surface
-    surfaceHigh: Color(0xFFF4F0E8),    // Soft warm elevation layer 1
+    bg: Color(0xFFFAF8F5), // Warm natural linen paper (minimizes blue light)
+    surface: Color(0xFFFFFFFF), // Clean white card surface
+    surfaceHigh: Color(0xFFF4F0E8), // Soft warm elevation layer 1
     surfaceVariant: Color(0xFFEBE5D8), // Soft warm elevation layer 2
-    glassSurface: Color(0xEEFAF8F5),   // 93% frosted linen overlay
-    border: Color(0xFFE8E2D5),          // Gentle warm border
+    glassSurface: Color(0xEEFAF8F5), // 93% frosted linen overlay
+    border: Color(0xFFE8E2D5), // Gentle warm border
     cardBorder: Color(0xFFE8E2D5),
-    primary: Color(0xFF047857),        // Deep calm emerald green
-    onPrimary: Color(0xFFFFFFFF),      // Crisp white on primary
-    secondary: Color(0xFF0D9488),      // Calming Teal
-    gold: Color(0xFFB45309),           // Warm antique gold
-    green: Color(0xFF15803D),          // Soothing Botanical Green (true green, 5.4:1 contrast on linen, zero glare)
-    red: Color(0xFFC02626),            // Warm terracotta crimson (refined, 5.8:1 contrast, non-alarming)
-    muted: Color(0xFF64748B),          // Slate-500 neutral muted
-    currentWord: Color(0xFF0D9488),    // Calming teal active word highlight
-    wordHighlight: Color(0xFF0D9488),  // Calming teal active word highlight
-    text: Color(0xFF1E293B),           // Slate-800 deep charcoal (13:1 eye-gentle contrast)
-    textSecondary: Color(0xFF475569),  // Slate-600 secondary text
-    ayahOutline: Color(0x2EB45309),    // Soft warm amber outline (~18% alpha)
-    ambientGlow: Color(0x18047857),    // Ambient soft emerald glow
-    success: Color(0xFF15803D),        // Soothing botanical green success
-    warning: Color(0xFFB58900),        // Eye-comforting warm golden yellow (high legibility on linen, zero orange glare)
-    error: Color(0xFFC02626),          // Terracotta crimson error
-    info: Color(0xFF2563EB),           // Calming sapphire info
-    cyan: Color(0xFF0D9488),           // Calm teal
-    indigo: Color(0xFF4338CA),         // Royal Indigo
-    emerald: Color(0xFF047857),        // Deep emerald
+    primary: Color(0xFF047857), // Deep calm emerald green
+    onPrimary: Color(0xFFFFFFFF), // Crisp white on primary
+    secondary: Color(0xFF0D9488), // Calming Teal
+    gold: Color(0xFFB45309), // Warm antique gold
+    green: Color(
+        0xFF15803D), // Soothing Botanical Green (true green, 5.4:1 contrast on linen, zero glare)
+    red: Color(
+        0xFFC02626), // Warm terracotta crimson (refined, 5.8:1 contrast, non-alarming)
+    muted: Color(0xFF64748B), // Slate-500 neutral muted
+    currentWord: Color(0xFF0D9488), // Calming teal active word highlight
+    wordHighlight: Color(0xFF0D9488), // Calming teal active word highlight
+    text:
+        Color(0xFF1E293B), // Slate-800 deep charcoal (13:1 eye-gentle contrast)
+    textSecondary: Color(0xFF475569), // Slate-600 secondary text
+    ayahOutline: Color(0x2EB45309), // Soft warm amber outline (~18% alpha)
+    ambientGlow: Color(0x18047857), // Ambient soft emerald glow
+    success: Color(0xFF15803D), // Soothing botanical green success
+    warning: Color(
+        0xFFB58900), // Eye-comforting warm golden yellow (high legibility on linen, zero orange glare)
+    error: Color(0xFFC02626), // Terracotta crimson error
+    info: Color(0xFF2563EB), // Calming sapphire info
+    cyan: Color(0xFF0D9488), // Calm teal
+    indigo: Color(0xFF4338CA), // Royal Indigo
+    emerald: Color(0xFF047857), // Deep emerald
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -565,29 +572,32 @@ class AppState extends ChangeNotifier {
   // moonlit pearl text (#E2E8F0) to eliminate night glare & eye fatigue.
   // ──────────────────────────────────────────────────────────────────────────
   static const ThemeColors _blackColors = ThemeColors(
-    bg: Color(0xFF000000),             // Pure OLED True Black
-    surface: Color(0xFF0D0F14),        // Ultra-deep charcoal surface
-    surfaceHigh: Color(0xFF151922),    // Elevation layer 1
+    bg: Color(0xFF000000), // Pure OLED True Black
+    surface: Color(0xFF0D0F14), // Ultra-deep charcoal surface
+    surfaceHigh: Color(0xFF151922), // Elevation layer 1
     surfaceVariant: Color(0xFF1C222E), // Elevation layer 2
-    glassSurface: Color(0xE005070A),   // 88% OLED glassmorphism
-    border: Color(0xFF202736),          // Subtle boundary
+    glassSurface: Color(0xE005070A), // 88% OLED glassmorphism
+    border: Color(0xFF202736), // Subtle boundary
     cardBorder: Color(0xFF202736),
-    primary: Color(0xFF10B981),        // Serene Emerald
+    primary: Color(0xFF10B981), // Serene Emerald
     onPrimary: Color(0xFF000000),
-    secondary: Color(0xFF06B6D4),      // Cyan Spark
-    gold: Color(0xFFEAB308),           // Luminous Amber Gold
-    green: Color(0xFF22C55E),          // Calming leaf green (soothing, zero halation)
-    red: Color(0xFFE06D63),            // Gentle rose terracotta (soft, halation-free)
-    muted: Color(0xFF64748B),          // Slate-500 neutral muted
-    currentWord: Color(0xFF14B8A6),    // Calming luminous teal active word highlight
-    wordHighlight: Color(0xFF14B8A6),  // Calming luminous teal active word highlight
-    text: Color(0xFFE2E8F0),           // Moonlit pearl (halation-free)
-    textSecondary: Color(0xFF94A3B8),  // Slate-400
-    ayahOutline: Color(0x35EAB308),    // Soft amber outline
-    ambientGlow: Color(0x2510B981),    // Gentle emerald glow
-    success: Color(0xFF22C55E),        // Calming leaf green success
-    warning: Color(0xFFFACC15),        // Soothing luminous candlelight yellow (pure warm yellow, zero orange glare)
-    error: Color(0xFFE06D63),          // Gentle rose terracotta error
+    secondary: Color(0xFF06B6D4), // Cyan Spark
+    gold: Color(0xFFEAB308), // Luminous Amber Gold
+    green: Color(0xFF22C55E), // Calming leaf green (soothing, zero halation)
+    red: Color(0xFFE06D63), // Gentle rose terracotta (soft, halation-free)
+    muted: Color(0xFF64748B), // Slate-500 neutral muted
+    currentWord:
+        Color(0xFF14B8A6), // Calming luminous teal active word highlight
+    wordHighlight:
+        Color(0xFF14B8A6), // Calming luminous teal active word highlight
+    text: Color(0xFFE2E8F0), // Moonlit pearl (halation-free)
+    textSecondary: Color(0xFF94A3B8), // Slate-400
+    ayahOutline: Color(0x35EAB308), // Soft amber outline
+    ambientGlow: Color(0x2510B981), // Gentle emerald glow
+    success: Color(0xFF22C55E), // Calming leaf green success
+    warning: Color(
+        0xFFFACC15), // Soothing luminous candlelight yellow (pure warm yellow, zero orange glare)
+    error: Color(0xFFE06D63), // Gentle rose terracotta error
     info: Color(0xFF38BDF8),
     cyan: Color(0xFF06B6D4),
     indigo: Color(0xFF818CF8),
@@ -599,29 +609,32 @@ class AppState extends ChangeNotifier {
       final prefs = await _getPrefs();
 
       if (prefs.containsKey('lang')) {
-        _lang = prefs.getString('lang') == 'en'
-            ? AppLanguage.en
-            : AppLanguage.ar;
+        _lang =
+            prefs.getString('lang') == 'en' ? AppLanguage.en : AppLanguage.ar;
       }
       if (prefs.containsKey('theme')) {
         final themeStr = prefs.getString('theme');
         try {
           _theme = AppTheme.values.firstWhere((t) => t.name == themeStr);
         } catch (_) {
-          _theme = (themeStr == 'dark' || themeStr == 'oled' || themeStr == 'black')
-              ? AppTheme.black
-              : AppTheme.white;
+          _theme =
+              (themeStr == 'dark' || themeStr == 'oled' || themeStr == 'black')
+                  ? AppTheme.black
+                  : AppTheme.white;
         }
       } else {
-        final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
-        _theme = brightness == Brightness.dark ? AppTheme.black : AppTheme.white;
+        final brightness =
+            WidgetsBinding.instance.platformDispatcher.platformBrightness;
+        _theme =
+            brightness == Brightness.dark ? AppTheme.black : AppTheme.white;
       }
       isBlurMode = prefs.getBool('blurMode') ?? false;
       blurModeNotifier.value = isBlurMode;
 
       tajweedClickCount = prefs.getInt('tajweed_click_count') ?? 0;
       // Migrate old boolean value if present
-      if (tajweedClickCount == 0 && (prefs.getBool('has_clicked_tajweed_word') ?? false)) {
+      if (tajweedClickCount == 0 &&
+          (prefs.getBool('has_clicked_tajweed_word') ?? false)) {
         tajweedClickCount = 10;
       }
 
@@ -716,7 +729,7 @@ class ThemeColors {
 
   /// A faded version of gold for subtle backgrounds.
   Color get goldFade => gold.withValues(alpha: 0.25);
-  
+
   /// A faded version of primary for subtle pill backgrounds.
   Color get primaryFade => primary.withValues(alpha: 0.12);
 

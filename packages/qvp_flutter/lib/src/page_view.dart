@@ -383,11 +383,18 @@ class QvpPageViewState extends State<QvpPageView> with SingleTickerProviderState
   }
 
   void _onTapUp(TapUpDetails d) {
+    final v = _ctl.toView(d.localPosition);
+    final exact = page.hitTestExactView(v.dx, v.dy);
+    if (exact != null && exact.decoration >= 0) {
+      widget.onDecorationTap?.call(page.decorations[exact.decoration]);
+      return;
+    }
+
     final h = _hitAt(d.localPosition, maxDistance: widget.hitMaxDistance);
-    if (h != null && h.word >= 0) {
-      widget.onWordTap?.call(h.word, h);
-    } else if (h != null && h.decoration >= 0) {
+    if (h != null && h.decoration >= 0) {
       widget.onDecorationTap?.call(page.decorations[h.decoration]);
+    } else if (h != null && h.word >= 0) {
+      widget.onWordTap?.call(h.word, h);
     } else {
       widget.onEmptyTap?.call();
     }
