@@ -393,6 +393,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           !widget.isRecording &&
           !isAudioActive &&
           !isBlurEffective &&
+          !_hasMasks &&
+          _lastHiddenWords.isEmpty &&
           !themeChanged;
 
       final bool needsWordEvaluation = !skipRemoteWordScan &&
