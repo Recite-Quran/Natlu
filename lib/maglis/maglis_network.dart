@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
@@ -193,6 +195,27 @@ class MaglisNetworkEngine {
   final Set<String> _negotiatingPeers = {};
   final Map<String, List<MediaStreamTrack>> _remoteTracks = {};
   final Set<String> _peersNeedingCatchup = <String>{};
+  final Set<String> _renegotiatePending = <String>{};
+  final Map<String, Future<void>> _peerLocks = {};
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  List<ConnectivityResult> _lastConnectivity = const [];
+
+  Future<T> _runPeerExclusive<T>(
+      String peerId, Future<T> Function() block) async {
+    while (_peerLocks.containsKey(peerId)) {
+      try {
+        await _peerLocks[peerId];
+      } catch (_) {}
+    }
+    final completer = Completer<void>();
+    _peerLocks[peerId] = completer.future;
+    try {
+      return await block();
+    } finally {
+      completer.complete();
+      _peerLocks.remove(peerId);
+    }
+  }
 
   MediaStream? _localStream;
   bool _isMicMuted = false;
@@ -313,6 +336,34 @@ class MaglisNetworkEngine {
     _isMicMuted = false;
     MaglisPlatform.setSpeaker(true);
 
+    MaglisPlatform.onAudioInterrupted = (interrupted) {
+      if (_disposed) return;
+      if (interrupted) {
+        _localStream?.getAudioTracks().forEach((track) {
+          track.enabled = false;
+        });
+      } else {
+        _localStream?.getAudioTracks().forEach((track) {
+          track.enabled = !_isMicMuted;
+        });
+        MaglisPlatform.setSpeaker(true);
+      }
+    };
+
+    if (!kIsWeb) {
+      _connectivitySub?.cancel();
+      _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+        if (_disposed) return;
+        final hasConnection =
+            results.isNotEmpty && !results.contains(ConnectivityResult.none);
+        final changed = !listEquals(_lastConnectivity, results);
+        _lastConnectivity = List.from(results);
+        if (changed && hasConnection) {
+          _onNetworkInterfaceChanged();
+        }
+      });
+    }
+
     // Connect to the top primary relay first (fallbacks only activate if primary fails)
     _activeRelayIndex = 0;
     await _connectActiveRelay();
@@ -389,6 +440,28 @@ class MaglisNetworkEngine {
         _resubscribeRelays();
       }
     });
+  }
+
+  void _onNetworkInterfaceChanged() {
+    if (_disposed) return;
+    for (final ws in _sockets.values) {
+      try {
+        ws.sink.close();
+      } catch (_) {}
+    }
+    _sockets.clear();
+    _reconnectingRelays.clear();
+    unawaited(_connectActiveRelay());
+
+    for (final remoteId in _peers.keys) {
+      final isInitiator = localPeerId.compareTo(remoteId) < 0;
+      if (isInitiator) {
+        unawaited(_triggerIceRestart(remoteId));
+      } else {
+        unawaited(_sendSignal('reconnect_request',
+            targetId: remoteId, data: const {}));
+      }
+    }
   }
 
   int get _activeRemoteParticipantCount {
@@ -619,8 +692,9 @@ class MaglisNetworkEngine {
       }
     }
 
-    // Connect to next active relay with 2s backoff
-    Future.delayed(const Duration(seconds: 2), () {
+    // Connect to next active relay with jittered 1.2s - 2.0s backoff to avoid thundering-herd collisions
+    final jitterMs = 1200 + Random().nextInt(800);
+    Future.delayed(Duration(milliseconds: jitterMs), () {
       _reconnectingRelays.remove(url);
       if (!_disposed && _sockets.isEmpty) {
         _connectActiveRelay();
@@ -935,6 +1009,14 @@ class MaglisNetworkEngine {
         } finally {
           _answerInFlight[remoteId] = false;
         }
+
+        // Drain deferred renegotiation / ICE restart if one arrived while answer was in flight
+        if (_renegotiatePending.remove(remoteId) && !_disposed) {
+          final isInitiator = localPeerId.compareTo(remoteId) < 0;
+          if (isInitiator) {
+            unawaited(_triggerIceRestart(remoteId));
+          }
+        }
         break;
 
       case 'ice_batch':
@@ -1013,10 +1095,14 @@ class MaglisNetworkEngine {
     }
   }
 
-  Future<RTCPeerConnection> _createPeer(String remoteId) async {
+  Future<RTCPeerConnection> _createPeer(String remoteId) {
+    return _runPeerExclusive(remoteId, () => _createPeerInternal(remoteId));
+  }
+
+  Future<RTCPeerConnection> _createPeerInternal(String remoteId) async {
     // If an existing connection is in place, clean it first and settle native audio thread
     if (_peers.containsKey(remoteId)) {
-      await _cleanupPeer(remoteId);
+      await _cleanupPeerInternal(remoteId);
       await Future.delayed(const Duration(milliseconds: 150));
     }
     final pc = await createPeerConnection(_rtcConfig);
@@ -1137,9 +1223,11 @@ class MaglisNetworkEngine {
     try {
       final curSigState = await pc.getSignalingState() ?? pc.signalingState;
       if (curSigState != RTCSignalingState.RTCSignalingStateStable) {
-        // Offer/answer exchange already pending
+        // Offer/answer exchange already pending: defer restart until answer settles
+        _renegotiatePending.add(remoteId);
         return;
       }
+      _renegotiatePending.remove(remoteId);
       final isInitiator = localPeerId.compareTo(remoteId) < 0;
       if (isInitiator &&
           (_channels[remoteId] == null ||
@@ -1189,7 +1277,10 @@ class MaglisNetworkEngine {
 
     final isInitiator = localPeerId.compareTo(remoteId) < 0;
     if (isInitiator) {
-      if (_negotiatingPeers.contains(remoteId)) return;
+      if (_negotiatingPeers.contains(remoteId)) {
+        _renegotiatePending.add(remoteId);
+        return;
+      }
       _negotiatingPeers.add(remoteId);
       try {
         final curDc = _channels[remoteId];
@@ -1363,7 +1454,8 @@ class MaglisNetworkEngine {
       }
       if (pkt.type == MaglisPacketType.pong) return;
 
-      if (pkt.type == MaglisPacketType.floorClaim) {
+      if (pkt.type == MaglisPacketType.floorClaim ||
+          pkt.type == MaglisPacketType.snapshot) {
         _lastSeq.remove(pkt.senderId);
       }
 
@@ -1556,8 +1648,13 @@ class MaglisNetworkEngine {
     await _sendSignal('beacon', data: const {});
   }
 
-  Future<void> _cleanupPeer(String peerId) async {
+  Future<void> _cleanupPeer(String peerId) {
+    return _runPeerExclusive(peerId, () => _cleanupPeerInternal(peerId));
+  }
+
+  Future<void> _cleanupPeerInternal(String peerId) async {
     _peersNeedingCatchup.remove(peerId);
+    _renegotiatePending.remove(peerId);
     _admittedPeers.remove(peerId);
     _iceQueues.remove(peerId);
     _pendingOutboundCandidates.remove(peerId);
@@ -1643,6 +1740,11 @@ class MaglisNetworkEngine {
     _iceRestartGraceTimers.clear();
     _pendingOutboundCandidates.clear();
     _pendingVitalPackets.clear();
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
+    MaglisPlatform.onAudioInterrupted = null;
+    _renegotiatePending.clear();
+    _peerLocks.clear();
 
     try {
       // 1. Immediately notify peers via direct P2P DataChannel (0ms latency)

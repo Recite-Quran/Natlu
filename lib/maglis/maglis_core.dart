@@ -326,6 +326,7 @@ class MaglisPlatform {
   static StreamSubscription? _deviceChangeSub;
   static StreamSubscription? _interruptionSub;
   static bool _audioInitialized = false;
+  static void Function(bool interrupted)? onAudioInterrupted;
 
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return true;
@@ -434,9 +435,12 @@ class MaglisPlatform {
           // Recover audio route if interrupted by incoming phone call or system alarm
           _interruptionSub?.cancel();
           _interruptionSub = session.interruptionEventStream.listen((event) {
-            if (!event.begin) {
+            if (event.begin) {
+              onAudioInterrupted?.call(true);
+            } else {
               session.setActive(true).then((_) {
                 setSpeaker(true);
+                onAudioInterrupted?.call(false);
               }).catchError((_) {});
             }
           });
@@ -463,6 +467,7 @@ class MaglisPlatform {
     if (kIsWeb) return;
     try {
       _audioInitialized = false;
+      onAudioInterrupted = null;
       _deviceChangeSub?.cancel();
       _deviceChangeSub = null;
       _interruptionSub?.cancel();
