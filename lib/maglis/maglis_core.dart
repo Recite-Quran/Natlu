@@ -458,6 +458,22 @@ class MaglisPlatform {
     if (kIsWeb) return;
     try {
       if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+        if (on) {
+          try {
+            final session = await AudioSession.instance;
+            final devices = await session.getDevices();
+            final hasHeadset = devices.any((d) {
+              final t = d.type.toString().toLowerCase();
+              return t.contains('bluetooth') ||
+                  t.contains('headphone') ||
+                  t.contains('headset');
+            });
+            if (hasHeadset) {
+              await Helper.setSpeakerphoneOn(false);
+              return;
+            }
+          } catch (_) {}
+        }
         await Helper.setSpeakerphoneOn(on);
       }
     } catch (_) {}

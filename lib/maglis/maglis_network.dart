@@ -173,10 +173,26 @@ class MaglisNetworkEngine {
 
   final Map<String, WebSocketChannel> _sockets = {};
   final Set<String> _reconnectingRelays = {};
+  static List<String> roomRelaysForCode(String code) {
+    if (_relays.isEmpty) return const [];
+    if (_relays.length <= 2) return _relays;
+    final primary = _relays.first;
+    final fallbacks = _relays.sublist(1);
+    final hash = code.codeUnits.fold<int>(0, (p, c) => (p * 31 + c) & 0x7FFFFFFF);
+    final ordered = List<String>.generate(
+      fallbacks.length,
+      (i) => fallbacks[(hash + i) % fallbacks.length],
+    );
+    return [primary, ...ordered];
+  }
+
+  List<String> get _roomRelays => roomRelaysForCode(roomCode);
   int _activeRelayIndex = 0;
   int _consecutiveRelayFailures = 0;
-  String get _currentRelayUrl =>
-      _relays.isNotEmpty ? _relays[_activeRelayIndex % _relays.length] : '';
+  String get _currentRelayUrl {
+    final list = _roomRelays;
+    return list.isNotEmpty ? list[_activeRelayIndex % list.length] : '';
+  }
   DateTime? _lastPrimaryProbeTime;
   final LinkedHashSet<String> _seenNostrIds = LinkedHashSet<String>();
 
@@ -388,8 +404,8 @@ class MaglisNetworkEngine {
       }));
     });
 
-    // 25s WebSocket Keep-Alive Heartbeat: prevents Nostr relays from idling out TCP sockets
-    _relayHeartbeatTimer = Timer.periodic(const Duration(seconds: 25), (_) {
+    // 18s WebSocket Keep-Alive Heartbeat: prevents Nostr relays from idling out TCP sockets
+    _relayHeartbeatTimer = Timer.periodic(const Duration(seconds: 18), (_) {
       if (_disposed) return;
       final pingTag = 'hb_${DateTime.now().millisecondsSinceEpoch}';
       for (final ws in _sockets.values) {
@@ -684,11 +700,12 @@ class MaglisNetworkEngine {
 
     // 3-Strike Rule: Only advance to fallback relay after 3 consecutive failures on current relay.
     // This prevents a momentary cellular blip or Wi-Fi flicker from immediately abandoning Cloudflare.
-    if (url == _currentRelayUrl && _relays.isNotEmpty) {
+    final rList = _roomRelays;
+    if (url == _currentRelayUrl && rList.isNotEmpty) {
       _consecutiveRelayFailures++;
       if (_consecutiveRelayFailures >= 3) {
         _consecutiveRelayFailures = 0;
-        _activeRelayIndex = (_activeRelayIndex + 1) % _relays.length;
+        _activeRelayIndex = (_activeRelayIndex + 1) % rList.length;
       }
     }
 
@@ -1073,7 +1090,7 @@ class MaglisNetworkEngine {
         'maglis_sync',
         RTCDataChannelInit()
           ..ordered = true
-          ..maxRetransmits = 30
+          ..maxRetransmits = 5
           ..binaryType = 'binary',
       );
       _bindDataChannel(remoteId, dc);
@@ -1238,7 +1255,7 @@ class MaglisNetworkEngine {
             'maglis_sync',
             RTCDataChannelInit()
               ..ordered = true
-              ..maxRetransmits = 30
+              ..maxRetransmits = 5
               ..binaryType = 'binary',
           );
           _bindDataChannel(remoteId, dc);
@@ -1258,6 +1275,7 @@ class MaglisNetworkEngine {
       await pc.setLocalDescription(
         RTCSessionDescription(mungedSdp, offer.type),
       );
+      _remoteDescSet[remoteId] = false;
       await _sendSignal('offer', targetId: remoteId, data: {
         'sdp': mungedSdp,
         'iceRestart': true,
@@ -1292,7 +1310,7 @@ class MaglisNetworkEngine {
           'maglis_sync',
           RTCDataChannelInit()
             ..ordered = true
-            ..maxRetransmits = 30
+            ..maxRetransmits = 5
             ..binaryType = 'binary',
         );
         _bindDataChannel(remoteId, dc);
@@ -1556,7 +1574,10 @@ class MaglisNetworkEngine {
 
   void sendPacket(MaglisPacket packet, {bool throttle = false}) {
     if (_disposed) return;
-    _dispatchRaw(packet.pack());
+    final vital = packet.type == MaglisPacketType.floorClaim ||
+        packet.type == MaglisPacketType.floorRelease ||
+        packet.type == MaglisPacketType.snapshot;
+    _dispatchRaw(packet.pack(), isVital: vital);
   }
 
   Future<void> sendSignalFast(
@@ -1567,11 +1588,14 @@ class MaglisNetworkEngine {
     await _sendSignal(type, targetId: targetId, data: data);
   }
 
-  void _dispatchRaw(String raw) {
+  void _dispatchRaw(String raw, {bool? isVital}) {
     final msg = RTCDataChannelMessage(raw);
     bool anyChannelOpen = false;
-    final bool isVital =
-        raw.contains('"t":0') || raw.contains('"t":2') || raw.contains('"t":3');
+    final bool vital = isVital ??
+        (raw.startsWith('{"t":0,') ||
+            raw.startsWith('{"t":2,') ||
+            raw.startsWith('{"t":3,') ||
+            raw.contains('"t":99'));
 
     for (final entry in _channels.entries) {
       final remoteId = entry.key;
@@ -1579,7 +1603,7 @@ class MaglisNetworkEngine {
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
         // Check per-peer backpressure: only skip non-vital recitation updates for
         // a specific slow peer without choking other peers in the room
-        if (!isVital && (dc.bufferedAmount ?? 0) > 65536) {
+        if (!vital && (dc.bufferedAmount ?? 0) > 65536) {
           _peersNeedingCatchup.add(remoteId);
           continue;
         }
@@ -1591,7 +1615,7 @@ class MaglisNetworkEngine {
     }
 
     // Queue vital packets (floor claim, release, snapshot) if channels are still connecting
-    if (!anyChannelOpen && isVital) {
+    if (!anyChannelOpen && vital) {
       if (!_pendingVitalPackets.contains(raw)) {
         _pendingVitalPackets.add(raw);
         if (_pendingVitalPackets.length > 20) {
@@ -1834,9 +1858,11 @@ class MaglisNetworkEngine {
         content: cipher,
       );
 
+      final roomRelays = roomRelaysForCode(trimmed);
+
       // 1. Fast-Path Primary: Probe top Cloudflare relay first (3800ms timeout with warm retransmit)
       final primaryResult = await _probeSingleRelay(
-        url: _relays.first,
+        url: roomRelays.first,
         trimmed: trimmed,
         frame: frame,
         tags: tags,
@@ -1851,7 +1877,7 @@ class MaglisNetworkEngine {
       }
 
       // 2. Hedged Fallback Race: If primary is offline/unreachable, race top 3 fallback relays
-      final fallbackRelays = _relays.skip(1).take(3).toList();
+      final fallbackRelays = roomRelays.skip(1).take(3).toList();
       if (fallbackRelays.isEmpty) return MaglisJoinResult.notFound;
 
       final fallbackFutures = fallbackRelays.map((url) => _probeSingleRelay(
@@ -2005,8 +2031,10 @@ class MaglisNetworkEngine {
         content: cipher,
       );
 
+      final roomRelays = roomRelaysForCode(trimmed);
+
       final primaryInUse = await _presenceSingleRelay(
-        url: _relays.first,
+        url: roomRelays.first,
         trimmed: trimmed,
         frame: frame,
         tags: tags,
@@ -2017,7 +2045,7 @@ class MaglisNetworkEngine {
         return primaryInUse;
       }
 
-      final fallbackRelays = _relays.skip(1).take(3).toList();
+      final fallbackRelays = roomRelays.skip(1).take(3).toList();
       final futures = fallbackRelays.map((url) => _presenceSingleRelay(
             url: url,
             trimmed: trimmed,
@@ -2124,7 +2152,8 @@ class MaglisNetworkEngine {
         content: cipher,
       );
 
-      for (final url in _relays) {
+      final roomRelays = roomRelaysForCode(trimmed);
+      for (final url in roomRelays) {
         try {
           final ws =
               WebSocketChannel.connect(Uri.parse(formatRelayUrl(url, trimmed)));
