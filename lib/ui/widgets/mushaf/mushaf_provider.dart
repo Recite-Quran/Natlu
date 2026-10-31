@@ -50,7 +50,8 @@ class MushafProvider {
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   final Map<int, Uint8List> _webPageBytes = {};
   Uint8List? _webAtlasBytes;
-  static const int _maxCachedPages = 64;
+  static const int _maxCachedPages = 120;
+  final Map<int, Future<QvpPage?>> _pendingLoads = {};
   Timer? _preloadDebounce;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
@@ -113,7 +114,7 @@ class MushafProvider {
     unawaited(loadData(force: force));
   }
 
-  Future<void> _ensureExtracted() async {
+  Future<void> _ensureExtracted({bool force = false}) async {
     if (kIsWeb) {
       if (_webAtlasBytes != null && _webPageBytes.length >= 604) return;
       try {
@@ -139,14 +140,17 @@ class MushafProvider {
       }
       return;
     }
-    if (_extractedPagesPath != null) return;
+    if (_extractedPagesPath != null && !force) return;
     try {
       final appDir = await getApplicationSupportDirectory();
       final dir = Directory('${appDir.path}/mushaf_pages');
+      final marker = File('${dir.path}/.extracted');
       final atlasFile = File('${dir.path}/atlas.qva');
-      if (dir.existsSync() &&
+      if (!force &&
+          dir.existsSync() &&
+          marker.existsSync() &&
           atlasFile.existsSync() &&
-          File('${dir.path}/604.qvp').existsSync()) {
+          atlasFile.lengthSync() > 0) {
         _extractedPagesPath = dir.path;
         return;
       }
@@ -183,6 +187,7 @@ class MushafProvider {
           out.writeAsBytesSync(file.content as List<int>);
         }
       }
+      File('${outDir.path}/.extracted').writeAsStringSync('ok');
     } catch (e) {
       debugPrint('Error inside _extractTarXzIsolate: $e');
     }
@@ -202,7 +207,7 @@ class MushafProvider {
         await QvpEngine.initWeb();
       }
       _engine ??= QvpEngine.open();
-      await _ensureExtracted();
+      await _ensureExtracted(force: force);
 
       if (_atlas == null) {
         final Uint8List atlasBytes;
@@ -235,7 +240,19 @@ class MushafProvider {
 
   String _pad(int n) => n.toString().padLeft(3, '0');
 
-  Future<QvpPage?> getPage(int pageNumber) async {
+  Future<QvpPage?> getPage(int pageNumber) {
+    final cached = getCachedPage(pageNumber);
+    if (cached != null) return Future.value(cached);
+
+    final pending = _pendingLoads[pageNumber];
+    if (pending != null) return pending;
+
+    final future = _loadPageInternal(pageNumber);
+    _pendingLoads[pageNumber] = future;
+    return future.whenComplete(() => _pendingLoads.remove(pageNumber));
+  }
+
+  Future<QvpPage?> _loadPageInternal(int pageNumber) async {
     if (!_isReady) {
       await loadData();
     }
@@ -259,10 +276,16 @@ class MushafProvider {
           throw StateError('Mushaf page $pageNumber not found in Web memory');
         }
       } else {
-        final localPage = _extractedPagesPath != null
+        var localPage = _extractedPagesPath != null
             ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
             : null;
-        if (localPage != null && localPage.existsSync()) {
+        if (localPage == null || !localPage.existsSync() || localPage.lengthSync() == 0) {
+          await _ensureExtracted(force: true);
+          localPage = _extractedPagesPath != null
+              ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
+              : null;
+        }
+        if (localPage != null && localPage.existsSync() && localPage.lengthSync() > 0) {
           pageBytes = await localPage.readAsBytes();
         } else {
           throw StateError('Mushaf page $pageNumber not found at ${localPage?.path}');
@@ -275,13 +298,14 @@ class MushafProvider {
         final currentPage = AppState.instance.currentMushafPage.value;
         int? evictKey;
         for (final k in _pageCache.keys) {
-          if (currentPage > 0 && (k - currentPage).abs() <= 3) continue;
+          if (currentPage > 0 && (k - currentPage).abs() <= 10) continue;
           evictKey = k;
           break;
         }
-        evictKey ??= _pageCache.keys.first;
-        final oldestPage = _pageCache.remove(evictKey);
-        oldestPage?.dispose();
+        if (evictKey != null) {
+          final oldestPage = _pageCache.remove(evictKey);
+          oldestPage?.dispose();
+        }
       }
       _pageCache[pageNumber] = page;
       return page;

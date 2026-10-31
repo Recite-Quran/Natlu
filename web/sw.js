@@ -1,25 +1,25 @@
 // Service Worker for Recite Quran (اتلو القران)
 // Provides complete offline caching, dynamic caching, and Cross-Origin Isolation (COOP/COEP) for WebAssembly.
 
-const CACHE_NAME = 'recite-quran-pwa-v21-1793465954';
+const CACHE_NAME = 'recite-quran-pwa-v21-1793468743';
 
 const STATIC_PRECACHE = [
   './',
   'index.html',
   'manifest.json',
-  'favicon.png',
+  'icons/favicon.png',
   'ReciteQuran.png',
   'icons/apple-touch-icon.png',
   'icons/Icon-192.png',
   'icons/Icon-512.png',
   'icons/Icon-maskable-192.png',
   'icons/Icon-maskable-512.png',
-  'pwa_install.js',
-  'qvp.js',
-  'sherpa-onnx-asr.js',
-  'sherpa_official_app.js',
-  'sherpa-onnx-wasm-main-asr.js',
-  'sherpa-onnx-wasm-main-asr.wasm',
+  'js/pwa_install.js',
+  'js/qvp.js',
+  'js/sherpa-onnx-asr.js',
+  'js/sherpa_official_app.js',
+  'js/sherpa-onnx-wasm-main-asr.js',
+  'wasm/sherpa-onnx-wasm-main-asr.wasm',
   'flutter_bootstrap.js',
   'flutter.js',
   'main.dart.js',
@@ -52,7 +52,9 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then((cache) =>
       Promise.allSettled(
         STATIC_PRECACHE.map((url) =>
-          cache.add(url).catch((err) => console.warn('[SW] Precache skipped:', url, err))
+          cache.add(new Request(url, { cache: 'reload' })).catch((err) =>
+            console.warn('[SW] Precache skipped:', url, err)
+          )
         )
       )
     )
@@ -94,12 +96,16 @@ self.addEventListener('fetch', (event) => {
   // Model download endpoint is saved directly to IndexedDB
   if (url.pathname.includes('/download-model')) return;
 
-  // Stream MP3Quran audio directly through browser native HTTP range request pipeline
-  if (url.hostname.includes('mp3quran.net')) return;
+  // Stream Quran audio directly through browser native HTTP range request pipeline
+  if (url.hostname.includes('everyayah.com') ||
+      url.hostname.includes('mp3quran.net') ||
+      url.pathname.endsWith('.mp3')) return;
 
   // 1. Navigation requests & entry bootstrap scripts: Network First, fallback to cached
   const isBootstrapOrVersion = url.pathname.endsWith('/flutter_bootstrap.js') ||
                                url.pathname.endsWith('/version.json') ||
+                               url.pathname.endsWith('/main.dart.js') ||
+                               url.pathname.endsWith('/manifest.json') ||
                                url.pathname.endsWith('/pwa_install.js');
 
   if (event.request.mode === 'navigate' || isBootstrapOrVersion) {

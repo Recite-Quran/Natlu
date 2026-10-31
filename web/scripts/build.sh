@@ -32,7 +32,7 @@ node -e "const fs = require('fs'); const p = 'build/web/flutter_bootstrap.js'; i
 for f in "build/web/flutter_bootstrap.js" "build/web/flutter.js"; do
   [ -f "$f" ] && npx --yes esbuild "$f" --target=es2018 --outfile="$f" --allow-overwrite 2>/dev/null || true
 done
-for f in "build/web/sherpa-onnx-wasm-main-asr.js"; do
+for f in "build/web/js/sherpa-onnx-wasm-main-asr.js"; do
   [ -f "$f" ] && npx --yes esbuild "$f" --target=es2020 --outfile="$f" --allow-overwrite 2>/dev/null || true
 done
 
@@ -48,5 +48,6 @@ mkdir -p functions build/web/functions
 cp web/cloudflare/functions/download-model.js functions/download-model.js 2>/dev/null || true
 cp web/cloudflare/functions/download-model.js build/web/functions/download-model.js 2>/dev/null || true
 cp web/cloudflare/wrangler.toml build/web/wrangler.toml 2>/dev/null || true
+rm -rf build/web/scripts build/web/cloudflare 2>/dev/null || true
 
 echo "=== Build Complete! Deploy directory: build/web ==="

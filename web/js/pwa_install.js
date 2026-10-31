@@ -26,10 +26,18 @@
       hadController = true;
     });
 
-    // Register primary sw.js immediately for fast concurrent precaching
-    navigator.serviceWorker.register('sw.js')
-      .then((reg) => { if (navigator.onLine) reg.update().catch(() => {}); })
-      .catch((err) => console.warn('[PWA] ServiceWorker error:', err));
+    // Register primary sw.js when bandwidth download is accepted
+    window.registerAppServiceWorker = function() {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+          .then((reg) => { if (navigator.onLine) reg.update().catch(() => {}); })
+          .catch((err) => console.warn('[PWA] ServiceWorker error:', err));
+      }
+    };
+
+    if (localStorage.getItem('natlu_bandwidth_accepted') === 'true') {
+      window.registerAppServiceWorker();
+    }
   }
 
   if (isStandalone) return;

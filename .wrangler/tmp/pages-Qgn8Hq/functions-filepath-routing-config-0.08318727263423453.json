@@ -1,0 +1,13 @@
+{
+  "routes": [
+    {
+      "routePath": "/download-model",
+      "mountPath": "/",
+      "method": "",
+      "module": [
+        "download-model.js:onRequest"
+      ]
+    }
+  ],
+  "baseURL": "/"
+}

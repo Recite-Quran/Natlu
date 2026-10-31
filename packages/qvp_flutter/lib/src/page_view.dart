@@ -378,6 +378,7 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   void _relayout(Size size) {
+    if (page.isDisposed) return;
     _isRelayouting = true;
     try {
       page.layout(_spec(size));
@@ -392,8 +393,10 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   void _fit(Size size) {
+    if (page.isDisposed) return;
     // A dress or an undress refits in the engine, so read the layout again.
-    final l = page.readLayout() ?? page.currentLayout!;
+    final l = page.readLayout() ?? page.currentLayout;
+    if (l == null) return;
     _ctl._fitRequested = false;
     _fittedDress = page.dressSpec;
     _fittedBox = _dressBox();
@@ -572,6 +575,7 @@ class QvpPageViewState extends State<QvpPageView>
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     return LayoutBuilder(builder: (context, c) {
+      if (page.isDisposed) return const SizedBox.shrink();
       final size = Size(c.maxWidth.isFinite ? c.maxWidth : 400,
           c.maxHeight.isFinite ? c.maxHeight : 600);
       if (size != _size ||

@@ -33,7 +33,7 @@ migrate_working_dir/
 .pub/
 /build/
 **/build/
-functions/
+/functions/
 .dart_tool/
 **/.dart_tool/
 *.aab

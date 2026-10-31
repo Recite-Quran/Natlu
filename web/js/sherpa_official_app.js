@@ -1,9 +1,12 @@
 // Bridge between Sherpa-ONNX WebAssembly and Flutter Dart application
 // Handles VFS initialization, audio chunk feeding, and IndexedDB model caching.
 
-Module = {};
+var Module = window.Module = window.Module || {};
 
 Module.locateFile = function(path, scriptDirectory = '') {
+  if (path.endsWith('.wasm')) {
+    return 'wasm/' + path.replace(/^wasm\//, '');
+  }
   return scriptDirectory ? (scriptDirectory + path) : path;
 };
 
@@ -31,6 +34,16 @@ Module.onRuntimeInitialized = function() {
 window.isWasmModuleLoaded = () => isWasmLoaded;
 window.getOfficialSherpaError = () => initializationError;
 window.isOfficialSherpaReady = () => isRecognizerReady;
+
+let isWasmScriptInjected = false;
+window.loadSherpaWasmRuntime = function() {
+  if (isWasmScriptInjected || isWasmLoaded) return;
+  isWasmScriptInjected = true;
+  const s = document.createElement('script');
+  s.src = 'js/sherpa-onnx-wasm-main-asr.js';
+  s.async = true;
+  document.head.appendChild(s);
+};
 
 // Write asset bytes directly into Emscripten Virtual File System (VFS)
 window.writeSherpaAssetToVFS = function(filename, bytes) {
@@ -68,6 +81,7 @@ window.writeSherpaAssetToVFS = function(filename, bytes) {
 
 // Initialize the Sherpa OnlineRecognizer
 window.initSherpaRecognizer = function(modelFilename, tokensFilename) {
+  window.loadSherpaWasmRuntime();
   const cleanM = (modelFilename || 'zipformer_p_arabic_v3.int8.onnx').replace(/^(\.\/|\/)/, '');
   const cleanT = (tokensFilename || 'quran_tokens.txt').replace(/^(\.\/|\/)/, '');
 
@@ -229,6 +243,7 @@ window.isSherpaModelCached = async function(modelFilename) {
 let activeModelDownloadPromise = null;
 
 window.fetchSherpaModel = async function(url) {
+  window.loadSherpaWasmRuntime();
   if (activeModelDownloadPromise) return activeModelDownloadPromise;
 
   activeModelDownloadPromise = (async () => {
@@ -252,44 +267,51 @@ window.fetchSherpaModel = async function(url) {
         supportsRanges = headRes.headers.get('accept-ranges') === 'bytes';
       } catch (_) {}
 
-      let arrayBuffer;
+      let arrayBuffer = null;
       if (supportsRanges && totalSize > 10000000) {
-        // 4-way parallel chunk download
-        const numChunks = 4;
-        const chunkSize = Math.ceil(totalSize / numChunks);
+        try {
+          // 4-way parallel chunk download
+          const numChunks = 4;
+          const chunkSize = Math.ceil(totalSize / numChunks);
 
-        const chunkPromises = Array.from({ length: numChunks }, (_, i) => {
-          const start = i * chunkSize;
-          const end = Math.min(start + chunkSize - 1, totalSize - 1);
+          const chunkPromises = Array.from({ length: numChunks }, (_, i) => {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize - 1, totalSize - 1);
 
-          return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('GET', targetUrl, true);
-            xhr.responseType = 'arraybuffer';
-            xhr.setRequestHeader('Range', `bytes=${start}-${end}`);
-            xhr.onload = () => {
-              if (xhr.status === 206) {
-                resolve({ index: i, buffer: xhr.response });
-              } else {
-                reject(new Error(`Chunk ${i} HTTP ${xhr.status}`));
-              }
-            };
-            xhr.onerror = () => reject(new Error(`Chunk ${i} failed`));
-            xhr.send();
+            return new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('GET', targetUrl, true);
+              xhr.responseType = 'arraybuffer';
+              xhr.setRequestHeader('Range', `bytes=${start}-${end}`);
+              xhr.onload = () => {
+                if (xhr.status === 206) {
+                  resolve({ index: i, buffer: xhr.response });
+                } else {
+                  reject(new Error(`Chunk ${i} HTTP ${xhr.status}`));
+                }
+              };
+              xhr.onerror = () => reject(new Error(`Chunk ${i} failed`));
+              xhr.send();
+            });
           });
-        });
 
-        const results = await Promise.all(chunkPromises);
-        results.sort((a, b) => a.index - b.index);
+          const results = await Promise.all(chunkPromises);
+          results.sort((a, b) => a.index - b.index);
 
-        const assembled = new Uint8Array(totalSize);
-        let offset = 0;
-        for (const r of results) {
-          assembled.set(new Uint8Array(r.buffer), offset);
-          offset += r.buffer.byteLength;
+          const assembled = new Uint8Array(totalSize);
+          let offset = 0;
+          for (const r of results) {
+            assembled.set(new Uint8Array(r.buffer), offset);
+            offset += r.buffer.byteLength;
+          }
+          arrayBuffer = assembled.buffer;
+        } catch (chunkErr) {
+          console.warn('[Sherpa] Multi-chunk download failed, gracefully falling back to single stream:', chunkErr);
+          arrayBuffer = null;
         }
-        arrayBuffer = assembled.buffer;
-      } else {
+      }
+
+      if (!arrayBuffer) {
         // Single-stream fallback
         arrayBuffer = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();

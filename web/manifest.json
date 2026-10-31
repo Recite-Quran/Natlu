@@ -2,6 +2,8 @@
     "id": "recite-quran-app",
     "name": "Recite Quran - اتلو القران",
     "short_name": "اتلو القران",
+    "lang": "ar",
+    "dir": "rtl",
     "start_url": "./?source=pwa",
     "scope": "./",
     "display": "standalone",

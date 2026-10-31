@@ -4,6 +4,7 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="استمع وتتبع تلاوة القرآن الكريم بالذكاء الاصطناعي على جهازك بدون إنترنت.">
   <meta name="theme-color" content="#059669">
@@ -17,27 +18,27 @@
 
   <!-- Open Graph / Facebook / WhatsApp -->
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://recitequran.pages.dev/">
+  <meta property="og:url" content="https://natlu.pages.dev/">
   <meta property="og:site_name" content="Natlu — Recite Quran">
-  <meta property="og:title" content="Natlu Web — Real-Time Quran Recitation Recitation Tracker">
+  <meta property="og:title" content="Natlu Web — Real-Time Quran Recitation Tracker">
   <meta property="og:description"
     content="Recite Quran directly in your browser with real-time word tracking, acoustic Tajweed checking, and hands-free voice search. 100% on-device and free.">
-  <meta property="og:image" content="https://recitequran.pages.dev/ReciteQuran.png">
-  <meta property="og:image:secure_url" content="https://recitequran.pages.dev/ReciteQuran.png">
+  <meta property="og:image" content="https://natlu.pages.dev/ReciteQuran.png">
+  <meta property="og:image:secure_url" content="https://natlu.pages.dev/ReciteQuran.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1500">
   <meta property="og:image:height" content="500">
 
   <!-- Twitter / X -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Natlu Web — Real-Time Quran Recitation Recitation Tracker">
+  <meta name="twitter:title" content="Natlu Web — Real-Time Quran Recitation Tracker">
   <meta name="twitter:description"
     content="Recite Quran directly in your browser with real-time word tracking, acoustic Tajweed checking, and hands-free voice search. 100% on-device and free.">
-  <meta name="twitter:image" content="https://recitequran.pages.dev/ReciteQuran.png">
-  <link rel="image_src" href="https://recitequran.pages.dev/ReciteQuran.png">
+  <meta name="twitter:image" content="https://natlu.pages.dev/ReciteQuran.png">
+  <link rel="image_src" href="https://natlu.pages.dev/ReciteQuran.png">
 
   <!-- Favicons -->
-  <link rel="icon" type="image/png" href="favicon.png?v=quran" />
+  <link rel="icon" type="image/png" href="icons/favicon.png?v=quran" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png?v=quran" />
   <link rel="icon" type="image/png" sizes="512x512" href="icons/Icon-512.png?v=quran" />
 
@@ -212,9 +213,177 @@
     .pwa-close-btn:hover {
       color: #374151;
     }
+
+    /* First-time Bandwidth Consent Dialog */
+    .consent-card {
+      max-width: 25rem;
+      width: calc(100% - 2.5rem);
+      background: #ffffff;
+      border-radius: 1.5rem;
+      padding: 1.6rem 1.35rem;
+      box-shadow: 0 20px 45px -10px rgba(5, 150, 105, 0.22), 0 0 1px 1px rgba(0, 0, 0, 0.06);
+      border: 1px solid #e5e7eb;
+      text-align: center;
+      animation: pwaSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      box-sizing: border-box;
+      margin: 1rem;
+    }
+
+    .consent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: #ecfdf5;
+      color: #059669;
+      font-size: 0.725rem;
+      font-weight: 700;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      margin-bottom: 0.85rem;
+      border: 1px solid #a7f3d0;
+    }
+
+    .consent-title {
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: #111827;
+      margin: 0 0 0.25rem 0;
+      direction: rtl;
+    }
+
+    .consent-subtitle {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #9ca3af;
+      margin: 0 0 0.85rem 0;
+    }
+
+    .consent-body {
+      font-size: 0.825rem;
+      color: #374151;
+      line-height: 1.55;
+      direction: rtl;
+      margin-bottom: 0.85rem;
+      text-align: right;
+    }
+
+    .consent-breakdown {
+      background: #f9fafb;
+      border: 1px solid #f3f4f6;
+      border-radius: 0.85rem;
+      padding: 0.65rem 0.85rem;
+      margin-bottom: 1.15rem;
+      font-size: 0.75rem;
+      color: #4b5563;
+      direction: rtl;
+      text-align: right;
+      line-height: 1.65;
+    }
+
+    .consent-breakdown strong {
+      color: #059669;
+    }
+
+    .consent-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .consent-btn-primary {
+      background: #059669;
+      color: #ffffff;
+      border: none;
+      border-radius: 9999px;
+      padding: 0.8rem 1rem;
+      font-weight: 800;
+      font-size: 0.85rem;
+      cursor: pointer;
+      box-shadow: 0 10px 15px -3px rgba(5, 150, 105, 0.3);
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .consent-btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .consent-btn-secondary {
+      background: transparent;
+      color: #6b7280;
+      border: 1px solid #e5e7eb;
+      border-radius: 9999px;
+      padding: 0.6rem 1rem;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .consent-btn-secondary:hover {
+      background: #f3f4f6;
+      color: #374151;
+    }
   </style>
 
   <script>
+    const BANDWIDTH_KEY = 'natlu_bandwidth_accepted';
+    let hasAcceptedBandwidth = false;
+    try {
+      hasAcceptedBandwidth = localStorage.getItem(BANDWIDTH_KEY) === 'true';
+    } catch (_) {}
+
+    window.bootFlutterApp = function() {
+      if (window._flutterBootStarted) return;
+      window._flutterBootStarted = true;
+      if (typeof window.registerAppServiceWorker === 'function') {
+        window.registerAppServiceWorker();
+      }
+      const s = document.createElement('script');
+      s.src = 'flutter_bootstrap.js';
+      s.async = true;
+      document.body.appendChild(s);
+    };
+
+    window.acceptBandwidthAndStart = function() {
+      try {
+        localStorage.setItem(BANDWIDTH_KEY, 'true');
+      } catch (_) {}
+      hasAcceptedBandwidth = true;
+      const c = document.getElementById('consent-card');
+      const e = document.getElementById('exit-card');
+      const n = document.getElementById('splash-normal-content');
+      const st = document.getElementById('splash-status-text');
+      if (c) c.style.display = 'none';
+      if (e) e.style.display = 'none';
+      if (n) n.style.display = 'flex';
+      if (st) st.innerText = 'جارٍ إعداد التطبيق والبيانات للعمل بدون إنترنت...';
+      window.bootFlutterApp();
+    };
+
+    window.exitBandwidthSetup = function() {
+      const c = document.getElementById('consent-card');
+      const e = document.getElementById('exit-card');
+      if (c) c.style.display = 'none';
+      if (e) e.style.display = 'block';
+    };
+
+    function initSplashState() {
+      if (hasAcceptedBandwidth) {
+        const n = document.getElementById('splash-normal-content');
+        if (n) n.style.display = 'flex';
+        window.bootFlutterApp();
+      } else {
+        const c = document.getElementById('consent-card');
+        if (c) c.style.display = 'block';
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', initSplashState);
+    } else {
+      initSplashState();
+    }
+
     window.clearAppCacheAndReload = async function () {
       try {
         if ('serviceWorker' in navigator) {
@@ -247,7 +416,17 @@
     // Auto-hide when Flutter paints its first frame
     window.addEventListener('flutter-first-frame', function () {
       window.hideAppSplash();
+      if (typeof window.loadSherpaWasmRuntime === 'function') {
+        setTimeout(window.loadSherpaWasmRuntime, 300);
+      }
     });
+
+    // Fallback: warm up Sherpa WASM in background after 2.5s
+    setTimeout(function () {
+      if (hasAcceptedBandwidth && typeof window.loadSherpaWasmRuntime === 'function') {
+        window.loadSherpaWasmRuntime();
+      }
+    }, 2500);
 
     // Fallback: Observe Flutter elements entering DOM
     domObserver = new MutationObserver(function () {
@@ -259,6 +438,7 @@
 
     // Graceful recovery if Flutter takes unusually long or encounters a stale cache block
     setTimeout(function () {
+      if (!hasAcceptedBandwidth) return;
       const splash = document.getElementById('splash-overlay');
       if (splash && !document.querySelector('flutter-view, flt-glass-pane')) {
         const spinner = document.querySelector('.splash-spinner');
@@ -270,21 +450,73 @@
           errBox.style.marginTop = '1.25rem';
           errBox.style.textAlign = 'center';
           errBox.innerHTML = '<div style="font-size:0.85rem;color:#4b5563;margin-bottom:0.75rem;direction:rtl;">استغرق التحميل وقتاً أطول من المعتاد...</div><button onclick="window.clearAppCacheAndReload()" style="background:#059669;color:#fff;border:none;padding:0.5rem 1.15rem;border-radius:9999px;font-weight:700;font-size:0.8rem;cursor:pointer;">تحديث وحذف الذاكرة المؤقتة • Reload</button>';
-          const content = document.querySelector('.splash-content');
+          const content = document.getElementById('splash-normal-content');
           if (content) content.appendChild(errBox);
         }
       }
-    }, 8000);
+    }, 12000);
   </script>
 </head>
 
 <body>
   <div id="splash-overlay">
-    <div class="splash-content">
+    <!-- Regular loading spinner (shown when accepted or returning user) -->
+    <div id="splash-normal-content" class="splash-content" style="display: none;">
       <img src="icons/Icon-192.png" alt="Recite Quran" class="splash-icon" />
       <h1 class="splash-title-ar">اتلو القران</h1>
       <div class="splash-title-en">Recite Quran</div>
       <div class="splash-spinner"></div>
+      <div id="splash-status-text" style="font-size:0.75rem;color:#6b7280;margin-top:0.85rem;direction:rtl;"></div>
+    </div>
+
+    <!-- First-Time One-Off Bandwidth Consent Dialog -->
+    <div id="consent-card" class="consent-card" style="display: none;">
+      <div class="consent-badge">
+        <svg style="width:13px;height:13px;fill:currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+        </svg>
+        تشغيل 100% بدون إنترنت • Offline-First
+      </div>
+      <h2 class="consent-title">تنزيل بيانات التطبيق لمرة واحدة</h2>
+      <div class="consent-subtitle">One-Time On-Device Setup (~120 MB)</div>
+      
+      <div class="consent-body">
+        يعمل التطبيق بالكامل داخل متصفحك عبر تقنيات الذكاء الاصطناعي والمصحف المتجهي، دون إرسال صوتك لأي خادم خارجي.
+      </div>
+
+      <div class="consent-breakdown">
+        <div>• نموذج الذكاء الاصطناعي للتلاوة: <strong>~72 MB</strong></div>
+        <div>• المصحف المتجهي الشريف الكامل (604 صفحة): <strong>~26 MB</strong></div>
+        <div>• محرك التعرف الصوتي (WebAssembly): <strong>~13 MB</strong></div>
+        <div>• ملفات وبرمجيات الواجهة والخطوط: <strong>~9 MB</strong></div>
+        <div style="margin-top:0.35rem;border-top:1px dashed #e5e7eb;padding-top:0.35rem;color:#059669;font-weight:700;">
+          المجموع: ~120 ميجابايت (تحميل لمرة واحدة فقط ويحفظ في جهازك)
+        </div>
+      </div>
+
+      <div class="consent-actions">
+        <button onclick="window.acceptBandwidthAndStart()" class="consent-btn-primary">
+          متابعة وتحميل • Continue & Download
+        </button>
+        <button onclick="window.exitBandwidthSetup()" class="consent-btn-secondary">
+          إلغاء وخروج • Exit
+        </button>
+      </div>
+    </div>
+
+    <!-- Exit / Paused Screen -->
+    <div id="exit-card" class="consent-card" style="display: none;">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem;">📶</div>
+      <h2 class="consent-title">تم إيقاف التحميل لحفظ الباقة</h2>
+      <div class="consent-subtitle">Download Paused</div>
+      <div class="consent-body" style="text-align:center;">
+        لم يتم استهلاك أي بيانات من باقتك. يمكنك العودة واستخدام التطبيق في أي وقت عند اتصالك بشبكة Wi-Fi مجانية.
+      </div>
+      <div class="consent-actions" style="margin-top:1rem;">
+        <button onclick="window.acceptBandwidthAndStart()" class="consent-btn-primary">
+          بدء التحميل الآن • Start Download Now
+        </button>
+      </div>
     </div>
   </div>
 
@@ -330,12 +562,10 @@
     </div>
   </div>
 
-  <script src="pwa_install.js" defer></script>
-  <script src="qvp.js" defer></script>
-  <script src="sherpa-onnx-asr.js" defer></script>
-  <script src="sherpa_official_app.js" defer></script>
-  <script src="sherpa-onnx-wasm-main-asr.js" defer></script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="js/pwa_install.js" defer></script>
+  <script src="js/qvp.js" defer></script>
+  <script src="js/sherpa-onnx-asr.js" defer></script>
+  <script src="js/sherpa_official_app.js" defer></script>
 </body>
 
 </html>

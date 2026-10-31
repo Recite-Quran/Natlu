@@ -41,6 +41,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   QvpPage? _page;
   bool _isLoading = true;
+  int _loadAttempts = 0;
+  static const int _maxAttempts = 3;
   late final AnimationController _spinnerController;
 
   // Native highlight handles (zero cache invalidation, drawn in GPU band batches)
@@ -89,27 +91,46 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _checkSpinnerAnimation();
       _syncVisuals();
     } else {
-      _loadPage();
+      _safeLoadPage();
     }
   }
 
-  Future<void> _loadPage() async {
-    final page = await MushafProvider.instance.getPage(widget.pageNumber);
-    if (!mounted) return;
-    setState(() {
-      _page = page;
-      _isLoading = false;
+  void _safeLoadPage() {
+    if (_isLoading || !mounted) return;
+    if (_loadAttempts >= _maxAttempts) return;
+    _isLoading = true;
+    _loadAttempts++;
+
+    MushafProvider.instance.getPage(widget.pageNumber).then((page) {
+      if (!mounted) return;
+      setState(() {
+        _page = page;
+        _isLoading = false;
+        if (page != null && !page.isDisposed) {
+          _loadAttempts = 0;
+        }
+      });
+      if (page != null && !page.isDisposed) {
+        _checkSpinnerAnimation();
+        _syncVisuals();
+      } else if (_loadAttempts < _maxAttempts) {
+        Future.delayed(const Duration(milliseconds: 400), () {
+          if (mounted && (_page == null || _page!.isDisposed)) {
+            _safeLoadPage();
+          }
+        });
+      }
+    }).catchError((e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
     });
-    if (page != null && !page.isDisposed) {
-      _checkSpinnerAnimation();
-      _syncVisuals();
-    }
   }
 
   @override
   void didUpdateWidget(MushafPageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageNumber != widget.pageNumber || _page == null || _page!.isDisposed) {
+      _loadAttempts = 0;
       _lastActiveAyah = null;
       _lastActiveWord = null;
       _lastIsDark = null;
@@ -126,7 +147,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _recitationYellowHandle = 0;
       _recitationRedHandle = 0;
       updateKeepAlive();
-      _loadPage();
+      final cached = MushafProvider.instance.getCachedPage(widget.pageNumber);
+      if (cached != null && !cached.isDisposed) {
+        _page = cached;
+        _isLoading = false;
+        _syncVisuals();
+      } else {
+        _safeLoadPage();
+      }
     }
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_requestSyncVisuals);
@@ -756,7 +784,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {
-      if (!_isLoading) _loadPage();
+      if (!_isLoading && _loadAttempts < _maxAttempts) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && (_page == null || _page!.isDisposed)) {
+            _safeLoadPage();
+          }
+        });
+      }
       return ColoredBox(
         color: c.surface,
         child: const SizedBox.expand(),

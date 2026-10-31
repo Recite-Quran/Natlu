@@ -136,6 +136,7 @@ class QvpWebBackend implements QvpBackend {
     for (final url in const [
       'assets/packages/qvp_flutter/assets/js/qvp.js',
       'packages/qvp_flutter/assets/js/qvp.js',
+      'js/qvp.js',
       'qvp.js',
       'assets/qvp.js',
     ]) {
