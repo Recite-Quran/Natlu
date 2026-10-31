@@ -169,13 +169,14 @@ class MaglisCrypto {
     return digest.toString().substring(0, 32);
   }
 
-  /// Returns current and previous 15-minute epoch tags to ensure uninterrupted connection
-  /// across 15-minute boundary transitions.
+  /// Returns current, previous, and next 15-minute epoch tags to ensure uninterrupted connection
+  /// across 15-minute boundary transitions and accommodate ±15 minutes of device clock drift.
   static List<String> activeBlindedTags(String code) {
     final ep = currentEpoch;
     return [
       blindedTag(code, epoch: ep),
       blindedTag(code, epoch: ep - 1),
+      blindedTag(code, epoch: ep + 1),
     ];
   }
 

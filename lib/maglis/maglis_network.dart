@@ -19,7 +19,8 @@ import 'maglis_core.dart';
 /// - Production Opus voice profile for natural Tajweed reading without gate cutoffs
 /// - Graceful ICE state handling without infinite reconnection flapping
 class MaglisNetworkEngine {
-  static const int maxRemotePeers = 3; // Up to 4 total participants in a Maglis room
+  static const int maxRemotePeers =
+      3; // Up to 4 total participants in a Maglis room
 
   static const List<String> _defaultRelays = [
     'wss://quran-maglis.recitequrankarem.workers.dev',
@@ -112,7 +113,8 @@ class MaglisNetworkEngine {
                   'maglis_cached_relays', jsonEncode(fetchedRelays));
             }
           }
-          if (data['iceServers'] is List && (data['iceServers'] as List).isNotEmpty) {
+          if (data['iceServers'] is List &&
+              (data['iceServers'] as List).isNotEmpty) {
             final updatedRtc = Map<String, dynamic>.from(_defaultRtcConfig);
             updatedRtc['iceServers'] = data['iceServers'];
             _rtcConfig = updatedRtc;
@@ -182,6 +184,8 @@ class MaglisNetworkEngine {
   Timer? _throttleTimer;
   Timer? _relayHeartbeatTimer;
   Timer? _watchdogTimer;
+  Timer? _epochRefreshTimer;
+  String? _lastSubId;
   final List<String> _pendingVitalPackets = [];
 
   final _packetCtrl = StreamController<MaglisPacket>.broadcast();
@@ -210,9 +214,12 @@ class MaglisNetworkEngine {
       'audio': {
         // High-definition audio constraints with Auto Gain Control for loud output on all platforms
         'echoCancellation': true,
-        'autoGainControl': true, // Essential for full volume on Windows, desktop & mobile
-        'noiseSuppression': false, // Preserve natural Tajweed recitation without clipping
-        'highpassFilter': false, // Disable telephony bass cutoff to preserve natural vocal warmth
+        'autoGainControl':
+            true, // Essential for full volume on Windows, desktop & mobile
+        'noiseSuppression':
+            false, // Preserve natural Tajweed recitation without clipping
+        'highpassFilter':
+            false, // Disable telephony bass cutoff to preserve natural vocal warmth
         'sampleRate': 48000,
         'sampleSize': 16,
         'channelCount': 1,
@@ -315,7 +322,11 @@ class MaglisNetworkEngine {
       final pingTag = 'hb_${DateTime.now().millisecondsSinceEpoch}';
       for (final ws in _sockets.values) {
         try {
-          ws.sink.add(jsonEncode(['REQ', pingTag, {'limit': 0}]));
+          ws.sink.add(jsonEncode([
+            'REQ',
+            pingTag,
+            {'limit': 0}
+          ]));
           ws.sink.add(jsonEncode(['CLOSE', pingTag]));
         } catch (_) {}
       }
@@ -331,6 +342,17 @@ class MaglisNetworkEngine {
       }
       _pruneStalePeers();
     });
+
+    // 3-minute Epoch Refresh Timer: guarantees relay subscriptions stay active across 15-min epoch boundaries
+    int lastEpoch = MaglisCrypto.currentEpoch;
+    _epochRefreshTimer = Timer.periodic(const Duration(minutes: 3), (_) {
+      if (_disposed) return;
+      final curEpoch = MaglisCrypto.currentEpoch;
+      if (curEpoch != lastEpoch) {
+        lastEpoch = curEpoch;
+        _resubscribeRelays();
+      }
+    });
   }
 
   void _pruneStalePeers() {
@@ -340,9 +362,9 @@ class MaglisNetworkEngine {
     for (final peerId in _roomParticipants) {
       final lastSeen = _lastSeenPeerMs[peerId] ?? 0;
       final state = _peerStates[peerId];
-      final isConnected = state ==
-              RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
+      final isConnected =
+          state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+              state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
       // If WebRTC is not connected and peer hasn't been active for > 15s, evict ghost peer
       if (!isConnected && (now - lastSeen) > 15000) {
         stalePeers.add(peerId);
@@ -365,8 +387,24 @@ class MaglisNetworkEngine {
     _connectRelay(url);
   }
 
+  static String formatRelayUrl(String baseUrl, String room) {
+    try {
+      final uri = Uri.parse(baseUrl);
+      if (uri.host.contains('workers.dev')) {
+        final cleanRoom = normalizeArabicDigits(room.trim()).toLowerCase();
+        return uri.replace(
+          path: '/room/$cleanRoom',
+          queryParameters: {'room': cleanRoom},
+        ).toString();
+      }
+    } catch (_) {}
+    return baseUrl;
+  }
+
   void _tryRestorePrimaryRelay() {
     if (_disposed || _activeRelayIndex == 0 || _relays.isEmpty) return;
+    // Keep active session connected; do not hop relays mid-session
+    if (_roomParticipants.isNotEmpty || _peers.isNotEmpty) return;
     final now = DateTime.now();
     if (_lastPrimaryProbeTime != null &&
         now.difference(_lastPrimaryProbeTime!).inSeconds < 30) {
@@ -376,7 +414,8 @@ class MaglisNetworkEngine {
 
     final primaryUrl = _relays.first;
     try {
-      final probeChannel = WebSocketChannel.connect(Uri.parse(primaryUrl));
+      final targetUrl = formatRelayUrl(primaryUrl, roomCode);
+      final probeChannel = WebSocketChannel.connect(Uri.parse(targetUrl));
 
       probeChannel.ready.then((_) {
         if (_disposed) {
@@ -413,7 +452,8 @@ class MaglisNetworkEngine {
   void _connectRelay(String url) {
     if (_disposed) return;
     try {
-      final ws = WebSocketChannel.connect(Uri.parse(url));
+      final targetUrl = formatRelayUrl(url, roomCode);
+      final ws = WebSocketChannel.connect(Uri.parse(targetUrl));
       _sockets[url] = ws;
 
       bool errored = false;
@@ -426,7 +466,9 @@ class MaglisNetworkEngine {
 
       ws.ready.then((_) {
         if (_disposed) {
-          try { ws.sink.close(); } catch (_) {}
+          try {
+            ws.sink.close();
+          } catch (_) {}
           return;
         }
         _subscribeRelay(ws);
@@ -447,9 +489,16 @@ class MaglisNetworkEngine {
 
   void _subscribeRelay(WebSocketChannel ws) {
     final tags = _activeTags;
+    final newSubId = 'maglis_${tags.first}';
+    if (_lastSubId != null && _lastSubId != newSubId) {
+      try {
+        ws.sink.add(jsonEncode(['CLOSE', _lastSubId]));
+      } catch (_) {}
+    }
+    _lastSubId = newSubId;
     ws.sink.add(jsonEncode([
       'REQ',
-      'maglis_${tags.first}',
+      newSubId,
       {
         'kinds': [20000],
         '#t': tags,
@@ -521,7 +570,7 @@ class MaglisNetworkEngine {
       privHex: _privHex,
       pubHex: _pubHex,
       tag: tags.first,
-      additionalTags: tags.length > 1 ? [tags[1]] : null,
+      additionalTags: tags.length > 1 ? tags.sublist(1) : null,
       content: cipher,
     );
     for (final ws in _sockets.values) {
@@ -562,7 +611,8 @@ class MaglisNetworkEngine {
 
       // Host Admission Shield: Authenticate admission token derived from roomCode + peerId + pepper
       final auth = sig.data['auth'] as String?;
-      if (auth == null || !MaglisCrypto.verifyAdmissionToken(roomCode, sig.senderId, auth)) {
+      if (auth == null ||
+          !MaglisCrypto.verifyAdmissionToken(roomCode, sig.senderId, auth)) {
         return; // Reject unauthenticated probes
       }
 
@@ -573,7 +623,8 @@ class MaglisNetworkEngine {
 
       // Host capacity shield: Max 3 remote peers (4 total participants)
       if (isHost && !isProbe) {
-        if (!_admittedPeers.contains(sig.senderId) && _admittedPeers.length >= maxRemotePeers) {
+        if (!_admittedPeers.contains(sig.senderId) &&
+            _admittedPeers.length >= maxRemotePeers) {
           return; // Drop signals exceeding room capacity
         }
         _admittedPeers.add(sig.senderId);
@@ -611,7 +662,8 @@ class MaglisNetworkEngine {
         break;
 
       case 'presence_probe':
-        await _sendSignal('presence_pong', targetId: remoteId, data: {'active': true});
+        await _sendSignal('presence_pong',
+            targetId: remoteId, data: {'active': true});
         break;
 
       case 'reconnect_request':
@@ -621,7 +673,8 @@ class MaglisNetworkEngine {
           if (pc != null) {
             unawaited(_triggerIceRestart(remoteId));
           } else {
-            unawaited(_sendSignal('beacon', targetId: remoteId, data: const {}));
+            unawaited(
+                _sendSignal('beacon', targetId: remoteId, data: const {}));
           }
         }
         break;
@@ -742,11 +795,13 @@ class MaglisNetworkEngine {
         try {
           final pc = _peers[remoteId] ?? await _createPeer(remoteId);
           final curSigState = await pc.getSignalingState() ?? pc.signalingState;
-          if (curSigState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+          if (curSigState ==
+              RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
             if (localPeerId.compareTo(remoteId) > 0) {
               // Remote peer has lexicographical precedence, rollback local offer cleanly
               try {
-                await pc.setRemoteDescription(RTCSessionDescription('', 'rollback'));
+                await pc.setRemoteDescription(
+                    RTCSessionDescription('', 'rollback'));
               } catch (_) {}
             } else {
               // Local peer has precedence; ignore reverse offer
@@ -837,7 +892,8 @@ class MaglisNetworkEngine {
     _iceDebounceTimers[remoteId] = Timer(const Duration(milliseconds: 80), () {
       final list = _pendingOutboundCandidates.remove(remoteId);
       if (list != null && list.isNotEmpty && !_disposed) {
-        _sendSignal('ice_batch', targetId: remoteId, data: {'candidates': list});
+        _sendSignal('ice_batch',
+            targetId: remoteId, data: {'candidates': list});
       }
     });
   }
@@ -903,12 +959,15 @@ class MaglisNetworkEngine {
         _iceRestartGraceTimers[remoteId]?.cancel();
         _iceRestartGraceTimers.remove(remoteId);
         _checkSocketSleepState();
-      } else if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+      } else if (state ==
+              RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         _checkSocketSleepState(); // Ensure Nostr relays are awake for renegotiation on both sides
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         final int graceSeconds =
-            (state == RTCIceConnectionState.RTCIceConnectionStateFailed) ? 2 : 4;
+            (state == RTCIceConnectionState.RTCIceConnectionStateFailed)
+                ? 2
+                : 4;
         _iceRestartGraceTimers[remoteId]?.cancel();
         _iceRestartGraceTimers[remoteId] =
             Timer(Duration(seconds: graceSeconds), () {
@@ -916,13 +975,15 @@ class MaglisNetworkEngine {
               (_peerStates[remoteId] ==
                       RTCIceConnectionState.RTCIceConnectionStateFailed ||
                   _peerStates[remoteId] ==
-                      RTCIceConnectionState.RTCIceConnectionStateDisconnected)) {
+                      RTCIceConnectionState
+                          .RTCIceConnectionStateDisconnected)) {
             _natFailCtrl.add(remoteId);
             _checkSocketSleepState();
             if (isInitiator) {
               _triggerIceRestart(remoteId);
             } else {
-              _sendSignal('reconnect_request', targetId: remoteId, data: const {});
+              _sendSignal('reconnect_request',
+                  targetId: remoteId, data: const {});
             }
           }
         });
@@ -933,7 +994,8 @@ class MaglisNetworkEngine {
       if (_disposed) return;
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         _lastSeenPeerMs[remoteId] = 0;
-        if (_roomParticipants.remove(remoteId) || _admittedPeers.remove(remoteId)) {
+        if (_roomParticipants.remove(remoteId) ||
+            _admittedPeers.remove(remoteId)) {
           _participantCountCtrl.add(_roomParticipants.length + 1);
         }
         unawaited(_cleanupPeer(remoteId));
@@ -965,7 +1027,6 @@ class MaglisNetworkEngine {
     pc.onDataChannel = (RTCDataChannel dc) => _bindDataChannel(remoteId, dc);
     return pc;
   }
-
 
   Future<void> _triggerIceRestart(String remoteId) async {
     final pc = _peers[remoteId];
@@ -1218,7 +1279,8 @@ class MaglisNetworkEngine {
   }) async {
     // If direct WebRTC DataChannel is already open for floor claims, avoid unnecessary relay traffic
     if (type == 'floor_claim' &&
-        _channels.values.any((dc) => dc.state == RTCDataChannelState.RTCDataChannelOpen)) {
+        _channels.values
+            .any((dc) => dc.state == RTCDataChannelState.RTCDataChannelOpen)) {
       return;
     }
     await _sendSignal(type, targetId: targetId, data: data);
@@ -1227,9 +1289,8 @@ class MaglisNetworkEngine {
   void _dispatchRaw(String raw) {
     final msg = RTCDataChannelMessage(raw);
     bool anyChannelOpen = false;
-    final bool isVital = raw.contains('"t":0') ||
-        raw.contains('"t":2') ||
-        raw.contains('"t":3');
+    final bool isVital =
+        raw.contains('"t":0') || raw.contains('"t":2') || raw.contains('"t":3');
 
     for (final dc in _channels.values) {
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
@@ -1264,13 +1325,20 @@ class MaglisNetworkEngine {
         _localStream = await navigator.mediaDevices.getUserMedia(
           _buildAudioConstraints(),
         );
-        for (final pc in _peers.values) {
+        for (final entry in _peers.entries) {
           _localStream?.getAudioTracks().forEach((track) {
             track.enabled = true;
             try {
-              pc.addTrack(track, _localStream!);
+              entry.value.addTrack(track, _localStream!);
             } catch (_) {}
           });
+          final isInitiator = localPeerId.compareTo(entry.key) < 0;
+          if (isInitiator) {
+            _triggerIceRestart(entry.key);
+          } else {
+            _sendSignal('reconnect_request',
+                targetId: entry.key, data: const {});
+          }
         }
       } catch (_) {}
     } else {
@@ -1375,6 +1443,7 @@ class MaglisNetworkEngine {
     _throttleTimer?.cancel();
     _relayHeartbeatTimer?.cancel();
     _watchdogTimer?.cancel();
+    _epochRefreshTimer?.cancel();
     for (final t in _iceDebounceTimers.values) {
       t.cancel();
     }
@@ -1405,7 +1474,7 @@ class MaglisNetworkEngine {
         privHex: _privHex,
         pubHex: _pubHex,
         tag: tags.first,
-        additionalTags: tags.length > 1 ? [tags[1]] : null,
+        additionalTags: tags.length > 1 ? tags.sublist(1) : null,
         content: cipher,
       );
       for (final ws in _sockets.values) {
@@ -1462,7 +1531,7 @@ class MaglisNetworkEngine {
         privHex: privHex,
         pubHex: pubHex,
         tag: tags.first,
-        additionalTags: tags.length > 1 ? [tags[1]] : null,
+        additionalTags: tags.length > 1 ? tags.sublist(1) : null,
         content: cipher,
       );
 
@@ -1514,7 +1583,7 @@ class MaglisNetworkEngine {
     WebSocketChannel? ws;
     StreamSubscription? sub;
     try {
-      ws = WebSocketChannel.connect(Uri.parse(url));
+      ws = WebSocketChannel.connect(Uri.parse(formatRelayUrl(url, trimmed)));
       await ws.ready.timeout(Duration(milliseconds: (timeoutMs * 0.6).round()));
 
       final completer = Completer<MaglisJoinResult>();
@@ -1533,10 +1602,12 @@ class MaglisNetworkEngine {
 
           if (sig.type == 'join_reject' &&
               (sig.targetId == null || sig.targetId == probePeerId)) {
-            if (!completer.isCompleted) completer.complete(MaglisJoinResult.full);
+            if (!completer.isCompleted)
+              completer.complete(MaglisJoinResult.full);
           } else if (sig.type == 'join_ack' &&
               (sig.targetId == null || sig.targetId == probePeerId)) {
-            if (!completer.isCompleted) completer.complete(MaglisJoinResult.success);
+            if (!completer.isCompleted)
+              completer.complete(MaglisJoinResult.success);
           } else if ((sig.type == 'beacon' || sig.type == 'offer') &&
               !completer.isCompleted) {
             completer.complete(MaglisJoinResult.success);
@@ -1560,11 +1631,15 @@ class MaglisNetworkEngine {
       );
 
       await sub.cancel();
-      try { await ws.sink.close(); } catch (_) {}
+      try {
+        await ws.sink.close();
+      } catch (_) {}
       return result;
     } catch (_) {
       await sub?.cancel();
-      try { await ws?.sink.close(); } catch (_) {}
+      try {
+        await ws?.sink.close();
+      } catch (_) {}
       return null;
     }
   }
@@ -1591,7 +1666,7 @@ class MaglisNetworkEngine {
         privHex: privHex,
         pubHex: pubHex,
         tag: tags.first,
-        additionalTags: tags.length > 1 ? [tags[1]] : null,
+        additionalTags: tags.length > 1 ? tags.sublist(1) : null,
         content: cipher,
       );
 
@@ -1634,7 +1709,7 @@ class MaglisNetworkEngine {
     WebSocketChannel? ws;
     StreamSubscription? sub;
     try {
-      ws = WebSocketChannel.connect(Uri.parse(url));
+      ws = WebSocketChannel.connect(Uri.parse(formatRelayUrl(url, trimmed)));
       await ws.ready.timeout(Duration(milliseconds: (timeoutMs * 0.6).round()));
 
       final completer = Completer<bool>();
@@ -1671,11 +1746,15 @@ class MaglisNetworkEngine {
       );
 
       await sub.cancel();
-      try { await ws.sink.close(); } catch (_) {}
+      try {
+        await ws.sink.close();
+      } catch (_) {}
       return inUse;
     } catch (_) {
       await sub?.cancel();
-      try { await ws?.sink.close(); } catch (_) {}
+      try {
+        await ws?.sink.close();
+      } catch (_) {}
       return null;
     }
   }
@@ -1704,7 +1783,8 @@ class MaglisNetworkEngine {
 
       for (final url in _relays) {
         try {
-          final ws = WebSocketChannel.connect(Uri.parse(url));
+          final ws =
+              WebSocketChannel.connect(Uri.parse(formatRelayUrl(url, trimmed)));
           await ws.ready.timeout(const Duration(milliseconds: 1200));
           ws.sink.add(frame);
           await Future.delayed(const Duration(milliseconds: 200));
