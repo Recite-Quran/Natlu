@@ -169,7 +169,10 @@ class MaglisController extends ChangeNotifier {
   bool get isHost => _net?.isHost ?? false;
   String? get activeReciterId => _activeReciterId;
   String? get natFailedPeer => _natFailedPeer;
-  int get participantCount => _connectedPeers.length + 1;
+  int get participantCount =>
+      _participantCount > (_connectedPeers.length + 1)
+          ? _participantCount
+          : (_connectedPeers.length + 1);
   bool get isLocalReciting => _inSession && _activeReciterId == localPeerId;
   bool get isRemoteReciting =>
       _inSession && _activeReciterId != null && _activeReciterId != localPeerId;
@@ -510,6 +513,20 @@ class MaglisController extends ChangeNotifier {
         final newGreenList = List<int>.from(pkt.greenWords)..sort();
         final newYellowList = List<int>.from(pkt.yellowWords)..sort();
         final newRedList = List<int>.from(pkt.redWords)..sort();
+
+        // Immediately record incoming word highlights into the cumulative table
+        // so that previous ayahs stay 100% highlighted when the reciter advances!
+        for (final w0 in pkt.greenWords) {
+          recordWordHighlight(pkt.surah, pkt.ayah, w0, 1);
+          final k = wordKey(pkt.surah, pkt.ayah, w0);
+          _remoteWordErrors.remove(k);
+        }
+        for (final w0 in pkt.yellowWords) {
+          recordWordHighlight(pkt.surah, pkt.ayah, w0, 2);
+        }
+        for (final w0 in pkt.redWords) {
+          recordWordHighlight(pkt.surah, pkt.ayah, w0, 3);
+        }
 
         final bool wordsChanged =
             !listEquals(_remoteGreenWords, newGreenList) ||

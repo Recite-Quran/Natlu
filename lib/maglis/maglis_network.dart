@@ -51,7 +51,17 @@ class MaglisNetworkEngine {
         'credential': 'uWdWNmkhvyqTESwO',
       },
       {
+        'urls': 'turn:a.relay.metered.ca:80?transport=tcp',
+        'username': 'e8dd65b92f6ec01359e4045c',
+        'credential': 'uWdWNmkhvyqTESwO',
+      },
+      {
         'urls': 'turn:a.relay.metered.ca:443',
+        'username': 'e8dd65b92f6ec01359e4045c',
+        'credential': 'uWdWNmkhvyqTESwO',
+      },
+      {
+        'urls': 'turn:a.relay.metered.ca:443?transport=tcp',
         'username': 'e8dd65b92f6ec01359e4045c',
         'credential': 'uWdWNmkhvyqTESwO',
       },
@@ -65,7 +75,7 @@ class MaglisNetworkEngine {
     'sdpSemantics': 'unified-plan',
     'bundlePolicy': 'max-bundle',
     'rtcpMuxPolicy': 'require',
-    'iceCandidatePoolSize': 4,
+    'iceCandidatePoolSize': 10,
   };
 
   static Map<String, dynamic> _rtcConfig = Map.from(_defaultRtcConfig);
@@ -305,6 +315,7 @@ class MaglisNetworkEngine {
   Timer? _epochRefreshTimer;
   String? _lastSubId;
   final List<String> _pendingVitalPackets = [];
+  final List<String> _pendingOutboundSignals = [];
 
   final _packetCtrl = StreamController<MaglisPacket>.broadcast();
   final _statesCtrl =
@@ -689,6 +700,15 @@ class MaglisNetworkEngine {
           return;
         }
         _subscribeRelay(ws);
+        if (_pendingOutboundSignals.isNotEmpty) {
+          final toSend = List<String>.from(_pendingOutboundSignals);
+          _pendingOutboundSignals.clear();
+          for (final f in toSend) {
+            try {
+              ws.sink.add(f);
+            } catch (_) {}
+          }
+        }
         if (!completer.isCompleted) completer.complete(true);
       }).catchError((_) {
         handleFail();
@@ -789,6 +809,13 @@ class MaglisNetworkEngine {
       additionalTags: tags.length > 1 ? tags.sublist(1) : null,
       content: cipher,
     );
+    if (_sockets.isEmpty) {
+      _pendingOutboundSignals.add(frame);
+      if (_pendingOutboundSignals.length > 25) {
+        _pendingOutboundSignals.removeAt(0);
+      }
+      return;
+    }
     for (final ws in _sockets.values) {
       try {
         ws.sink.add(frame);
@@ -1525,51 +1552,55 @@ class MaglisNetworkEngine {
         }
       }
     };
-    dc.onDataChannelState = (RTCDataChannelState state) {
-      if (state == RTCDataChannelState.RTCDataChannelOpen) {
-        _lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
-        _checkSocketSleepState();
+    void onChannelOpen() {
+      _lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
+      _checkSocketSleepState();
 
-        if (!isLossy) {
-          // Catch up newly connected peer with full room state snapshot
+      if (!isLossy) {
+        // Catch up newly connected peer with full room state snapshot
+        try {
+          dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+        } catch (_) {}
+        // Mesh gossip announcement: share active peers with newcomer to guarantee full mesh
+        final activeOthers = _roomParticipants
+            .where((p) => p != remoteId && p != localPeerId)
+            .toList();
+        if (activeOthers.isNotEmpty) {
           try {
-            dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+            dc.send(RTCDataChannelMessage(jsonEncode({
+              't': 98,
+              'peers': activeOthers,
+            })));
           } catch (_) {}
-          // Mesh gossip announcement: share active peers with newcomer to guarantee full mesh
-          final activeOthers = _roomParticipants
-              .where((p) => p != remoteId && p != localPeerId)
-              .toList();
-          if (activeOthers.isNotEmpty) {
+        }
+        // Also announce newcomer to all existing peers to guarantee full symmetric mesh
+        for (final existingPeerId in activeOthers) {
+          final existingDc = _channels[existingPeerId];
+          if (existingDc != null &&
+              existingDc.state == RTCDataChannelState.RTCDataChannelOpen) {
             try {
-              dc.send(RTCDataChannelMessage(jsonEncode({
+              existingDc.send(RTCDataChannelMessage(jsonEncode({
                 't': 98,
-                'peers': activeOthers,
+                'peers': [remoteId],
               })));
             } catch (_) {}
           }
-          // Also announce newcomer to all existing peers to guarantee full symmetric mesh
-          for (final existingPeerId in activeOthers) {
-            final existingDc = _channels[existingPeerId];
-            if (existingDc != null &&
-                existingDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-              try {
-                existingDc.send(RTCDataChannelMessage(jsonEncode({
-                  't': 98,
-                  'peers': [remoteId],
-                })));
-              } catch (_) {}
-            }
-          }
-          // Send any vital packets that were queued while channel was establishing
-          if (_pendingVitalPackets.isNotEmpty) {
-            for (final vital in List<String>.from(_pendingVitalPackets)) {
-              try {
-                dc.send(RTCDataChannelMessage(vital));
-              } catch (_) {}
-            }
-            _pendingVitalPackets.clear();
-          }
         }
+        // Send any vital packets that were queued while channel was establishing
+        if (_pendingVitalPackets.isNotEmpty) {
+          for (final vital in List<String>.from(_pendingVitalPackets)) {
+            try {
+              dc.send(RTCDataChannelMessage(vital));
+            } catch (_) {}
+          }
+          _pendingVitalPackets.clear();
+        }
+      }
+    }
+
+    dc.onDataChannelState = (RTCDataChannelState state) {
+      if (state == RTCDataChannelState.RTCDataChannelOpen) {
+        onChannelOpen();
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
         if (isLossy) {
           _lossyChannels.remove(remoteId);
@@ -1588,6 +1619,10 @@ class MaglisNetworkEngine {
         }
       }
     };
+
+    if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+      onChannelOpen();
+    }
 
     dc.onMessage = (RTCDataChannelMessage msg) {
       _lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
@@ -2059,6 +2094,7 @@ class MaglisNetworkEngine {
     _peerLatency.clear();
     _pendingOutboundCandidates.clear();
     _pendingVitalPackets.clear();
+    _pendingOutboundSignals.clear();
     _connectivitySub?.cancel();
     _connectivitySub = null;
     MaglisPlatform.onAudioInterrupted = null;
