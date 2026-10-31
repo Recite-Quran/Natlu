@@ -483,9 +483,22 @@ class MaglisController extends ChangeNotifier {
         final bool ayahChanged =
             pkt.surah != _remoteSurah || pkt.ayah != _remoteAyah;
 
-        final newGreenList = List<int>.from(pkt.greenWords)..sort();
-        final newYellowList = List<int>.from(pkt.yellowWords)..sort();
-        final newRedList = List<int>.from(pkt.redWords)..sort();
+        final List<int> newGreenList;
+        final List<int> newYellowList;
+        final List<int> newRedList;
+
+        if (ayahChanged) {
+          newGreenList = List<int>.from(pkt.greenWords)..sort();
+          newYellowList = List<int>.from(pkt.yellowWords)..sort();
+          newRedList = List<int>.from(pkt.redWords)..sort();
+        } else {
+          newGreenList =
+              (Set<int>.from(_remoteGreenWords)..addAll(pkt.greenWords)).toList()..sort();
+          newYellowList =
+              (Set<int>.from(_remoteYellowWords)..addAll(pkt.yellowWords)).toList()..sort();
+          newRedList =
+              (Set<int>.from(_remoteRedWords)..addAll(pkt.redWords)).toList()..sort();
+        }
 
         final bool wordsChanged =
             !listEquals(_remoteGreenWords, newGreenList) ||
@@ -710,13 +723,20 @@ class MaglisController extends ChangeNotifier {
     _lastBroadcastAyah = ayah;
     _lastBroadcastWord = activeWord;
 
-    // Serialize active errors with compact integer hex keys for robustness
+    // Delta filtering: transmit each newly colored word strictly ONCE across the network
+    final deltaGreen = greenWords.where((w) => _sentGreenWords.add(w)).toList();
+    final deltaYellow = yellowWords.where((w) => _sentYellowWords.add(w)).toList();
+    final deltaRed = redWords.where((w) => _sentRedWords.add(w)).toList();
+
+    // Serialize active errors strictly once per word to achieve minimum packet size
     Map<String, List<Map<String, dynamic>>>? serializedErrors;
     if (errors != null && errors.isNotEmpty) {
       for (final entry in errors.entries) {
-        final key = wordKey(surah, ayah, entry.key);
-        (serializedErrors ??= {})[key.toRadixString(16)] =
-            entry.value.map((e) => compactErrorMap(e)).toList();
+        if (_sentErrorWords.add(entry.key)) {
+          final key = wordKey(surah, ayah, entry.key);
+          (serializedErrors ??= {})[key.toRadixString(16)] =
+              entry.value.map((e) => compactErrorMap(e)).toList();
+        }
       }
     }
 
@@ -729,9 +749,9 @@ class MaglisController extends ChangeNotifier {
         surah: surah,
         ayah: ayah,
         activeWord: activeWord,
-        greenWords: greenWords,
-        yellowWords: yellowWords,
-        redWords: redWords,
+        greenWords: deltaGreen,
+        yellowWords: deltaYellow,
+        redWords: deltaRed,
         activeReciterId: localPeerId,
         errors: serializedErrors,
         ts: DateTime.now().millisecondsSinceEpoch,
