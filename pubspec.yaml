@@ -22,13 +22,6 @@ dependencies:
   permission_handler: ^13.0.1
   record: ^7.1.1
   shared_preferences: ^2.2.0
-  # PINNED, do not loosen to ^1.13.5 without testing an iOS archive.
-  # sherpa_onnx_ios 1.13.6 renamed the bundle to sherpa-onnx.xcframework but left
-  # the framework inside it called SherpaOnnxC.framework. CocoaPods derives the
-  # linker flag from the bundle name, so it emits `-framework "sherpa-onnx"` and
-  # the archive dies with "Framework 'sherpa-onnx' not found". 1.13.5 ships
-  # SherpaOnnxC.xcframework, where the two names agree.
-  sherpa_onnx: 1.13.5
   wakelock_plus: ^1.6.1
   archive: ^4.0.0
   just_audio: ^0.10.6
@@ -40,10 +33,14 @@ dependencies:
   cryptography: ^2.7.0
   bip340: ^0.3.1
 
-# sherpa_onnx 1.13.5 still allows sherpa_onnx_ios ^1.13.5, so the broken 1.13.6
-# iOS package gets pulled in transitively unless it is pinned here as well.
-# See the note on `sherpa_onnx` above for why 1.13.6 cannot link.
+# PINNED, do not loosen without testing an iOS archive.
+# sherpa_onnx_ios 1.13.6 renamed the bundle to sherpa-onnx.xcframework but left
+# the framework inside it called SherpaOnnxC.framework. CocoaPods derives the
+# linker flag from the bundle name, so it emits `-framework "sherpa-onnx"` and
+# the archive dies with "Framework 'sherpa-onnx' not found". 1.13.5 ships
+# SherpaOnnxC.xcframework, where the two names agree.
 dependency_overrides:
+  sherpa_onnx: 1.13.5
   sherpa_onnx_ios: 1.13.5
 
 dev_dependencies:
@@ -71,8 +68,6 @@ flutter:
           weight: 600
         - asset: assets/fonts/Cairo-Bold.ttf
           weight: 700
-        - asset: assets/fonts/Cairo-Bold.ttf
-          weight: 900
 
 flutter_launcher_icons:
   android: true

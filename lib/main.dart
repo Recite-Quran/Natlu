@@ -373,19 +373,22 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         final prefs = await SharedPreferences.getInstance();
         final hasChosenTheme = prefs.getBool('has_chosen_theme') ?? false;
         if (!hasChosenTheme && mounted) {
-          showDialog(
+          await showDialog(
             context: context,
             barrierDismissible: false,
             builder: (ctx) => ThemeSelectionDialog(
               onThemeSelected: () {
                 prefs.setBool('has_chosen_theme', true);
                 Navigator.of(ctx).pop();
-                _checkAndShowWhatsNew();
               },
             ),
           );
+          if (mounted) {
+            await Future<void>.delayed(const Duration(milliseconds: 250));
+            await _checkAndShowWhatsNew();
+          }
         } else {
-          _checkAndShowWhatsNew();
+          await _checkAndShowWhatsNew();
         }
       });
     } catch (e) {

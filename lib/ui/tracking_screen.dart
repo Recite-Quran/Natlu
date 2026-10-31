@@ -19,7 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../maglis/maglis_controller.dart';
 import 'widgets/dialogs/maglis_entry_dialog.dart';
 import 'widgets/dialogs/maglis_explanation_dialog.dart';
-import 'widgets/dialogs/whats_new_dialog.dart';
+
 
 /// Main interactive screen for real-time recitation tracking and reading.
 /// Powered by the high-performance Mushaf vector layout.
@@ -98,14 +98,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     unawaited(QuranAudioService.ensureAyahDownloaded(
         widget.controller.targetSurah, 1));
 
-    // Show What's New dialog for new updates if not seen yet
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final prefs = await SharedPreferences.getInstance();
-      final hasSeen = prefs.getBool('has_seen_v1_2_maglis_whats_new') ?? false;
-      if (!hasSeen && mounted) {
-        await WhatsNewDialog.show(context);
-      }
-    });
   }
 
   void _syncScreenWakeLock() {
