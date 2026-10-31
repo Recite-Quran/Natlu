@@ -528,9 +528,20 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
               ? activeAyah
               : AppState.instance.lastAyah;
 
-          // If the active ayah is not on the currently displayed page,
-          // the current selected verse is the first ayah of this page!
-          if (selectedAyah <= 0 ||
+          // In a Maglis session, if another peer was reciting or an active verse was established,
+          // maintain that exact verse instead of falling back to the first ayah on the page!
+          final maglis = MaglisController.instance;
+          if (maglis.inSession &&
+              maglis.remoteAyah > 0 &&
+              (maglis.isRemoteReciting || activeAyah == null) &&
+              MushafProvider.instance.isAyahOnPage(
+                pageNumber: currentPage,
+                surah: maglis.remoteSurah,
+                ayah: maglis.remoteAyah,
+              )) {
+            selectedSurah = maglis.remoteSurah;
+            selectedAyah = maglis.remoteAyah;
+          } else if (selectedAyah <= 0 ||
               !MushafProvider.instance.isAyahOnPage(
                 pageNumber: currentPage,
                 surah: selectedSurah,
@@ -594,6 +605,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   void _stopRecordingForRemoteClaim() {
     if (!_isRecording) return;
+    _isRecording = false;
+    _isToggling = false;
     _maglisBroadcastThrottle?.cancel();
     _audio.stop();
     _engine.resetBuffer();
@@ -604,10 +617,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       } catch (_) {}
     }
     if (mounted) {
-      setState(() {
-        _isRecording = false;
-        _isToggling = false;
-      });
+      setState(() {});
     }
     MaglisPlatform.setSpeaker(true);
     AppState.instance.showBanner(AppBannerInfo(
@@ -651,35 +661,45 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         MushafProvider.instance.getPageForAyah(targetSurah, activeAyah) ??
             currentPage;
 
-    final pageWords =
-        MushafProvider.instance.getCachedPage(page)?.words ??
-        MushafProvider.instance.getCachedPage(currentPage)?.words ??
-        const [];
-
-    // If activeAyah just advanced, ensure the previous ayah's final word is flushed and saved as completed
+    // If activeAyah just advanced, ensure the previous ayah's final word is flushed preserving exact errors
     if (_lastProcessedAyah != null &&
         (_lastProcessedAyah != activeAyah || _lastProcessedSurah != targetSurah)) {
       final prevAyah = _lastProcessedAyah!;
       final prevSurah = _lastProcessedSurah!;
-      final prevPage = MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
-      final prevWords = MushafProvider.instance.getCachedPage(prevPage)?.words ?? pageWords;
+      final prevVerse = _ctrl!.repository.getVerse(prevSurah, prevAyah);
+      final prevWordCount = prevVerse?.uthmaniWords.length ?? 0;
       final prevGreen = <int>[];
-      for (final w in prevWords) {
-        if (w.surah == prevSurah && w.ayah == prevAyah) {
-          final w0 = w.word - 1;
+      final prevYellow = <int>[];
+      final prevRed = <int>[];
+      Map<int, List<ReciterError>>? prevErrors;
+      for (int w0 = 0; w0 < prevWordCount; w0++) {
+        if (_ctrl!.isWordRed(prevAyah, w0, surah: prevSurah)) {
+          prevRed.add(w0);
+          maglis.recordWordHighlight(prevSurah, prevAyah, w0, 3);
+        } else if (_ctrl!.isWordYellow(prevAyah, w0, surah: prevSurah)) {
+          prevYellow.add(w0);
+          maglis.recordWordHighlight(prevSurah, prevAyah, w0, 2);
+          final errs = _ctrl!.getWordErrors(prevAyah, w0, surah: prevSurah);
+          if (errs != null && errs.isNotEmpty) {
+            (prevErrors ??= {})[w0] = errs;
+          }
+        } else if (_ctrl!.isWordGreen(prevAyah, w0, surah: prevSurah) ||
+            _ctrl!.completedAyahsFor(prevSurah).contains(prevAyah)) {
           prevGreen.add(w0);
           maglis.recordWordHighlight(prevSurah, prevAyah, w0, 1);
         }
       }
-      if (prevGreen.isNotEmpty) {
+      if (prevGreen.isNotEmpty || prevYellow.isNotEmpty || prevRed.isNotEmpty) {
+        final prevPage = MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
         maglis.broadcastRecitation(
           page: prevPage,
           surah: prevSurah,
           ayah: prevAyah,
           activeWord: null,
           greenWords: prevGreen,
-          yellowWords: const [],
-          redWords: const [],
+          yellowWords: prevYellow,
+          redWords: prevRed,
+          errors: prevErrors,
         );
       }
     }
@@ -691,43 +711,36 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final redWords = <int>[];
     Map<int, List<ReciterError>>? wordErrors;
     int? activeWord;
-    bool foundAyah = false;
 
-    for (final w in pageWords) {
-      final w0 = w.word - 1;
-      if (w.surah == targetSurah && w.ayah == activeAyah) {
-        foundAyah = true;
-        if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah) ||
-            _ctrl!.completedAyahsFor(targetSurah).contains(activeAyah)) {
-          greenWords.add(w0);
-          maglis.recordWordHighlight(targetSurah, activeAyah, w0, 1);
-        } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
-          yellowWords.add(w0);
-          maglis.recordWordHighlight(targetSurah, activeAyah, w0, 2);
-          final errs = _ctrl!.getWordErrors(activeAyah, w0, surah: targetSurah);
-          if (errs != null && errs.isNotEmpty) {
-            (wordErrors ??= {})[w0] = errs;
-          }
-        } else if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
-          redWords.add(w0);
-          maglis.recordWordHighlight(targetSurah, activeAyah, w0, 3);
-        } else if (activeWord == null &&
-            !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
-          activeWord = w0;
+    // Scan canonical verse words directly from loaded repository (never depends on GPU page cache)
+    final currentVerse = _ctrl!.repository.getVerse(targetSurah, activeAyah);
+    final wordCount = currentVerse?.uthmaniWords.length ?? 0;
+
+    for (int w0 = 0; w0 < wordCount; w0++) {
+      if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
+        redWords.add(w0);
+        maglis.recordWordHighlight(targetSurah, activeAyah, w0, 3);
+      } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
+        yellowWords.add(w0);
+        maglis.recordWordHighlight(targetSurah, activeAyah, w0, 2);
+        final errs = _ctrl!.getWordErrors(activeAyah, w0, surah: targetSurah);
+        if (errs != null && errs.isNotEmpty) {
+          (wordErrors ??= {})[w0] = errs;
         }
-      } else {
-        // Also persist completed/green words on current page into cumulative highlights
-        if (_ctrl!.completedAyahsFor(w.surah).contains(w.ayah) ||
-            _ctrl!.isWordGreen(w.ayah, w0, surah: w.surah)) {
-          maglis.recordWordHighlight(w.surah, w.ayah, w0, 1);
-        }
+      } else if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah) ||
+          _ctrl!.completedAyahsFor(targetSurah).contains(activeAyah)) {
+        greenWords.add(w0);
+        maglis.recordWordHighlight(targetSurah, activeAyah, w0, 1);
+      } else if (activeWord == null &&
+          !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
+        activeWord = w0;
       }
     }
 
     if (activeWord == null) {
       if (greenWords.isNotEmpty) {
         activeWord = greenWords.last + 1;
-      } else if (foundAyah) {
+      } else if (wordCount > 0) {
         activeWord = 0;
       }
     }

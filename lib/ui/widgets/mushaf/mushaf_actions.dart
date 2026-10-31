@@ -88,6 +88,9 @@ abstract final class MushafActions {
       );
       onWordErrorTap?.call();
     } else if (isAlreadySelected || playWordDirectly) {
+      if (MaglisController.instance.inSession && MaglisController.instance.isRemoteReciting) {
+        return;
+      }
       QuranAudioService.instance.playWord(
         surah: surah,
         ayah: ayah,
@@ -105,6 +108,7 @@ abstract final class MushafActions {
     VoidCallback? onTap,
     VoidCallback? onExplicitToggle,
   }) async {
+    if (MaglisController.instance.inSession) return;
     if (AppState.instance.isAudioBuffering.value &&
         AppState.instance.activeAudioSurah.value == surah &&
         AppState.instance.activeAudioAyah.value == ayah) {

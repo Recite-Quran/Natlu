@@ -633,6 +633,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       return;
     }
 
+    // While another peer is actively reciting in Maglis, the selected verse
+    // is strictly maintained by the reciter. Non-reciters cannot hijack the selection
+    // or trigger word audio playback.
+    if (maglis.inSession && maglis.isRemoteReciting) {
+      return;
+    }
+
     final activeAyah = widget.controller.activeAyah.value;
     final activeSurah = widget.controller.targetSurah != 0
         ? widget.controller.targetSurah
@@ -662,6 +669,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   void _onDecorationTap(QvpDecorationInfo dec) {
+    // In a Maglis session, verse audio playback is disabled so the room audio call
+    // and live reciter are never interrupted by recorded audio!
+    if (MaglisController.instance.inSession) return;
+
     if (dec.surah > 0 && dec.ayah > 0) {
       AppHaptics.selectionClick();
       AppState.instance.markMushafAudioAyahClicked();
