@@ -33,16 +33,10 @@ class MushafPageWidget extends StatefulWidget {
 class _MushafPageWidgetState extends State<MushafPageWidget>
     with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   @override
-  bool get wantKeepAlive {
-    final curr = AppState.instance.currentMushafPage.value;
-    if (curr <= 0) return true;
-    return (widget.pageNumber - curr).abs() <= 1;
-  }
+  bool get wantKeepAlive => true;
 
   QvpPage? _page;
-  bool _isLoading = false;
-  int _loadAttempts = 0;
-  static const int _maxAttempts = 3;
+  bool _isLoading = true;
   late final AnimationController _spinnerController;
 
   // Native highlight handles (zero cache invalidation, drawn in GPU band batches)
@@ -92,43 +86,21 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _checkSpinnerAnimation();
       _syncVisuals();
     } else {
-      _safeLoadPage();
+      _loadPage();
     }
   }
 
-  void _safeLoadPage() {
-    if (_isLoading || !mounted) return;
-    if (_loadAttempts >= _maxAttempts) return;
-    _isLoading = true;
-    _loadAttempts++;
-
-    MushafProvider.instance.getPage(widget.pageNumber).then((page) {
-      if (!mounted) return;
-      setState(() {
-        _page = page;
-        _isLoading = false;
-        if (page != null && !page.isDisposed) {
-          _loadAttempts = 0;
-        }
-      });
-      if (page != null && !page.isDisposed) {
-        _checkSpinnerAnimation();
-        _syncVisuals();
-      } else if (_loadAttempts < _maxAttempts) {
-        Future.delayed(const Duration(milliseconds: 400), () {
-          if (mounted && (_page == null || _page!.isDisposed)) {
-            _page = null;
-            _isLoading = false;
-            _page = null;
-        _isLoading = false;
-        _safeLoadPage();
-          }
-        });
-      }
-    }).catchError((e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+  Future<void> _loadPage() async {
+    final page = await MushafProvider.instance.getPage(widget.pageNumber);
+    if (!mounted) return;
+    setState(() {
+      _page = page;
+      _isLoading = false;
     });
+    if (page != null && !page.isDisposed) {
+      _checkSpinnerAnimation();
+      _syncVisuals();
+    }
   }
 
   @override
@@ -137,7 +109,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     if (oldWidget.pageNumber != widget.pageNumber ||
         _page == null ||
         _page!.isDisposed) {
-      _loadAttempts = 0;
       _lastActiveAyah = null;
       _lastActiveWord = null;
       _lastIsDark = null;
@@ -160,9 +131,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         _isLoading = false;
         _syncVisuals();
       } else {
-        _page = null;
-        _isLoading = false;
-        _safeLoadPage();
+        _loadPage();
       }
     }
     if (oldWidget.controller != widget.controller) {
@@ -202,8 +171,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   void _onCurrentMushafPageChanged() {
-    updateKeepAlive();
-    _requestSyncVisuals();
+    final curr = AppState.instance.currentMushafPage.value;
+    if (widget.pageNumber == curr || _lastActiveAyah != null) {
+      _requestSyncVisuals();
+    }
   }
 
   void _onAudioWordChanged() {
@@ -811,17 +782,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {
-      if (!_isLoading && _loadAttempts < _maxAttempts) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && (_page == null || _page!.isDisposed)) {
-            _page = null;
-            _isLoading = false;
-            _page = null;
-        _isLoading = false;
-        _safeLoadPage();
-          }
-        });
-      }
+      if (!_isLoading) _loadPage();
       return ColoredBox(
         color: c.surface,
         child: const SizedBox.expand(),
@@ -844,11 +805,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         children: [
           if (hasSurahHeaders)
             IgnorePointer(
-              child: CustomPaint(
-                painter: SurahHeaderPainter(
-                  page: page,
-                  isDark: isDark,
-                  colors: c,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: SurahHeaderPainter(
+                    page: page,
+                    isDark: isDark,
+                    colors: c,
+                  ),
                 ),
               ),
             ),
@@ -873,17 +836,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onDecorationTap: _onDecorationTap,
           ),
           IgnorePointer(
-            child: CustomPaint(
-              painter: AyahMarkPainter(
-                page: page,
-                app: app,
-                spinnerAnimation: _spinnerController,
-                surfaceColor: c.surface,
-                goldColor: c.gold,
-                neutralRingColor: neutralRingColor,
-                ayahHighlightColor: isDark
-                    ? Colors.white.withValues(alpha: 0.10)
-                    : const Color(0xFF64748B).withValues(alpha: 0.09),
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: AyahMarkPainter(
+                  page: page,
+                  app: app,
+                  spinnerAnimation: _spinnerController,
+                  surfaceColor: c.surface,
+                  goldColor: c.gold,
+                  neutralRingColor: neutralRingColor,
+                  ayahHighlightColor: isDark
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : const Color(0xFF64748B).withValues(alpha: 0.09),
+                ),
               ),
             ),
           ),

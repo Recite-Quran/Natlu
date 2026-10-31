@@ -58,7 +58,7 @@ class MushafProvider {
     final size = viewportSize ?? lastViewportSize;
     if (size == null || size.width <= 0 || size.height <= 0) return;
     _preloadDebounce?.cancel();
-    _preloadDebounce = Timer(const Duration(milliseconds: 35), () {
+    _preloadDebounce = Timer(const Duration(milliseconds: 180), () {
       unawaited(_doPreloadAdjacentPages(pageNumber, size));
     });
   }
@@ -93,8 +93,6 @@ class MushafProvider {
   ) async {
     final cached = getCachedPage(target);
     if (cached != null && !cached.isDisposed && cached.currentLayout != null) {
-      cached.setDefaultColor(inkColor);
-      QvpPageView.prepare(cached, scale: cached.currentLayout!.scale, dpr: dpr, inkColor: inkColor);
       return;
     }
     final p = await getPage(target);

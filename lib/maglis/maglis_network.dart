@@ -1215,6 +1215,9 @@ class MaglisNetworkEngine {
         RTCSessionDescription(mungedSdp, offer.type),
       );
       await _sendSignal('offer', targetId: remoteId, data: {'sdp': mungedSdp});
+    } catch (e) {
+      debugPrint('[MaglisNetwork] _initiatePeerConnectionInternal error: $e');
+      await _cleanupPeerInternal(remoteId);
     } finally {
       _negotiatingPeers.remove(remoteId);
     }
@@ -1394,7 +1397,11 @@ class MaglisNetworkEngine {
           } catch (_) {}
         }
       }
-      await pc.restartIce();
+      if (!kIsWeb) {
+        try {
+          await pc.restartIce();
+        } catch (_) {}
+      }
       final offer = await pc.createOffer(const {
         'mandatory': {
           'OfferToReceiveAudio': true,
@@ -1904,9 +1911,13 @@ class MaglisNetworkEngine {
       final state = _peerStates[entry.key];
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
           state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
-        try {
-          await entry.value.restartIce();
-        } catch (_) {}
+        final isInitiator = localPeerId.compareTo(entry.key) < 0;
+        if (isInitiator) {
+          _triggerIceRestart(entry.key);
+        } else {
+          _sendSignal('reconnect_request',
+              targetId: entry.key, data: const {});
+        }
       }
     }
     await _sendSignal('beacon', data: const {});
