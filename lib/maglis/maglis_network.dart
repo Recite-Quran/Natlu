@@ -1404,6 +1404,40 @@ class MaglisNetworkEngine {
       );
     }
 
+    // RFC 4566 compliant bandwidth caps (b=AS / b=TIAS):
+    // Must be placed before any 'a=' attribute lines in the audio media section.
+    final int asKbps = maxAverageBitrate <= 48000 ? 64 : 128;
+    final int tiasBps = maxAverageBitrate <= 48000 ? 64000 : 128000;
+
+    final basRegex = RegExp(r'b=AS:\d+');
+    final btiasRegex = RegExp(r'b=TIAS:\d+');
+
+    final hasBas = result.contains(basRegex);
+    final hasBtias = result.contains(btiasRegex);
+
+    if (hasBas) {
+      result = result.replaceAll(basRegex, 'b=AS:$asKbps');
+    }
+    if (hasBtias) {
+      result = result.replaceAll(btiasRegex, 'b=TIAS:$tiasBps');
+    }
+
+    if (!hasBas && !hasBtias) {
+      final audioMlineIdx =
+          result.indexOf(RegExp(r'm=audio\s+', caseSensitive: false));
+      if (audioMlineIdx != -1) {
+        final firstAttrAfterAudio =
+            result.indexOf(RegExp(r'\r?\na='), audioMlineIdx);
+        if (firstAttrAfterAudio != -1) {
+          result = result.replaceRange(
+            firstAttrAfterAudio,
+            firstAttrAfterAudio,
+            '${lineEnd}b=AS:$asKbps${lineEnd}b=TIAS:$tiasBps',
+          );
+        }
+      }
+    }
+
     return result;
   }
 
