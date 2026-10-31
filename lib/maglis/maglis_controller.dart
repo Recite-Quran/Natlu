@@ -19,6 +19,7 @@ class MaglisController extends ChangeNotifier {
   StreamSubscription<Map<String, RTCIceConnectionState>>? _stateSub;
   StreamSubscription<String>? _natSub;
   StreamSubscription<int>? _participantSub;
+  Timer? _recitationSyncTimer;
 
   bool _inSession = false;
   int _seq = 0;
@@ -282,10 +283,10 @@ class MaglisController extends ChangeNotifier {
             peersChanged = true;
           } else if (isUnstable) {
             if (!_peerDisconnectTimers.containsKey(peerId)) {
-              // Give a 5-second grace period for ICE to recover or renegotiate
+              // Give an 8-second grace period for ICE to recover or renegotiate
               // before considering the peer departed. Eliminates banner/state flapping!
               _peerDisconnectTimers[peerId] =
-                  Timer(const Duration(seconds: 5), () {
+                  Timer(const Duration(seconds: 8), () {
                 _peerDisconnectTimers.remove(peerId);
                 if (_connectedPeers.contains(peerId)) {
                   _onPeerLeft(peerId);
@@ -592,6 +593,30 @@ class MaglisController extends ChangeNotifier {
       'surah': surah,
       'ayah': ayah,
     });
+
+    // Periodic 2.5s recitation state sync: heals any packet dropped over cellular/VPN
+    _recitationSyncTimer?.cancel();
+    _recitationSyncTimer =
+        Timer.periodic(const Duration(milliseconds: 2500), (_) {
+      if (!_inSession || !isLocalReciting) return;
+      _net?.sendPacket(
+        MaglisPacket(
+          type: MaglisPacketType.recitationUpdate,
+          seq: ++_seq,
+          senderId: localPeerId,
+          page: _remotePage,
+          surah: _remoteSurah,
+          ayah: _remoteAyah,
+          activeWord: _remoteWord,
+          greenWords: _remoteGreenWords,
+          yellowWords: _remoteYellowWords,
+          redWords: _remoteRedWords,
+          activeReciterId: localPeerId,
+          ts: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+    });
+
     _notifySessionChanged();
     notifyListeners();
   }
@@ -603,6 +628,8 @@ class MaglisController extends ChangeNotifier {
     required int ayah,
   }) async {
     if (!_inSession) return;
+    _recitationSyncTimer?.cancel();
+    _recitationSyncTimer = null;
     if (_activeReciterId == localPeerId) {
       _activeReciterId = null;
 
@@ -740,6 +767,8 @@ class MaglisController extends ChangeNotifier {
     if (!_inSession) return;
     _inSession = false;
     _activeReciterId = null;
+    _recitationSyncTimer?.cancel();
+    _recitationSyncTimer = null;
 
     await _pktSub?.cancel();
     await _stateSub?.cancel();
