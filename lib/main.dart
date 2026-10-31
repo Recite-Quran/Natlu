@@ -209,6 +209,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted) {
         if (_ctrl != null) {
+          if (_ctrl!.targetSurah != surah) {
+            _ctrl!.setTargetSurah(
+              surah,
+              preserveOtherSurahStates: true,
+              clearTargetSurah: false,
+            );
+          }
           _ctrl!.clearHighlightsFromAyah(ayah);
           for (int s = surah + 1; s <= 114; s++) {
             _ctrl!.clearHighlightsForSurah(s);
@@ -427,9 +434,9 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     try {
       await _audio.start(
         onChunk: (chunk, isFinal) {
-          // Software mute: drop mic frames while verse audio is playing
+          // Software mute: drop mic frames while verse audio is playing or recording is inactive
           // so the AI model never hears the phone speaker or accepts input!
-          if (AppState.instance.isAudioPlaying.value) return;
+          if (AppState.instance.isAudioPlaying.value || !_isRecording) return;
           _ctrl?.feed(chunk, isFinal: isFinal);
         },
       );
@@ -477,6 +484,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         _engine.resetBuffer();
         _ctrl?.finalize();
         if (MaglisController.instance.inSession) {
+          _broadcastMaglisProgress();
           unawaited(MaglisController.instance.releaseFloor(
             page: AppState.instance.currentMushafPage.value,
             surah: _ctrl?.targetSurah ?? AppState.instance.lastSurah,
@@ -653,8 +661,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         (_lastProcessedAyah != activeAyah || _lastProcessedSurah != targetSurah)) {
       final prevAyah = _lastProcessedAyah!;
       final prevSurah = _lastProcessedSurah!;
+      final prevPage = MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
+      final prevWords = MushafProvider.instance.getCachedPage(prevPage)?.words ?? pageWords;
       final prevGreen = <int>[];
-      for (final w in pageWords) {
+      for (final w in prevWords) {
         if (w.surah == prevSurah && w.ayah == prevAyah) {
           final w0 = w.word - 1;
           prevGreen.add(w0);
@@ -663,7 +673,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       }
       if (prevGreen.isNotEmpty) {
         maglis.broadcastRecitation(
-          page: page,
+          page: prevPage,
           surah: prevSurah,
           ayah: prevAyah,
           activeWord: null,

@@ -447,6 +447,14 @@ class MaglisController extends ChangeNotifier {
 
     switch (pkt.type) {
       case MaglisPacketType.floorClaim:
+        // Duplicate detection: If the same peer is already active on this exact verse,
+        // do not wipe or reset current verse highlights on duplicate arrival (e.g. from relay)
+        if (_activeReciterId == pkt.senderId &&
+            _remoteSurah == pkt.surah &&
+            _remoteAyah == pkt.ayah) {
+          return;
+        }
+
         // Strict Single Reciter Rule:
         // When any peer claims the floor, any local recording must stop immediately
         // and yield the floor to the new reciter.
@@ -492,12 +500,23 @@ class MaglisController extends ChangeNotifier {
           newYellowList = List<int>.from(pkt.yellowWords)..sort();
           newRedList = List<int>.from(pkt.redWords)..sort();
         } else {
-          newGreenList =
-              (Set<int>.from(_remoteGreenWords)..addAll(pkt.greenWords)).toList()..sort();
-          newYellowList =
-              (Set<int>.from(_remoteYellowWords)..addAll(pkt.yellowWords)).toList()..sort();
-          newRedList =
-              (Set<int>.from(_remoteRedWords)..addAll(pkt.redWords)).toList()..sort();
+          final greenSet = Set<int>.from(_remoteGreenWords)..addAll(pkt.greenWords);
+          final yellowSet = Set<int>.from(_remoteYellowWords)..addAll(pkt.yellowWords);
+          final redSet = Set<int>.from(_remoteRedWords)..addAll(pkt.redWords);
+
+          // Purge any conflicting colors for updated words
+          yellowSet.removeAll(pkt.greenWords);
+          redSet.removeAll(pkt.greenWords);
+
+          greenSet.removeAll(pkt.yellowWords);
+          redSet.removeAll(pkt.yellowWords);
+
+          greenSet.removeAll(pkt.redWords);
+          yellowSet.removeAll(pkt.redWords);
+
+          newGreenList = greenSet.toList()..sort();
+          newYellowList = yellowSet.toList()..sort();
+          newRedList = redSet.toList()..sort();
         }
 
         final bool wordsChanged =
@@ -549,6 +568,9 @@ class MaglisController extends ChangeNotifier {
           _remoteAyah = pkt.ayah;
           if (cumulativeChanged || _cumulativeHighlights.isNotEmpty) {
             notifyListeners();
+          }
+          if (pkt.page >= 1 && pkt.page <= 604) {
+            onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
           }
         }
         break;
@@ -687,9 +709,6 @@ class MaglisController extends ChangeNotifier {
     _remoteSurah = surah;
     _remoteAyah = ayah;
     _remoteWord = activeWord;
-    _remoteGreenWords = greenWords;
-    _remoteYellowWords = yellowWords;
-    _remoteRedWords = redWords;
 
     // Reset delta-tracking sets if ayah transitioned
     if (surah != _sentSurah || ayah != _sentAyah) {
@@ -701,6 +720,12 @@ class MaglisController extends ChangeNotifier {
       _sentErrorWords.clear();
     }
 
+    // Delta filtering: find newly colored words
+    final deltaGreen = greenWords.where((w) => !_sentGreenWords.contains(w)).toList();
+    final deltaYellow = yellowWords.where((w) => !_sentYellowWords.contains(w)).toList();
+    final deltaRed = redWords.where((w) => !_sentRedWords.contains(w)).toList();
+    final bool hasNewWords = deltaGreen.isNotEmpty || deltaYellow.isNotEmpty || deltaRed.isNotEmpty;
+
     // Deduplication check:
     final bool pageOrVerseChanged = page != _lastBroadcastPage ||
         surah != _lastBroadcastSurah ||
@@ -708,13 +733,9 @@ class MaglisController extends ChangeNotifier {
 
     final bool cursorMoved = activeWord != _lastBroadcastWord;
 
-    final bool wordsChanged = !listEquals(_remoteGreenWords, greenWords) ||
-        !listEquals(_remoteYellowWords, yellowWords) ||
-        !listEquals(_remoteRedWords, redWords);
-
     final bool errorsChanged = errors != null && errors.isNotEmpty;
 
-    if (!pageOrVerseChanged && !cursorMoved && !wordsChanged && !errorsChanged) {
+    if (!pageOrVerseChanged && !cursorMoved && !hasNewWords && !errorsChanged) {
       return; // Absolute zero packets sent if reciter pauses or stays on current word!
     }
 
@@ -723,10 +744,26 @@ class MaglisController extends ChangeNotifier {
     _lastBroadcastAyah = ayah;
     _lastBroadcastWord = activeWord;
 
-    // Delta filtering: transmit each newly colored word strictly ONCE across the network
-    final deltaGreen = greenWords.where((w) => _sentGreenWords.add(w)).toList();
-    final deltaYellow = yellowWords.where((w) => _sentYellowWords.add(w)).toList();
-    final deltaRed = redWords.where((w) => _sentRedWords.add(w)).toList();
+    _remoteGreenWords = greenWords;
+    _remoteYellowWords = yellowWords;
+    _remoteRedWords = redWords;
+
+    _sentGreenWords.addAll(deltaGreen);
+    _sentYellowWords.addAll(deltaYellow);
+    _sentRedWords.addAll(deltaRed);
+
+    for (final w in deltaGreen) {
+      _sentYellowWords.remove(w);
+      _sentRedWords.remove(w);
+    }
+    for (final w in deltaYellow) {
+      _sentGreenWords.remove(w);
+      _sentRedWords.remove(w);
+    }
+    for (final w in deltaRed) {
+      _sentGreenWords.remove(w);
+      _sentYellowWords.remove(w);
+    }
 
     // Serialize active errors strictly once per word to achieve minimum packet size
     Map<String, List<Map<String, dynamic>>>? serializedErrors;
