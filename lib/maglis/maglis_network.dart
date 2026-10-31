@@ -214,11 +214,12 @@ class MaglisNetworkEngine {
   final _participantCountCtrl = StreamController<int>.broadcast();
 
   MaglisNetworkEngine({
-    required this.roomCode,
+    required String roomCode,
     required this.localPeerId,
     bool isHost = true,
     required this.onBuildSnapshot,
-  }) : _isHost = isHost;
+  })  : roomCode = normalizeArabicDigits(roomCode.trim()),
+        _isHost = isHost;
 
   Stream<MaglisPacket> get onPacket => _packetCtrl.stream;
   Stream<Map<String, RTCIceConnectionState>> get onPeerStates =>
@@ -389,6 +390,18 @@ class MaglisNetworkEngine {
     });
   }
 
+  int get _activeRemoteParticipantCount {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return _roomParticipants.where((p) {
+      final state = _peerStates[p];
+      final isAlive = state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
+          state == RTCIceConnectionState.RTCIceConnectionStateChecking;
+      final lastSeen = _lastSeenPeerMs[p] ?? 0;
+      return isAlive || (now - lastSeen) < 8000;
+    }).length;
+  }
+
   void _pruneStalePeers() {
     if (_disposed) return;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -399,8 +412,11 @@ class MaglisNetworkEngine {
       final isConnected =
           state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
               state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
-      // If WebRTC is not connected and peer hasn't been active for > 15s, evict ghost peer
-      if (!isConnected && (now - lastSeen) > 15000) {
+      final isDead =
+          state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+              state == RTCIceConnectionState.RTCIceConnectionStateClosed;
+      // If WebRTC is failed/closed or peer has been silent for > 8s without connection, evict ghost peer
+      if (isDead || (!isConnected && (now - lastSeen) > 8000)) {
         stalePeers.add(peerId);
       }
     }
@@ -501,7 +517,7 @@ class MaglisNetworkEngine {
         }
       }
 
-      ws.ready.timeout(const Duration(milliseconds: 3000)).then((_) {
+      ws.ready.timeout(const Duration(milliseconds: 5000)).then((_) {
         if (_disposed) {
           try {
             ws.sink.close();
@@ -638,8 +654,8 @@ class MaglisNetworkEngine {
       final createdAt = ev['created_at'] as int?;
       if (id == null || content == null) return;
 
-      // Discard stale events from prior sessions or older than 30s before engine start
-      if (createdAt != null && createdAt < (_engineStartTime - 30)) {
+      // Discard stale events from prior sessions or older than 300s (5 min) before engine start
+      if (createdAt != null && createdAt < (_engineStartTime - 300)) {
         return;
       }
 
@@ -670,8 +686,9 @@ class MaglisNetworkEngine {
 
       // Host capacity shield: Max 3 remote peers (4 total participants)
       if (isHost && !isProbe) {
+        _pruneStalePeers();
         if (!_admittedPeers.contains(sig.senderId) &&
-            _admittedPeers.length >= maxRemotePeers) {
+            _activeRemoteParticipantCount >= maxRemotePeers) {
           return; // Drop signals exceeding room capacity
         }
         _admittedPeers.add(sig.senderId);
@@ -701,19 +718,22 @@ class MaglisNetworkEngine {
 
     switch (sig.type) {
       case 'join_probe':
+        _pruneStalePeers();
         if (isHost) {
-          if (_roomParticipants.length >= maxRemotePeers) {
+          if (_activeRemoteParticipantCount >= maxRemotePeers &&
+              !_admittedPeers.contains(remoteId) &&
+              !_roomParticipants.contains(remoteId)) {
             await _sendSignal('join_reject',
                 targetId: remoteId, data: {'reason': 'full'});
           } else {
             await _sendSignal('join_ack',
                 targetId: remoteId,
-                data: {'count': _roomParticipants.length + 1});
+                data: {'count': _activeRemoteParticipantCount + 1});
           }
         } else if (_peers.isNotEmpty) {
           await _sendSignal('join_ack',
               targetId: remoteId,
-              data: {'count': _roomParticipants.length + 1});
+              data: {'count': _activeRemoteParticipantCount + 1});
         }
         break;
 
@@ -1579,15 +1599,19 @@ class MaglisNetworkEngine {
         pc.onRenegotiationNeeded = null;
 
         try {
-          final senders = await pc.getSenders();
+          final senders = await pc.getSenders().timeout(const Duration(milliseconds: 300));
           for (final s in senders) {
             try {
-              await pc.removeTrack(s);
+              await pc.removeTrack(s).timeout(const Duration(milliseconds: 200));
             } catch (_) {}
           }
         } catch (_) {}
-        await pc.close();
-        await pc.dispose();
+        try {
+          await pc.close();
+        } catch (_) {}
+        try {
+          await pc.dispose();
+        } catch (_) {}
       }
     } catch (_) {}
     if (!_disposed) {
@@ -1653,13 +1677,22 @@ class MaglisNetworkEngine {
     _sockets.clear();
     _admittedPeers.clear();
 
+    // 1. Immediately stop hardware mic track to terminate native audio recording and buffer
+    try {
+      _localStream?.getTracks().forEach((t) {
+        try {
+          t.stop();
+        } catch (_) {}
+      });
+      await _localStream?.dispose();
+      _localStream = null;
+    } catch (_) {}
+
+    // 2. Tear down all peer connections and remote audio tracks
     for (final id in List<String>.from(_peers.keys)) {
       await _cleanupPeer(id);
     }
     _remoteTracks.clear();
-
-    _localStream?.getTracks().forEach((t) => t.stop());
-    await _localStream?.dispose();
     await MaglisPlatform.setWakeLock(false);
 
     await _packetCtrl.close();
@@ -1694,34 +1727,20 @@ class MaglisNetworkEngine {
         content: cipher,
       );
 
-      // 1. Fast-Path Primary: Probe top Cloudflare relay first (3200ms timeout for mobile/cellular/VPN)
+      // 1. Fast-Path Primary: Probe top Cloudflare relay first (3800ms timeout with warm retransmit)
       final primaryResult = await _probeSingleRelay(
         url: _relays.first,
         trimmed: trimmed,
         frame: frame,
         tags: tags,
         probePeerId: probePeerId,
-        timeoutMs: 3200,
+        timeoutMs: 3800,
+        privHex: privHex,
+        pubHex: pubHex,
       );
       if (primaryResult == MaglisJoinResult.success ||
           primaryResult == MaglisJoinResult.full) {
         return primaryResult!;
-      }
-
-      // Fast-retry on primary: if initial attempt timed out due to cellular socket warmup, retry once (2000ms)
-      if (primaryResult == null) {
-        final retryResult = await _probeSingleRelay(
-          url: _relays.first,
-          trimmed: trimmed,
-          frame: frame,
-          tags: tags,
-          probePeerId: probePeerId,
-          timeoutMs: 2000,
-        );
-        if (retryResult == MaglisJoinResult.success ||
-            retryResult == MaglisJoinResult.full) {
-          return retryResult!;
-        }
       }
 
       // 2. Hedged Fallback Race: If primary is offline/unreachable, race top 3 fallback relays
@@ -1755,12 +1774,15 @@ class MaglisNetworkEngine {
     required List<String> tags,
     required String probePeerId,
     required int timeoutMs,
+    String? privHex,
+    String? pubHex,
   }) async {
     WebSocketChannel? ws;
     StreamSubscription? sub;
+    Timer? retransmitTimer;
     try {
       ws = WebSocketChannel.connect(Uri.parse(formatRelayUrl(url, trimmed)));
-      final readyMs = (timeoutMs - 800).clamp(1200, 2400);
+      final readyMs = (timeoutMs - 400).clamp(1800, 4200);
       await ws.ready.timeout(Duration(milliseconds: readyMs));
 
       final completer = Completer<MaglisJoinResult?>();
@@ -1782,14 +1804,14 @@ class MaglisNetworkEngine {
             if (!completer.isCompleted) {
               completer.complete(MaglisJoinResult.full);
             }
-          } else if (sig.type == 'join_ack' &&
-              (sig.targetId == null || sig.targetId == probePeerId)) {
+          } else if (sig.type == 'join_ack' ||
+              sig.type == 'beacon' ||
+              sig.type == 'offer' ||
+              sig.type == 'presence_pong' ||
+              sig.type == 'floor_claim') {
             if (!completer.isCompleted) {
               completer.complete(MaglisJoinResult.success);
             }
-          } else if ((sig.type == 'beacon' || sig.type == 'offer') &&
-              !completer.isCompleted) {
-            completer.complete(MaglisJoinResult.success);
           }
         } catch (_) {}
       }, onError: (_) {}, onDone: () {});
@@ -1804,17 +1826,43 @@ class MaglisNetworkEngine {
       ]));
       ws.sink.add(frame);
 
+      // Warm-socket in-flight retransmit: if host was finishing connection setup
+      // during the initial 1.3s, retransmit a fresh probe over this SAME socket (0ms handshake overhead)
+      if (privHex != null && pubHex != null) {
+        retransmitTimer = Timer(const Duration(milliseconds: 1300), () async {
+          if (completer.isCompleted) return;
+          try {
+            final probeSig2 = MaglisSignal(
+              type: 'join_probe',
+              senderId: probePeerId,
+              data: {'auth': MaglisCrypto.admissionToken(trimmed, probePeerId)},
+            );
+            final cipher2 = await MaglisCrypto.encrypt(probeSig2.pack(), trimmed);
+            final frame2 = await MaglisCrypto.signNostrEventAsync(
+              privHex: privHex,
+              pubHex: pubHex,
+              tag: tags.first,
+              additionalTags: tags.length > 1 ? tags.sublist(1) : null,
+              content: cipher2,
+            );
+            ws?.sink.add(frame2);
+          } catch (_) {}
+        });
+      }
+
       final result = await completer.future.timeout(
         Duration(milliseconds: timeoutMs),
         onTimeout: () => null,
       );
 
+      retransmitTimer?.cancel();
       await sub.cancel();
       try {
         await ws.sink.close();
       } catch (_) {}
       return result;
     } catch (_) {
+      retransmitTimer?.cancel();
       await sub?.cancel();
       try {
         await ws?.sink.close();

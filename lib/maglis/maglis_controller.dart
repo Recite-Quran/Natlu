@@ -764,7 +764,7 @@ class MaglisController extends ChangeNotifier {
   }
 
   Future<void> leaveSession() async {
-    if (!_inSession) return;
+    if (!_inSession && _net == null) return;
     _inSession = false;
     _activeReciterId = null;
     _recitationSyncTimer?.cancel();
