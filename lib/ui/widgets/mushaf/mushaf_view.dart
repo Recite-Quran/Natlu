@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
 
@@ -29,112 +28,6 @@ class MushafScrollBehavior extends MaterialScrollBehavior {
 }
 
 
-/// Exact replica of PatchedPreloadPageView from quran_library (alquranalkareem).
-/// Uses Viewport with CacheExtentStyle.viewport to ensure 2 pages ahead and behind are always
-/// fully mounted and rasterized in GPU layers before any swipe gesture begins.
-class PatchedPreloadPageView extends StatefulWidget {
-  PatchedPreloadPageView.builder({
-    super.key,
-    this.scrollDirection = Axis.horizontal,
-    this.reverse = false,
-    required this.controller,
-    this.physics,
-    this.pageSnapping = true,
-    this.onPageChanged,
-    required IndexedWidgetBuilder itemBuilder,
-    int? itemCount,
-    this.preloadPagesCount = 2,
-    this.padEnds = false,
-  }) : childrenDelegate =
-            SliverChildBuilderDelegate(itemBuilder, childCount: itemCount);
-
-  final Axis scrollDirection;
-  final bool reverse;
-  final PageController controller;
-  final ScrollPhysics? physics;
-  final bool pageSnapping;
-  final ValueChanged<int>? onPageChanged;
-  final SliverChildDelegate childrenDelegate;
-  final int preloadPagesCount;
-  final bool padEnds;
-
-  @override
-  State<PatchedPreloadPageView> createState() => _PatchedPreloadPageViewState();
-}
-
-class _PatchedPreloadPageViewState extends State<PatchedPreloadPageView> {
-  int _lastReportedPage = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _lastReportedPage = widget.controller.initialPage;
-  }
-
-  AxisDirection _getDirection(BuildContext context) {
-    switch (widget.scrollDirection) {
-      case Axis.horizontal:
-        assert(debugCheckHasDirectionality(context));
-        final TextDirection textDirection = Directionality.of(context);
-        final AxisDirection axisDirection =
-            textDirectionToAxisDirection(textDirection);
-        return widget.reverse
-            ? flipAxisDirection(axisDirection)
-            : axisDirection;
-      case Axis.vertical:
-        return widget.reverse ? AxisDirection.up : AxisDirection.down;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final AxisDirection axisDirection = _getDirection(context);
-    final ScrollPhysics? physics = widget.pageSnapping
-        ? const PageScrollPhysics().applyTo(widget.physics)
-        : widget.physics;
-
-    final int preload = widget.preloadPagesCount;
-
-    return NotificationListener<ScrollNotification>(
-      onNotification: (ScrollNotification notification) {
-        if (notification.depth == 0 &&
-            widget.onPageChanged != null &&
-            notification is ScrollUpdateNotification) {
-          final int currentPage =
-              widget.controller.page?.round() ?? _lastReportedPage;
-          if (currentPage != _lastReportedPage) {
-            _lastReportedPage = currentPage;
-            widget.onPageChanged!(currentPage);
-          }
-        }
-        return false;
-      },
-      child: Scrollable(
-        axisDirection: axisDirection,
-        controller: widget.controller,
-        physics: physics,
-        viewportBuilder: (BuildContext context, ViewportOffset position) {
-          return Viewport(
-            scrollCacheExtent: ScrollCacheExtent.viewport(
-              preload < 1 ? 0.0 : preload.toDouble(),
-            ),
-            axisDirection: axisDirection,
-            offset: position,
-            slivers: <Widget>[
-              SliverFillViewport(
-                viewportFraction: widget.controller.viewportFraction,
-                padEnds: widget.padEnds,
-                delegate: widget.childrenDelegate,
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// High-performance Mushaf View layout backed by qvp_flutter.
 class MushafView extends StatefulWidget {
   final HighlightingController controller;
   final bool isRecording;
@@ -216,7 +109,7 @@ class _MushafViewState extends State<MushafView> {
     super.initState();
     final provider = MushafProvider.instance;
     _currentPage = _findInitialPage();
-    _pageController = PageController(initialPage: _currentPage - 1);
+    _pageController = PageController(initialPage: 604 - _currentPage);
     _isLoading = !provider.isReady;
 
     widget.controller.activeAyah.addListener(_onActiveAyahChanged);
@@ -305,7 +198,7 @@ class _MushafViewState extends State<MushafView> {
       final initialPage = _findInitialPage();
       _currentPage = initialPage;
       AppState.instance.currentMushafPage.value = _currentPage;
-      final targetIndex = _currentPage - 1;
+      final targetIndex = 604 - _currentPage;
       if (_pageController.hasClients) {
         if ((_pageController.page?.round() ?? 0) != targetIndex) {
           _pageController.jumpToPage(targetIndex);
@@ -583,11 +476,12 @@ class _MushafViewState extends State<MushafView> {
     AppState.instance.currentMushafPage.value = clamped;
     MushafProvider.instance.preloadAdjacentPages(clamped);
     if (_pageController.hasClients) {
+      final targetIndex = 604 - clamped;
       if (pageDiff > 1) {
-        _pageController.jumpToPage(clamped - 1);
+        _pageController.jumpToPage(targetIndex);
       } else {
         _pageController.animateToPage(
-          clamped - 1,
+          targetIndex,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
         );
@@ -596,17 +490,48 @@ class _MushafViewState extends State<MushafView> {
     _syncPageSelection(clamped);
   }
 
+  void _onPageChanged(int pageIndex) {
+    final newPage = 604 - pageIndex;
+    if (_currentPage == newPage) return;
+    _currentPage = newPage;
+    _navigationTargetAyah = null;
+    AppState.instance.currentMushafPage.value = newPage;
+    _syncPageSelection(newPage);
+    MushafProvider.instance.preloadAdjacentPages(
+      newPage,
+      MushafProvider.instance.lastViewportSize,
+    );
+  }
+
+  void _goToNextPage() {
+    if (_currentPage < 604) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _goToPreviousPage() {
+    if (_currentPage > 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
   void _nextPage() {
     if (_currentPage < 604) {
       _navigationTargetAyah = null;
-      _goToPage(_currentPage + 1);
+      _goToNextPage();
     }
   }
 
   void _prevPage() {
     if (_currentPage > 1) {
       _navigationTargetAyah = null;
-      _goToPage(_currentPage - 1);
+      _goToPreviousPage();
     }
   }
 
@@ -647,7 +572,7 @@ class _MushafViewState extends State<MushafView> {
         ? (safeBottom + 62.0)
         : (safeBottom + 74.0);
 
-    const ScrollPhysics physics = ClampingScrollPhysics();
+
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -671,37 +596,30 @@ class _MushafViewState extends State<MushafView> {
                   padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
                   child: ScrollConfiguration(
                     behavior: const MushafScrollBehavior(),
-                    child: PatchedPreloadPageView.builder(
-                      key: const ValueKey('mushaf_single_page_view'),
-                      controller: _pageController,
-                      itemCount: 604,
-                      padEnds: false,
-                      preloadPagesCount: 1,
-                      physics: physics,
-                      onPageChanged: (index) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) return;
-                          final newPage = index + 1;
-                          if (_currentPage == newPage) return;
-                          _currentPage = newPage;
-                          AppState.instance.currentMushafPage.value = newPage;
-                          _syncPageSelection(newPage);
-                          MushafProvider.instance.preloadAdjacentPages(newPage, viewportSize);
-                        });
-                      },
-                      itemBuilder: (context, index) {
-                        final pageNumber = index + 1;
-                        return RepaintBoundary(
-                          key: ValueKey('mushaf_page_boundary_$pageNumber'),
-                          child: MushafPageWidget(
-                            key: ValueKey('mushaf_page_$pageNumber'),
-                            pageNumber: pageNumber,
-                            controller: widget.controller,
-                            isRecording: widget.isRecording,
-                            onStateChangeRequested: () {},
-                          ),
-                        );
-                      },
+                    child: Directionality(
+                      textDirection: TextDirection.ltr,
+                      child: PageView.builder(
+                        key: const ValueKey('mushaf_single_page_view'),
+                        controller: _pageController,
+                        reverse: false,
+                        itemCount: 604,
+                        padEnds: false,
+                        allowImplicitScrolling: true,
+                        onPageChanged: _onPageChanged,
+                        itemBuilder: (context, index) {
+                          final pageNumber = 604 - index;
+                          return RepaintBoundary(
+                            key: ValueKey('mushaf_page_boundary_$pageNumber'),
+                            child: MushafPageWidget(
+                              key: ValueKey('mushaf_page_$pageNumber'),
+                              pageNumber: pageNumber,
+                              controller: widget.controller,
+                              isRecording: widget.isRecording,
+                              onStateChangeRequested: () {},
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),

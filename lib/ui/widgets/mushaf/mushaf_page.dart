@@ -32,7 +32,7 @@ class MushafPageWidget extends StatefulWidget {
 class _MushafPageWidgetState extends State<MushafPageWidget>
     with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   @override
-  bool get wantKeepAlive => false;
+  bool get wantKeepAlive => true;
 
   QvpPage? _page;
   bool _isLoading = true;
@@ -701,11 +701,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         fit: StackFit.expand,
         children: [
           IgnorePointer(
-            child: CustomPaint(
-              painter: SurahHeaderPainter(
-                page: page,
-                isDark: isDark,
-                colors: c,
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: SurahHeaderPainter(
+                  page: page,
+                  isDark: isDark,
+                  colors: c,
+                ),
               ),
             ),
           ),
