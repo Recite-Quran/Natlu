@@ -12,6 +12,7 @@ dependencies:
   recite_quran: ^1.0.5
   qvp_flutter:
     path: packages/qvp_flutter
+  url_launcher: ^6.3.2
 
   audio_session: ^0.2.4
   flutter_displaymode: ^0.7.0

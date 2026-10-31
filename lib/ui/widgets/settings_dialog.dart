@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../state/app_state.dart';
 import 'settings/setting_tile.dart';
 
@@ -124,9 +125,9 @@ class SettingsDialog extends StatelessWidget {
                                 // 2. Theme
                                 SettingTile(
                                   icon: Icons.palette_rounded,
-                                  title: isAr ? 'مظهر التطبيق' : 'App Theme',
+                                  title: isAr ? 'المظهر' : 'Theme',
                                   c: c,
-                                  bottom: PremiumPillSelector(
+                                  trailing: PremiumPillSelector(
                                     labels: isAr
                                         ? ['أبيض', 'أسود']
                                         : ['White', 'Black'],
@@ -136,6 +137,101 @@ class SettingsDialog extends StatelessWidget {
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // ── Telegram Contact Banner ──
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: c.surfaceHigh,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFF229ED9).withValues(alpha: app.isDarkMode ? 0.35 : 0.25),
+                                width: 1,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: app.isDarkMode ? 0.20 : 0.03),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () async {
+                                  final uri = Uri.parse('https://t.me/AlQuranElMageed');
+                                  try {
+                                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                  } catch (_) {}
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 36,
+                                        height: 36,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF229ED9).withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(11),
+                                        ),
+                                        child: const Icon(
+                                          Icons.send_rounded,
+                                          color: Color(0xFF229ED9),
+                                          size: 19,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              isAr ? 'تواصل معنا عبر تيليجرام' : 'Contact on Telegram',
+                                              style: TextStyle(
+                                                color: c.text,
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 1.5),
+                                            Text(
+                                              '@AlQuranElMageed',
+                                              style: TextStyle(
+                                                color: c.textSecondary.withValues(alpha: 0.8),
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF229ED9),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          isAr ? 'مراسلة' : 'Open',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),

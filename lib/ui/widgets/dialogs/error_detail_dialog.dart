@@ -1,5 +1,8 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
+import '../mushaf/mushaf_provider.dart';
 import '../../../services/app_haptics.dart';
 import '../../../services/quran_audio_service.dart';
 import '../../../state/app_state.dart';
@@ -123,16 +126,9 @@ class ErrorDetailDialog extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    word,
-                                    textDirection: TextDirection.rtl,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 30,
-                                      color: c.text,
-                                      height: 1.25,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                  child: Align(
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: _buildWordDisplay(c),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -166,6 +162,43 @@ class ErrorDetailDialog extends StatelessWidget {
         ),
       );
     }
+
+
+  /// Renders the target word using the authentic QVP Medina Mushaf vector glyphs
+  /// when available, falling back gracefully to Cairo typography.
+  Widget _buildWordDisplay(ThemeColors c) {
+    if (surah != null && ayah != null && wordIndex != null) {
+      final pageNum = MushafProvider.instance.getPageForAyah(surah!, ayah!);
+      if (pageNum != null) {
+        final page = MushafProvider.instance.getCachedPage(pageNum);
+        if (page != null && !page.isDisposed) {
+          for (final w in page.words) {
+            if (w.surah == surah && w.ayah == ayah && (w.word - 1) == wordIndex) {
+              return QvpWordWidget(
+                page: page,
+                word: w,
+                color: c.text,
+                height: 44,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    return Text(
+      word,
+      textDirection: TextDirection.rtl,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontFamily: 'cairo',
+        fontSize: 28,
+        color: c.text,
+        height: 1.25,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
   // Word Audio Player Button (Theme Emerald Styling)
@@ -997,4 +1030,90 @@ class ErrorDetailDialog extends StatelessWidget {
 
     return cleaned.trim();
   }
+}
+
+
+// ────────────────────────────────────────────────────────────────────────────
+// QVP Vector Word Display Widget (Authentic Medina Mushaf Vector Rendering)
+// ────────────────────────────────────────────────────────────────────────────
+class QvpWordWidget extends StatelessWidget {
+  final QvpPage page;
+  final QvpWordInfo word;
+  final Color color;
+  final double height;
+
+  const QvpWordWidget({
+    super.key,
+    required this.page,
+    required this.word,
+    required this.color,
+    this.height = 44,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final double wordW = word.x1 - word.x0;
+    final double wordH = word.y1 - word.y0;
+    if (wordW <= 0 || wordH <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final double aspect = wordW / wordH;
+    final double targetWidth = height * aspect;
+
+    return SizedBox(
+      height: height,
+      width: targetWidth,
+      child: CustomPaint(
+        painter: _QvpWordPainter(
+          page: page,
+          word: word,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _QvpWordPainter extends CustomPainter {
+  final QvpPage page;
+  final QvpWordInfo word;
+  final Color color;
+
+  _QvpWordPainter({
+    required this.page,
+    required this.word,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double wordW = word.x1 - word.x0;
+    final double wordH = word.y1 - word.y0;
+    if (wordW <= 0 || wordH <= 0) return;
+
+    final double scale = math.min(size.width / wordW, size.height / wordH);
+    final double dx = (size.width - wordW * scale) / 2 - word.x0 * scale;
+    final double dy = (size.height - wordH * scale) / 2 - word.y0 * scale;
+
+    canvas.save();
+    canvas.translate(dx, dy);
+    canvas.scale(scale);
+
+    final paint = Paint()
+      ..color = color
+      ..isAntiAlias = true;
+
+    for (int i = 0; i < word.nPaths; i++) {
+      final p = page.path(word.firstPath + i);
+      canvas.drawPath(p, paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _QvpWordPainter oldDelegate) =>
+      oldDelegate.page != page ||
+      oldDelegate.word.index != word.index ||
+      oldDelegate.color != color;
 }

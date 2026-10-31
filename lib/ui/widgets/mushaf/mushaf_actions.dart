@@ -157,8 +157,7 @@ abstract final class MushafActions {
     if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
       return colors.warning;
     }
-    if (controller.isWordGreen(ayah, wordIndex, surah: s) ||
-        controller.completedAyahsFor(s).contains(ayah)) {
+    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
       return colors.green;
     }
 
@@ -191,9 +190,7 @@ abstract final class MushafActions {
             : AppState.instance.lastSurah);
 
     if (isBlurEffective) {
-      final isCompleted = controller.completedAyahsFor(s).contains(ayah);
-      final isRead = isCompleted ||
-          controller.isWordGreen(ayah, wordIndex, surah: s) ||
+      final isRead = controller.isWordGreen(ayah, wordIndex, surah: s) ||
           controller.isWordRed(ayah, wordIndex, surah: s) ||
           controller.isWordYellow(ayah, wordIndex, surah: s) ||
           controller.isWordNeutral(ayah, wordIndex, surah: s) ||

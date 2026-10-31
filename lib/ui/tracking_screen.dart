@@ -109,16 +109,9 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _syncScreenWakeLock() {
-    final bool shouldStayAwake = widget.isRecording ||
-        widget.isVoiceSearching ||
-        AppState.instance.isAudioPlaying.value;
-
+    // Keep screen awake continuously throughout the app session (idle and recording)
     try {
-      if (shouldStayAwake) {
-        WakelockPlus.enable();
-      } else {
-        WakelockPlus.disable();
-      }
+      WakelockPlus.enable();
     } catch (_) {}
   }
 

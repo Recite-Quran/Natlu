@@ -465,11 +465,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         }
       }
     }
-    if (isAudio || _isRecording || _isVoiceSearching) {
-      try { WakelockPlus.enable(); } catch (_) {}
-    } else {
-      try { WakelockPlus.disable(); } catch (_) {}
-    }
+    try { WakelockPlus.enable(); } catch (_) {}
   }
 
   /// Toggles recording on/off with hardware-safe locking.
@@ -492,9 +488,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           ));
           MaglisPlatform.setSpeaker(true);
         }
-        if (!AppState.instance.isAudioPlaying.value) {
-          try { await WakelockPlus.disable(); } catch (_) {}
-        }
+        // Screen remains awake continuously
         if (mounted) {
           setState(() {
             _isRecording = false;
@@ -611,11 +605,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     _audio.stop();
     _engine.resetBuffer();
     _ctrl?.finalize();
-    if (!AppState.instance.isAudioPlaying.value) {
-      try {
-        WakelockPlus.disable();
-      } catch (_) {}
-    }
+    // Screen remains awake continuously
     if (mounted) {
       setState(() {});
     }
@@ -683,8 +673,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           if (errs != null && errs.isNotEmpty) {
             (prevErrors ??= {})[w0] = errs;
           }
-        } else if (_ctrl!.isWordGreen(prevAyah, w0, surah: prevSurah) ||
-            _ctrl!.completedAyahsFor(prevSurah).contains(prevAyah)) {
+        } else if (_ctrl!.isWordGreen(prevAyah, w0, surah: prevSurah)) {
           prevGreen.add(w0);
           maglis.recordWordHighlight(prevSurah, prevAyah, w0, 1);
         }
@@ -727,8 +716,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         if (errs != null && errs.isNotEmpty) {
           (wordErrors ??= {})[w0] = errs;
         }
-      } else if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah) ||
-          _ctrl!.completedAyahsFor(targetSurah).contains(activeAyah)) {
+      } else if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah)) {
         greenWords.add(w0);
         maglis.recordWordHighlight(targetSurah, activeAyah, w0, 1);
       } else if (activeWord == null &&
@@ -831,9 +819,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     try {
       await _audio.stop();
       _engine.resetBuffer();
-      if (!AppState.instance.isAudioPlaying.value) {
-        try { await WakelockPlus.disable(); } catch (_) {}
-      }
+      // Screen remains awake continuously
 
       if (mounted) {
         setState(() {

@@ -651,24 +651,26 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                     alignment: Alignment.center,
                     children: [
                       IgnorePointer(
-                        child: Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(5, (index) {
-                              final hasChar = index < text.length;
-                              final isCurrent =
-                                  index == text.length && _focusNode.hasFocus;
-                              final char = hasChar
-                                  ? formatMaglisCode(text[index],
-                                      isArabic: isAr)
-                                  : '';
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Directionality(
+                            textDirection: TextDirection.ltr,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(5, (index) {
+                                final hasChar = index < text.length;
+                                final isCurrent =
+                                    index == text.length && _focusNode.hasFocus;
+                                final char = hasChar
+                                    ? formatMaglisCode(text[index],
+                                        isArabic: isAr)
+                                    : '';
 
-                              return Container(
-                                width: 40,
-                                height: 44,
-                                margin:
-                                    const EdgeInsets.symmetric(horizontal: 3),
+                                return Container(
+                                  width: 40,
+                                  height: 44,
+                                  margin:
+                                      const EdgeInsets.symmetric(horizontal: 2.5),
                                 decoration: BoxDecoration(
                                   color: isDark
                                       ? (hasChar
@@ -725,6 +727,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                                         : const SizedBox.shrink()),
                               );
                             }),
+                            ),
                           ),
                         ),
                       ),
@@ -942,15 +945,17 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 const SizedBox(height: 8),
 
                 // 5 Discrete Digit Slots strictly in Left-to-Right order (Zero BiDi inversion!)
-                Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(displayDigits.length, (index) {
-                      return Container(
-                        width: 40,
-                        height: 44,
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(displayDigits.length, (index) {
+                        return Container(
+                          width: 40,
+                          height: 44,
+                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
                         decoration: BoxDecoration(
                           color: isDark
                               ? Colors.white.withValues(alpha: 0.07)
@@ -982,6 +987,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                         ),
                       );
                     }),
+                    ),
                   ),
                 ),
 

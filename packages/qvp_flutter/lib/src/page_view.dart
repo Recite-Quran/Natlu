@@ -882,7 +882,7 @@ class _QvpPainter extends CustomPainter {
   final ui.Path _boxPath = ui.Path();
   final ui.Paint _styledPaint = ui.Paint()
     ..isAntiAlias = true
-    ..blendMode = ui.BlendMode.src;
+    ..blendMode = ui.BlendMode.srcOver;
   final ui.Paint _ornamentFill = ui.Paint()..isAntiAlias = true;
   final ui.Paint _ornamentStroke = ui.Paint()
     ..isAntiAlias = true
