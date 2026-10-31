@@ -509,9 +509,9 @@ class MaglisPlatform {
   static Future<void> setWakeLock(bool on) async {
     try {
       if (on) {
-        await WakelockPlus.enable();
+        await WakelockPlus.enable().catchError((_) {});
       } else {
-        await WakelockPlus.disable();
+        await WakelockPlus.disable().catchError((_) {});
       }
     } catch (_) {}
   }

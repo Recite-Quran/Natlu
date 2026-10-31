@@ -76,7 +76,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     try {
-      WakelockPlus.enable();
+      WakelockPlus.enable().catchError((_) {});
     } catch (_) {}
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     widget.controller.addListener(_onControllerUpdate);
@@ -103,7 +103,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   void _syncScreenWakeLock() {
     // Keep screen awake continuously throughout the app session (idle and recording)
     try {
-      WakelockPlus.enable();
+      WakelockPlus.enable().catchError((_) {});
     } catch (_) {}
   }
 
@@ -192,7 +192,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.stopVerseAudio();
     WidgetsBinding.instance.removeObserver(this);
     try {
-      WakelockPlus.disable();
+      WakelockPlus.disable().catchError((_) {});
     } catch (_) {}
     widget.controller.removeListener(_onControllerUpdate);
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);

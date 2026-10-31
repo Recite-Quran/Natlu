@@ -1,7 +1,7 @@
 // Service Worker for Recite Quran (اتلو القران)
 // Provides complete offline caching, dynamic caching, and Cross-Origin Isolation (COOP/COEP) for WebAssembly.
 
-const CACHE_NAME = 'recite-quran-pwa-v21-1793472779';
+const CACHE_NAME = 'recite-quran-pwa-v21-1793473324';
 
 const STATIC_PRECACHE = [
   './',
@@ -90,6 +90,22 @@ function addCoopCoepHeaders(response) {
   });
 }
 
+function ensureWasmMime(response, url) {
+  if (!response || response.type === 'opaque') return response;
+  if (url.pathname.endsWith('.wasm')) {
+    if (response.headers.get('Content-Type') !== 'application/wasm') {
+      const headers = new Headers(response.headers);
+      headers.set('Content-Type', 'application/wasm');
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      });
+    }
+  }
+  return response;
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
@@ -135,19 +151,19 @@ self.addEventListener('fetch', (event) => {
   // 2. Static assets: Cache First, fallback to Network with dynamic caching
   event.respondWith(
     caches.match(event.request, { ignoreSearch: true }).then((cached) => {
-      if (cached) return cached;
+      if (cached) return ensureWasmMime(cached, url);
 
       return fetch(event.request).then((res) => {
         if (res && res.status === 200) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
-        return res;
+        return ensureWasmMime(res, url);
       }).catch(async () => {
         const cleanPath = url.pathname.replace(/^\//, '');
         const fallback = (await caches.match(cleanPath, { ignoreSearch: true })) ||
                          (await caches.match(url.pathname, { ignoreSearch: true }));
-        return fallback || Response.error();
+        return fallback ? ensureWasmMime(fallback, url) : Response.error();
       });
     })
   );

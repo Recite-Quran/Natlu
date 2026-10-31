@@ -54,31 +54,39 @@
 
   // 2. Chromium / Android / Desktop Install Prompt
   let deferredPrompt = null;
+  function tryShowInstallBanner() {
+    if (isDismissed() || !deferredPrompt) return;
+    if (localStorage.getItem('natlu_bandwidth_accepted') !== 'true') return;
+    const splash = document.getElementById('splash-overlay');
+    if (splash && document.body.contains(splash) && splash.style.display !== 'none' && splash.style.opacity !== '0') {
+      setTimeout(tryShowInstallBanner, 2000);
+      return;
+    }
+
+    const banner = document.getElementById('pwa-install-banner');
+    const btn = document.getElementById('pwa-install-btn');
+    const close = document.getElementById('pwa-close-btn');
+
+    if (banner && !isDismissed()) {
+      banner.style.display = 'block';
+      if (btn) {
+        btn.onclick = async () => {
+          if (deferredPrompt) {
+            deferredPrompt.prompt();
+            await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            banner.style.display = 'none';
+          }
+        };
+      }
+      if (close) close.onclick = () => dismissBanner('pwa-install-banner');
+    }
+  }
+
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    if (isDismissed()) return;
-
-    setTimeout(() => {
-      const banner = document.getElementById('pwa-install-banner');
-      const btn = document.getElementById('pwa-install-btn');
-      const close = document.getElementById('pwa-close-btn');
-
-      if (banner && !isDismissed()) {
-        banner.style.display = 'block';
-        if (btn) {
-          btn.onclick = async () => {
-            if (deferredPrompt) {
-              deferredPrompt.prompt();
-              await deferredPrompt.userChoice;
-              deferredPrompt = null;
-              banner.style.display = 'none';
-            }
-          };
-        }
-        if (close) close.onclick = () => dismissBanner('pwa-install-banner');
-      }
-    }, 1500);
+    setTimeout(tryShowInstallBanner, 2500);
   });
 
   window.addEventListener('appinstalled', () => {

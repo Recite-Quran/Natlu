@@ -363,7 +363,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
       try {
-        WakelockPlus.enable();
+        WakelockPlus.enable().catchError((_) {});
       } catch (_) {}
 
       if (mounted) setState(() => _isInit = false);
@@ -473,7 +473,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         }
       }
     }
-    try { WakelockPlus.enable(); } catch (_) {}
+    try { WakelockPlus.enable().catchError((_) {}); } catch (_) {}
   }
 
   /// Toggles recording on/off with hardware-safe locking.
@@ -514,7 +514,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           return;
         }
 
-        try { await WakelockPlus.enable(); } catch (_) {}
+        try { await WakelockPlus.enable().catchError((_) {}); } catch (_) {}
         AppState.instance.stopVerseAudio();
         _engine.resetBuffer();
 
@@ -796,7 +796,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       _voiceSearchAsrNotifier.value = '';
 
       await _voiceSearchCtrl.startSearch();
-      try { await WakelockPlus.enable(); } catch (_) {}
+      try { await WakelockPlus.enable().catchError((_) {}); } catch (_) {}
 
       _isVoiceSearchPaused = false;
       _audio
