@@ -80,7 +80,7 @@ class MaglisPeerSession {
 
   Map<String, MaglisPeerDiagnostics> get peerDiagnostics {
     final map = <String, MaglisPeerDiagnostics>{};
-    for (final peerId in peers.keys) {
+    for (final peerId in List<String>.from(peers.keys)) {
       map[peerId] = MaglisPeerDiagnostics(
         peerId: peerId,
         rttMs: peerLatency[peerId] ?? 0,
@@ -117,19 +117,21 @@ class MaglisPeerSession {
   void _startHeartbeatTimer() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (disposed || channels.isEmpty) return;
+      if (disposed) return;
       final now = DateTime.now().millisecondsSinceEpoch;
 
-      final pingJson = jsonEncode({
-        't': 4,
-        'u': localPeerId,
-        'm': now,
-      });
-      dispatchLossy(pingJson);
+      if (channels.isNotEmpty) {
+        final pingJson = jsonEncode({
+          't': 4,
+          'u': localPeerId,
+          'm': now,
+        });
+        dispatchLossy(pingJson);
+      }
 
       // Ghost peer reaping (noscall pattern): reap dead peers after 12s without packets
       final stalePeers = <String>[];
-      for (final peerId in peers.keys) {
+      for (final peerId in List<String>.from(peers.keys)) {
         final lastSeen = lastSeenPeerMs[peerId];
         if (lastSeen != null && lastSeen > 0 && (now - lastSeen) > 12000) {
           stalePeers.add(peerId);
@@ -311,6 +313,9 @@ class MaglisPeerSession {
                         RTCIceConnectionState
                             .RTCIceConnectionStateDisconnected)) {
               onNatFailure(remoteId);
+              lastSeenPeerMs[remoteId] = 0;
+              onPeerClosed(remoteId);
+              unawaited(cleanupPeer(remoteId));
               checkSocketSleepState();
             }
           },
@@ -740,7 +745,7 @@ class MaglisPeerSession {
     final msg = RTCDataChannelMessage(raw);
     bool anyChannelOpen = false;
 
-    for (final entry in channels.entries) {
+    for (final entry in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
       final dc = entry.value;
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
         anyChannelOpen = true;
@@ -772,7 +777,7 @@ class MaglisPeerSession {
   void dispatchLossy(String raw) {
     final msg = RTCDataChannelMessage(raw);
 
-    for (final remoteId in peers.keys) {
+    for (final remoteId in List<String>.from(peers.keys)) {
       final lossyDc = lossyChannels[remoteId];
       if (lossyDc != null &&
           lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
@@ -802,7 +807,7 @@ class MaglisPeerSession {
 
   void dispatchReliableBinary(Uint8List bytes) {
     final msg = RTCDataChannelMessage.fromBinary(bytes);
-    for (final entry in channels.entries) {
+    for (final entry in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
       final dc = entry.value;
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
         final buf = dc.bufferedAmount ?? 0;
@@ -817,7 +822,7 @@ class MaglisPeerSession {
 
   void dispatchLossyBinary(Uint8List bytes) {
     final msg = RTCDataChannelMessage.fromBinary(bytes);
-    for (final remoteId in peers.keys) {
+    for (final remoteId in List<String>.from(peers.keys)) {
       final lossyDc = lossyChannels[remoteId];
       if (lossyDc != null &&
           lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
@@ -1029,7 +1034,7 @@ class MaglisPeerSession {
         localStream = await navigator.mediaDevices.getUserMedia(
           MaglisMediaHelper.buildAudioConstraints(),
         );
-        for (final entry in peers.entries) {
+        for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
           localStream?.getAudioTracks().forEach((track) {
             track.enabled = true;
             try {
@@ -1056,7 +1061,7 @@ class MaglisPeerSession {
   }
 
   Future<void> retryConnections() async {
-    for (final entry in peers.entries) {
+    for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
       final state = peerStates[entry.key];
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
           state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
@@ -1127,7 +1132,11 @@ class MaglisPeerSession {
       if (lossyDc != null) {
         lossyDc.onDataChannelState = null;
         lossyDc.onMessage = null;
-        await lossyDc.close();
+        try {
+          if (lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
+            await lossyDc.close();
+          }
+        } catch (_) {}
       }
     } catch (_) {}
 
@@ -1136,7 +1145,11 @@ class MaglisPeerSession {
       if (dc != null) {
         dc.onDataChannelState = null;
         dc.onMessage = null;
-        await dc.close();
+        try {
+          if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+            await dc.close();
+          }
+        } catch (_) {}
       }
     } catch (_) {}
 
@@ -1161,7 +1174,7 @@ class MaglisPeerSession {
     } catch (_) {}
 
     if (!disposed) {
-      onStatesChanged(Map.unmodifiable(peerStates));
+      onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
     }
   }
 
@@ -1169,15 +1182,15 @@ class MaglisPeerSession {
     disposed = true;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    for (final timer in iceDebounceTimers.values) {
+    for (final timer in List<Timer>.from(iceDebounceTimers.values)) {
       timer.cancel();
     }
     iceDebounceTimers.clear();
-    for (final timer in iceRestartGraceTimers.values) {
+    for (final timer in List<Timer>.from(iceRestartGraceTimers.values)) {
       timer.cancel();
     }
     iceRestartGraceTimers.clear();
-    for (final window in recoveryWindows.values) {
+    for (final window in List<MaglisPeerRecoveryWindow>.from(recoveryWindows.values)) {
       window.cancel();
     }
     recoveryWindows.clear();
@@ -1201,21 +1214,19 @@ class MaglisPeerSession {
       localStream = null;
     } catch (_) {}
 
-    // 2. Close and clean up all DataChannels
-    for (final dc in lossyChannels.values) {
+    // 2. Clear all DataChannels callbacks
+    for (final dc in List<RTCDataChannel>.from(lossyChannels.values)) {
       try {
         dc.onDataChannelState = null;
         dc.onMessage = null;
-        await dc.close();
       } catch (_) {}
     }
     lossyChannels.clear();
 
-    for (final dc in channels.values) {
+    for (final dc in List<RTCDataChannel>.from(channels.values)) {
       try {
         dc.onDataChannelState = null;
         dc.onMessage = null;
-        await dc.close();
       } catch (_) {}
     }
     channels.clear();
@@ -1224,7 +1235,7 @@ class MaglisPeerSession {
     for (final id in List<String>.from(peers.keys)) {
       await cleanupPeerInternal(id);
     }
-    for (final list in remoteStreams.values) {
+    for (final list in List<List<MediaStream>>.from(remoteStreams.values)) {
       for (final s in list) {
         try {
           await s.dispose();

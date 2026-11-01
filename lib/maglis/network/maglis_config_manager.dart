@@ -27,11 +27,7 @@ class MaglisConfigManager {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
-      {'urls': 'stun:stun2.l.google.com:19302'},
-      {'urls': 'stun:stun3.l.google.com:19302'},
-      {'urls': 'stun:stun4.l.google.com:19302'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
-      {'urls': 'stun:global.stun.twilio.com:3478'},
       {
         'urls': [
           'turn:52.76.210.159:5349',
@@ -55,7 +51,7 @@ class MaglisConfigManager {
     'sdpSemantics': 'unified-plan',
     'bundlePolicy': 'max-bundle',
     'rtcpMuxPolicy': 'require',
-    'iceCandidatePoolSize': 10,
+    'iceCandidatePoolSize': 2,
   };
 
   static Map<String, dynamic> _rtcConfig = Map.from(defaultRtcConfig);
@@ -68,7 +64,7 @@ class MaglisConfigManager {
   static Future<void> prewarmIce() async {
     try {
       final config = Map<String, dynamic>.from(_rtcConfig);
-      config['iceCandidatePoolSize'] = 10;
+      config['iceCandidatePoolSize'] = 2;
       final dummyPc = await createPeerConnection(config);
       await dummyPc.close();
       await dummyPc.dispose();

@@ -98,7 +98,7 @@ class MaglisReconnectionScheduler {
   int getRelayAttemptCount(String relay) => _states[relay]?.attemptCount ?? 0;
 
   void resetAll() {
-    for (final state in _states.values) {
+    for (final state in List<dynamic>.from(_states.values)) {
       state.reset();
     }
   }
@@ -118,7 +118,7 @@ class MaglisReconnectionScheduler {
   }
 
   void cancelAll() {
-    for (final timer in _timers.values) {
+    for (final timer in List<Timer>.from(_timers.values)) {
       timer.cancel();
     }
     _timers.clear();

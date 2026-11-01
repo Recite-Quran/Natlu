@@ -431,9 +431,7 @@ class MaglisNetworkEngine {
         if (isInitiator) {
           await _peerSession.initiatePeerConnection(remoteId);
         } else {
-          if (!_peerSession.peers.containsKey(remoteId)) {
-            await _relayFleet.sendSignal('beacon', targetId: remoteId, data: const {});
-          }
+          await _relayFleet.sendSignal('beacon', targetId: remoteId, data: const {});
         }
         break;
 
@@ -501,7 +499,7 @@ class MaglisNetworkEngine {
     _networkChangeDebounceTimer =
         Timer(const Duration(milliseconds: 650), () async {
       if (_disposed) return;
-      for (final ws in _relayFleet.sockets.values) {
+      for (final ws in List.from(_relayFleet.sockets.values)) {
         try {
           ws.sink.close();
         } catch (_) {}
@@ -510,8 +508,9 @@ class MaglisNetworkEngine {
       _relayFleet.reconnectingRelays.clear();
       _relayFleet.resetReconnectionScheduler();
       await _relayFleet.connectRelayFleet();
+      await _relayFleet.sendSignal('beacon', data: const {});
 
-      for (final remoteId in _peerSession.peers.keys) {
+      for (final remoteId in List<String>.from(_peerSession.peers.keys)) {
         final isInitiator = localPeerId.compareTo(remoteId) < 0;
         if (isInitiator) {
           unawaited(_peerSession.triggerIceRestart(remoteId));
@@ -527,7 +526,7 @@ class MaglisNetworkEngine {
     if (_disposed) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     final stalePeers = <String>[];
-    for (final peerId in _roomParticipants) {
+    for (final peerId in List<String>.from(_roomParticipants)) {
       final lastSeen = _peerSession.lastSeenPeerMs[peerId] ?? 0;
       final state = _peerSession.peerStates[peerId];
       final isConnected =
@@ -539,6 +538,9 @@ class MaglisNetworkEngine {
               _peerSession.negotiatingPeers.contains(peerId);
       final isExplicitlyDead =
           state == RTCIceConnectionState.RTCIceConnectionStateClosed;
+      final isFailedOrDisconnected =
+          state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+              state == RTCIceConnectionState.RTCIceConnectionStateDisconnected;
 
       // 1. If actively connected, keep alive! Peer is in the audio conference.
       // If silent on DataChannel for > 25s, recover DataChannel without dropping peer
@@ -549,16 +551,22 @@ class MaglisNetworkEngine {
         continue;
       }
 
-      // 2. Allow up to 30s for WebRTC handshake & ICE checks to complete on mobile networks / TURN relays
+      // 2. Allow up to 25s for WebRTC handshake & ICE checks to complete on mobile networks / TURN relays
       if (isConnecting) {
-        if ((now - lastSeen) > 30000) {
+        if ((now - lastSeen) > 25000) {
           stalePeers.add(peerId);
         }
         continue;
       }
 
-      // 3. If explicitly closed or silent without connection for > 35s, prune ghost peer
-      if (isExplicitlyDead || (now - lastSeen) > 35000) {
+      // 3. If disconnected or failed and silent for > 15s (recovery window elapsed), reap peer
+      if (isFailedOrDisconnected && (now - lastSeen) > 15000) {
+        stalePeers.add(peerId);
+        continue;
+      }
+
+      // 4. If explicitly closed or silent without connection for > 20s, prune ghost peer
+      if (isExplicitlyDead || (now - lastSeen) > 20000) {
         stalePeers.add(peerId);
       }
     }

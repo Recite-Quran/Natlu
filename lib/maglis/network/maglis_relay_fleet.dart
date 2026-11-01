@@ -180,7 +180,7 @@ class MaglisRelayFleet {
 
   void resubscribeRelays() {
     if (disposed) return;
-    for (final ws in sockets.values) {
+    for (final ws in List<WebSocketChannel>.from(sockets.values)) {
       try {
         subscribeRelay(ws);
       } catch (_) {}
@@ -217,7 +217,7 @@ class MaglisRelayFleet {
     relayHeartbeatTimer = Timer.periodic(const Duration(seconds: 18), (_) {
       if (disposed) return;
       final pingTag = 'hb_${DateTime.now().millisecondsSinceEpoch}';
-      for (final ws in sockets.values) {
+      for (final ws in List<WebSocketChannel>.from(sockets.values)) {
         try {
           ws.sink.add(jsonEncode([
             'REQ',
@@ -264,7 +264,7 @@ class MaglisRelayFleet {
       }
       return;
     }
-    for (final ws in sockets.values) {
+    for (final ws in List<WebSocketChannel>.from(sockets.values)) {
       try {
         ws.sink.add(frame);
       } catch (_) {}
@@ -354,7 +354,7 @@ class MaglisRelayFleet {
     _reconnectionScheduler.cancelAll();
     relayHeartbeatTimer?.cancel();
     relayHeartbeatTimer = null;
-    for (final ws in sockets.values) {
+    for (final ws in List<WebSocketChannel>.from(sockets.values)) {
       try {
         ws.sink.close();
       } catch (_) {}

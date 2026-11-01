@@ -123,10 +123,7 @@ class MaglisController extends ChangeNotifier {
   bool get isHost => _net?.isHost ?? false;
   String? get activeReciterId => _activeReciterId;
   String? get natFailedPeer => _natFailedPeer;
-  int get participantCount =>
-      _participantCount > (_connectedPeers.length + 1)
-          ? _participantCount
-          : (_connectedPeers.length + 1);
+  int get participantCount => _inSession ? (_connectedPeers.length + 1) : 1;
   bool get isLocalReciting => _inSession && _activeReciterId == localPeerId;
   bool get isRemoteReciting =>
       _inSession && _activeReciterId != null && _activeReciterId != localPeerId;
@@ -726,7 +723,7 @@ class MaglisController extends ChangeNotifier {
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;
     _lastBroadcastWord = null;
-    for (final t in _peerDisconnectTimers.values) {
+    for (final t in List<Timer>.from(_peerDisconnectTimers.values)) {
       t.cancel();
     }
     _peerDisconnectTimers.clear();

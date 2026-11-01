@@ -226,7 +226,7 @@ class MaglisBinaryPacker {
 
     if (packet.cumulative != null && packet.cumulative!.isNotEmpty) {
       builder.add(encodeVarint(packet.cumulative!.length));
-      for (final entry in packet.cumulative!.entries) {
+      for (final entry in List<MapEntry<String, int>>.from(packet.cumulative!.entries)) {
         final kBytes = utf8.encode(entry.key);
         builder.add(encodeVarint(kBytes.length));
         builder.add(kBytes);

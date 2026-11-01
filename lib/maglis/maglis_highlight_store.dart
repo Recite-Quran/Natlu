@@ -204,7 +204,7 @@ class MaglisHighlightStore {
   ) {
     if (errors == null || errors.isEmpty) return null;
     Map<String, List<Map<String, dynamic>>>? serializedErrors;
-    for (final entry in errors.entries) {
+    for (final entry in List<MapEntry<int, List<ReciterError>>>.from(errors.entries)) {
       if (sentErrorWords.add(entry.key)) {
         final key = wordKey(surah, ayah, entry.key);
         (serializedErrors ??= {})[key.toRadixString(16)] =
@@ -217,9 +217,9 @@ class MaglisHighlightStore {
   /// Builds radix-16 string snapshot of cumulative highlights.
   Map<String, int> buildSnapshotCumulativeMap() {
     final stringMap = <String, int>{};
-    cumulativeHighlights.forEach((k, v) {
-      stringMap[k.toRadixString(16)] = v;
-    });
+    for (final entry in List<MapEntry<int, int>>.from(cumulativeHighlights.entries)) {
+      stringMap[entry.key.toRadixString(16)] = entry.value;
+    }
     return stringMap;
   }
 
