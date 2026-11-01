@@ -566,10 +566,9 @@ class _MushafViewState extends State<MushafView> {
     final c = AppState.instance.colors;
 
     if (_isLoading) {
-      return Center(
-        child: CircularProgressIndicator.adaptive(
-          valueColor: AlwaysStoppedAnimation<Color>(c.gold),
-        ),
+      return ColoredBox(
+        color: c.surface,
+        child: const SizedBox.expand(),
       );
     }
 

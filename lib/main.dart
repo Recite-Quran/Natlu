@@ -446,6 +446,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       if (mounted) setState(() => _isInit = false);
 
       WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (kIsWeb) return; // Zero intro / popup interruptions on Web
         final prefs = await SharedPreferences.getInstance();
         final hasChosenTheme = prefs.getBool('has_chosen_theme') ?? false;
         if (!hasChosenTheme && mounted) {
@@ -980,6 +981,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   /// Warm, elegant splash screen with Quran ayah.
   Widget _loadingScreen() {
     final ThemeColors c = AppState.instance.colors;
+    if (kIsWeb) {
+      return Scaffold(
+        backgroundColor: c.bg,
+        body: const SizedBox.expand(),
+      );
+    }
     return Scaffold(
       backgroundColor: c.bg,
       body: Center(

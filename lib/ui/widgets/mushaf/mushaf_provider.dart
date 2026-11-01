@@ -59,8 +59,9 @@ class MushafProvider {
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
     if (size == null || size.width <= 0 || size.height <= 0) return;
+    lastViewportSize = size;
     _preloadDebounce?.cancel();
-    _preloadDebounce = Timer(const Duration(milliseconds: 180), () {
+    _preloadDebounce = Timer(const Duration(milliseconds: 20), () {
       unawaited(_doPreloadAdjacentPages(pageNumber, size));
     });
   }
@@ -79,11 +80,18 @@ class MushafProvider {
       surahFrames: false,
     );
 
-    for (final target in [pageNumber + 1, pageNumber - 1]) {
-      if (target >= 1 && target <= 604) {
-        await _preloadSinglePage(target, size, dpr, inkColor, layout);
-      }
-    }
+    // Eagerly preload adjacent sliding window concurrently
+    final targets = <int>[
+      pageNumber + 1,
+      pageNumber + 2,
+      pageNumber - 1,
+      pageNumber + 3,
+      pageNumber - 2,
+    ].where((t) => t >= 1 && t <= 604).toList();
+
+    await Future.wait(
+      targets.map((target) => _preloadSinglePage(target, size, dpr, inkColor, layout)),
+    );
   }
 
   Future<void> _preloadSinglePage(
@@ -94,10 +102,10 @@ class MushafProvider {
     QvpViewLayout layout,
   ) async {
     final cached = getCachedPage(target);
-    if (cached != null && !cached.isDisposed && cached.currentLayout != null) {
-      return;
+    QvpPage? p = cached;
+    if (p == null || p.isDisposed) {
+      p = await getPage(target);
     }
-    final p = await getPage(target);
     if (p != null && !p.isDisposed) {
       p.setDefaultColor(inkColor);
       if (p.currentLayout == null) {
@@ -118,13 +126,34 @@ class MushafProvider {
     if (kIsWeb) {
       if (_webAtlasBytes != null && !force) return;
       try {
-        _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
-        if (_webAtlasBytes == null) {
-          _webAtlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
-          if (_webAtlasBytes != null) {
-            unawaited(web_storage.savePageToIndexedDb('atlas', _webAtlasBytes!));
-          }
+        final initialPage = AppState.instance.currentMushafPage.value.clamp(1, 604);
+        final futures = <Future>[];
+        if (_webAtlasBytes == null || force) {
+          futures.add(() async {
+            _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
+            if (_webAtlasBytes == null) {
+              _webAtlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
+              if (_webAtlasBytes != null) {
+                unawaited(web_storage.savePageToIndexedDb('atlas', _webAtlasBytes!));
+              }
+            }
+          }());
         }
+        if (!_webPageBytes.containsKey(initialPage) || force) {
+          futures.add(() async {
+            var p = await web_storage.getPageFromIndexedDb(initialPage.toString());
+            if (p == null) {
+              p = await web_storage.fetchPageFromCdn('${_pad(initialPage)}.qvp');
+              if (p != null) {
+                unawaited(web_storage.savePageToIndexedDb(initialPage.toString(), p));
+              }
+            }
+            if (p != null) {
+              _webPageBytes[initialPage] = p;
+            }
+          }());
+        }
+        await Future.wait(futures);
       } catch (e) {
         debugPrint('Error loading Mushaf atlas on Web: $e');
       }
@@ -221,6 +250,10 @@ class MushafProvider {
         _atlas = _engine!.loadAtlas(atlasBytes);
       }
       _isReady = true;
+      if (kIsWeb) {
+        final initialPage = AppState.instance.currentMushafPage.value.clamp(1, 604);
+        unawaited(getPage(initialPage));
+      }
     } catch (e, st) {
       debugPrint('Error loading MushafProvider QVP data: $e\n$st');
     } finally {

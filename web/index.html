@@ -46,68 +46,93 @@
   <link rel="manifest" href="manifest.json">
 
   <style>
-    /* Minimal Instant Launch Screen */
-    #splash-overlay {
-      position: fixed;
-      inset: 0;
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
       background: #fdfaf6;
-      z-index: 99999;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", sans-serif;
-      transition: opacity 0.35s ease;
-      pointer-events: auto;
-    }
-
-    .splash-content {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
-
-    .splash-icon {
-      width: 76px;
-      height: 76px;
-      border-radius: 1.25rem;
-      margin-bottom: 1rem;
-      box-shadow: 0 10px 25px -5px rgb(5 150 105 / 0.25);
-    }
-
-    .splash-title-ar {
-      font-size: 1.35rem;
-      font-weight: 800;
-      color: #171717;
-      margin: 0 0 0.2rem 0;
-      direction: rtl;
-    }
-
-    .splash-title-en {
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: #9ca3af;
-      margin: 0 0 1.5rem 0;
-    }
-
-    .splash-spinner {
-      width: 26px;
-      height: 26px;
-      border: 2.5px solid #e5e7eb;
-      border-top-color: #059669;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
+      overflow: hidden;
     }
 
     /* PWA Banner */
     .pwa-banner {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 420px;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+      border-radius: 1rem;
+      padding: 0.85rem 1rem;
+      z-index: 10000;
+      direction: rtl;
+    }
+
+    .pwa-banner-content {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .pwa-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 0.5rem;
+    }
+
+    .pwa-text {
+      flex: 1;
+    }
+
+    .pwa-title-ar {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .pwa-subtitle {
+      font-size: 0.75rem;
+      color: #4b5563;
+      margin-top: 0.1rem;
+    }
+
+    .pwa-subtitle-en {
+      font-size: 0.68rem;
+      color: #9ca3af;
+      direction: ltr;
+      text-align: right;
+    }
+
+    .pwa-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .pwa-btn {
+      background: #059669;
+      color: #ffffff;
+      border: none;
+      padding: 0.4rem 0.85rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+
+    .pwa-close-btn {
+      background: transparent;
+      border: none;
+      color: #9ca3af;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 0.25rem;
+    }
+  </style>
 
   <script>
     // Self-contained Setup Engine (IIFE prevents any global identifier clashes)
@@ -255,7 +280,7 @@
       // 5. High-Performance On-Demand Asset Fetcher (for QVP vector pages & Atlas from CDN)
       window.fetchPageAsset = async function (url) {
         try {
-          const res = await fetch(url, { mode: 'cors' });
+          const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
           if (!res.ok) return null;
           const buf = await res.arrayBuffer();
           return new Uint8Array(buf);
@@ -265,17 +290,9 @@
         }
       };
 
-      function initSplashState() {
-        const n = document.getElementById('splash-normal-content');
-        if (n) n.style.display = 'flex';
-        window.bootFlutterApp();
-      }
-
-      if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', initSplashState);
-      } else {
-        initSplashState();
-      }
+      // Instant Boot: Start Flutter immediately on page load with zero splash or loading screen
+      window.bootFlutterApp();
+      window.hideAppSplash = function () {};
 
       window.clearAppCacheAndReload = async function () {
         try {
@@ -290,69 +307,11 @@
         } catch (_) {}
         window.location.reload(true);
       };
-
-      let domObserver = null;
-
-      window.hideAppSplash = function () {
-        if (domObserver) {
-          domObserver.disconnect();
-          domObserver = null;
-        }
-        const splash = document.getElementById('splash-overlay');
-        if (splash && splash.style.display !== 'none') {
-          splash.style.opacity = '0';
-          splash.style.pointerEvents = 'none';
-          setTimeout(function () { splash.remove(); }, 350);
-        }
-      };
-
-      // Auto-hide when Flutter paints its first frame
-      window.addEventListener('flutter-first-frame', function () {
-        window.hideAppSplash();
-      });
-
-      // Fallback: Observe Flutter elements entering DOM
-      domObserver = new MutationObserver(function () {
-        if (document.querySelector('flutter-view, flt-glass-pane')) {
-          setTimeout(window.hideAppSplash, 100);
-        }
-      });
-      domObserver.observe(document.documentElement, { childList: true, subtree: true });
-
-      // Graceful recovery if Flutter takes unusually long
-      setTimeout(function () {
-        const splash = document.getElementById('splash-overlay');
-        if (splash && !document.querySelector('flutter-view, flt-glass-pane')) {
-          const spinner = document.querySelector('.splash-spinner');
-          if (spinner) spinner.style.display = 'none';
-          let errBox = document.getElementById('splash-retry-box');
-          if (!errBox) {
-            errBox = document.createElement('div');
-            errBox.id = 'splash-retry-box';
-            errBox.style.marginTop = '1.25rem';
-            errBox.style.textAlign = 'center';
-            errBox.innerHTML = '<div style="font-size:0.85rem;color:#4b5563;margin-bottom:0.75rem;direction:rtl;">استغرق التحميل وقتاً أطول من المعتاد...</div><button onclick="window.clearAppCacheAndReload()" style="background:#059669;color:#fff;border:none;padding:0.5rem 1.15rem;border-radius:9999px;font-weight:700;font-size:0.8rem;cursor:pointer;">تحديث وحذف الذاكرة المؤقتة • Reload</button>';
-            const content = document.getElementById('splash-normal-content');
-            if (content) content.appendChild(errBox);
-          }
-        }
-      }, 12000);
     })();
   </script>
 </head>
 
 <body>
-  <div id="splash-overlay">
-    <!-- Regular loading spinner -->
-    <div id="splash-normal-content" class="splash-content" style="display: flex;">
-      <img src="icons/Icon-192.png" alt="Recite Quran" class="splash-icon" />
-      <h1 class="splash-title-ar">اتلو القران</h1>
-      <div class="splash-title-en">Recite Quran</div>
-      <div class="splash-spinner"></div>
-      <div id="splash-status-text" style="font-size:0.78rem;font-weight:600;color:#059669;margin-top:0.85rem;direction:rtl;"></div>
-    </div>
-  </div>
-
   <!-- Chromium / Android PWA Install Banner -->
   <div id="pwa-install-banner" class="pwa-banner" style="display: none;">
     <div class="pwa-banner-content">
