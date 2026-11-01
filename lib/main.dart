@@ -248,15 +248,24 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
 
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
-      if (mounted) {
-        if (_ctrl != null) {
-          if (_ctrl!.targetSurah != surah) {
-            _ctrl!.setTargetSurah(
-              surah,
-              preserveOtherSurahStates: true,
-              clearTargetSurah: false,
-            );
-          }
+      if (mounted && _ctrl != null) {
+        if (_ctrl!.targetSurah != surah) {
+          _ctrl!.setTargetSurah(
+            surah,
+            preserveOtherSurahStates: true,
+            clearTargetSurah: false,
+          ).then((_) {
+            if (mounted && _ctrl != null) {
+              _ctrl!.setManualAyah(surah, ayah);
+              _ctrl!.clearHighlightsFromAyah(ayah);
+              for (int s = surah + 1; s <= 114; s++) {
+                _ctrl!.clearHighlightsForSurah(s);
+              }
+              _ctrl!.globalRevision.value++;
+            }
+          });
+        } else {
+          _ctrl!.setManualAyah(surah, ayah);
           _ctrl!.clearHighlightsFromAyah(ayah);
           for (int s = surah + 1; s <= 114; s++) {
             _ctrl!.clearHighlightsForSurah(s);
@@ -704,7 +713,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           _ctrl!.startRecordingSession();
           if (MaglisController.instance.inSession) {
             unawaited(MaglisController.instance.claimFloor(
-              page: currentPage,
+              page: mappedPage ?? currentPage,
               surah: selectedSurah,
               ayah: selectedAyah,
             ));

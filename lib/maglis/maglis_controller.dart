@@ -387,7 +387,6 @@ class MaglisController extends ChangeNotifier {
               _recitationSyncTimer = null;
             }
           }
-          onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
         }
         _activeReciterId = pkt.senderId;
         _net?.updateActiveFloor(pkt.senderId);
@@ -398,6 +397,10 @@ class MaglisController extends ChangeNotifier {
         _remoteGreenWords = pkt.greenWords;
         _remoteYellowWords = pkt.yellowWords;
         _remoteRedWords = pkt.redWords;
+
+        if (pkt.senderId != localPeerId) {
+          onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
+        }
         // Clearing is synchronized across all peers from the chosen verse onwards
         clearHighlightsFrom(pkt.surah, pkt.ayah);
 

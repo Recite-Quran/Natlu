@@ -150,8 +150,13 @@ class _MushafViewState extends State<MushafView> {
 
     MaglisController.instance.onSyncMushafUI = (page, surah, ayah) {
       if (!mounted) return;
-      if (page != _currentPage && page >= 1 && page <= 604) {
-        _goToPage(page);
+      _navigationTargetAyah = (surah, ayah);
+      if (page >= 1 && page <= 604) {
+        if (page != _currentPage) {
+          _goToPage(page);
+        } else {
+          _syncPageSelection(page);
+        }
       }
     };
 
@@ -449,6 +454,7 @@ class _MushafViewState extends State<MushafView> {
   }
 
   void _onActiveAyahChanged() {
+    if (MaglisController.instance.isRemoteReciting) return;
     final provider = MushafProvider.instance;
     if (provider.isSyncingSurah || _isAutoAdvancingPage) return;
     final active = widget.controller.activeAyah.value;

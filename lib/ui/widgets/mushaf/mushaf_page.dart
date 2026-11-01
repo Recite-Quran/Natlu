@@ -337,8 +337,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
       // 1. ACTIVE AYAH HIGHLIGHT
       (int, int)? targetAyah;
-      if (isMaglisRemote && hasMaglisAyah) {
-        targetAyah = (maglisSurah, maglisAyah);
+      if (isMaglisRemote) {
+        if (hasMaglisAyah) {
+          targetAyah = (maglisSurah, maglisAyah);
+        }
       } else if (hasMatchedAyah) {
         targetAyah = (activeMatch.verse.surah, activeMatch.verse.ayah);
       } else if (hasRecitingAyah) {
