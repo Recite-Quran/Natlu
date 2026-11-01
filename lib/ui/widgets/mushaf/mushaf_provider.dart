@@ -30,8 +30,9 @@ class MushafWordRef {
   });
 }
 
-/// High-performance data provider for the Mushaf layout backed by qvp_flutter.
-/// Manages QvpEngine, atlas.qva, archive extraction on launch, and a bounded LRU cache of decoded QvpPage objects.
+/// High-performance data provider for the Mushaf layout backed by pristine qvp_flutter.
+/// On Web, manages on-demand CDN streaming, IndexedDB persistence, and pre-rasterization.
+/// On Native, manages isolate archive extraction and local filesystem page access.
 class MushafProvider {
   MushafProvider._();
   static final MushafProvider instance = MushafProvider._();
@@ -50,70 +51,39 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
-  final Map<int, Uint8List> _webPageBytes = {};
-  Uint8List? _webAtlasBytes;
   static const int _maxCachedPages = 120;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
-  Timer? _preloadDebounce;
+  bool _isBackgroundCachingStarted = false;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
-    if (size == null || size.width <= 0 || size.height <= 0) return;
-    lastViewportSize = size;
-    _preloadDebounce?.cancel();
-    _preloadDebounce = Timer(const Duration(milliseconds: 20), () {
-      unawaited(_doPreloadAdjacentPages(pageNumber, size));
-    });
-  }
+    if (size != null && size.width > 0 && size.height > 0) {
+      lastViewportSize = size;
+    }
 
-  Future<void> _doPreloadAdjacentPages(int pageNumber, Size size) async {
+    final neighbors = [pageNumber - 1, pageNumber + 1, pageNumber - 2, pageNumber + 2];
     final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
         ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
         : 1.0;
     final inkColor = AppState.instance.colors.text;
-    const layout = QvpViewLayout(
-      padTop: 0,
-      padBottom: 0,
-      padSide: 4,
-      lineSpacing: 1.0,
-      fillHeight: true,
-      surahFrames: false,
-    );
 
-    // Eagerly preload adjacent sliding window concurrently
-    final targets = <int>[
-      pageNumber + 1,
-      pageNumber + 2,
-      pageNumber - 1,
-      pageNumber + 3,
-      pageNumber - 2,
-    ].where((t) => t >= 1 && t <= 604).toList();
-
-    await Future.wait(
-      targets.map((target) => _preloadSinglePage(target, size, dpr, inkColor, layout)),
-    );
-  }
-
-  Future<void> _preloadSinglePage(
-    int target,
-    Size size,
-    double dpr,
-    Color inkColor,
-    QvpViewLayout layout,
-  ) async {
-    final cached = getCachedPage(target);
-    QvpPage? p = cached;
-    if (p == null || p.isDisposed) {
-      p = await getPage(target);
-    }
-    if (p != null && !p.isDisposed) {
-      p.setDefaultColor(inkColor);
-      if (p.currentLayout == null) {
-        p.layout(layout.toSpec(size.width, size.height));
-      }
-      if (p.currentLayout != null) {
-        QvpPageView.prepare(p, scale: p.currentLayout!.scale, dpr: dpr, inkColor: inkColor);
-      }
+    for (final p in neighbors) {
+      if (p < 1 || p > 604) continue;
+      if (getCachedPage(p) != null) continue;
+      unawaited(() async {
+        final page = await getPage(p);
+        if (page != null && !page.isDisposed && size != null && size.width > 0 && size.height > 0) {
+          page.layout(const QvpViewLayout(
+            padTop: 0,
+            padBottom: 0,
+            padSide: 4,
+            lineSpacing: 1.0,
+            fillHeight: true,
+            surahFrames: false,
+          ).toSpec(size.width, size.height));
+          QvpPageView.prepare(page, scale: 1.0, dpr: dpr, inkColor: inkColor);
+        }
+      }());
     }
   }
 
@@ -122,44 +92,54 @@ class MushafProvider {
     unawaited(loadData(force: force));
   }
 
-  Future<void> _ensureExtracted({bool force = false}) async {
-    if (kIsWeb) {
-      if (_webAtlasBytes != null && !force) return;
-      try {
-        final initialPage = AppState.instance.currentMushafPage.value.clamp(1, 604);
-        final futures = <Future>[];
-        if (_webAtlasBytes == null || force) {
-          futures.add(() async {
-            _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
-            if (_webAtlasBytes == null) {
-              _webAtlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
-              if (_webAtlasBytes != null) {
-                unawaited(web_storage.savePageToIndexedDb('atlas', _webAtlasBytes!));
-              }
-            }
-          }());
+  /// Quietly caches remaining Mushaf pages in IndexedDB in the background.
+  void startBackgroundMushafCaching() {
+    if (!kIsWeb || _isBackgroundCachingStarted) return;
+    _isBackgroundCachingStarted = true;
+    unawaited(_runBackgroundMushafCaching());
+  }
+
+  Future<void> _runBackgroundMushafCaching() async {
+    try {
+      final isAlreadyCached = await web_storage.hasCachedPagesWeb();
+      if (isAlreadyCached) return;
+
+      // Cache atlas if not already saved
+      final cachedAtlas = await web_storage.getPageFromIndexedDb('atlas.qva');
+      if (cachedAtlas == null || cachedAtlas.isEmpty) {
+        final atlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
+        if (atlasBytes != null && atlasBytes.isNotEmpty) {
+          await web_storage.savePageToIndexedDb('atlas.qva', atlasBytes);
         }
-        if (!_webPageBytes.containsKey(initialPage) || force) {
-          futures.add(() async {
-            var p = await web_storage.getPageFromIndexedDb(initialPage.toString());
-            if (p == null) {
-              p = await web_storage.fetchPageFromCdn('${_pad(initialPage)}.qvp');
-              if (p != null) {
-                unawaited(web_storage.savePageToIndexedDb(initialPage.toString(), p));
-              }
-            }
-            if (p != null) {
-              _webPageBytes[initialPage] = p;
-            }
-          }());
-        }
-        await Future.wait(futures);
-      } catch (e) {
-        debugPrint('Error loading Mushaf atlas on Web: $e');
       }
-      return;
+
+      // Download missing pages in small non-blocking batches
+      const int batchSize = 4;
+      for (int i = 1; i <= 604; i += batchSize) {
+        final batch = <Future<void>>[];
+        for (int p = i; p < i + batchSize && p <= 604; p++) {
+          final pageNum = p;
+          batch.add(() async {
+            final key = '${_pad(pageNum)}.qvp';
+            final existing = await web_storage.getPageFromIndexedDb(key);
+            if (existing != null && existing.isNotEmpty) return;
+            final bytes = await web_storage.fetchPageFromCdn(key);
+            if (bytes != null && bytes.isNotEmpty) {
+              await web_storage.savePageToIndexedDb(key, bytes);
+            }
+          }());
+        }
+        await Future.wait(batch);
+        // Small delay to keep main thread completely unblocked
+        await Future.delayed(const Duration(milliseconds: 60));
+      }
+    } catch (e) {
+      debugPrint('Background Mushaf caching paused: $e');
     }
-    if (_extractedPagesPath != null && !force) return;
+  }
+
+  Future<void> _ensureExtracted({bool force = false}) async {
+    if (kIsWeb || (_extractedPagesPath != null && !force)) return;
     try {
       final appDir = await getApplicationSupportDirectory();
       final dir = Directory('${appDir.path}/mushaf_pages');
@@ -174,12 +154,10 @@ class MushafProvider {
         return;
       }
 
-      // Check if compressed archive exists in assets
       final ByteData archiveData;
       try {
         archiveData = await rootBundle.load('assets/pages.tar.xz');
       } catch (_) {
-        // Archive not in assets; fallback to assets/pages directory if available
         return;
       }
 
@@ -224,35 +202,43 @@ class MushafProvider {
     try {
       if (kIsWeb) {
         await QvpEngine.initWeb();
-      }
-      _engine ??= QvpEngine.open();
-      await _ensureExtracted(force: force);
+        _engine ??= QvpEngine.open();
 
-      if (_atlas == null) {
-        final Uint8List atlasBytes;
-        if (kIsWeb) {
-          _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
-          if (_webAtlasBytes != null) {
-            atlasBytes = _webAtlasBytes!;
-          } else {
-            throw StateError('Mushaf atlas.qva not found in Web memory or storage');
+        if (_atlas == null || force) {
+          var atlasBytes = await web_storage.getPageFromIndexedDb('atlas.qva');
+          if (atlasBytes == null || atlasBytes.isEmpty) {
+            atlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
+            if (atlasBytes != null && atlasBytes.isNotEmpty) {
+              unawaited(web_storage.savePageToIndexedDb('atlas.qva', atlasBytes));
+            }
           }
-        } else {
+          if (atlasBytes != null && atlasBytes.isNotEmpty) {
+            _atlas = _engine!.loadAtlas(atlasBytes);
+          } else {
+            throw StateError('Mushaf atlas.qva could not be loaded from CDN or Cache');
+          }
+        }
+      } else {
+        _engine ??= QvpEngine.open();
+        await _ensureExtracted(force: force);
+        if (_atlas == null || force) {
           final localAtlas = _extractedPagesPath != null
               ? File('$_extractedPagesPath/atlas.qva')
               : null;
           if (localAtlas != null && localAtlas.existsSync()) {
-            atlasBytes = await localAtlas.readAsBytes();
+            final atlasBytes = await localAtlas.readAsBytes();
+            _atlas = _engine!.loadAtlas(atlasBytes);
           } else {
             throw StateError('Mushaf atlas.qva not found at ${localAtlas?.path}');
           }
         }
-        _atlas = _engine!.loadAtlas(atlasBytes);
       }
       _isReady = true;
+
       if (kIsWeb) {
         final initialPage = AppState.instance.currentMushafPage.value.clamp(1, 604);
         unawaited(getPage(initialPage));
+        startBackgroundMushafCaching();
       }
     } catch (e, st) {
       debugPrint('Error loading MushafProvider QVP data: $e\n$st');
@@ -264,9 +250,14 @@ class MushafProvider {
 
   String _pad(int n) => n.toString().padLeft(3, '0');
 
-  Future<QvpPage?> getPage(int pageNumber) {
+  Future<QvpPage?> getPage(int pageNumber) async {
+    if (!_isReady) {
+      await loadData();
+    }
+    if (_engine == null) return null;
+
     final cached = getCachedPage(pageNumber);
-    if (cached != null) return Future.value(cached);
+    if (cached != null) return cached;
 
     final pending = _pendingLoads[pageNumber];
     if (pending != null) return pending;
@@ -277,40 +268,26 @@ class MushafProvider {
   }
 
   Future<QvpPage?> _loadPageInternal(int pageNumber) async {
-    if (!_isReady) {
-      await loadData();
-    }
-    if (_engine == null) return null;
-
     final cached = _pageCache.remove(pageNumber);
-    if (cached != null) {
-      if (!cached.isDisposed) {
-        _pageCache[pageNumber] = cached;
-        return cached;
-      }
+    if (cached != null && !cached.isDisposed) {
+      _pageCache[pageNumber] = cached;
+      return cached;
     }
 
     try {
-      final Uint8List pageBytes;
+      Uint8List? pageBytes;
       if (kIsWeb) {
-        var p = _webPageBytes[pageNumber];
-        if (p == null) {
-          p = await web_storage.getPageFromIndexedDb(pageNumber.toString());
-          if (p != null) {
-            _webPageBytes[pageNumber] = p;
-          }
+        final key = '${_pad(pageNumber)}.qvp';
+        pageBytes = await web_storage.getPageFromIndexedDb(key);
+        if (pageBytes == null || pageBytes.isEmpty) {
+          // Fallback check unpadded key
+          pageBytes = await web_storage.getPageFromIndexedDb('$pageNumber.qvp');
         }
-        if (p == null) {
-          p = await web_storage.fetchPageFromCdn('${_pad(pageNumber)}.qvp');
-          if (p != null) {
-            _webPageBytes[pageNumber] = p;
-            unawaited(web_storage.savePageToIndexedDb(pageNumber.toString(), p));
+        if (pageBytes == null || pageBytes.isEmpty) {
+          pageBytes = await web_storage.fetchPageFromCdn(key);
+          if (pageBytes != null && pageBytes.isNotEmpty) {
+            unawaited(web_storage.savePageToIndexedDb(key, pageBytes));
           }
-        }
-        if (p != null) {
-          pageBytes = p;
-        } else {
-          throw StateError('Mushaf page $pageNumber not found in Web memory or storage');
         }
       } else {
         var localPage = _extractedPagesPath != null
@@ -324,28 +301,30 @@ class MushafProvider {
         }
         if (localPage != null && localPage.existsSync() && localPage.lengthSync() > 0) {
           pageBytes = await localPage.readAsBytes();
-        } else {
-          throw StateError('Mushaf page $pageNumber not found at ${localPage?.path}');
         }
       }
-      final page = _engine!.loadPage(pageBytes);
-      page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
 
-      if (_pageCache.length >= _maxCachedPages) {
-        final currentPage = AppState.instance.currentMushafPage.value;
-        int? evictKey;
-        for (final k in _pageCache.keys) {
-          if (currentPage > 0 && (k - currentPage).abs() <= 10) continue;
-          evictKey = k;
-          break;
+      if (pageBytes != null && pageBytes.isNotEmpty) {
+        final page = _engine!.loadPage(pageBytes);
+        page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
+
+        if (_pageCache.length >= _maxCachedPages) {
+          final currentPage = AppState.instance.currentMushafPage.value;
+          int? evictKey;
+          for (final k in _pageCache.keys) {
+            if (currentPage > 0 && (k - currentPage).abs() <= 10) continue;
+            evictKey = k;
+            break;
+          }
+          if (evictKey != null) {
+            final oldestPage = _pageCache.remove(evictKey);
+            oldestPage?.dispose();
+          }
         }
-        if (evictKey != null) {
-          final oldestPage = _pageCache.remove(evictKey);
-          oldestPage?.dispose();
-        }
+        _pageCache[pageNumber] = page;
+        return page;
       }
-      _pageCache[pageNumber] = page;
-      return page;
+      return null;
     } catch (e) {
       debugPrint('Error loading QVP page $pageNumber: $e');
       return null;
