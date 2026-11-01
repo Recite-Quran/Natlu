@@ -2,7 +2,9 @@ import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
-/// Web implementation using browser IndexedDB via JS interop.
+const String qvpCdnBase = 'https://cdn.quran.ws/qvp/v0.4.0';
+
+/// Web implementation using browser IndexedDB and CDN via JS interop.
 Future<bool> hasCachedPagesWeb() async {
   try {
     if (!globalContext.has('hasCachedPages')) return false;
@@ -28,6 +30,17 @@ Future<Uint8List?> getPageFromIndexedDb(String key) async {
   } catch (_) {
     return null;
   }
+}
+
+Future<void> savePageToIndexedDb(String key, Uint8List bytes) async {
+  try {
+    if (globalContext.has('saveMushafPageToDB')) {
+      final jsFn = globalContext['saveMushafPageToDB'] as JSFunction?;
+      if (jsFn != null) {
+        jsFn.callAsFunction(null, key.toJS, bytes.toJS);
+      }
+    }
+  } catch (_) {}
 }
 
 Future<void> savePagesBatchToIndexedDb(Map<String, Uint8List> pages) async {
@@ -56,3 +69,20 @@ Future<void> savePagesBatchToIndexedDb(Map<String, Uint8List> pages) async {
   } catch (_) {}
 }
 
+/// Fetches a Mushaf page or atlas on-demand from the high-speed CDN.
+Future<Uint8List?> fetchPageFromCdn(String filename) async {
+  try {
+    if (globalContext.has('fetchPageAsset')) {
+      final jsFn = globalContext['fetchPageAsset'] as JSFunction?;
+      if (jsFn != null) {
+        final url = '$qvpCdnBase/$filename';
+        final promise = jsFn.callAsFunction(null, url.toJS) as JSPromise<JSAny?>;
+        final jsVal = await promise.toDart;
+        if (jsVal != null) {
+          return (jsVal as JSUint8Array).toDart;
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}

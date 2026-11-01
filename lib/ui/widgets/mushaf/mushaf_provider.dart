@@ -116,45 +116,17 @@ class MushafProvider {
 
   Future<void> _ensureExtracted({bool force = false}) async {
     if (kIsWeb) {
-      if (!force) {
-        if (_webAtlasBytes != null && _webPageBytes.length >= 604) return;
-        final hasCached = await web_storage.hasCachedPagesWeb();
-        if (hasCached) {
-          _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
-          if (_webAtlasBytes != null) return;
-        }
-      }
+      if (_webAtlasBytes != null && !force) return;
       try {
-        final archiveData = await rootBundle.load('assets/pages.tar.xz');
-        final bytes = archiveData.buffer.asUint8List();
-        final tarBytes = XZDecoder().decodeBytes(bytes);
-        final archive = TarDecoder().decodeBytes(tarBytes);
-        final batchToSave = <String, Uint8List>{};
-        int processed = 0;
-        for (final file in archive) {
-          if (file.isFile) {
-            final fileName = file.name.replaceAll(r'\', '/').split('/').last;
-            if (fileName == 'atlas.qva') {
-              _webAtlasBytes = file.content;
-              batchToSave['atlas'] = file.content;
-            } else if (fileName.endsWith('.qvp')) {
-              final pageNum = int.tryParse(fileName.replaceAll('.qvp', ''));
-              if (pageNum != null) {
-                _webPageBytes[pageNum] = file.content;
-                batchToSave[pageNum.toString()] = file.content;
-              }
-            }
+        _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
+        if (_webAtlasBytes == null) {
+          _webAtlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
+          if (_webAtlasBytes != null) {
+            unawaited(web_storage.savePageToIndexedDb('atlas', _webAtlasBytes!));
           }
-          processed++;
-          if (processed % 35 == 0) {
-            await Future<void>.delayed(Duration.zero);
-          }
-        }
-        if (batchToSave.isNotEmpty) {
-          unawaited(web_storage.savePagesBatchToIndexedDb(batchToSave));
         }
       } catch (e) {
-        debugPrint('Error extracting pages.tar.xz on Web: $e');
+        debugPrint('Error loading Mushaf atlas on Web: $e');
       }
       return;
     }
@@ -293,6 +265,13 @@ class MushafProvider {
           p = await web_storage.getPageFromIndexedDb(pageNumber.toString());
           if (p != null) {
             _webPageBytes[pageNumber] = p;
+          }
+        }
+        if (p == null) {
+          p = await web_storage.fetchPageFromCdn('${_pad(pageNumber)}.qvp');
+          if (p != null) {
+            _webPageBytes[pageNumber] = p;
+            unawaited(web_storage.savePageToIndexedDb(pageNumber.toString(), p));
           }
         }
         if (p != null) {

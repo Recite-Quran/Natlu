@@ -35,9 +35,7 @@
       }
     };
 
-    if (localStorage.getItem('natlu_bandwidth_accepted') === 'true') {
-      window.registerAppServiceWorker();
-    }
+    window.registerAppServiceWorker();
   }
 
   if (isStandalone) return;
@@ -56,7 +54,6 @@
   let deferredPrompt = null;
   function tryShowInstallBanner() {
     if (isDismissed() || !deferredPrompt) return;
-    if (localStorage.getItem('natlu_bandwidth_accepted') !== 'true') return;
     const splash = document.getElementById('splash-overlay');
     if (splash && document.body.contains(splash) && splash.style.display !== 'none' && splash.style.opacity !== '0') {
       setTimeout(tryShowInstallBanner, 2000);

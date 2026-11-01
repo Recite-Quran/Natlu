@@ -49,6 +49,6 @@ cp web/cloudflare/functions/download-model.js functions/download-model.js 2>/dev
 cp web/cloudflare/functions/download-model.js build/web/functions/download-model.js 2>/dev/null || true
 cp web/cloudflare/wrangler.toml build/web/wrangler.toml 2>/dev/null || true
 cp web/wasm/sherpa-onnx-wasm-main-asr.wasm build/web/sherpa-onnx-wasm-main-asr.wasm 2>/dev/null || true
-rm -rf build/web/scripts build/web/cloudflare build/web/assets/packages/sherpa_onnx_web 2>/dev/null || true
+rm -rf build/web/scripts build/web/cloudflare build/web/assets/packages/sherpa_onnx_web build/web/assets/assets/pages.tar.xz 2>/dev/null || true
 
 echo "=== Build Complete! Deploy directory: build/web ==="

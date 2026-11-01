@@ -28,6 +28,7 @@ if exist web\cloudflare\functions\download-model.js copy /Y web\cloudflare\funct
 if exist web\cloudflare\wrangler.toml copy /Y web\cloudflare\wrangler.toml build\web\wrangler.toml >nul
 if exist web\wasm\sherpa-onnx-wasm-main-asr.wasm copy /Y web\wasm\sherpa-onnx-wasm-main-asr.wasm build\web\sherpa-onnx-wasm-main-asr.wasm >nul
 if exist build\web\assets\packages\sherpa_onnx_web rmdir /s /q build\web\assets\packages\sherpa_onnx_web
+if exist build\web\assets\assets\pages.tar.xz del /f /q build\web\assets\assets\pages.tar.xz
 if exist build\web\scripts rmdir /s /q build\web\scripts
 if exist build\web\cloudflare rmdir /s /q build\web\cloudflare
 

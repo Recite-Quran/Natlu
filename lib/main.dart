@@ -33,6 +33,7 @@ import 'state/app_state.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
 import 'ui/widgets/dialogs/permission_dialog.dart';
+import 'ui/widgets/dialogs/model_download_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
@@ -481,10 +482,23 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   /// Ensures the ASR engine is initialized.
+  /// On Web, prompts for user bandwidth consent if the ~72MB model is not yet downloaded.
   Future<bool> _ensureEngineReady() async {
     if (_engine.isInitialized) return true;
 
-
+    if (kIsWeb) {
+      final bool isCached = await _engine.isModelCached();
+      if (!isCached && mounted) {
+        final bool? proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: true,
+          builder: (ctx) => const ModelDownloadDialog(),
+        );
+        if (proceed != true) {
+          return false;
+        }
+      }
+    }
 
     if (!_engine.isInitialized) {
       if (mounted) setState(() => _isEngineLoading = true);
