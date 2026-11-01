@@ -33,7 +33,6 @@ import 'state/app_state.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
 import 'ui/widgets/dialogs/permission_dialog.dart';
-import 'ui/widgets/dialogs/model_download_dialog.dart';
 import 'ui/widgets/mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
@@ -264,6 +263,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       }
     };
 
+    MaglisController.instance.onSessionEnded = () {
+      AppState.instance.exitMaglisSession();
+      if (mounted && _isRecording) {
+        _stopRecordingForRemoteClaim();
+      }
+    };
+
     // Global subscription for Voice Search text and Endpoint auto-stopping
     _transcriptionSub = _engine.transcriptionStream.listen((res) {
       if (_isVoiceSearching && !_isVoiceSearchPaused && mounted) {
@@ -333,8 +339,16 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
-      AppState.instance.stopVerseAudio();
+    final isBackgroundOrLocked = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+
+    if (isBackgroundOrLocked) {
+      if (state == AppLifecycleState.detached) {
+        AppState.instance.stopVerseAudio();
+      }
+      // When user switches apps or locks screen, automatically leave halqa cleanly
       if (MaglisController.instance.inSession) {
         unawaited(MaglisController.instance.leaveSession());
       }
@@ -349,8 +363,11 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       unawaited(MaglisController.instance.leaveSession());
     }
     MaglisController.instance.onRemoteFloorClaimed = null;
+    MaglisController.instance.onSessionEnded = null;
     _maglisBroadcastThrottle?.cancel();
     _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
+    _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
+    _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
     if (!kIsWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
@@ -415,6 +432,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         },
       );
       _ctrl!.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.globalRevision.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.activeAyah.addListener(_throttledBroadcastMaglisProgress);
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
       if (!kIsWeb) {
@@ -465,19 +484,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   Future<bool> _ensureEngineReady() async {
     if (_engine.isInitialized) return true;
 
-    if (kIsWeb) {
-      final bool isCached = await _engine.isModelCached();
-      if (!isCached && mounted) {
-        final bool? proceed = await showDialog<bool>(
-          context: context,
-          barrierDismissible: true,
-          builder: (ctx) => const ModelDownloadDialog(),
-        );
-        if (proceed != true) {
-          return false;
-        }
-      }
-    }
+
 
     if (!_engine.isInitialized) {
       if (mounted) setState(() => _isEngineLoading = true);
@@ -601,32 +608,43 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
               ? activeAyah
               : AppState.instance.lastAyah;
 
-          // In a Maglis session, if another peer was reciting or an active verse was established,
-          // maintain that exact verse instead of falling back to the first ayah on the page!
-          final maglis = MaglisController.instance;
-          if (maglis.inSession &&
-              maglis.remoteAyah > 0 &&
-              (maglis.isRemoteReciting || activeAyah == null) &&
-              MushafProvider.instance.isAyahOnPage(
-                pageNumber: currentPage,
-                surah: maglis.remoteSurah,
-                ayah: maglis.remoteAyah,
-              )) {
-            selectedSurah = maglis.remoteSurah;
-            selectedAyah = maglis.remoteAyah;
-          } else if (selectedAyah <= 0 ||
-              !MushafProvider.instance.isAyahOnPage(
-                pageNumber: currentPage,
-                surah: selectedSurah,
-                ayah: selectedAyah,
-              )) {
-            final firstOnPage = MushafProvider.instance.getFirstAyahOnPage(currentPage);
-            if (firstOnPage != null) {
-              selectedSurah = firstOnPage.$1;
-              selectedAyah = firstOnPage.$2;
-            } else {
-              selectedAyah = selectedAyah > 0 ? selectedAyah : 1;
+          if (AppState.instance.isMushafMode) {
+            // In a Maglis session, if another peer was reciting or an active verse was established,
+            // maintain that exact verse instead of falling back to the first ayah on the page!
+            final maglis = MaglisController.instance;
+            if (maglis.inSession &&
+                maglis.remoteAyah > 0 &&
+                (maglis.isRemoteReciting || activeAyah == null) &&
+                MushafProvider.instance.isAyahOnPage(
+                  pageNumber: currentPage,
+                  surah: maglis.remoteSurah,
+                  ayah: maglis.remoteAyah,
+                )) {
+              selectedSurah = maglis.remoteSurah;
+              selectedAyah = maglis.remoteAyah;
+            } else if (selectedAyah <= 0 ||
+                !MushafProvider.instance.isAyahOnPage(
+                  pageNumber: currentPage,
+                  surah: selectedSurah,
+                  ayah: selectedAyah,
+                )) {
+              final firstOnPage = MushafProvider.instance.getFirstAyahOnPage(currentPage);
+              if (firstOnPage != null) {
+                selectedSurah = firstOnPage.$1;
+                selectedAyah = firstOnPage.$2;
+              } else {
+                selectedAyah = selectedAyah > 0 ? selectedAyah : 1;
+              }
             }
+          } else {
+            // In Verse List mode:
+            // Verses are chosen manually in the active surah. Do not reset to first ayah of Mushaf page!
+            selectedSurah = (_ctrl!.targetSurah >= 1 && _ctrl!.targetSurah <= 114)
+                ? _ctrl!.targetSurah
+                : AppState.instance.lastSurah;
+            selectedAyah = (activeAyah != null && activeAyah > 0)
+                ? activeAyah
+                : (AppState.instance.lastAyah > 0 ? AppState.instance.lastAyah : 1);
           }
 
           if (_ctrl!.targetSurah != selectedSurah) {
@@ -638,6 +656,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           }
           _ctrl!.setManualAyah(selectedSurah, selectedAyah);
           AppState.instance.saveLastPosition(selectedSurah, selectedAyah);
+          final mappedPage = MushafProvider.instance.getPageForAyah(selectedSurah, selectedAyah);
+          if (mappedPage != null) {
+            AppState.instance.saveMushafPage(mappedPage);
+          }
 
           // Only clear highlighting when the reciter presses the record button:
           // The current verse and any verse coming after it clears its coloring/highlighting

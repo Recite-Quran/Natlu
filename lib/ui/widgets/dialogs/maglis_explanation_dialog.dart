@@ -17,6 +17,7 @@ class MaglisExplanationDialog extends StatelessWidget {
       builder: (_) => const MaglisExplanationDialog(),
     );
     final prefs = await SharedPreferences.getInstance();
+    AppState.instance.hasSeenMaglisExplanation = true;
     await prefs.setBool('has_seen_maglis_explanation', true);
   }
 

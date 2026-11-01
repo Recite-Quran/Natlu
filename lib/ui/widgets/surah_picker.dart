@@ -3,6 +3,8 @@ import 'package:recite_quran/recite_quran.dart';
 import '../../services/app_haptics.dart';
 import '../../state/app_state.dart';
 import 'surah/surah_list_tile.dart';
+import 'settings/setting_tile.dart';
+import '../../maglis/maglis_controller.dart';
 
 /// Ultra-responsive Surah Navigator Sheet with instant Arabic/English search,
 /// voice search trigger, and zero-jank 120 FPS scrolling architecture.
@@ -184,6 +186,30 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
               const SizedBox(height: 12),
 
               // ── Search Bar & Voice Search Action ──
+              if (!MaglisController.instance.inSession) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: PremiumPillSelector(
+                    icons: const [
+                      Icons.format_list_bulleted_rounded,
+                      Icons.auto_stories_rounded,
+                    ],
+                    labels: isAr
+                        ? const ['قائمة الآيات', 'مصحف']
+                        : const ['List View', 'Mushaf Layout'],
+                    selected: app.isMushafMode ? 1 : 0,
+                    c: c,
+                    onSelected: (i) {
+                      final enableMushaf = (i == 1);
+                      if (app.isMushafMode != enableMushaf) {
+                        app.setMushafMode(enableMushaf);
+                        setState(() {});
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Row(

@@ -11,18 +11,18 @@ import '../services/quran_audio_service.dart';
 import '../services/app_haptics.dart';
 import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
+import 'widgets/dialogs/speed_selection_dialog.dart';
 import 'widgets/mic_bar.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
 import 'widgets/mushaf/mushaf_view.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'widgets/verse_list/verse_list_view.dart';
 import '../maglis/maglis_controller.dart';
 import 'widgets/dialogs/maglis_entry_dialog.dart';
 import 'widgets/dialogs/maglis_explanation_dialog.dart';
 
-
 /// Main interactive screen for real-time recitation tracking and reading.
-/// Powered by the high-performance Mushaf vector layout.
+/// Supports high-performance vector Mushaf and dedicated Verse List modes.
 class TrackingScreen extends StatefulWidget {
   final HighlightingController controller;
   final bool isRecording;
@@ -62,6 +62,9 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final ValueNotifier<String> _voiceSearchNotifier = ValueNotifier('');
+  final GlobalKey<VerseListViewState> _verseListKey =
+      GlobalKey<VerseListViewState>();
+  final ValueNotifier<bool> _isAutoScrolling = ValueNotifier<bool>(false);
 
   static const MethodChannel _lifecycleChannel =
       MethodChannel('com.recitequran.app/audio_lifecycle');
@@ -86,6 +89,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.activeAudioAyah.addListener(_onActiveAudioAyahChanged);
     AppState.instance.activeAudioSurah.addListener(_onActiveAudioAyahChanged);
     AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
+    AppState.instance.mushafModeNotifier.addListener(_onMushafModeChanged);
 
     // Listen for explicit native user leave hint (Home button pressed or app switched)
     if (!kIsWeb) {
@@ -103,12 +107,10 @@ class _TrackingScreenState extends State<TrackingScreen>
       unawaited(QuranAudioService.ensureAyahDownloaded(
           widget.controller.targetSurah, 1));
     }
-
   }
 
   void _syncScreenWakeLock() {
     if (kIsWeb) return;
-    // Keep screen awake continuously throughout the app session (idle and recording)
     try {
       WakelockPlus.enable().catchError((_) {});
     } catch (_) {}
@@ -120,7 +122,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     final ayah = AppState.instance.activeAudioAyah.value;
     final int? audioSurah = AppState.instance.activeAudioSurah.value;
 
-    // Never auto-scroll when a single word is tapped by the user
     if (QuranAudioService.instance.isSingleWordMode) {
       _lastAyah = ayah;
       return;
@@ -161,9 +162,6 @@ class _TrackingScreenState extends State<TrackingScreen>
       if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
         AppState.instance.stopVerseAudio();
       } else if (defaultTargetPlatform == TargetPlatform.android) {
-        // Query native Android PowerManager / KeyguardManager:
-        // If screen is interactive and unlocked, user went to Home screen or another app -> stop audio!
-        // If screen is OFF or locked, audio continues playing!
         _checkAndStopIfBackgrounded();
       } else {
         AppState.instance.stopVerseAudio();
@@ -209,7 +207,9 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.activeAudioAyah.removeListener(_onActiveAudioAyahChanged);
     AppState.instance.activeAudioSurah.removeListener(_onActiveAudioAyahChanged);
     AppState.instance.isAudioPlaying.removeListener(_onActiveAudioAyahChanged);
+    AppState.instance.mushafModeNotifier.removeListener(_onMushafModeChanged);
     _voiceSearchNotifier.dispose();
+    _isAutoScrolling.dispose();
     super.dispose();
   }
 
@@ -282,27 +282,53 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
   }
 
-
+  void _onMushafModeChanged() {
+    _isAutoScrolling.value = false;
+    final bool isMushaf = AppState.instance.isMushafMode;
+    if (isMushaf) {
+      final int currentSurah = widget.controller.targetSurah;
+      final int currentAyah =
+          widget.controller.activeAyah.value ?? AppState.instance.lastAyah;
+      final mappedPage =
+          MushafView.getPageForAyah(currentSurah, currentAyah) ??
+              MushafView.getPageForAyah(currentSurah, 1);
+      if (mappedPage != null) {
+        AppState.instance.saveMushafPage(mappedPage);
+      }
+    } else {
+      final int targetSurah = _effectiveSurah;
+      if (widget.controller.targetSurah != targetSurah) {
+        widget.controller.setTargetSurah(
+          targetSurah,
+          preserveOtherSurahStates: true,
+          clearTargetSurah: false,
+        );
+      }
+    }
+    if (mounted) setState(() {});
+  }
 
   int get _effectiveSurah {
-    final page = AppState.instance.currentMushafPage.value;
-    final activeAyah = widget.controller.activeAyah.value;
-    final activeSurah = widget.controller.targetSurah;
-    if (activeAyah != null &&
-        MushafView.isAyahOnPage(
-          pageNumber: page,
-          surah: activeSurah,
-          ayah: activeAyah,
-        )) {
-      return activeSurah;
-    }
-    final dominant = MushafView.getDominantSurahOnPage(page);
-    if (dominant != null) {
-      return dominant;
-    }
-    final first = MushafView.getFirstAyahOnPage(page);
-    if (first != null) {
-      return first.$1;
+    if (AppState.instance.isMushafMode) {
+      final page = AppState.instance.currentMushafPage.value;
+      final activeAyah = widget.controller.activeAyah.value;
+      final activeSurah = widget.controller.targetSurah;
+      if (activeAyah != null &&
+          MushafView.isAyahOnPage(
+            pageNumber: page,
+            surah: activeSurah,
+            ayah: activeAyah,
+          )) {
+        return activeSurah;
+      }
+      final dominant = MushafView.getDominantSurahOnPage(page);
+      if (dominant != null) {
+        return dominant;
+      }
+      final first = MushafView.getFirstAyahOnPage(page);
+      if (first != null) {
+        return first.$1;
+      }
     }
     return widget.controller.targetSurah;
   }
@@ -338,7 +364,8 @@ class _TrackingScreenState extends State<TrackingScreen>
           );
           widget.controller.setManualAyah(n, targetAyah);
           AppState.instance.saveLastPosition(n, targetAyah);
-          final mappedPage = MushafProvider.instance.getPageForAyah(n, targetAyah);
+          final mappedPage =
+              MushafView.getPageForAyah(n, targetAyah);
           if (mappedPage != null) {
             AppState.instance.saveMushafPage(mappedPage);
           }
@@ -362,13 +389,30 @@ class _TrackingScreenState extends State<TrackingScreen>
     );
   }
 
+  void _showSpeedSelectionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => SpeedSelectionDialog(
+        onSpeedSelected: () {
+          AppState.instance.setHasChosenAutoScrollSpeed(true);
+          if (Navigator.of(ctx).canPop()) {
+            Navigator.of(ctx).pop();
+          }
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
+    final safeLeft = MediaQuery.paddingOf(context).left;
+    final double pageLabelLeft = safeLeft + 16.0;
     final app = AppState.instance;
 
     return ListenableBuilder(
-      listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
+      listenable: Listenable.merge([app.themeNotifier, app.languageNotifier, app.mushafModeNotifier]),
       builder: (context, child) {
         final c = app.colors;
 
@@ -377,120 +421,151 @@ class _TrackingScreenState extends State<TrackingScreen>
           child: Scaffold(
             resizeToAvoidBottomInset: false,
             backgroundColor: c.bg,
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                // Main Verse Content
-                Positioned.fill(child: _buildVerseContent(c, app)),
+            body: ValueListenableBuilder<bool>(
+              valueListenable: _isAutoScrolling,
+              builder: (context, isAutoScrolling, _) {
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Main Verse Content (Mushaf View or Verse List View)
+                    Positioned.fill(child: _buildVerseContent(c, app)),
 
-                // Bottom Action Bar (Unified Glassmorphic Command Dock)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([
-                      app,
-                      app.currentMushafPage,
-                      widget.controller.activeAyah,
-                      widget.controller,
-                      MaglisController.instance.sessionListenable,
-                    ]),
-                    builder: (context, _) {
-                      final effectiveSurah = _effectiveSurah;
-                      final surahName =
-                          _getSurahName(effectiveSurah, app.isArabic);
-                      final maglis = MaglisController.instance;
-                      final int peerCount = maglis.participantCount;
+                    // Bottom Action Bar (Unified Glassmorphic Command Dock)
+                    // Disappears during auto-scroll for zero-distraction teleprompter reading!
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 280),
+                      curve: Curves.easeOutCubic,
+                      bottom: (!app.isMushafMode && isAutoScrolling) ? -90.0 : 0,
+                      left: 0,
+                      right: 0,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 220),
+                        opacity: (!app.isMushafMode && isAutoScrolling) ? 0.0 : 1.0,
+                        child: IgnorePointer(
+                          ignoring: !app.isMushafMode && isAutoScrolling,
+                          child: AnimatedBuilder(
+                            animation: Listenable.merge([
+                              app,
+                              app.currentMushafPage,
+                              widget.controller.activeAyah,
+                              widget.controller,
+                              MaglisController.instance.sessionListenable,
+                            ]),
+                            builder: (context, _) {
+                              final effectiveSurah = _effectiveSurah;
+                              final surahName =
+                                  _getSurahName(effectiveSurah, app.isArabic);
+                              final maglis = MaglisController.instance;
+                              final int peerCount = maglis.participantCount;
 
-                      return RepaintBoundary(
-                        child: BottomActionBar(
-                          key: const ValueKey('unified_dock_bar'),
-                          isRecording: widget.isRecording,
-                        isLoadingEngine: widget.isLoadingEngine,
-                        c: c,
-                        onMic: () {
-                          app.dismissBanner();
-                          if (widget.isVoiceSearching) {
-                            widget.onVoiceSearchToggle();
-                          } else {
-                            widget.onToggleRecord();
-                          }
-                        },
-                        isBlur: app.isBlurMode,
-                        onToggleBlur: () {
-                          app.toggleBlurMode();
-                          if (app.isBlurMode) {
-                            app.showBlurBanner(true);
-                          } else {
-                            app.dismissBanner();
-                          }
-                        },
-                        isTajweed: app.currentMode == AppMode.tajweed,
-                        onToggleTajweed: () {
-                          final bool newIsTajweed =
-                              app.currentMode != AppMode.tajweed;
-                          if (newIsTajweed) {
-                            app.setMode(AppMode.tajweed);
-                            widget.controller.setTajweedMode(true);
-                            app.showTajweedBanner();
-                          } else {
-                            app.setMode(AppMode.wordChecker);
-                            widget.controller.setTajweedMode(false);
-                            app.dismissTajweedBanner();
-                          }
-                        },
-                        surahName: surahName,
-                        onSurahTap: _showSurahPicker,
-                        onSettingsTap: () {
-                          AppHaptics.lightImpact();
-                          _showSettingsDialog();
-                        },
-                        isInMaglis: maglis.inSession,
-                        maglisRoomCode: maglis.roomCode,
-                        maglisPeerCount: peerCount,
-                        isRemoteReciting: maglis.isRemoteReciting,
-                        onMaglisTap: () async {
-                          AppHaptics.lightImpact();
-                          app.recordMaglisTap();
-                          final prefs = await SharedPreferences.getInstance();
-                          final hasSeen = prefs.getBool('has_seen_maglis_explanation') ?? false;
-                          if (!context.mounted) return;
-                          if (!hasSeen) {
-                            await MaglisExplanationDialog.show(context);
-                            if (context.mounted) {
-                              MaglisEntryDialog.show(context);
-                            }
-                          } else {
-                            MaglisEntryDialog.show(context);
-                          }
-                        },
-                        onMaglisExitTap: () async {
-                          AppHaptics.heavyImpact();
-                          if (widget.isRecording) {
-                            widget.onToggleRecord();
-                          }
-                          await maglis.leaveSession();
-                          app.showBanner(AppBannerInfo(
-                            id: 'maglis_left',
-                            messageAr: 'تمت مغادرة المجلس بنجاح',
-                            messageEn: 'Left Maglis session',
-                            icon: Icons.exit_to_app_rounded,
-                          ));
-                        },
+                              return RepaintBoundary(
+                                child: BottomActionBar(
+                                  key: const ValueKey('unified_dock_bar'),
+                                  isRecording: widget.isRecording,
+                                  isLoadingEngine: widget.isLoadingEngine,
+                                  c: c,
+                                  onMic: () {
+                                    app.dismissBanner();
+                                    if (widget.isVoiceSearching) {
+                                      widget.onVoiceSearchToggle();
+                                    } else {
+                                      widget.onToggleRecord();
+                                    }
+                                  },
+                                  isBlur: app.isBlurMode,
+                                  onToggleBlur: () {
+                                    app.toggleBlurMode();
+                                    if (app.isBlurMode) {
+                                      app.showBlurBanner(true);
+                                    } else {
+                                      app.dismissBanner();
+                                    }
+                                  },
+                                  isTajweed: app.currentMode == AppMode.tajweed,
+                                  onToggleTajweed: () {
+                                    final bool newIsTajweed =
+                                        app.currentMode != AppMode.tajweed;
+                                    if (newIsTajweed) {
+                                      app.setMode(AppMode.tajweed);
+                                      widget.controller.setTajweedMode(true);
+                                      app.showTajweedBanner();
+                                    } else {
+                                      app.setMode(AppMode.wordChecker);
+                                      widget.controller.setTajweedMode(false);
+                                      app.dismissTajweedBanner();
+                                    }
+                                  },
+                                  surahName: surahName,
+                                  onSurahTap: _showSurahPicker,
+                                  onSettingsTap: () {
+                                    AppHaptics.lightImpact();
+                                    _showSettingsDialog();
+                                  },
+                                  isInMaglis: maglis.inSession,
+                                  maglisRoomCode: maglis.roomCode,
+                                  maglisPeerCount: peerCount,
+                                  isRemoteReciting: maglis.isRemoteReciting,
+                                  onMaglisTap: () async {
+                                    AppHaptics.lightImpact();
+                                    app.recordMaglisTap();
+                                    if (!app.hasSeenMaglisExplanation) {
+                                      await MaglisExplanationDialog.show(context);
+                                      if (context.mounted) {
+                                        MaglisEntryDialog.show(context);
+                                      }
+                                    } else {
+                                      MaglisEntryDialog.show(context);
+                                    }
+                                  },
+                                  onMaglisExitTap: () async {
+                                    AppHaptics.heavyImpact();
+                                    if (widget.isRecording) {
+                                      widget.onToggleRecord();
+                                    }
+                                    app.exitMaglisSession();
+                                    await maglis.leaveSession();
+                                    app.showBanner(AppBannerInfo(
+                                      id: 'maglis_left',
+                                      messageAr: 'تمت مغادرة المجلس بنجاح',
+                                      messageEn: 'Left Maglis session',
+                                      icon: Icons.exit_to_app_rounded,
+                                    ));
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ),
-                    );
-                  },
-                  ),
-                ),
+                    ),
 
-                // Modern Floating Slide-Up Banner (Scoped listener prevents full screen rebuilds)
-                ValueListenableBuilder<AppBannerInfo?>(
-                  valueListenable: app.bannerNotifier,
-                  builder: (context, activeBanner, _) =>
-                      _buildModernBottomBanner(c, app, bottom, activeBanner),
-                ),
-              ],
+                    // Auto-Scroll / Pause button in Verse List mode (occupies the exact spot as Page Number in Mushaf layout)
+                    if (!app.isMushafMode && !widget.isRecording && !widget.isVoiceSearching)
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 280),
+                        curve: Curves.easeOutCubic,
+                        left: pageLabelLeft,
+                        bottom: isAutoScrolling ? (bottom + 18.0) : (bottom + 60.0),
+                        child: _AutoScrollFloatingButton(
+                          isAutoScrolling: isAutoScrolling,
+                          c: c,
+                          app: app,
+                          onTap: () {
+                            _verseListKey.currentState?.toggleAutoScroll();
+                          },
+                          onLongPress: _showSpeedSelectionDialog,
+                        ),
+                      ),
+
+                    // Modern Floating Slide-Up Banner (Scoped listener prevents full screen rebuilds)
+                    ValueListenableBuilder<AppBannerInfo?>(
+                      valueListenable: app.bannerNotifier,
+                      builder: (context, activeBanner, _) =>
+                          _buildModernBottomBanner(c, app, bottom, activeBanner),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         );
@@ -551,72 +626,72 @@ class _TrackingScreenState extends State<TrackingScreen>
           opacity: isVisible ? 1.0 : 0.0,
           child: RepaintBoundary(
             child: Center(
-            child: GestureDetector(
-              onTap: () {
-                app.dismissBanner();
-              },
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 460),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isDark ? c.surfaceHigh : c.surface,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: accentColor.withValues(alpha: isDark ? 0.38 : 0.30),
-                    width: 1.1,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color:
-                          Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
-                      blurRadius: 14,
-                      offset: const Offset(0, -3),
+              child: GestureDetector(
+                onTap: () {
+                  app.dismissBanner();
+                },
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 460),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isDark ? c.surfaceHigh : c.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: isDark ? 0.38 : 0.30),
+                      width: 1.1,
                     ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
                         color:
-                            accentColor.withValues(alpha: isDark ? 0.20 : 0.12),
-                        borderRadius: BorderRadius.circular(9),
-                        border: Border.all(
-                          color: accentColor.withValues(
-                              alpha: isDark ? 0.42 : 0.32),
-                          width: 0.8,
+                            Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+                        blurRadius: 14,
+                        offset: const Offset(0, -3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color:
+                              accentColor.withValues(alpha: isDark ? 0.20 : 0.12),
+                          borderRadius: BorderRadius.circular(9),
+                          border: Border.all(
+                            color: accentColor.withValues(
+                                alpha: isDark ? 0.42 : 0.32),
+                            width: 0.8,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Icon(
+                          banner.icon,
+                          color: iconColor,
+                          size: 16,
                         ),
                       ),
-                      alignment: Alignment.center,
-                      child: Icon(
-                        banner.icon,
-                        color: iconColor,
-                        size: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Text(
-                        message,
-                        style: TextStyle(
-                          color: c.text,
-                          height: 1.35,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12.5,
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          message,
+                          style: TextStyle(
+                            color: c.text,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12.5,
+                          ),
+                          textAlign: isAr ? TextAlign.right : TextAlign.left,
+                          textDirection:
+                              isAr ? TextDirection.rtl : TextDirection.ltr,
                         ),
-                        textAlign: isAr ? TextAlign.right : TextAlign.left,
-                        textDirection:
-                            isAr ? TextDirection.rtl : TextDirection.ltr,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
             ),
           ),
         ),
@@ -625,11 +700,136 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Widget _buildVerseContent(ThemeColors c, AppState app) {
-    return MushafView(
-      key: const ValueKey('mushaf_view_main'),
+    if (app.isMushafMode) {
+      return MushafView(
+        key: const ValueKey('mushaf_view_main'),
+        controller: widget.controller,
+        isRecording: widget.isRecording,
+        showBottomPageNumber: true,
+      );
+    }
+
+    return VerseListView(
+      key: _verseListKey,
       controller: widget.controller,
       isRecording: widget.isRecording,
-      showBottomPageNumber: true,
+      onToggleRecord: widget.onToggleRecord,
+      onAutoScrollChanged: (scrolling) {
+        _isAutoScrolling.value = scrolling;
+      },
+    );
+  }
+}
+
+/// Floating tactical button occupying the exact spot where the Mushaf page number sits.
+/// - In idle state: displays speed label (e.g. 1.0x) with scroll chevron; tap starts scroll, hold sets speed.
+/// - During auto-scroll: transforms smoothly into a Pause button; tap stops auto-scroll.
+class _AutoScrollFloatingButton extends StatefulWidget {
+  final bool isAutoScrolling;
+  final ThemeColors c;
+  final AppState app;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _AutoScrollFloatingButton({
+    required this.isAutoScrolling,
+    required this.c,
+    required this.app,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  State<_AutoScrollFloatingButton> createState() =>
+      _AutoScrollFloatingButtonState();
+}
+
+class _AutoScrollFloatingButtonState extends State<_AutoScrollFloatingButton> {
+  bool _isDown = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.c;
+    final isDark = widget.app.isDarkMode;
+    final isScroll = widget.isAutoScrolling;
+
+    final Color bgColor = isScroll
+        ? (isDark
+            ? const Color(0x661B2430)
+            : const Color(0x99F1F5F9))
+        : (isDark
+            ? const Color(0xF40F151D)
+            : const Color(0xFAFFFFFF));
+
+    final Color borderColor = isScroll
+        ? (isDark
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.black.withValues(alpha: 0.06))
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : Colors.black.withValues(alpha: 0.08));
+
+    final Color iconColor = isScroll
+        ? c.textSecondary.withValues(alpha: 0.85)
+        : (isDark
+            ? const Color(0xFF34D399)
+            : const Color(0xFF059669));
+
+    final double targetOpacity = isScroll
+        ? (_isDown ? 0.75 : 0.38)
+        : 1.0;
+
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isDown = true),
+      onTapUp: (_) => setState(() => _isDown = false),
+      onTapCancel: () => setState(() => _isDown = false),
+      onTap: () {
+        AppHaptics.lightImpact();
+        widget.onTap();
+      },
+      onLongPress: () {
+        AppHaptics.mediumImpact();
+        widget.onLongPress();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedScale(
+        scale: _isDown ? 0.90 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOutCubic,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          opacity: targetOpacity,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 240),
+            curve: Curves.easeOutCubic,
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: borderColor, width: 1.0),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(
+                    alpha: isScroll ? (isDark ? 0.12 : 0.02) : (isDark ? 0.32 : 0.06),
+                  ),
+                  blurRadius: isScroll ? 3 : 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              isScroll
+                  ? Icons.pause_rounded
+                  : Icons.keyboard_double_arrow_down_rounded,
+              size: 20,
+              color: iconColor,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

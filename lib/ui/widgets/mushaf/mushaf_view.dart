@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:recite_quran/recite_quran.dart';
@@ -50,6 +51,9 @@ class MushafView extends StatefulWidget {
 
   static int? getDominantSurahOnPage(int pageNumber) =>
       MushafProvider.instance.getDominantSurahOnPage(pageNumber);
+
+  static int? getPageForAyah(int surah, int ayah) =>
+      MushafProvider.instance.getPageForAyah(surah, ayah);
 
   static bool isAyahOnPage({
     required int pageNumber,
@@ -102,6 +106,28 @@ class _MushafViewState extends State<MushafView> {
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
+  }
+
+  int _lastWheelMs = 0;
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastWheelMs < 240) return;
+
+      final double delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+          ? event.scrollDelta.dy
+          : event.scrollDelta.dx;
+
+      if (delta.abs() > 12.0) {
+        _lastWheelMs = now;
+        if (delta > 0) {
+          _nextPage();
+        } else {
+          _prevPage();
+        }
+      }
+    }
   }
 
   @override
@@ -582,73 +608,117 @@ class _MushafViewState extends State<MushafView> {
         onKeyEvent: _controlRLByKeyboard,
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final double usableHeight = math.max(0.0, constraints.maxHeight - topPadding - bottomPadding);
+            final bool isWideScreen = constraints.maxWidth > 650;
+            final double pageContainerWidth = isWideScreen
+                ? math.min(constraints.maxWidth, usableHeight * 0.72)
+                : constraints.maxWidth;
+
             final viewportSize = Size(
-              constraints.maxWidth,
-              constraints.maxHeight - topPadding - bottomPadding,
+              pageContainerWidth,
+              usableHeight,
             );
             MushafProvider.instance.lastViewportSize = viewportSize;
 
-            return Stack(
-              children: [
-                AnimatedPadding(
-                  duration: const Duration(milliseconds: 320),
-                  curve: Curves.easeInOutCubic,
-                  padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
-                  child: ScrollConfiguration(
-                    behavior: const MushafScrollBehavior(),
-                    child: Directionality(
-                      textDirection: TextDirection.ltr,
-                      child: PageView.builder(
-                        key: const ValueKey('mushaf_single_page_view'),
-                        controller: _pageController,
-                        reverse: false,
-                        itemCount: 604,
-                        padEnds: false,
-                        allowImplicitScrolling: true,
-                        onPageChanged: _onPageChanged,
-                        itemBuilder: (context, index) {
-                          final pageNumber = 604 - index;
-                          return RepaintBoundary(
-                            key: ValueKey('mushaf_page_boundary_$pageNumber'),
-                            child: MushafPageWidget(
-                              key: ValueKey('mushaf_page_$pageNumber'),
-                              pageNumber: pageNumber,
-                              controller: widget.controller,
-                              isRecording: widget.isRecording,
-                              onStateChangeRequested: () {},
+            final double pageLabelLeft = isWideScreen && constraints.maxWidth > pageContainerWidth
+                ? ((constraints.maxWidth - pageContainerWidth) / 2 + 16.0)
+                : (safeLeft + 16.0);
+
+            return Listener(
+              onPointerSignal: _onPointerSignal,
+              child: Stack(
+                children: [
+                  AnimatedPadding(
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeInOutCubic,
+                    padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+                    child: Center(
+                      child: SizedBox(
+                        width: pageContainerWidth,
+                        child: ScrollConfiguration(
+                          behavior: const MushafScrollBehavior(),
+                          child: Directionality(
+                            textDirection: TextDirection.ltr,
+                            child: PageView.builder(
+                              key: const ValueKey('mushaf_single_page_view'),
+                              controller: _pageController,
+                              reverse: false,
+                              itemCount: 604,
+                              padEnds: false,
+                              allowImplicitScrolling: true,
+                              onPageChanged: _onPageChanged,
+                              itemBuilder: (context, index) {
+                                final pageNumber = 604 - index;
+                                return RepaintBoundary(
+                                  key: ValueKey('mushaf_page_boundary_$pageNumber'),
+                                  child: MushafPageWidget(
+                                    key: ValueKey('mushaf_page_$pageNumber'),
+                                    pageNumber: pageNumber,
+                                    controller: widget.controller,
+                                    isRecording: widget.isRecording,
+                                    onStateChangeRequested: () {},
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (isWideScreen && constraints.maxWidth > 750) ...[
+                    // Left navigation button (Next page in RTL reading order)
+                    Positioned(
+                      left: math.max(12.0, (constraints.maxWidth - pageContainerWidth) / 4 - 24.0),
+                      top: topPadding + usableHeight / 2 - 24.0,
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                        color: c.textSecondary.withValues(alpha: 0.6),
+                        hoverColor: c.gold.withValues(alpha: 0.15),
+                        tooltip: 'الصفحة التالية • Next Page',
+                        onPressed: _currentPage < 604 ? _nextPage : null,
+                      ),
+                    ),
+                    // Right navigation button (Previous page in RTL reading order)
+                    Positioned(
+                      right: math.max(12.0, (constraints.maxWidth - pageContainerWidth) / 4 - 24.0),
+                      top: topPadding + usableHeight / 2 - 24.0,
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_forward_ios_rounded),
+                        color: c.textSecondary.withValues(alpha: 0.6),
+                        hoverColor: c.gold.withValues(alpha: 0.15),
+                        tooltip: 'الصفحة السابقة • Previous Page',
+                        onPressed: _currentPage > 1 ? _prevPage : null,
+                      ),
+                    ),
+                  ],
+                  if (widget.showBottomPageNumber)
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 320),
+                      curve: Curves.easeInOutCubic,
+                      left: pageLabelLeft,
+                      bottom: pageLabelBottom,
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: AppState.instance.currentMushafPage,
+                        builder: (context, currentPage, _) {
+                          final int page = currentPage > 0 ? currentPage : _currentPage;
+                          return Text(
+                            MushafActions.toArabicDigits(page),
+                            textDirection: TextDirection.rtl,
+                            textScaler: TextScaler.noScaling,
+                            style: TextStyle(
+                              fontFamily: 'cairo',
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: c.textSecondary,
+                              height: 1.0,
                             ),
                           );
                         },
                       ),
                     ),
-                  ),
-                ),
-                if (widget.showBottomPageNumber)
-                  AnimatedPositioned(
-                    duration: const Duration(milliseconds: 320),
-                    curve: Curves.easeInOutCubic,
-                    left: safeLeft + 16.0,
-                    bottom: pageLabelBottom,
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: AppState.instance.currentMushafPage,
-                      builder: (context, currentPage, _) {
-                        final int page = currentPage > 0 ? currentPage : _currentPage;
-                        return Text(
-                          MushafActions.toArabicDigits(page),
-                          textDirection: TextDirection.rtl,
-                          textScaler: TextScaler.noScaling,
-                          style: TextStyle(
-                            fontFamily: 'cairo',
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            color: c.textSecondary,
-                            height: 1.0,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-              ],
+                ],
+              ),
             );
           },
         ),

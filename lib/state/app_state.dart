@@ -163,7 +163,86 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Mushaf Layout ──────────────────────────────────────────────────────────
+  bool isMushafMode = true;
+  final ValueNotifier<bool> mushafModeNotifier = ValueNotifier<bool>(true);
   final ValueNotifier<int> currentMushafPage = ValueNotifier<int>(1);
+  bool wasInVerseListBeforeMaglis = false;
+  bool hasSeenMaglisExplanation = false;
+
+  void enterMaglisSession([int? mappedPage]) {
+    if (!isMushafMode) {
+      wasInVerseListBeforeMaglis = true;
+      if (mappedPage != null && mappedPage >= 1 && mappedPage <= 604) {
+        saveMushafPage(mappedPage);
+      }
+      setMushafMode(true);
+    }
+  }
+
+  void exitMaglisSession() {
+    if (wasInVerseListBeforeMaglis) {
+      wasInVerseListBeforeMaglis = false;
+      setMushafMode(false);
+    }
+  }
+
+  void toggleMushafMode() async {
+    isMushafMode = !isMushafMode;
+    mushafModeNotifier.value = isMushafMode;
+    notifyListeners();
+    final prefs = await _getPrefs();
+    await prefs.setBool('mushafMode', isMushafMode);
+    if (isMushafMode && !hasClickedMushafAudioAyah) {
+      showMushafAudioBanner();
+    }
+  }
+
+  void setMushafMode(bool value) async {
+    if (isMushafMode != value) {
+      isMushafMode = value;
+      mushafModeNotifier.value = isMushafMode;
+      notifyListeners();
+      final prefs = await _getPrefs();
+      await prefs.setBool('mushafMode', isMushafMode);
+      if (isMushafMode && !hasClickedMushafAudioAyah) {
+        showMushafAudioBanner();
+      }
+    }
+  }
+
+  // ── Auto Scroll ──
+  static const List<double> autoScrollMultipliers = [0.25, 0.5, 1.0, 1.5, 3.0, 4.5, 6.0];
+  static const List<String> speedLabels = ['0.25x', '0.5x', '1.0x', '1.5x', '2.0x', '2.5x', '3.0x'];
+  int autoScrollSpeed = 2; // 2 = 1.0x (index in new array)
+  bool hasChosenAutoScrollSpeed = false;
+
+  void setAutoScrollSpeed(int speed) async {
+    autoScrollSpeed = speed;
+    notifyListeners();
+    final prefs = await _getPrefs();
+    await prefs.setInt('autoScrollSpeed', autoScrollSpeed);
+  }
+
+  void setHasChosenAutoScrollSpeed(bool chosen) async {
+    hasChosenAutoScrollSpeed = chosen;
+    final prefs = await _getPrefs();
+    await prefs.setBool('has_chosen_speed', chosen);
+  }
+
+  void cycleAutoScrollSpeed() {
+    final next = (autoScrollSpeed + 1) % autoScrollMultipliers.length;
+    setAutoScrollSpeed(next);
+  }
+
+  // ── Font Size ──
+  double fontSize = 28.0;
+
+  void setFontSize(double size) async {
+    fontSize = size;
+    notifyListeners();
+    final prefs = await _getPrefs();
+    await prefs.setDouble('fontSize', fontSize);
+  }
 
   int mushafAudioClickCount = 0;
   bool get hasClickedMushafAudioAyah => mushafAudioClickCount >= 10;
@@ -652,6 +731,15 @@ class AppState extends ChangeNotifier {
       final savedPage = prefs.getInt('last_mushaf_page');
       if (savedPage != null && savedPage >= 1 && savedPage <= 604) {
         currentMushafPage.value = savedPage;
+      }
+
+      isMushafMode = prefs.getBool('mushafMode') ?? true;
+      mushafModeNotifier.value = isMushafMode;
+      autoScrollSpeed = prefs.getInt('autoScrollSpeed') ?? 2;
+      hasChosenAutoScrollSpeed = prefs.getBool('has_chosen_speed') ?? false;
+      hasSeenMaglisExplanation = prefs.getBool('has_seen_maglis_explanation') ?? false;
+      if (prefs.containsKey('fontSize')) {
+        fontSize = prefs.getDouble('fontSize') ?? 28.0;
       }
 
       themeNotifier.value = _theme;

@@ -5,7 +5,9 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../state/app_state.dart';
 import 'maglis_core.dart';
+import 'maglis_highlight_store.dart';
 import 'maglis_network.dart';
+import '../ui/widgets/mushaf/mushaf_provider.dart';
 
 class MaglisController extends ChangeNotifier {
   MaglisController._();
@@ -13,6 +15,7 @@ class MaglisController extends ChangeNotifier {
 
   void Function(int page, int surah, int ayah)? onSyncMushafUI;
   void Function(int surah, int ayah)? onRemoteFloorClaimed;
+  VoidCallback? onSessionEnded;
 
   MaglisNetworkEngine? _net;
   StreamSubscription<MaglisPacket>? _pktSub;
@@ -44,8 +47,7 @@ class MaglisController extends ChangeNotifier {
   int? _lastBroadcastWord;
 
 
-  // Error deduplication: strictly ensure each Tajweed error map is serialized once per verse
-  final Set<int> _sentErrorWords = <int>{};
+  final MaglisHighlightStore _highlightStore = MaglisHighlightStore();
 
   Map<String, RTCIceConnectionState> _peers = {};
   final Set<String> _connectedPeers = <String>{};
@@ -60,84 +62,36 @@ class MaglisController extends ChangeNotifier {
 
   // Compact 32-bit integer key: ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF)
   static int wordKey(int surah, int ayah, int word0) =>
-      ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF);
+      MaglisHighlightStore.wordKey(surah, ayah, word0);
 
   /// Ultra-compact structured error map for minimum bandwidth over WebRTC.
-  /// Pre-rendered human strings are omitted because ReciterError dynamically computes them.
-  static Map<String, dynamic> compactErrorMap(ReciterError e) {
-    final m = <String, dynamic>{
-      'errorType': e.errorType.index,
-      'speechErrorType': e.speechErrorType.index,
-      'expectedPh': e.expectedPh,
-      'predictedPh': e.predictedPh,
-    };
-    if (e.durationStatus != null) {
-      m['durationStatus'] = e.durationStatus!.index;
-    }
-    if (e.expectedRule != null) {
-      m['expectedRule'] = {
-        'type': e.expectedRule.runtimeType.toString(),
-        'nameAr': e.expectedRule!.name.ar,
-        'nameEn': e.expectedRule!.name.en,
-        'goldenLen': e.expectedRule!.goldenLen,
-      };
-    }
-    if (e.expectedDuration != null) {
-      m['expectedDuration'] =
-          double.parse(e.expectedDuration!.toStringAsFixed(2));
-    }
-    if (e.actualDuration != null) {
-      m['actualDuration'] =
-          double.parse(e.actualDuration!.toStringAsFixed(2));
-    }
-    return m;
-  }
-
-  // Cumulative session word highlights: key = wordKey(surah, ayah, word0), value = 1 (green), 2 (yellow), 3 (red)
-  final Map<int, int> _cumulativeHighlights = {};
-  int _cumulativeVersion = 0;
-
-  // Remote word errors received from peers: key = wordKey(surah, ayah, word0)
-  final Map<int, List<ReciterError>> _remoteWordErrors = {};
+  static Map<String, dynamic> compactErrorMap(ReciterError e) =>
+      MaglisHighlightStore.compactErrorMap(e);
 
   List<ReciterError>? getWordErrors(int surah, int ayah, int word0) =>
-      _remoteWordErrors[wordKey(surah, ayah, word0)];
+      _highlightStore.getWordErrors(surah, ayah, word0);
 
   int? getWordHighlight(int surah, int ayah, int word0) =>
-      _cumulativeHighlights[wordKey(surah, ayah, word0)];
+      _highlightStore.getWordHighlight(surah, ayah, word0);
 
-  int? getCumulativeHighlightByKey(int key) => _cumulativeHighlights[key];
+  int? getCumulativeHighlightByKey(int key) =>
+      _highlightStore.getCumulativeHighlightByKey(key);
 
   void recordWordHighlight(int surah, int ayah, int word0, int color) {
-    final key = wordKey(surah, ayah, word0);
-    if (_cumulativeHighlights[key] != color) {
-      _cumulativeHighlights[key] = color;
-      _cumulativeVersion++;
-    }
+    _highlightStore.recordWordHighlight(surah, ayah, word0, color);
   }
 
-  bool get hasCumulativeHighlights => _cumulativeHighlights.isNotEmpty;
-  int get cumulativeVersion => _cumulativeVersion;
+  bool get hasCumulativeHighlights => _highlightStore.hasCumulativeHighlights;
+  int get cumulativeVersion => _highlightStore.cumulativeVersion;
 
   /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
   /// Any verse coming before [startSurah, startAyah] strictly keeps its highlights.
   void clearHighlightsFrom(int startSurah, int startAyah) {
-    _cumulativeHighlights.removeWhere((key, _) {
-      final s = (key >> 20) & 0xFF;
-      final a = (key >> 8) & 0xFFF;
-      return s > startSurah || (s == startSurah && a >= startAyah);
-    });
-    _remoteWordErrors.removeWhere((key, _) {
-      final s = (key >> 20) & 0xFF;
-      final a = (key >> 8) & 0xFFF;
-      return s > startSurah || (s == startSurah && a >= startAyah);
-    });
-    _sentErrorWords.clear();
+    _highlightStore.clearHighlightsFrom(startSurah, startAyah);
     _lastBroadcastPage = null;
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;
     _lastBroadcastWord = null;
-    _cumulativeVersion++;
     notifyListeners();
   }
 
@@ -177,6 +131,8 @@ class MaglisController extends ChangeNotifier {
   bool get isRemoteReciting =>
       _inSession && _activeReciterId != null && _activeReciterId != localPeerId;
   bool get isMicMuted => _net?.isMicMuted ?? true;
+  Map<String, MaglisPeerDiagnostics> get peerDiagnostics =>
+      _net?.peerDiagnostics ?? const {};
 
   Future<void> setMicMuted(bool muted) async {
     await _net?.setMicMuted(muted);
@@ -230,7 +186,13 @@ class MaglisController extends ChangeNotifier {
       final granted = await MaglisPlatform.requestPermissions();
       if (!granted) return false;
 
-      await leaveSession(resetHardwareAudio: false);
+      await leaveSession(resetHardwareAudio: false, restoreMode: false);
+
+      final mappedPage = MushafProvider.instance.getPageForAyah(
+        AppState.instance.lastSurah,
+        AppState.instance.lastAyah,
+      ) ?? page;
+      AppState.instance.enterMaglisSession(mappedPage);
 
       _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
       _roomCode = (code != null && code.trim().isNotEmpty)
@@ -326,24 +288,12 @@ class MaglisController extends ChangeNotifier {
       return true;
     } catch (e, st) {
       debugPrint('Maglis startSession failed: $e\n$st');
+      AppState.instance.exitMaglisSession();
       return false;
     }
   }
 
   MaglisPacket _buildSnapshot() {
-    final stringMap = <String, int>{};
-    _cumulativeHighlights.forEach((k, v) {
-      stringMap[k.toRadixString(16)] = v;
-    });
-
-    Map<String, List<Map<String, dynamic>>>? snapshotErrors;
-    if (_remoteWordErrors.isNotEmpty) {
-      _remoteWordErrors.forEach((key, list) {
-        (snapshotErrors ??= {})[key.toRadixString(16)] =
-            list.map((e) => compactErrorMap(e)).toList();
-      });
-    }
-
     return MaglisPacket(
       type: MaglisPacketType.snapshot,
       seq: ++_seq,
@@ -356,8 +306,8 @@ class MaglisController extends ChangeNotifier {
       yellowWords: _remoteYellowWords,
       redWords: _remoteRedWords,
       activeReciterId: _activeReciterId,
-      cumulative: stringMap,
-      errors: snapshotErrors,
+      cumulative: _highlightStore.buildSnapshotCumulativeMap(),
+      errors: _highlightStore.buildSnapshotErrorsMap(),
       ts: DateTime.now().millisecondsSinceEpoch,
     );
   }
@@ -370,73 +320,29 @@ class MaglisController extends ChangeNotifier {
     // Merge cumulative and live words into persistent room highlights with fast radix decoding
     bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
-      pkt.cumulative!.forEach((k, v) {
-        final parsed = int.tryParse(k, radix: 16);
-        if (parsed != null) {
-          if (_cumulativeHighlights[parsed] != v) {
-            _cumulativeHighlights[parsed] = v;
-            cumulativeChanged = true;
-          }
-        } else if (k.contains('_')) {
-          final parts = k.split('_');
-          if (parts.length == 3) {
-            final s = int.tryParse(parts[0]);
-            final a = int.tryParse(parts[1]);
-            final w = int.tryParse(parts[2]);
-            if (s != null && a != null && w != null) {
-              final key = wordKey(s, a, w);
-              if (_cumulativeHighlights[key] != v) {
-                _cumulativeHighlights[key] = v;
-                cumulativeChanged = true;
-              }
-            }
-          }
-        }
-      });
-    }
-    for (final w in pkt.greenWords) {
-      final key = wordKey(pkt.surah, pkt.ayah, w);
-      if (_cumulativeHighlights[key] != 1) {
-        _cumulativeHighlights[key] = 1;
+      if (_highlightStore.mergeCumulative(pkt.cumulative!)) {
         cumulativeChanged = true;
       }
     }
-    for (final w in pkt.yellowWords) {
-      final key = wordKey(pkt.surah, pkt.ayah, w);
-      if (_cumulativeHighlights[key] != 2) {
-        _cumulativeHighlights[key] = 2;
-        cumulativeChanged = true;
-      }
-    }
-    for (final w in pkt.redWords) {
-      final key = wordKey(pkt.surah, pkt.ayah, w);
-      if (_cumulativeHighlights[key] != 3) {
-        _cumulativeHighlights[key] = 3;
-        cumulativeChanged = true;
-      }
-    }
-    if (cumulativeChanged) {
-      _cumulativeVersion++;
+    if (_highlightStore.mergeWords(
+      pkt.surah,
+      pkt.ayah,
+      greenWords: pkt.greenWords,
+      yellowWords: pkt.yellowWords,
+      redWords: pkt.redWords,
+    )) {
+      cumulativeChanged = true;
     }
 
     if (pkt.errors != null && pkt.errors!.isNotEmpty) {
-      pkt.errors!.forEach((k, list) {
-        int? key = int.tryParse(k, radix: 16);
-        if (key == null) {
-          final w0 = int.tryParse(k);
-          if (w0 != null) key = wordKey(pkt.surah, pkt.ayah, w0);
-        }
-        if (key != null) {
-          _remoteWordErrors[key] = list
-              .map((m) => ReciterError.fromMap(m))
-              .toList();
-        }
-      });
+      _highlightStore.mergeErrors(pkt.surah, pkt.ayah, pkt.errors!);
     }
 
     if (isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
       if (pkt.activeReciterId != null && pkt.activeReciterId != localPeerId) {
         // Fail-safe: Another peer is actively reciting! Force-stop local recording immediately.
+        _recitationSyncTimer?.cancel();
+        _recitationSyncTimer = null;
         onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
         _activeReciterId = pkt.activeReciterId;
       } else {
@@ -476,11 +382,15 @@ class MaglisController extends ChangeNotifier {
                 ),
               );
               return;
+            } else {
+              _recitationSyncTimer?.cancel();
+              _recitationSyncTimer = null;
             }
           }
           onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
         }
         _activeReciterId = pkt.senderId;
+        _net?.updateActiveFloor(pkt.senderId);
         _remotePage = pkt.page;
         _remoteSurah = pkt.surah;
         _remoteAyah = pkt.ayah;
@@ -500,6 +410,7 @@ class MaglisController extends ChangeNotifier {
         if (_activeReciterId == pkt.senderId) {
           _activeReciterId = null;
           _remoteWord = null;
+          _net?.updateActiveFloor(null);
           _notifySessionChanged();
           notifyListeners();
         }
@@ -513,20 +424,6 @@ class MaglisController extends ChangeNotifier {
         final newGreenList = List<int>.from(pkt.greenWords)..sort();
         final newYellowList = List<int>.from(pkt.yellowWords)..sort();
         final newRedList = List<int>.from(pkt.redWords)..sort();
-
-        // Immediately record incoming word highlights into the cumulative table
-        // so that previous ayahs stay 100% highlighted when the reciter advances!
-        for (final w0 in pkt.greenWords) {
-          recordWordHighlight(pkt.surah, pkt.ayah, w0, 1);
-          final k = wordKey(pkt.surah, pkt.ayah, w0);
-          _remoteWordErrors.remove(k);
-        }
-        for (final w0 in pkt.yellowWords) {
-          recordWordHighlight(pkt.surah, pkt.ayah, w0, 2);
-        }
-        for (final w0 in pkt.redWords) {
-          recordWordHighlight(pkt.surah, pkt.ayah, w0, 3);
-        }
 
         final bool wordsChanged =
             !listEquals(_remoteGreenWords, newGreenList) ||
@@ -543,6 +440,7 @@ class MaglisController extends ChangeNotifier {
         }
 
         _activeReciterId = pkt.senderId;
+        _net?.updateActiveFloor(pkt.senderId);
         _remotePage = pkt.page;
         _remoteSurah = pkt.surah;
         _remoteAyah = pkt.ayah;
@@ -574,7 +472,7 @@ class MaglisController extends ChangeNotifier {
           if (isLocalReciting) break;
           // When NO ONE is reciting, do NOT force-navigate Mushaf UI to another idle peer's page!
           // Only update cumulative session highlights.
-          if (cumulativeChanged || _cumulativeHighlights.isNotEmpty) {
+          if (cumulativeChanged || _highlightStore.hasCumulativeHighlights) {
             notifyListeners();
           }
         }
@@ -594,6 +492,8 @@ class MaglisController extends ChangeNotifier {
   }) async {
     if (!_inSession) return;
     _activeReciterId = localPeerId;
+    _net?.updateActiveFloor(localPeerId);
+    unawaited(setMicMuted(false));
     _remotePage = page;
     _remoteSurah = surah;
     _remoteAyah = ayah;
@@ -606,7 +506,7 @@ class MaglisController extends ChangeNotifier {
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;
     _lastBroadcastWord = null;
-    _sentErrorWords.clear();
+    _highlightStore.sentErrorWords.clear();
 
     _net?.sendPacket(
       MaglisPacket(
@@ -636,24 +536,14 @@ class MaglisController extends ChangeNotifier {
       final bool includeCumulative = (syncTicks % 3 == 0);
 
       Map<String, int>? cumulativeMap;
-      if (includeCumulative && _cumulativeHighlights.isNotEmpty) {
-        cumulativeMap = <String, int>{};
-        _cumulativeHighlights.forEach((k, v) {
-          cumulativeMap![k.toRadixString(16)] = v;
-        });
+      if (includeCumulative && _highlightStore.hasCumulativeHighlights) {
+        cumulativeMap = _highlightStore.buildSnapshotCumulativeMap();
       }
 
-      Map<String, List<Map<String, dynamic>>>? currentVerseErrors;
-      if (_remoteWordErrors.isNotEmpty) {
-        _remoteWordErrors.forEach((key, list) {
-          final s = (key >> 20) & 0xFF;
-          final a = (key >> 8) & 0xFFF;
-          if (s == _remoteSurah && a == _remoteAyah) {
-            (currentVerseErrors ??= {})[key.toRadixString(16)] =
-                list.map((e) => compactErrorMap(e)).toList();
-          }
-        });
-      }
+      final currentVerseErrors = _highlightStore.buildVerseErrorsMap(
+        _remoteSurah,
+        _remoteAyah,
+      );
 
       _net?.sendPacket(
         MaglisPacket(
@@ -690,6 +580,7 @@ class MaglisController extends ChangeNotifier {
     _recitationSyncTimer = null;
     if (_activeReciterId == localPeerId) {
       _activeReciterId = null;
+      _net?.updateActiveFloor(null);
 
       _net?.sendPacket(
         MaglisPacket(
@@ -723,38 +614,17 @@ class MaglisController extends ChangeNotifier {
     if (!_inSession || _activeReciterId != localPeerId) return;
 
     // Persist local words into cumulative session highlights with fast integer hashing
-    bool cumulativeChanged = false;
-    for (final w in greenWords) {
-      final key = wordKey(surah, ayah, w);
-      if (_cumulativeHighlights[key] != 1) {
-        _cumulativeHighlights[key] = 1;
-        cumulativeChanged = true;
-      }
-    }
-    for (final w in yellowWords) {
-      final key = wordKey(surah, ayah, w);
-      if (_cumulativeHighlights[key] != 2) {
-        _cumulativeHighlights[key] = 2;
-        cumulativeChanged = true;
-      }
-    }
-    for (final w in redWords) {
-      final key = wordKey(surah, ayah, w);
-      if (_cumulativeHighlights[key] != 3) {
-        _cumulativeHighlights[key] = 3;
-        cumulativeChanged = true;
-      }
-    }
-    if (cumulativeChanged) {
-      _cumulativeVersion++;
-    }
+    _highlightStore.mergeWords(
+      surah,
+      ayah,
+      greenWords: greenWords,
+      yellowWords: yellowWords,
+      redWords: redWords,
+    );
 
     // Save local errors into _remoteWordErrors as well so local reciter has exact same lookup map
     if (errors != null && errors.isNotEmpty) {
-      errors.forEach((w0, errList) {
-        final key = wordKey(surah, ayah, w0);
-        _remoteWordErrors[key] = errList;
-      });
+      _highlightStore.recordLocalErrors(surah, ayah, errors);
     }
 
     _remotePage = page;
@@ -790,16 +660,11 @@ class MaglisController extends ChangeNotifier {
     _remoteRedWords = List<int>.from(redWords);
 
     // Serialize active errors strictly once per word to achieve minimum packet size
-    Map<String, List<Map<String, dynamic>>>? serializedErrors;
-    if (errors != null && errors.isNotEmpty) {
-      for (final entry in errors.entries) {
-        if (_sentErrorWords.add(entry.key)) {
-          final key = wordKey(surah, ayah, entry.key);
-          (serializedErrors ??= {})[key.toRadixString(16)] =
-              entry.value.map((e) => compactErrorMap(e)).toList();
-        }
-      }
-    }
+    final serializedErrors = _highlightStore.serializeNewErrors(
+      surah,
+      ayah,
+      errors,
+    );
 
     _net?.sendPacket(
       MaglisPacket(
@@ -821,12 +686,22 @@ class MaglisController extends ChangeNotifier {
     );
   }
 
-  Future<void> leaveSession({bool resetHardwareAudio = true}) async {
+  Future<void> leaveSession({
+    bool resetHardwareAudio = true,
+    bool restoreMode = true,
+  }) async {
+    if (restoreMode) {
+      try {
+        AppState.instance.exitMaglisSession();
+      } catch (_) {}
+    }
+
     if (!_inSession && _net == null) return;
     _inSession = false;
     _activeReciterId = null;
     _recitationSyncTimer?.cancel();
     _recitationSyncTimer = null;
+    onSessionEnded?.call();
 
     await _pktSub?.cancel();
     await _stateSub?.cancel();
@@ -840,10 +715,7 @@ class MaglisController extends ChangeNotifier {
     _remoteGreenWords = const [];
     _remoteYellowWords = const [];
     _remoteRedWords = const [];
-    _cumulativeHighlights.clear();
-    _cumulativeVersion = 0;
-    _remoteWordErrors.clear();
-    _sentErrorWords.clear();
+    _highlightStore.clearAll();
     _lastBroadcastPage = null;
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;

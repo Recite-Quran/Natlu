@@ -712,7 +712,8 @@ class MaglisPlatform {
               androidWillPauseWhenDucked: false,
             ),
           );
-          await session.setActive(true);
+          // Note: WebRTC AudioSwitchManager owns native communication audio focus.
+          // Calling session.setActive(true) causes Android to steal focus and revert to earpiece.
 
           // Auto-switch to bluetooth or speakerphone when devices are plugged or unplugged
           _deviceChangeSub?.cancel();
@@ -726,10 +727,8 @@ class MaglisPlatform {
             if (event.begin) {
               onAudioInterrupted?.call(true);
             } else {
-              session.setActive(true).then((_) {
-                setSpeaker(true);
-                onAudioInterrupted?.call(false);
-              }).catchError((_) {});
+              setSpeaker(true);
+              onAudioInterrupted?.call(false);
             }
           });
         } catch (_) {}
@@ -742,29 +741,29 @@ class MaglisPlatform {
     }
   }
 
+  static Completer<void>? _setSpeakerAction;
+
   static Future<void> setSpeaker(bool on) async {
     if (kIsWeb) return;
+    if (_setSpeakerAction != null && !_setSpeakerAction!.isCompleted) {
+      return _setSpeakerAction!.future;
+    }
+    final action = Completer<void>();
+    _setSpeakerAction = action;
+
     try {
       if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
-        if (on) {
+        await Helper.setSpeakerphoneOn(on);
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
           try {
-            final session = await AudioSession.instance;
-            final devices = await session.getDevices();
-            final hasHeadset = devices.any((d) {
-              final t = d.type.toString().toLowerCase();
-              return t.contains('bluetooth') ||
-                  t.contains('headphone') ||
-                  t.contains('headset');
-            });
-            if (hasHeadset) {
-              await Helper.setSpeakerphoneOn(false);
-              return;
-            }
+            await Helper.selectAudioOutput(on ? 'speaker' : 'earpiece');
           } catch (_) {}
         }
-        await Helper.setSpeakerphoneOn(on);
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      action.complete();
+    }
   }
 
   static Future<void> resetAudio() async {
@@ -844,4 +843,23 @@ String formatMaglisCode(String code, {required bool isArabic}) {
     final n = int.tryParse(char);
     return n != null ? digits[n] : char;
   }).join('');
+}
+
+/// Connection health diagnostics model for a connected WebRTC peer (noscall pattern).
+class MaglisPeerDiagnostics {
+  final String peerId;
+  final int rttMs;
+  final RTCIceConnectionState state;
+  final int lastSeenMs;
+
+  const MaglisPeerDiagnostics({
+    required this.peerId,
+    required this.rttMs,
+    required this.state,
+    required this.lastSeenMs,
+  });
+
+  @override
+  String toString() =>
+      'MaglisPeerDiagnostics(peerId: $peerId, rtt: ${rttMs}ms, state: $state, lastSeen: ${lastSeenMs}ms)';
 }

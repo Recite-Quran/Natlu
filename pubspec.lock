@@ -5,10 +5,10 @@ packages:
     dependency: "direct main"
     description:
       name: archive
-      sha256: "0d58d1fa1fddf6588251ccf2819f3fb3b6d0452c1b2813ac7413a05592bfbefe"
+      sha256: de5ac590b8155e4e676088d714bd41ea620449a6adc0f7950c5073874b287ddb
       url: "https://pub.dev"
     source: hosted
-    version: "4.5.2"
+    version: "4.6.0"
   args:
     dependency: transitive
     description:
@@ -900,6 +900,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
+  super_sliver_list:
+    dependency: "direct main"
+    description:
+      name: super_sliver_list
+      sha256: b1e1e64d08ce40e459b9bb5d9f8e361617c26b8c9f3bb967760b0f436b6e3f56
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.1"
   synchronized:
     dependency: transitive
     description:

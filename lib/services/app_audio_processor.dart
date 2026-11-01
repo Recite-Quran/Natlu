@@ -48,13 +48,14 @@ class AppAudioProcessor {
       autoGain: false,
       echoCancel: inMaglis,
       noiseSuppress: false,
+      audioInterruption: inMaglis
+          ? AudioInterruptionMode.none
+          : AudioInterruptionMode.pause,
       androidConfig: AndroidRecordConfig(
         audioSource: inMaglis
-            ? AndroidAudioSource.voiceCommunication
+            ? AndroidAudioSource.voiceRecognition
             : AndroidAudioSource.mic,
-        audioManagerMode: inMaglis
-            ? AudioManagerMode.modeInCommunication
-            : AudioManagerMode.modeNormal,
+        audioManagerMode: AudioManagerMode.modeNormal,
         manageBluetooth: !inMaglis,
       ),
       iosConfig: const IosRecordConfig(

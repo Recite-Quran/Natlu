@@ -15,7 +15,7 @@ class SurahHeaderPainter extends CustomPainter {
     required this.page,
     required this.isDark,
     required this.colors,
-  });
+  }) : super(repaint: page);
 
   static final Paint _fillPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _borderPaint = Paint()
@@ -27,6 +27,14 @@ class SurahHeaderPainter extends CustomPainter {
     if (page.isDisposed) return;
     final headers = page.surahHeadersView();
     if (headers.isEmpty) return;
+
+    final layout = page.readLayout() ?? page.currentLayout;
+    if (layout == null) return;
+
+    final double fitScale = layout.fitScale;
+    final double fitX = layout.fitX;
+    final double fitY = layout.fitY;
+    final double contentW = layout.contentW;
 
     final boxFillColor = isDark
         ? const Color(0xFF1E252D).withValues(alpha: 0.75)
@@ -40,15 +48,19 @@ class SurahHeaderPainter extends CustomPainter {
     _borderPaint.color = borderLineColor;
 
     for (final h in headers) {
-      // surahHeadersView() returns exact viewport pixels through the current layout
-      final double top = math.min(h.y0, h.y1);
-      final double bottom = math.max(h.y0, h.y1);
+      final double rawTop = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
+      final double rawBottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
+      final double top = fitY + fitScale * rawTop;
+      final double bottom = fitY + fitScale * rawBottom;
       if (bottom <= top) continue;
 
-      final rect = Rect.fromLTRB(0.0, top, size.width, bottom);
+      final double left = fitX + fitScale * (h.x1 > h.x0 ? h.x0 : 0.0);
+      final double right = fitX + fitScale * (h.x1 > h.x0 ? h.x1 : contentW);
+
+      final rect = Rect.fromLTRB(left, top, right, bottom);
       canvas.drawRect(rect, _fillPaint);
-      canvas.drawLine(Offset(0.0, top), Offset(size.width, top), _borderPaint);
-      canvas.drawLine(Offset(0.0, bottom), Offset(size.width, bottom), _borderPaint);
+      canvas.drawLine(Offset(left, top), Offset(right, top), _borderPaint);
+      canvas.drawLine(Offset(left, bottom), Offset(right, bottom), _borderPaint);
     }
   }
 

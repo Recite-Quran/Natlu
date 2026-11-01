@@ -8,6 +8,7 @@ import '../../../maglis/maglis_controller.dart';
 import '../../../maglis/maglis_core.dart';
 import 'maglis_explanation_dialog.dart';
 import '../../../maglis/maglis_network.dart';
+import '../mushaf/mushaf_provider.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
 /// Minimal labels, crystal-clear actions, and zero UI-thread blocking.
@@ -97,7 +98,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   }
 
   void _onCodeChanged(String text) {
-    final isValid = text.length == 5;
+    final normalized = normalizeArabicDigits(text.trim());
+    final isValid = normalized.length == 5;
     if (_canJoin != isValid) {
       setState(() => _canJoin = isValid);
     } else {
@@ -119,10 +121,14 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       setState(() => _isJoining = true);
       AppHaptics.lightImpact();
 
+      final int effectivePage =
+          MushafProvider.instance.getPageForAyah(app.lastSurah, app.lastAyah) ??
+              app.currentMushafPage.value;
+
       MaglisController.instance
           .verifyAndJoinRoom(
         code: trimmed,
-        page: app.currentMushafPage.value,
+        page: effectivePage,
         surah: app.lastSurah,
         ayah: app.lastAyah,
       )
@@ -188,11 +194,15 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         customDuration: const Duration(seconds: 2),
       ));
 
+      final int effectivePage =
+          MushafProvider.instance.getPageForAyah(app.lastSurah, app.lastAyah) ??
+              app.currentMushafPage.value;
+
       MaglisController.instance
           .startSession(
         code: trimmed,
         isHost: true,
-        page: app.currentMushafPage.value,
+        page: effectivePage,
         surah: app.lastSurah,
         ayah: app.lastAyah,
       )

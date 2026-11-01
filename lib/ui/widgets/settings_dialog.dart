@@ -3,6 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../state/app_state.dart';
 import 'settings/setting_tile.dart';
+import 'settings/autoscroll_slider_tile.dart';
+import 'settings/font_slider_tile.dart';
 
 /// Settings modal bottom sheet with modern styling.
 class SettingsDialog extends StatelessWidget {
@@ -14,7 +16,7 @@ class SettingsDialog extends StatelessWidget {
 
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
+        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier, app.mushafModeNotifier]),
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;
@@ -141,6 +143,12 @@ class SettingsDialog extends StatelessWidget {
                                         app.setTheme(AppTheme.values[i]),
                                   ),
                                 ),
+                                if (!app.isMushafMode) ...[
+                                  PremiumSettingDivider(c: c),
+                                  FontSliderTile(c: c, app: app, isAr: isAr),
+                                  PremiumSettingDivider(c: c),
+                                  AutoScrollSliderTile(c: c, app: app, isAr: isAr),
+                                ],
                               ],
                             ),
                           ),

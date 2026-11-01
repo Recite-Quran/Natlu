@@ -10,6 +10,8 @@ import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
 
 import '../../../state/app_state.dart';
+import 'web/mushaf_web_storage.dart'
+    if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart' as web_storage;
 
 /// Typed word reference within a Mushaf page for tracking and playback.
 class MushafWordRef {
@@ -114,22 +116,32 @@ class MushafProvider {
 
   Future<void> _ensureExtracted({bool force = false}) async {
     if (kIsWeb) {
-      if (_webAtlasBytes != null && _webPageBytes.length >= 604) return;
+      if (!force) {
+        if (_webAtlasBytes != null && _webPageBytes.length >= 604) return;
+        final hasCached = await web_storage.hasCachedPagesWeb();
+        if (hasCached) {
+          _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
+          if (_webAtlasBytes != null) return;
+        }
+      }
       try {
         final archiveData = await rootBundle.load('assets/pages.tar.xz');
         final bytes = archiveData.buffer.asUint8List();
         final tarBytes = XZDecoder().decodeBytes(bytes);
         final archive = TarDecoder().decodeBytes(tarBytes);
+        final batchToSave = <String, Uint8List>{};
         int processed = 0;
         for (final file in archive) {
           if (file.isFile) {
             final fileName = file.name.replaceAll(r'\', '/').split('/').last;
             if (fileName == 'atlas.qva') {
               _webAtlasBytes = file.content;
+              batchToSave['atlas'] = file.content;
             } else if (fileName.endsWith('.qvp')) {
               final pageNum = int.tryParse(fileName.replaceAll('.qvp', ''));
               if (pageNum != null) {
                 _webPageBytes[pageNum] = file.content;
+                batchToSave[pageNum.toString()] = file.content;
               }
             }
           }
@@ -137,6 +149,9 @@ class MushafProvider {
           if (processed % 35 == 0) {
             await Future<void>.delayed(Duration.zero);
           }
+        }
+        if (batchToSave.isNotEmpty) {
+          unawaited(web_storage.savePagesBatchToIndexedDb(batchToSave));
         }
       } catch (e) {
         debugPrint('Error extracting pages.tar.xz on Web: $e');
@@ -215,10 +230,11 @@ class MushafProvider {
       if (_atlas == null) {
         final Uint8List atlasBytes;
         if (kIsWeb) {
+          _webAtlasBytes ??= await web_storage.getPageFromIndexedDb('atlas');
           if (_webAtlasBytes != null) {
             atlasBytes = _webAtlasBytes!;
           } else {
-            throw StateError('Mushaf atlas.qva not found in Web memory');
+            throw StateError('Mushaf atlas.qva not found in Web memory or storage');
           }
         } else {
           final localAtlas = _extractedPagesPath != null
@@ -272,11 +288,17 @@ class MushafProvider {
     try {
       final Uint8List pageBytes;
       if (kIsWeb) {
-        final p = _webPageBytes[pageNumber];
+        var p = _webPageBytes[pageNumber];
+        if (p == null) {
+          p = await web_storage.getPageFromIndexedDb(pageNumber.toString());
+          if (p != null) {
+            _webPageBytes[pageNumber] = p;
+          }
+        }
         if (p != null) {
           pageBytes = p;
         } else {
-          throw StateError('Mushaf page $pageNumber not found in Web memory');
+          throw StateError('Mushaf page $pageNumber not found in Web memory or storage');
         }
       } else {
         var localPage = _extractedPagesPath != null

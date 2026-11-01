@@ -471,57 +471,159 @@
         } catch (_) {}
       };
 
-      // 5. High-Performance Download Streamer with Live Byte Counter (Mobile & Desktop)
-      async function fetchWithProgress(url, onBytesProgress) {
-        if (window.Response && window.ReadableStream) {
-          try {
-            const res = await fetch(url, { mode: 'cors' });
-            if (!res.ok) {
-              throw new Error('HTTP ' + res.status);
+      window.saveMushafPagesBatchToDB = async function (batch) {
+        try {
+          const db = await openPagesDB();
+          return new Promise((resolve) => {
+            const tx = db.transaction(PAGES_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(PAGES_STORE_NAME);
+            for (const key of Object.keys(batch)) {
+              store.put(batch[key], String(key));
             }
-            if (!res.body || !res.body.getReader) {
-              const buf = await res.arrayBuffer();
-              if (onBytesProgress) onBytesProgress(buf.byteLength);
-              return buf;
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => resolve(false);
+          });
+        } catch (_) {
+          return false;
+        }
+      };
+
+      // 5. High-Speed 4-Way Parallel Range Downloader (Mobile & Desktop, 4x Faster)
+      async function downloadParallelChunks(url, totalSize, numChunks, onBytesProgress) {
+        let supportsRanges = false;
+        try {
+          const headRes = await fetch(url, { method: 'HEAD', mode: 'cors' });
+          supportsRanges = headRes.headers.get('accept-ranges') === 'bytes' || headRes.status === 206;
+        } catch (_) {}
+
+        if (!supportsRanges) {
+          console.log('[Downloader] Range headers not detected, falling back to streaming fetch');
+          return await fetchWithProgress(url, onBytesProgress);
+        }
+
+        const chunkSize = Math.ceil(totalSize / numChunks);
+        const chunkProgress = new Array(numChunks).fill(0);
+
+        function reportProgress(idx, loaded) {
+          chunkProgress[idx] = loaded;
+          const total = chunkProgress.reduce((a, b) => a + b, 0);
+          if (onBytesProgress) onBytesProgress(total);
+        }
+
+        async function fetchChunkWithRetry(index, start, end, maxRetries = 3) {
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const res = await fetch(url, {
+                headers: { 'Range': `bytes=${start}-${end}` },
+                mode: 'cors'
+              });
+              if (res.status !== 206 && res.status !== 200) {
+                throw new Error(`HTTP ${res.status}`);
+              }
+
+              if (res.body && res.body.getReader) {
+                const reader = res.body.getReader();
+                const parts = [];
+                let received = 0;
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  parts.push(value);
+                  received += value.byteLength;
+                  reportProgress(index, received);
+                }
+                const chunkBuf = new Uint8Array(received);
+                let pos = 0;
+                for (const p of parts) {
+                  chunkBuf.set(p, pos);
+                  pos += p.byteLength;
+                }
+                return { index, buffer: chunkBuf };
+              } else {
+                const buf = await res.arrayBuffer();
+                reportProgress(index, buf.byteLength);
+                return { index, buffer: new Uint8Array(buf) };
+              }
+            } catch (err) {
+              console.warn(`[Downloader] Chunk ${index} attempt ${attempt} failed:`, err);
+              if (attempt === maxRetries) throw err;
+              await new Promise(r => setTimeout(r, 600 * attempt));
             }
-            const reader = res.body.getReader();
-            const chunks = [];
-            let received = 0;
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              chunks.push(value);
-              received += value.byteLength;
-              if (onBytesProgress) onBytesProgress(received);
-            }
-            const combined = new Uint8Array(received);
-            let offset = 0;
-            for (const chunk of chunks) {
-              combined.set(chunk, offset);
-              offset += chunk.byteLength;
-            }
-            return combined.buffer;
-          } catch (fetchErr) {
-            console.warn('[fetchWithProgress] Stream fetch failed, falling back to XHR:', fetchErr);
           }
         }
-        return new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('GET', url, true);
-          xhr.responseType = 'arraybuffer';
-          xhr.onprogress = (e) => {
-            if (onBytesProgress && e.loaded) onBytesProgress(e.loaded);
-          };
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(xhr.response);
-            } else {
-              reject(new Error('HTTP ' + xhr.status));
-            }
-          };
-          xhr.onerror = () => reject(new Error('فشل الاتصال بالشبكة'));
-          xhr.send();
+
+        const chunkPromises = Array.from({ length: numChunks }, (_, i) => {
+          const start = i * chunkSize;
+          const end = Math.min(start + chunkSize - 1, totalSize - 1);
+          return fetchChunkWithRetry(i, start, end);
         });
+
+        const results = await Promise.all(chunkPromises);
+        results.sort((a, b) => a.index - b.index);
+
+        const assembled = new Uint8Array(totalSize);
+        let offset = 0;
+        for (const r of results) {
+          assembled.set(r.buffer, offset);
+          offset += r.buffer.byteLength;
+        }
+        return assembled.buffer;
+      }
+
+      // 6. Resilient Single-Asset Streamer with Automatic Retry
+      async function fetchWithProgress(url, onBytesProgress, maxRetries = 3) {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            if (window.Response && window.ReadableStream) {
+              const res = await fetch(url, { mode: 'cors' });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              if (!res.body || !res.body.getReader) {
+                const buf = await res.arrayBuffer();
+                if (onBytesProgress) onBytesProgress(buf.byteLength);
+                return buf;
+              }
+              const reader = res.body.getReader();
+              const chunks = [];
+              let received = 0;
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                received += value.byteLength;
+                if (onBytesProgress) onBytesProgress(received);
+              }
+              const combined = new Uint8Array(received);
+              let offset = 0;
+              for (const chunk of chunks) {
+                combined.set(chunk, offset);
+                offset += chunk.byteLength;
+              }
+              return combined.buffer;
+            }
+
+            return await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('GET', url, true);
+              xhr.responseType = 'arraybuffer';
+              xhr.onprogress = (e) => {
+                if (onBytesProgress && e.loaded) onBytesProgress(e.loaded);
+              };
+              xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  resolve(xhr.response);
+                } else {
+                  reject(new Error('HTTP ' + xhr.status));
+                }
+              };
+              xhr.onerror = () => reject(new Error('فشل الاتصال بالشبكة'));
+              xhr.send();
+            });
+          } catch (err) {
+            console.warn(`[fetchWithProgress] Attempt ${attempt} failed:`, err);
+            if (attempt === maxRetries) throw err;
+            await new Promise(r => setTimeout(r, 700 * attempt));
+          }
+        }
       }
       const MODEL_SIZE = 72705392;   // ~69.3 MB
       const PAGES_SIZE = 25899364;   // ~24.7 MB
@@ -568,16 +670,16 @@
         updateUI(0);
 
         try {
-          // Step 1: AI Speech Model (~72 MB)
-          if (statusText) statusText.textContent = '1/3 نموذج التعرف الصوتي...';
+          // Step 1: Model (~72 MB)
+          if (statusText) statusText.textContent = 'جارٍ التحميل... • Loading...';
           const modelUrl = '/download-model?model=zipformer_p_arabic_v3.int8.onnx';
-          const modelBuffer = await fetchWithProgress(modelUrl, (loaded) => updateUI(loaded));
+          const modelBuffer = await downloadParallelChunks(modelUrl, MODEL_SIZE, 4, (loaded) => updateUI(loaded));
           await storeModelInDB(modelUrl, modelBuffer);
           completedBaseBytes += modelBuffer.byteLength;
           updateUI(0);
 
-          // Step 2: Vector Quran Pages (~26 MB)
-          if (statusText) statusText.textContent = '2/3 صفحات المصحف الشريف...';
+          // Step 2: Assets (~26 MB)
+          if (statusText) statusText.textContent = 'جارٍ التحميل والاستخراج... • Loading & Extracting...';
           const pagesUrl = 'assets/assets/pages.tar.xz';
           const pagesBuffer = await fetchWithProgress(pagesUrl, (loaded) => updateUI(loaded));
           if ('caches' in window) {
@@ -591,8 +693,8 @@
           completedBaseBytes += pagesBuffer.byteLength;
           updateUI(0);
 
-          // Step 3: WebAssembly Speech Engine (~13 MB)
-          if (statusText) statusText.textContent = '3/3 محرك المعالجة الصوتية...';
+          // Step 3: Engine (~13 MB)
+          if (statusText) statusText.textContent = 'جارٍ التحميل والاستخراج... • Loading & Extracting...';
           const wasmUrl = 'wasm/sherpa-onnx-wasm-main-asr.wasm';
           const wasmBuffer = await fetchWithProgress(wasmUrl, (loaded) => updateUI(loaded));
           if ('caches' in window) {
@@ -609,7 +711,7 @@
           if (fill) fill.style.width = '100%';
           if (pctText) pctText.textContent = '100%';
           if (remainingText) remainingText.textContent = 'متبقي: 0 MB';
-          if (statusText) statusText.textContent = 'اكتمل التحميل بنجاح';
+          if (statusText) statusText.textContent = 'اكتمل • Done';
 
           try {
             localStorage.setItem(BANDWIDTH_KEY, 'true');
@@ -632,6 +734,16 @@
           if (statusText) statusText.textContent = 'تعذر التنزيل' + errMsg + '. يرجى التحقق من الاتصال.';
           if (errorBox) errorBox.style.display = 'block';
         }
+      };
+
+            window.skipToQuranApp = function () {
+        const overlay = document.getElementById('splash-overlay');
+        if (overlay) {
+          overlay.style.opacity = '0';
+          overlay.style.pointerEvents = 'none';
+          setTimeout(function () { overlay.remove(); }, 350);
+        }
+        window.bootFlutterApp();
       };
 
       window.exitBandwidthSetup = function () {
@@ -755,31 +867,32 @@
       <div id="splash-status-text" style="font-size:0.78rem;font-weight:600;color:#059669;margin-top:0.85rem;direction:rtl;"></div>
     </div>
 
-    <!-- First-Time Clean Professional Download Dialog -->
+    <!-- Bandwidth Notice Card -->
     <div id="consent-card" class="consent-card" style="display: none;">
-      <img src="icons/Icon-192.png" alt="Recite Quran" class="consent-app-icon" />
-      <h2 class="consent-title">تحميل المصحف</h2>
-      <div class="consent-subtitle">~112 ميجابايت</div>
+      <img src="icons/Icon-192.png" alt="Natlu" class="consent-app-icon" />
+      <h2 class="consent-title">تنبيه استهلاك البيانات</h2>
+      <div class="consent-subtitle">Data Usage • ~112 MB</div>
       
       <p class="consent-desc">
-        تنزيل لمرة واحدة لتشغيل المصحف والتتبع الصوتي بالذكاء الاصطناعي بدون إنترنت.
+        المتابعة ستستهلك حوالي <strong>112 ميجابايت</strong> من باقة الإنترنت.<br>
+        <span style="font-size:0.8rem;color:#6b7280;">Continuing will use ~112 MB of bandwidth.</span>
       </p>
 
       <div class="consent-actions">
         <button onclick="window.startDataDownload()" class="consent-btn-primary">
-          بدء التحميل • Start Download
+          متابعة • Continue
         </button>
-        <button onclick="window.exitBandwidthSetup()" class="consent-btn-secondary">
-          لاحقاً • Later
+        <button onclick="window.skipToQuranApp()" class="consent-btn-secondary">
+          تخطي • Skip
         </button>
       </div>
     </div>
 
-    <!-- Live Download Progress Card -->
+    <!-- Live Loading & Extracting Card -->
     <div id="progress-card" class="consent-card" style="display: none;">
-      <img src="icons/Icon-192.png" alt="Recite Quran" class="consent-app-icon" />
-      <h2 class="consent-title">جارٍ التجهيز</h2>
-      <div id="dl-status-text" class="dl-status">1/3 نموذج التعرف الصوتي...</div>
+      <img src="icons/Icon-192.png" alt="Natlu" class="consent-app-icon" />
+      <h2 class="consent-title">جارٍ التحميل والاستخراج</h2>
+      <div id="dl-status-text" class="dl-status">جارٍ التحميل... • Loading...</div>
       
       <div class="dl-progress-track">
         <div id="dl-progress-fill" class="dl-progress-fill" style="width: 0%;"></div>
@@ -800,15 +913,14 @@
 
     <!-- Exit / Paused Screen -->
     <div id="exit-card" class="consent-card" style="display: none;">
-      <div style="font-size:2.2rem;margin-bottom:0.35rem;">📶</div>
-      <h2 class="consent-title">تم تأجيل التحميل</h2>
-      <div class="consent-subtitle">Download Paused</div>
+      <h2 class="consent-title">تم الإيقاف المؤقت</h2>
+      <div class="consent-subtitle">Paused</div>
       <p class="consent-desc" style="text-align:center;">
-        يمكنك بدء التحميل في أي وقت عند اتصالك بشبكة Wi-Fi.
+        يمكنك المتابعة في أي وقت عند الاتصال بالإنترنت.
       </p>
       <div class="consent-actions" style="margin-top:1rem;">
         <button onclick="window.startDataDownload()" class="consent-btn-primary">
-          بدء التحميل الآن • Start Download Now
+          متابعة • Continue
         </button>
       </div>
     </div>
