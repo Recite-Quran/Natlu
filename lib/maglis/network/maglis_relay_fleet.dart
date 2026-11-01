@@ -278,23 +278,13 @@ class MaglisRelayFleet {
 
     if (isCriticalSignaling && sockets.length < 2 && roomRelays.isNotEmpty) {
       final primaryUrl = roomRelays.first;
-      if (!sockets.containsKey(primaryUrl)) {
-        unawaited(sendSignalToRelay(primaryUrl, frame));
+      if (!sockets.containsKey(primaryUrl) && !reconnectingRelays.contains(primaryUrl)) {
+        if (!pendingOutboundSignals.contains(frame)) {
+          pendingOutboundSignals.add(frame);
+        }
+        unawaited(connectRelay(primaryUrl));
       }
     }
-  }
-
-  Future<void> sendSignalToRelay(String url, String frame) async {
-    try {
-      final targetUrl = formatRelayUrl(url, roomCode);
-      final ws = WebSocketChannel.connect(Uri.parse(targetUrl));
-      await ws.ready.timeout(const Duration(milliseconds: 1200));
-      ws.sink.add(frame);
-      await Future.delayed(const Duration(milliseconds: 150));
-      try {
-        await ws.sink.close();
-      } catch (_) {}
-    } catch (_) {}
   }
 
   Future<void> onRelayFrame(dynamic rawFrame) async {

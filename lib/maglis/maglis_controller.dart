@@ -17,38 +17,8 @@ class MaglisController extends ChangeNotifier {
   void Function(int surah, int ayah)? onRemoteFloorClaimed;
   VoidCallback? onSessionEnded;
 
-  MaglisNetworkEngine? _net;
-  StreamSubscription<MaglisPacket>? _pktSub;
-  StreamSubscription<Map<String, RTCIceConnectionState>>? _stateSub;
-  StreamSubscription<String>? _natSub;
-  StreamSubscription<int>? _participantSub;
-  Timer? _recitationSyncTimer;
-
-  bool _inSession = false;
-  int _seq = 0;
-  String _roomCode = '';
-  String _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
-  String get localPeerId => _localPeerId;
-  String? _activeReciterId;
-  String? _natFailedPeer;
-
-  int _remotePage = 1;
-  int _remoteSurah = 1;
-  int _remoteAyah = 1;
-  int? _remoteWord;
-  List<int> _remoteGreenWords = const [];
-  List<int> _remoteYellowWords = const [];
-  List<int> _remoteRedWords = const [];
-
-  int? _lastBroadcastPage;
-  int? _lastBroadcastSurah;
-  int? _lastBroadcastAyah;
-  int? _lastBroadcastWord;
-
-
-  final MaglisHighlightStore _highlightStore = MaglisHighlightStore();
-
-  Map<String, RTCIceConnectionState> _peers = {};
+  MaglisActiveSession? _session;
+  String _fallbackPeerId = MaglisCrypto.randomHex32().substring(0, 10);
 
   final ChangeNotifier _sessionNotifier = ChangeNotifier();
   Listenable get sessionListenable => _sessionNotifier;
@@ -66,29 +36,32 @@ class MaglisController extends ChangeNotifier {
       MaglisHighlightStore.compactErrorMap(e);
 
   List<ReciterError>? getWordErrors(int surah, int ayah, int word0) =>
-      _highlightStore.getWordErrors(surah, ayah, word0);
+      _session?.highlightStore.getWordErrors(surah, ayah, word0);
 
   int? getWordHighlight(int surah, int ayah, int word0) =>
-      _highlightStore.getWordHighlight(surah, ayah, word0);
+      _session?.highlightStore.getWordHighlight(surah, ayah, word0);
 
   int? getCumulativeHighlightByKey(int key) =>
-      _highlightStore.getCumulativeHighlightByKey(key);
+      _session?.highlightStore.getCumulativeHighlightByKey(key);
 
   void recordWordHighlight(int surah, int ayah, int word0, int color) {
-    _highlightStore.recordWordHighlight(surah, ayah, word0, color);
+    _session?.highlightStore.recordWordHighlight(surah, ayah, word0, color);
   }
 
-  bool get hasCumulativeHighlights => _highlightStore.hasCumulativeHighlights;
-  int get cumulativeVersion => _highlightStore.cumulativeVersion;
+  bool get hasCumulativeHighlights =>
+      _session?.highlightStore.hasCumulativeHighlights ?? false;
+  int get cumulativeVersion => _session?.highlightStore.cumulativeVersion ?? 0;
 
   /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
   /// Any verse coming before [startSurah, startAyah] strictly keeps its highlights.
   void clearHighlightsFrom(int startSurah, int startAyah) {
-    _highlightStore.clearHighlightsFrom(startSurah, startAyah);
-    _lastBroadcastPage = null;
-    _lastBroadcastSurah = null;
-    _lastBroadcastAyah = null;
-    _lastBroadcastWord = null;
+    final s = _session;
+    if (s == null) return;
+    s.highlightStore.clearHighlightsFrom(startSurah, startAyah);
+    s.lastBroadcastPage = null;
+    s.lastBroadcastSurah = null;
+    s.lastBroadcastAyah = null;
+    s.lastBroadcastWord = null;
     notifyListeners();
   }
 
@@ -98,10 +71,12 @@ class MaglisController extends ChangeNotifier {
   }
 
   void _onPeerLeft(String peerId) {
+    final s = _session;
+    if (s == null) return;
     bool reciterLeft = false;
-    if (_activeReciterId == peerId) {
-      _activeReciterId = null;
-      _remoteWord = null;
+    if (s.activeReciterId == peerId) {
+      s.activeReciterId = null;
+      s.remoteWord = null;
       reciterLeft = true;
     }
     AppState.instance.showMaglisPeerLeftBanner();
@@ -111,21 +86,21 @@ class MaglisController extends ChangeNotifier {
     }
   }
 
-  bool get inSession => _inSession;
-  String get roomCode => _roomCode;
-  bool get isHost => _net?.isHost ?? false;
-  String? get activeReciterId => _activeReciterId;
-  String? get natFailedPeer => _natFailedPeer;
-  int get participantCount => _inSession ? (_net?.participantCount ?? 1) : 1;
-  bool get isLocalReciting => _inSession && _activeReciterId == localPeerId;
-  bool get isRemoteReciting =>
-      _inSession && _activeReciterId != null && _activeReciterId != localPeerId;
-  bool get isMicMuted => _net?.isMicMuted ?? true;
+  bool get inSession => _session != null;
+  String get roomCode => _session?.roomCode ?? '';
+  String get localPeerId => _session?.localPeerId ?? _fallbackPeerId;
+  bool get isHost => _session?.isHost ?? false;
+  String? get activeReciterId => _session?.activeReciterId;
+  String? get natFailedPeer => _session?.natFailedPeer;
+  int get participantCount => _session?.net.participantCount ?? 1;
+  bool get isLocalReciting => inSession && _session!.isLocalReciting;
+  bool get isRemoteReciting => inSession && _session!.isRemoteReciting;
+  bool get isMicMuted => _session?.net.isMicMuted ?? true;
   Map<String, MaglisPeerDiagnostics> get peerDiagnostics =>
-      _net?.peerDiagnostics ?? const {};
+      _session?.net.peerDiagnostics ?? const {};
 
   Future<void> setMicMuted(bool muted) async {
-    await _net?.setMicMuted(muted);
+    await _session?.net.setMicMuted(muted);
     _notifySessionChanged();
     notifyListeners();
   }
@@ -135,14 +110,15 @@ class MaglisController extends ChangeNotifier {
     await setMicMuted(next);
   }
 
-  int get remotePage => _remotePage;
-  int get remoteSurah => _remoteSurah;
-  int get remoteAyah => _remoteAyah;
-  int? get remoteWord => _remoteWord;
-  List<int> get remoteGreenWords => _remoteGreenWords;
-  List<int> get remoteYellowWords => _remoteYellowWords;
-  List<int> get remoteRedWords => _remoteRedWords;
-  Map<String, RTCIceConnectionState> get peers => Map.unmodifiable(_peers);
+  int get remotePage => _session?.remotePage ?? 1;
+  int get remoteSurah => _session?.remoteSurah ?? 1;
+  int get remoteAyah => _session?.remoteAyah ?? 1;
+  int? get remoteWord => _session?.remoteWord;
+  List<int> get remoteGreenWords => _session?.remoteGreenWords ?? const [];
+  List<int> get remoteYellowWords => _session?.remoteYellowWords ?? const [];
+  List<int> get remoteRedWords => _session?.remoteRedWords ?? const [];
+  Map<String, RTCIceConnectionState> get peers =>
+      _session != null ? Map.unmodifiable(_session!.peers) : const {};
 
   /// Verifies room existence and capacity before connecting.
   Future<MaglisJoinResult> verifyAndJoinRoom({
@@ -178,47 +154,52 @@ class MaglisController extends ChangeNotifier {
 
       await leaveSession(resetHardwareAudio: false, restoreMode: false);
 
-      _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
-      _roomCode = (code != null && code.trim().isNotEmpty)
+      final sessionPeerId = MaglisCrypto.randomHex32().substring(0, 10);
+      _fallbackPeerId = sessionPeerId;
+      final sessionRoomCode = (code != null && code.trim().isNotEmpty)
           ? code.trim()
           : (10000 + Random.secure().nextInt(90000)).toString();
 
-      _remotePage = page;
-      _remoteSurah = surah;
-      _remoteAyah = ayah;
-      _remoteWord = null;
-      _remoteGreenWords = const [];
-      _remoteYellowWords = const [];
-      _remoteRedWords = const [];
-      _activeReciterId = null;
-      _natFailedPeer = null;
-
-      _net = MaglisNetworkEngine(
-        roomCode: _roomCode,
-        localPeerId: localPeerId,
+      final net = MaglisNetworkEngine(
+        roomCode: sessionRoomCode,
+        localPeerId: sessionPeerId,
         isHost: isHost,
         onBuildSnapshot: _buildSnapshot,
         onParticipantJoined: _onPeerJoined,
         onParticipantLeft: _onPeerLeft,
       );
 
-      _pktSub = _net!.onPacket.listen(_handleIncomingPacket);
-      _stateSub = _net!.onPeerStates.listen((map) {
-        _peers = map;
+      final session = MaglisActiveSession(
+        roomCode: sessionRoomCode,
+        localPeerId: sessionPeerId,
+        isHost: isHost,
+        net: net,
+        remotePage: page,
+        remoteSurah: surah,
+        remoteAyah: ayah,
+      );
+      _session = session;
+
+      session.pktSub = net.onPacket.listen(_handleIncomingPacket);
+      session.stateSub = net.onPeerStates.listen((map) {
+        if (_session != session) return;
+        session.peers = map;
         _notifySessionChanged();
       });
-      _natSub = _net!.onNatFailure.listen((peerId) {
-        if (_natFailedPeer != peerId) {
-          _natFailedPeer = peerId;
+      session.natSub = net.onNatFailure.listen((peerId) {
+        if (_session != session) return;
+        if (session.natFailedPeer != peerId) {
+          session.natFailedPeer = peerId;
           _notifySessionChanged();
         }
       });
-      _participantSub = _net!.onParticipantCount.listen((_) {
+      session.participantSub = net.onParticipantCount.listen((_) {
+        if (_session != session) return;
         _notifySessionChanged();
       });
 
       // Connect and establish room presence across relays (throws if offline or unreachable)
-      await _net!.start();
+      await net.start();
 
       // Only enter session UI once room connection is verified!
       final mappedPage = MushafProvider.instance.getPageForAyah(
@@ -227,7 +208,6 @@ class MaglisController extends ChangeNotifier {
       ) ?? page;
       AppState.instance.enterMaglisSession(mappedPage);
 
-      _inSession = true;
       _notifySessionChanged();
       notifyListeners();
       return true;
@@ -239,33 +219,37 @@ class MaglisController extends ChangeNotifier {
   }
 
   MaglisPacket _buildSnapshot() {
+    final s = _session;
     return MaglisPacket(
       type: MaglisPacketType.snapshot,
-      seq: ++_seq,
+      seq: s != null ? ++s.seq : 1,
       senderId: localPeerId,
-      page: _remotePage,
-      surah: _remoteSurah,
-      ayah: _remoteAyah,
-      activeWord: _remoteWord,
-      greenWords: _remoteGreenWords,
-      yellowWords: _remoteYellowWords,
-      redWords: _remoteRedWords,
-      activeReciterId: _activeReciterId,
-      cumulative: _highlightStore.buildSnapshotCumulativeMap(),
-      errors: _highlightStore.buildSnapshotErrorsMap(),
+      page: s?.remotePage ?? 1,
+      surah: s?.remoteSurah ?? 1,
+      ayah: s?.remoteAyah ?? 1,
+      activeWord: s?.remoteWord,
+      greenWords: s?.remoteGreenWords ?? const [],
+      yellowWords: s?.remoteYellowWords ?? const [],
+      redWords: s?.remoteRedWords ?? const [],
+      activeReciterId: s?.activeReciterId,
+      cumulative: s?.highlightStore.buildSnapshotCumulativeMap(),
+      errors: s?.highlightStore.buildSnapshotErrorsMap(),
       ts: DateTime.now().millisecondsSinceEpoch,
     );
   }
 
   void _handleIncomingPacket(MaglisPacket pkt) {
+    final s = _session;
+    if (s == null) return;
+
     // Merge cumulative and live words into persistent room highlights with fast radix decoding
     bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
-      if (_highlightStore.mergeCumulative(pkt.cumulative!)) {
+      if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
         cumulativeChanged = true;
       }
     }
-    if (_highlightStore.mergeWords(
+    if (s.highlightStore.mergeWords(
       pkt.surah,
       pkt.ayah,
       greenWords: pkt.greenWords,
@@ -276,16 +260,16 @@ class MaglisController extends ChangeNotifier {
     }
 
     if (pkt.errors != null && pkt.errors!.isNotEmpty) {
-      _highlightStore.mergeErrors(pkt.surah, pkt.ayah, pkt.errors!);
+      s.highlightStore.mergeErrors(pkt.surah, pkt.ayah, pkt.errors!);
     }
 
-    if (isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
-      if (pkt.activeReciterId != null && pkt.activeReciterId != localPeerId) {
+    if (s.isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
+      if (pkt.activeReciterId != null && pkt.activeReciterId != s.localPeerId) {
         // Fail-safe: Another peer is actively reciting! Force-stop local recording immediately.
-        _recitationSyncTimer?.cancel();
-        _recitationSyncTimer = null;
+        s.recitationSyncTimer?.cancel();
+        s.recitationSyncTimer = null;
         onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
-        _activeReciterId = pkt.activeReciterId;
+        s.activeReciterId = pkt.activeReciterId;
       } else {
         // Local reciter drives their own UI from local engine. Do not let incoming packets stutter local screen.
         return;
@@ -294,55 +278,48 @@ class MaglisController extends ChangeNotifier {
 
     switch (pkt.type) {
       case MaglisPacketType.floorClaim:
-        // Duplicate detection: If the same peer is already active on this exact verse,
-        // do not wipe or reset current verse highlights on duplicate arrival (e.g. from relay)
-        if (_activeReciterId == pkt.senderId &&
-            _remoteSurah == pkt.surah &&
-            _remoteAyah == pkt.ayah) {
+        if (s.activeReciterId == pkt.senderId &&
+            s.remoteSurah == pkt.surah &&
+            s.remoteAyah == pkt.ayah) {
           return;
         }
 
-        // Strict Single Reciter Rule with Deterministic Collision Arbitration:
-        // When any peer claims the floor:
-        if (pkt.senderId != localPeerId) {
-          if (isLocalReciting) {
-            // Concurrent claim collision: smaller peer ID deterministically wins
-            final localWins = localPeerId.compareTo(pkt.senderId) < 0;
+        if (pkt.senderId != s.localPeerId) {
+          if (s.isLocalReciting) {
+            final localWins = s.localPeerId.compareTo(pkt.senderId) < 0;
             if (localWins) {
-              // Local peer retains the floor; re-assert claim so the other peer yields
-              _net?.sendPacket(
+              s.net.sendPacket(
                 MaglisPacket(
                   type: MaglisPacketType.floorClaim,
-                  seq: ++_seq,
-                  senderId: localPeerId,
-                  page: _remotePage,
-                  surah: _remoteSurah,
-                  ayah: _remoteAyah,
-                  activeReciterId: localPeerId,
+                  seq: ++s.seq,
+                  senderId: s.localPeerId,
+                  page: s.remotePage,
+                  surah: s.remoteSurah,
+                  ayah: s.remoteAyah,
+                  activeReciterId: s.localPeerId,
                   ts: DateTime.now().millisecondsSinceEpoch,
                 ),
               );
               return;
             } else {
-              _recitationSyncTimer?.cancel();
-              _recitationSyncTimer = null;
+              s.recitationSyncTimer?.cancel();
+              s.recitationSyncTimer = null;
             }
           }
         }
-        _activeReciterId = pkt.senderId;
-        _net?.updateActiveFloor(pkt.senderId);
-        _remotePage = pkt.page;
-        _remoteSurah = pkt.surah;
-        _remoteAyah = pkt.ayah;
-        _remoteWord = pkt.activeWord;
-        _remoteGreenWords = pkt.greenWords;
-        _remoteYellowWords = pkt.yellowWords;
-        _remoteRedWords = pkt.redWords;
+        s.activeReciterId = pkt.senderId;
+        s.net.updateActiveFloor(pkt.senderId);
+        s.remotePage = pkt.page;
+        s.remoteSurah = pkt.surah;
+        s.remoteAyah = pkt.ayah;
+        s.remoteWord = pkt.activeWord;
+        s.remoteGreenWords = pkt.greenWords;
+        s.remoteYellowWords = pkt.yellowWords;
+        s.remoteRedWords = pkt.redWords;
 
-        if (pkt.senderId != localPeerId) {
+        if (pkt.senderId != s.localPeerId) {
           onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
         }
-        // Clearing is synchronized across all peers from the chosen verse onwards
         clearHighlightsFrom(pkt.surah, pkt.ayah);
 
         _notifySessionChanged();
@@ -351,47 +328,47 @@ class MaglisController extends ChangeNotifier {
         break;
 
       case MaglisPacketType.floorRelease:
-        if (_activeReciterId == pkt.senderId) {
-          _activeReciterId = null;
-          _remoteWord = null;
-          _net?.updateActiveFloor(null);
+        if (s.activeReciterId == pkt.senderId) {
+          s.activeReciterId = null;
+          s.remoteWord = null;
+          s.net.updateActiveFloor(null);
           _notifySessionChanged();
           notifyListeners();
         }
         break;
 
       case MaglisPacketType.recitationUpdate:
-        final bool pageChanged = _remotePage != pkt.page;
+        final bool pageChanged = s.remotePage != pkt.page;
         final bool ayahChanged =
-            pkt.surah != _remoteSurah || pkt.ayah != _remoteAyah;
+            pkt.surah != s.remoteSurah || pkt.ayah != s.remoteAyah;
 
         final newGreenList = List<int>.from(pkt.greenWords)..sort();
         final newYellowList = List<int>.from(pkt.yellowWords)..sort();
         final newRedList = List<int>.from(pkt.redWords)..sort();
 
         final bool wordsChanged =
-            !listEquals(_remoteGreenWords, newGreenList) ||
-            !listEquals(_remoteYellowWords, newYellowList) ||
-            !listEquals(_remoteRedWords, newRedList);
+            !listEquals(s.remoteGreenWords, newGreenList) ||
+            !listEquals(s.remoteYellowWords, newYellowList) ||
+            !listEquals(s.remoteRedWords, newRedList);
 
         final bool posChanged = pageChanged ||
             ayahChanged ||
-            _remoteWord != pkt.activeWord ||
-            _activeReciterId != pkt.senderId;
+            s.remoteWord != pkt.activeWord ||
+            s.activeReciterId != pkt.senderId;
 
         if (!posChanged && !wordsChanged && !cumulativeChanged) {
           return;
         }
 
-        _activeReciterId = pkt.senderId;
-        _net?.updateActiveFloor(pkt.senderId);
-        _remotePage = pkt.page;
-        _remoteSurah = pkt.surah;
-        _remoteAyah = pkt.ayah;
-        _remoteWord = pkt.activeWord;
-        _remoteGreenWords = newGreenList;
-        _remoteYellowWords = newYellowList;
-        _remoteRedWords = newRedList;
+        s.activeReciterId = pkt.senderId;
+        s.net.updateActiveFloor(pkt.senderId);
+        s.remotePage = pkt.page;
+        s.remoteSurah = pkt.surah;
+        s.remoteAyah = pkt.ayah;
+        s.remoteWord = pkt.activeWord;
+        s.remoteGreenWords = newGreenList;
+        s.remoteYellowWords = newYellowList;
+        s.remoteRedWords = newRedList;
 
         notifyListeners();
         if (pageChanged) {
@@ -401,22 +378,20 @@ class MaglisController extends ChangeNotifier {
 
       case MaglisPacketType.snapshot:
         if (pkt.activeReciterId != null) {
-          _activeReciterId = pkt.activeReciterId;
-          _remotePage = pkt.page;
-          _remoteSurah = pkt.surah;
-          _remoteAyah = pkt.ayah;
-          _remoteWord = pkt.activeWord;
-          _remoteGreenWords = List<int>.from(pkt.greenWords)..sort();
-          _remoteYellowWords = List<int>.from(pkt.yellowWords)..sort();
-          _remoteRedWords = List<int>.from(pkt.redWords)..sort();
+          s.activeReciterId = pkt.activeReciterId;
+          s.remotePage = pkt.page;
+          s.remoteSurah = pkt.surah;
+          s.remoteAyah = pkt.ayah;
+          s.remoteWord = pkt.activeWord;
+          s.remoteGreenWords = List<int>.from(pkt.greenWords)..sort();
+          s.remoteYellowWords = List<int>.from(pkt.yellowWords)..sort();
+          s.remoteRedWords = List<int>.from(pkt.redWords)..sort();
           _notifySessionChanged();
           notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         } else {
-          if (isLocalReciting) break;
-          // When NO ONE is reciting, do NOT force-navigate Mushaf UI to another idle peer's page!
-          // Only update cumulative session highlights.
-          if (cumulativeChanged || _highlightStore.hasCumulativeHighlights) {
+          if (s.isLocalReciting) break;
+          if (cumulativeChanged || s.highlightStore.hasCumulativeHighlights) {
             notifyListeners();
           }
         }
@@ -434,74 +409,75 @@ class MaglisController extends ChangeNotifier {
     required int surah,
     required int ayah,
   }) async {
-    if (!_inSession) return;
-    _activeReciterId = localPeerId;
-    _net?.updateActiveFloor(localPeerId);
+    final s = _session;
+    if (s == null) return;
+    s.activeReciterId = s.localPeerId;
+    s.net.updateActiveFloor(s.localPeerId);
     unawaited(setMicMuted(false));
-    _remotePage = page;
-    _remoteSurah = surah;
-    _remoteAyah = ayah;
-    _remoteWord = null;
-    _remoteGreenWords = const [];
-    _remoteYellowWords = const [];
-    _remoteRedWords = const [];
+    s.remotePage = page;
+    s.remoteSurah = surah;
+    s.remoteAyah = ayah;
+    s.remoteWord = null;
+    s.remoteGreenWords = const [];
+    s.remoteYellowWords = const [];
+    s.remoteRedWords = const [];
 
-    _lastBroadcastPage = null;
-    _lastBroadcastSurah = null;
-    _lastBroadcastAyah = null;
-    _lastBroadcastWord = null;
-    _highlightStore.sentErrorWords.clear();
+    s.lastBroadcastPage = null;
+    s.lastBroadcastSurah = null;
+    s.lastBroadcastAyah = null;
+    s.lastBroadcastWord = null;
+    s.highlightStore.sentErrorWords.clear();
 
-    _net?.sendPacket(
+    s.net.sendPacket(
       MaglisPacket(
         type: MaglisPacketType.floorClaim,
-        seq: ++_seq,
-        senderId: localPeerId,
+        seq: ++s.seq,
+        senderId: s.localPeerId,
         page: page,
         surah: surah,
         ayah: ayah,
-        activeReciterId: localPeerId,
+        activeReciterId: s.localPeerId,
         ts: DateTime.now().millisecondsSinceEpoch,
       ),
     );
-    _net?.sendSignalFast('floor_claim', data: {
+    s.net.sendSignalFast('floor_claim', data: {
       'page': page,
       'surah': surah,
       'ayah': ayah,
     });
 
     // Periodic 2.5s recitation state sync: heals any packet dropped over cellular/VPN
-    _recitationSyncTimer?.cancel();
+    s.recitationSyncTimer?.cancel();
     int syncTicks = 0;
-    _recitationSyncTimer =
+    s.recitationSyncTimer =
         Timer.periodic(const Duration(milliseconds: 2500), (_) {
-      if (!_inSession || !isLocalReciting) return;
+      if (_session != s || !s.isLocalReciting) return;
       syncTicks++;
       final bool includeCumulative = (syncTicks % 3 == 0);
 
       Map<String, int>? cumulativeMap;
-      if (includeCumulative && _highlightStore.hasCumulativeHighlights) {
-        cumulativeMap = _highlightStore.buildSnapshotCumulativeMap();
+      if (includeCumulative && s.highlightStore.hasCumulativeHighlights) {
+        cumulativeMap = s.highlightStore.buildSnapshotCumulativeMap();
       }
 
-      final currentVerseErrors = _highlightStore.buildVerseErrorsMap(
-        _remoteSurah,
-        _remoteAyah,
+      final currentVerseErrors = s.highlightStore.buildVerseErrorsMap(
+        s.remoteSurah,
+        s.remoteAyah,
       );
 
-      _net?.sendPacket(
+      s.net.sendPacket(
         MaglisPacket(
           type: MaglisPacketType.recitationUpdate,
-          seq: ++_seq,
-          senderId: localPeerId,
-          page: _remotePage,
-          surah: _remoteSurah,
-          ayah: _remoteAyah,
-          activeWord: _remoteWord,
-          greenWords: _remoteGreenWords,
-          yellowWords: _remoteYellowWords,
-          redWords: _remoteRedWords,
-          activeReciterId: localPeerId,
+          seq: ++s.seq,
+          senderId: s.localPeerId,
+          page: s.remotePage,
+          surah: s.remoteSurah,
+          ayah: s.remoteAyah,
+          activeWord: s.remoteWord,
+          greenWords: s.remoteGreenWords,
+          yellowWords: s.remoteYellowWords,
+          redWords: s.remoteRedWords,
+          activeReciterId: s.localPeerId,
           cumulative: cumulativeMap,
           errors: currentVerseErrors,
           ts: DateTime.now().millisecondsSinceEpoch,
@@ -519,18 +495,19 @@ class MaglisController extends ChangeNotifier {
     required int surah,
     required int ayah,
   }) async {
-    if (!_inSession) return;
-    _recitationSyncTimer?.cancel();
-    _recitationSyncTimer = null;
-    if (_activeReciterId == localPeerId) {
-      _activeReciterId = null;
-      _net?.updateActiveFloor(null);
+    final s = _session;
+    if (s == null) return;
+    s.recitationSyncTimer?.cancel();
+    s.recitationSyncTimer = null;
+    if (s.activeReciterId == s.localPeerId) {
+      s.activeReciterId = null;
+      s.net.updateActiveFloor(null);
 
-      _net?.sendPacket(
+      s.net.sendPacket(
         MaglisPacket(
           type: MaglisPacketType.floorRelease,
-          seq: ++_seq,
-          senderId: localPeerId,
+          seq: ++s.seq,
+          senderId: s.localPeerId,
           page: page,
           surah: surah,
           ayah: ayah,
@@ -555,10 +532,11 @@ class MaglisController extends ChangeNotifier {
     List<int> redWords = const [],
     Map<int, List<ReciterError>>? errors,
   }) {
-    if (!_inSession || _activeReciterId != localPeerId) return;
+    final s = _session;
+    if (s == null || s.activeReciterId != s.localPeerId) return;
 
     // Persist local words into cumulative session highlights with fast integer hashing
-    _highlightStore.mergeWords(
+    s.highlightStore.mergeWords(
       surah,
       ayah,
       greenWords: greenWords,
@@ -566,27 +544,27 @@ class MaglisController extends ChangeNotifier {
       redWords: redWords,
     );
 
-    // Save local errors into _remoteWordErrors as well so local reciter has exact same lookup map
+    // Save local errors into remoteWordErrors as well so local reciter has exact same lookup map
     if (errors != null && errors.isNotEmpty) {
-      _highlightStore.recordLocalErrors(surah, ayah, errors);
+      s.highlightStore.recordLocalErrors(surah, ayah, errors);
     }
 
-    _remotePage = page;
-    _remoteSurah = surah;
-    _remoteAyah = ayah;
-    _remoteWord = activeWord;
+    s.remotePage = page;
+    s.remoteSurah = surah;
+    s.remoteAyah = ayah;
+    s.remoteWord = activeWord;
 
     // Deduplication check:
-    final bool pageOrVerseChanged = page != _lastBroadcastPage ||
-        surah != _lastBroadcastSurah ||
-        ayah != _lastBroadcastAyah;
+    final bool pageOrVerseChanged = page != s.lastBroadcastPage ||
+        surah != s.lastBroadcastSurah ||
+        ayah != s.lastBroadcastAyah;
 
-    final bool cursorMoved = activeWord != _lastBroadcastWord;
+    final bool cursorMoved = activeWord != s.lastBroadcastWord;
 
     final bool wordsChanged =
-        !listEquals(greenWords, _remoteGreenWords) ||
-        !listEquals(yellowWords, _remoteYellowWords) ||
-        !listEquals(redWords, _remoteRedWords);
+        !listEquals(greenWords, s.remoteGreenWords) ||
+        !listEquals(yellowWords, s.remoteYellowWords) ||
+        !listEquals(redWords, s.remoteRedWords);
 
     final bool errorsChanged = errors != null && errors.isNotEmpty;
 
@@ -594,27 +572,27 @@ class MaglisController extends ChangeNotifier {
       return; // Absolute zero packets sent if reciter pauses or stays on current word!
     }
 
-    _lastBroadcastPage = page;
-    _lastBroadcastSurah = surah;
-    _lastBroadcastAyah = ayah;
-    _lastBroadcastWord = activeWord;
+    s.lastBroadcastPage = page;
+    s.lastBroadcastSurah = surah;
+    s.lastBroadcastAyah = ayah;
+    s.lastBroadcastWord = activeWord;
 
-    _remoteGreenWords = List<int>.from(greenWords);
-    _remoteYellowWords = List<int>.from(yellowWords);
-    _remoteRedWords = List<int>.from(redWords);
+    s.remoteGreenWords = List<int>.from(greenWords);
+    s.remoteYellowWords = List<int>.from(yellowWords);
+    s.remoteRedWords = List<int>.from(redWords);
 
     // Serialize active errors strictly once per word to achieve minimum packet size
-    final serializedErrors = _highlightStore.serializeNewErrors(
+    final serializedErrors = s.highlightStore.serializeNewErrors(
       surah,
       ayah,
       errors,
     );
 
-    _net?.sendPacket(
+    s.net.sendPacket(
       MaglisPacket(
         type: MaglisPacketType.recitationUpdate,
-        seq: ++_seq,
-        senderId: localPeerId,
+        seq: ++s.seq,
+        senderId: s.localPeerId,
         page: page,
         surah: surah,
         ayah: ayah,
@@ -622,7 +600,7 @@ class MaglisController extends ChangeNotifier {
         greenWords: greenWords,
         yellowWords: yellowWords,
         redWords: redWords,
-        activeReciterId: localPeerId,
+        activeReciterId: s.localPeerId,
         errors: serializedErrors,
         ts: DateTime.now().millisecondsSinceEpoch,
       ),
@@ -640,32 +618,22 @@ class MaglisController extends ChangeNotifier {
       } catch (_) {}
     }
 
-    if (!_inSession && _net == null) return;
-    _inSession = false;
-    _activeReciterId = null;
-    _recitationSyncTimer?.cancel();
-    _recitationSyncTimer = null;
+    final oldSession = _session;
+    if (oldSession == null) return;
+    _session = null;
     onSessionEnded?.call();
 
-    await _pktSub?.cancel();
-    await _stateSub?.cancel();
-    await _natSub?.cancel();
-    await _participantSub?.cancel();
-    await _net?.dispose();
-    _net = null;
-    _peers = {};
-    _remoteGreenWords = const [];
-    _remoteYellowWords = const [];
-    _remoteRedWords = const [];
-    _highlightStore.clearAll();
-    _lastBroadcastPage = null;
-    _lastBroadcastSurah = null;
-    _lastBroadcastAyah = null;
-    _lastBroadcastWord = null;
-    if (resetHardwareAudio) {
-      await MaglisPlatform.resetAudio();
+    try {
+      await oldSession.dispose();
+    } catch (_) {
+    } finally {
+      if (resetHardwareAudio) {
+        try {
+          await MaglisPlatform.resetAudio();
+        } catch (_) {}
+      }
+      _notifySessionChanged();
+      notifyListeners();
     }
-    _notifySessionChanged();
-    notifyListeners();
   }
 }

@@ -70,7 +70,7 @@ class MaglisPeerSession {
   final Map<String, List<MediaStream>> remoteStreams = {};
   final Set<String> peersNeedingCatchup = <String>{};
   final Set<String> renegotiatePending = <String>{};
-  final Map<String, Future<void>> peerLockChains = {};
+  final PeerTaskQueue _taskQueue = PeerTaskQueue();
   final List<String> pendingVitalPackets = [];
 
   static const int maxDataChannelBufferedAmount = 128 * 1024;
@@ -150,16 +150,8 @@ class MaglisPeerSession {
   }
 
   Future<T> runPeerExclusive<T>(String peerId, Future<T> Function() block) {
-    final prev = peerLockChains[peerId] ?? Future.value();
-    final completer = Completer<void>();
-    peerLockChains[peerId] = completer.future;
-
-    return prev.then((_) => block()).whenComplete(() {
-      completer.complete();
-      if (peerLockChains[peerId] == completer.future) {
-        peerLockChains.remove(peerId);
-      }
-    });
+    if (disposed) return Future.error(StateError('MaglisPeerSession disposed'));
+    return _taskQueue.run(peerId, block);
   }
 
   void queueOutboundIce(String remoteId, Map<String, dynamic> candMap) {
@@ -843,15 +835,17 @@ class MaglisPeerSession {
       }
       negotiatingPeers.add(remoteId);
       try {
-        final pc = peers[remoteId] ?? await createPeerInternal(remoteId);
+        var pc = peers[remoteId] ?? await createPeerInternal(remoteId);
         final curSigState = await pc.getSignalingState() ?? pc.signalingState;
         if (curSigState == RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
           if (localPeerId.compareTo(remoteId) > 0) {
-            try {
-              await pc
-                  .setRemoteDescription(RTCSessionDescription('', 'rollback'));
-            } catch (_) {}
+            // Deterministic Glare Resolution (Noscall & PeerRTC pattern):
+            // Local peer has higher ID and yields to lower ID peer.
+            // Reset peer connection cleanly to accept remote offer without native rollback crash.
+            await cleanupPeerInternal(remoteId, isReconnecting: true);
+            pc = await createPeerInternal(remoteId);
           } else {
+            // Local peer has lower ID (designated offerer); its offer takes precedence
             return;
           }
         }
@@ -1030,6 +1024,7 @@ class MaglisPeerSession {
     if (!isReconnecting) {
       peerStates.remove(peerId);
       lastSeenPeerMs.remove(peerId);
+      _taskQueue.cancelPeer(peerId);
     } else {
       peerStates[peerId] = RTCIceConnectionState.RTCIceConnectionStateChecking;
     }
@@ -1116,7 +1111,7 @@ class MaglisPeerSession {
     pendingOutboundCandidates.clear();
     pendingVitalPackets.clear();
     renegotiatePending.clear();
-    peerLockChains.clear();
+    _taskQueue.clear();
 
     // 1. Immediately stop hardware mic track to terminate native audio recording and buffer
     try {
@@ -1193,4 +1188,78 @@ class MaglisPeerRecoveryWindow {
     _deadline = null;
     _retry = null;
   }
+}
+
+/// Sequential task execution queue per peer (LiveKit & PeerRTC pattern).
+/// Enforces bounded execution, prevents concurrent state mutations, and eliminates deadlocks.
+class PeerTaskQueue {
+  final Map<String, List<_QueuedTask>> _queues = {};
+  final Map<String, bool> _running = {};
+
+  Future<T> run<T>(
+    String peerId,
+    Future<T> Function() action, {
+    Duration timeout = const Duration(seconds: 8),
+  }) {
+    final completer = Completer<T>();
+    final task = _QueuedTask(
+      action: () async {
+        try {
+          final res = await action().timeout(timeout);
+          if (!completer.isCompleted) completer.complete(res);
+        } catch (e, st) {
+          if (!completer.isCompleted) completer.completeError(e, st);
+        }
+      },
+      completer: completer,
+    );
+
+    _queues.putIfAbsent(peerId, () => []).add(task);
+    _processNext(peerId);
+    return completer.future;
+  }
+
+  void _processNext(String peerId) {
+    if (_running[peerId] == true) return;
+    final queue = _queues[peerId];
+    if (queue == null || queue.isEmpty) {
+      _queues.remove(peerId);
+      _running.remove(peerId);
+      return;
+    }
+
+    _running[peerId] = true;
+    final task = queue.removeAt(0);
+
+    task.action().whenComplete(() {
+      _running[peerId] = false;
+      _processNext(peerId);
+    });
+  }
+
+  void cancelPeer(String peerId) {
+    final queue = _queues.remove(peerId);
+    _running.remove(peerId);
+    if (queue != null) {
+      for (final t in queue) {
+        if (!t.completer.isCompleted) {
+          t.completer.completeError(StateError('Peer $peerId queue cancelled'));
+        }
+      }
+    }
+  }
+
+  void clear() {
+    for (final peerId in List<String>.from(_queues.keys)) {
+      cancelPeer(peerId);
+    }
+    _queues.clear();
+    _running.clear();
+  }
+}
+
+class _QueuedTask {
+  final Future<void> Function() action;
+  final Completer completer;
+  _QueuedTask({required this.action, required this.completer});
 }

@@ -18,6 +18,7 @@ export 'network/maglis_peer_session.dart';
 export 'network/maglis_reconnection_scheduler.dart';
 export 'network/maglis_room_discovery.dart';
 export 'network/maglis_participant.dart';
+export 'network/maglis_session.dart';
 
 /// MaglisNetworkEngine
 ///
