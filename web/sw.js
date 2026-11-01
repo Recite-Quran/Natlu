@@ -1,7 +1,7 @@
 // Service Worker for Recite Quran (اتلو القران)
 // Provides complete offline caching, dynamic caching, and Cross-Origin Isolation (COOP/COEP) for WebAssembly.
 
-const CACHE_NAME = 'recite-quran-pwa-v21-1793547229';
+const CACHE_NAME = 'recite-quran-pwa-v21-1793548840';
 const PERMANENT_CACHE_NAME = 'recite-quran-permanent-assets';
 
 const STATIC_PRECACHE = [
@@ -138,6 +138,25 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname.includes('everyayah.com') ||
       url.hostname.includes('mp3quran.net') ||
       url.pathname.endsWith('.mp3')) return;
+
+  // Hard reload (Ctrl+F5 / Cmd+Shift+R): bypass cache, fetch latest from network, and update cache
+  if (event.request.cache === 'reload' || event.request.headers.get('cache-control')?.includes('no-cache')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          if (res && res.status === 200) {
+            const clone = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return ensureWasmMime(addCoopCoepHeaders(res), url);
+        })
+        .catch(async () => {
+          const cached = await caches.match(event.request, { ignoreSearch: true });
+          return cached ? ensureWasmMime(addCoopCoepHeaders(cached), url) : Response.error();
+        })
+    );
+    return;
+  }
 
   // 1. Navigation requests & entry bootstrap scripts: Network First, fallback to cached
   const isBootstrapOrVersion = url.pathname.endsWith('/flutter_bootstrap.js') ||

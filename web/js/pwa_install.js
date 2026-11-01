@@ -17,16 +17,7 @@
       }
     }).catch(() => {});
 
-    // Automatically reload when a new service worker version activates
-    let hadController = Boolean(navigator.serviceWorker.controller);
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (hadController) {
-        window.location.reload();
-      }
-      hadController = true;
-    });
-
-    // Register primary sw.js when bandwidth download is accepted
+    // Register primary sw.js without forced page reloads
     window.registerAppServiceWorker = function() {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js')

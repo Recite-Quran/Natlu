@@ -26,6 +26,10 @@ class MushafScrollBehavior extends MaterialScrollBehavior {
         PointerDeviceKind.trackpad,
         PointerDeviceKind.stylus,
       };
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
 }
 
 
@@ -644,7 +648,8 @@ class _MushafViewState extends State<MushafView> {
                               reverse: false,
                               itemCount: 604,
                               padEnds: false,
-                              allowImplicitScrolling: true,
+                              allowImplicitScrolling: false,
+                              physics: const BouncingScrollPhysics(),
                               onPageChanged: _onPageChanged,
                               itemBuilder: (context, index) {
                                 final pageNumber = 604 - index;

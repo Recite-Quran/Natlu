@@ -31,12 +31,11 @@ class MushafPageWidget extends StatefulWidget {
 }
 
 class _MushafPageWidgetState extends State<MushafPageWidget>
-    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
-  @override
-  bool get wantKeepAlive => true;
+    with TickerProviderStateMixin {
 
   QvpPage? _page;
   bool _isLoading = true;
+  bool _hasError = false;
   late final AnimationController _spinnerController;
 
   // Native highlight handles (zero cache invalidation, drawn in GPU band batches)
@@ -91,11 +90,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   Future<void> _loadPage() async {
+    _isLoading = true;
+    _hasError = false;
     final page = await MushafProvider.instance.getPage(widget.pageNumber);
     if (!mounted) return;
     setState(() {
       _page = page;
       _isLoading = false;
+      _hasError = (page == null);
     });
     if (page != null && !page.isDisposed) {
       _checkSpinnerAnimation();
@@ -124,13 +126,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _recitationGreenHandle = 0;
       _recitationYellowHandle = 0;
       _recitationRedHandle = 0;
-      updateKeepAlive();
       final cached = MushafProvider.instance.getCachedPage(widget.pageNumber);
       if (cached != null && !cached.isDisposed) {
         _page = cached;
         _isLoading = false;
+        _hasError = false;
         _syncVisuals();
       } else {
+        _hasError = false;
         _loadPage();
       }
     }
@@ -778,14 +781,27 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context);
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {
-      if (!_isLoading) _loadPage();
+      if (!_isLoading && !_hasError) _loadPage();
       return ColoredBox(
         color: c.surface,
-        child: const SizedBox.expand(),
+        child: _hasError
+            ? Center(
+                child: IconButton(
+                  icon: const Icon(Icons.refresh_rounded),
+                  color: c.textSecondary,
+                  tooltip: 'إعادة المحاولة / Retry',
+                  onPressed: () {
+                    setState(() {
+                      _hasError = false;
+                      _loadPage();
+                    });
+                  },
+                ),
+              )
+            : const SizedBox.expand(),
       );
     }
 

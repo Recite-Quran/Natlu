@@ -51,9 +51,8 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
-  static const int _maxCachedPages = 120;
+  static const int _maxCachedPages = 10;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
-  bool _isBackgroundCachingStarted = false;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
@@ -61,7 +60,7 @@ class MushafProvider {
       lastViewportSize = size;
     }
 
-    final neighbors = [pageNumber - 1, pageNumber + 1, pageNumber - 2, pageNumber + 2];
+    final neighbors = [pageNumber - 1, pageNumber + 1];
     final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
         ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
         : 1.0;
@@ -92,51 +91,9 @@ class MushafProvider {
     unawaited(loadData(force: force));
   }
 
-  /// Quietly caches remaining Mushaf pages in IndexedDB in the background.
-  void startBackgroundMushafCaching() {
-    if (!kIsWeb || _isBackgroundCachingStarted) return;
-    _isBackgroundCachingStarted = true;
-    unawaited(_runBackgroundMushafCaching());
-  }
-
-  Future<void> _runBackgroundMushafCaching() async {
-    try {
-      final isAlreadyCached = await web_storage.hasCachedPagesWeb();
-      if (isAlreadyCached) return;
-
-      // Cache atlas if not already saved
-      final cachedAtlas = await web_storage.getPageFromIndexedDb('atlas.qva');
-      if (cachedAtlas == null || cachedAtlas.isEmpty) {
-        final atlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
-        if (atlasBytes != null && atlasBytes.isNotEmpty) {
-          await web_storage.savePageToIndexedDb('atlas.qva', atlasBytes);
-        }
-      }
-
-      // Download missing pages in small non-blocking batches
-      const int batchSize = 4;
-      for (int i = 1; i <= 604; i += batchSize) {
-        final batch = <Future<void>>[];
-        for (int p = i; p < i + batchSize && p <= 604; p++) {
-          final pageNum = p;
-          batch.add(() async {
-            final key = '${_pad(pageNum)}.qvp';
-            final existing = await web_storage.getPageFromIndexedDb(key);
-            if (existing != null && existing.isNotEmpty) return;
-            final bytes = await web_storage.fetchPageFromCdn(key);
-            if (bytes != null && bytes.isNotEmpty) {
-              await web_storage.savePageToIndexedDb(key, bytes);
-            }
-          }());
-        }
-        await Future.wait(batch);
-        // Small delay to keep main thread completely unblocked
-        await Future.delayed(const Duration(milliseconds: 60));
-      }
-    } catch (e) {
-      debugPrint('Background Mushaf caching paused: $e');
-    }
-  }
+  /// Pages are fetched and cached strictly on-demand as the user navigates,
+  /// matching the pure on-demand architecture of quran-engine.
+  void startBackgroundMushafCaching() {}
 
   Future<void> _ensureExtracted({bool force = false}) async {
     if (kIsWeb || (_extractedPagesPath != null && !force)) return;
@@ -312,14 +269,13 @@ class MushafProvider {
           final currentPage = AppState.instance.currentMushafPage.value;
           int? evictKey;
           for (final k in _pageCache.keys) {
-            if (currentPage > 0 && (k - currentPage).abs() <= 10) continue;
+            if (currentPage > 0 && (k - currentPage).abs() <= 2) continue;
             evictKey = k;
             break;
           }
-          if (evictKey != null) {
-            final oldestPage = _pageCache.remove(evictKey);
-            oldestPage?.dispose();
-          }
+          evictKey ??= _pageCache.keys.first;
+          final oldestPage = _pageCache.remove(evictKey);
+          oldestPage?.dispose();
         }
         _pageCache[pageNumber] = page;
         return page;

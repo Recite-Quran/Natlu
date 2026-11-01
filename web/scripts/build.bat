@@ -8,7 +8,7 @@ type nul > assets\model\zipformer_p_arabic_v3.int8.onnx
 
 echo === [2/5] Building Flutter Web App ===
 call flutter pub get
-call flutter build web --release --base-href "/" --pwa-strategy=none --no-web-resources-cdn --dart-define=RECITATION_MODEL_URL="/download-model?model=zipformer_p_arabic_v3.int8.onnx"
+call flutter build web --release --base-href "/" --pwa-strategy=none --no-web-resources-cdn --no-tree-shake-icons --dart-define=RECITATION_MODEL_URL="/download-model?model=zipformer_p_arabic_v3.int8.onnx"
 
 echo === [3/5] Configuring Custom Service Worker and Local CanvasKit ===
 echo // Neutralized to protect custom sw.js > build\web\flutter_service_worker.js

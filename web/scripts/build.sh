@@ -19,7 +19,7 @@ if ! command -v flutter &> /dev/null; then
 fi
 
 flutter pub get
-flutter build web --release --base-href "/" --pwa-strategy=none --no-web-resources-cdn --dart-define=RECITATION_MODEL_URL="/download-model?model=zipformer_p_arabic_v3.int8.onnx"
+flutter build web --release --base-href "/" --pwa-strategy=none --no-web-resources-cdn --no-tree-shake-icons --dart-define=RECITATION_MODEL_URL="/download-model?model=zipformer_p_arabic_v3.int8.onnx"
 
 echo "=== [3/5] Configuring Custom Service Worker & Local CanvasKit ==="
 # Neutralize Flutter's default unregistering service worker stub to protect custom sw.js
