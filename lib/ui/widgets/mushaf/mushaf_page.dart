@@ -54,6 +54,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
   int _appliedCumulativeVersion = -1;
+  int _appliedGlobalRevision = -1;
+  bool _hasEvaluatedWords = false;
+  bool? _lastBlurEffective;
+  bool? _lastIsRecording;
+  bool? _hasSurahHeaders;
 
   Map<int, int> _pageWordMap = {};
   int _lastIndexedPage = -1;
@@ -100,6 +105,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _hasError = (page == null);
     });
     if (page != null && !page.isDisposed) {
+      _hasSurahHeaders = page.surahHeaders().isNotEmpty;
       _checkSpinnerAnimation();
       _syncVisuals();
     }
@@ -116,6 +122,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _lastIsDark = null;
       _lastIndexedPage = -1;
       _appliedCumulativeVersion = -1;
+      _appliedGlobalRevision = -1;
+      _hasEvaluatedWords = false;
+      _lastBlurEffective = null;
+      _lastIsRecording = null;
+      _hasSurahHeaders = null;
       _pageWordMap.clear();
       _lastGreenWords = const [];
       _lastYellowWords = const [];
@@ -464,43 +475,22 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       // Blur/concealing is only effectively applied when actively recording or in a Maglis session
       final bool isBlurEffective =
           app.isBlurEffective(isRecording: widget.isRecording);
+      final bool blurChanged = (_lastBlurEffective != isBlurEffective);
+      final bool recordingChanged = (_lastIsRecording != widget.isRecording);
+      final int currentGlobalRevision = ctrl.globalRevision.value;
+      final bool revisionChanged = (_appliedGlobalRevision != currentGlobalRevision);
 
-      // Smart guard: If in Maglis and not recording, and no new highlights/events, skip redundant scanning
-      final bool skipRemoteWordScan = inMaglis &&
-          !hasRemoteReciterOnPage &&
-          !hasNewCumulative &&
-          !widget.isRecording &&
-          !isAudioActive &&
-          !isBlurEffective &&
-          !_hasMasks &&
-          _lastHiddenWords.isEmpty &&
-          !themeChanged;
-
-      final bool hasExistingRecitation = _lastGreenWords.isNotEmpty ||
-          _lastYellowWords.isNotEmpty ||
-          _lastRedWords.isNotEmpty ||
-          _lastHiddenWords.isNotEmpty;
-
-      bool hasLocalRecitation = false;
-      if (ctrl.activeAyah.value != null) {
-        hasLocalRecitation = true;
-      } else {
-        for (final s in page.surahs()) {
-          if (ctrl.completedAyahsFor(s.number).isNotEmpty) {
-            hasLocalRecitation = true;
-            break;
-          }
-        }
-      }
-
-      final bool needsWordEvaluation = !skipRemoteWordScan &&
-          (widget.isRecording ||
-              hasRemoteReciterOnPage ||
-              hasNewCumulative ||
-              inMaglis ||
-              isBlurEffective ||
-              hasExistingRecitation ||
-              hasLocalRecitation);
+      final bool needsWordEvaluation = widget.isRecording ||
+          hasRemoteReciterOnPage ||
+          hasNewCumulative ||
+          (inMaglis && (_lastHiddenWords.isNotEmpty || maglis.hasCumulativeHighlights)) ||
+          isBlurEffective ||
+          blurChanged ||
+          recordingChanged ||
+          themeChanged ||
+          revisionChanged ||
+          !_hasEvaluatedWords ||
+          _lastIndexedPage != widget.pageNumber;
 
       if (needsWordEvaluation) {
         final green = <int>[];
@@ -558,12 +548,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         } else {
           // Standard full-page evaluation for local recitation / blur mode / theme changes
           for (final w in page.words) {
-            if (!isBlurEffective &&
-                activeAyah != null &&
-                ((w.surah == targetSurah && w.ayah > activeAyah) ||
-                    w.surah > targetSurah)) {
-              continue;
-            }
             final w0 = w.word - 1;
             final color = MushafActions.resolveWordDisplayColor(
               ayah: w.ayah,
@@ -637,6 +621,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           }
         }
         _appliedCumulativeVersion = maglis.cumulativeVersion;
+        _appliedGlobalRevision = currentGlobalRevision;
+        _hasEvaluatedWords = true;
+        _lastBlurEffective = isBlurEffective;
+        _lastIsRecording = widget.isRecording;
       }
 
       _lastIsDark = isDark;
@@ -823,7 +811,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         ? Colors.white.withValues(alpha: 0.25)
         : const Color(0xFF64748B).withValues(alpha: 0.35);
 
-    final bool hasSurahHeaders = page.surahHeaders().isNotEmpty;
+    _hasSurahHeaders ??= page.surahHeaders().isNotEmpty;
+    final bool hasSurahHeaders = _hasSurahHeaders!;
 
     return Directionality(
       textDirection: TextDirection.rtl,

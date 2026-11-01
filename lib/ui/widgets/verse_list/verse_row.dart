@@ -93,7 +93,11 @@ class VerseRow extends StatefulWidget {
   }) async {
     HapticFeedback.lightImpact();
     if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(surah, preserveOtherSurahStates: true);
+      await controller.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      );
     }
     controller.setManualAyah(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
