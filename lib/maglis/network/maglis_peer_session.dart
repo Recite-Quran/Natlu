@@ -49,7 +49,6 @@ class MaglisPeerSession {
 
   final Map<String, RTCPeerConnection> peers = {};
   final Map<String, RTCDataChannel> channels = {};
-  final Map<String, RTCDataChannel> lossyChannels = {};
   final Map<String, List<RTCIceCandidate>> iceQueues = {};
   final Map<String, bool> remoteDescSet = {};
   final Map<String, int> lastSeq = {};
@@ -85,7 +84,8 @@ class MaglisPeerSession {
       map[peerId] = MaglisPeerDiagnostics(
         peerId: peerId,
         rttMs: peerLatency[peerId] ?? 0,
-        state: peerStates[peerId] ?? RTCIceConnectionState.RTCIceConnectionStateNew,
+        state: peerStates[peerId] ??
+            RTCIceConnectionState.RTCIceConnectionStateNew,
         lastSeenMs: lastSeenPeerMs[peerId] ?? 0,
       );
     }
@@ -104,15 +104,18 @@ class MaglisPeerSession {
       });
     }
 
-    remoteTracks.forEach((remoteId, tracks) {
-      final shouldHear = (activeReciterId == null) || (activeReciterId == remoteId);
-      for (final t in tracks) {
+    for (final entry in List<MapEntry<String, List<MediaStreamTrack>>>.from(remoteTracks.entries)) {
+      final remoteId = entry.key;
+      final tracks = entry.value;
+      final shouldHear =
+          (activeReciterId == null) || (activeReciterId == remoteId);
+      for (final t in List<MediaStreamTrack>.from(tracks)) {
         t.enabled = shouldHear;
         try {
           Helper.setVolume(shouldHear ? 1.0 : 0.0, t);
         } catch (_) {}
       }
-    });
+    }
   }
 
   void _startHeartbeatTimer() {
@@ -127,7 +130,7 @@ class MaglisPeerSession {
           'u': localPeerId,
           'm': now,
         });
-        dispatchLossy(pingJson);
+        dispatchReliable(pingJson);
       }
 
       // Ghost peer reaping (noscall pattern): reap dead peers after 12s without packets
@@ -188,22 +191,13 @@ class MaglisPeerSession {
     negotiatingPeers.add(remoteId);
     try {
       final pc = await createPeerInternal(remoteId);
-      final dcReliable = await pc.createDataChannel(
-        'maglis_reliable',
+      final dc = await pc.createDataChannel(
+        'maglis_data',
         RTCDataChannelInit()
           ..ordered = true
           ..binaryType = 'binary',
       );
-      bindDataChannel(remoteId, dcReliable, isLossy: false);
-
-      final dcLossy = await pc.createDataChannel(
-        'maglis_lossy',
-        RTCDataChannelInit()
-          ..ordered = false
-          ..maxRetransmits = 0
-          ..binaryType = 'binary',
-      );
-      bindDataChannel(remoteId, dcLossy, isLossy: true);
+      bindDataChannel(remoteId, dc);
 
       final offer = await pc.createOffer(const {
         'mandatory': {
@@ -395,8 +389,7 @@ class MaglisPeerSession {
     };
 
     pc.onDataChannel = (RTCDataChannel dc) {
-      final isLossy = dc.label?.contains('lossy') == true;
-      bindDataChannel(remoteId, dc, isLossy: isLossy);
+      bindDataChannel(remoteId, dc);
     };
 
     return pc;
@@ -426,27 +419,13 @@ class MaglisPeerSession {
             channels[remoteId]!.state !=
                 RTCDataChannelState.RTCDataChannelOpen) {
           try {
-            final dcRel = await pc.createDataChannel(
-              'maglis_reliable',
+            final dc = await pc.createDataChannel(
+              'maglis_data',
               RTCDataChannelInit()
                 ..ordered = true
                 ..binaryType = 'binary',
             );
-            bindDataChannel(remoteId, dcRel, isLossy: false);
-          } catch (_) {}
-        }
-        if (lossyChannels[remoteId] == null ||
-            lossyChannels[remoteId]!.state !=
-                RTCDataChannelState.RTCDataChannelOpen) {
-          try {
-            final dcLossy = await pc.createDataChannel(
-              'maglis_lossy',
-              RTCDataChannelInit()
-                ..ordered = false
-                ..maxRetransmits = 0
-                ..binaryType = 'binary',
-            );
-            bindDataChannel(remoteId, dcLossy, isLossy: true);
+            bindDataChannel(remoteId, dc);
           } catch (_) {}
         }
         if (!kIsWeb) {
@@ -506,34 +485,19 @@ class MaglisPeerSession {
       }
       negotiatingPeers.add(remoteId);
       try {
-        final curRelDc = channels[remoteId];
-        final curLossyDc = lossyChannels[remoteId];
-        final bool relOk = curRelDc != null &&
-            curRelDc.state == RTCDataChannelState.RTCDataChannelOpen;
-        final bool lossyOk = curLossyDc != null &&
-            curLossyDc.state == RTCDataChannelState.RTCDataChannelOpen;
+        final curDc = channels[remoteId];
+        final bool isDcOk = curDc != null &&
+            curDc.state == RTCDataChannelState.RTCDataChannelOpen;
 
-        if (relOk && lossyOk) return;
+        if (isDcOk) return;
 
-        if (!relOk) {
-          final dc = await pc.createDataChannel(
-            'maglis_reliable',
-            RTCDataChannelInit()
-              ..ordered = true
-              ..binaryType = 'binary',
-          );
-          bindDataChannel(remoteId, dc, isLossy: false);
-        }
-        if (!lossyOk) {
-          final dcLossy = await pc.createDataChannel(
-            'maglis_lossy',
-            RTCDataChannelInit()
-              ..ordered = false
-              ..maxRetransmits = 0
-              ..binaryType = 'binary',
-          );
-          bindDataChannel(remoteId, dcLossy, isLossy: true);
-        }
+        final dc = await pc.createDataChannel(
+          'maglis_data',
+          RTCDataChannelInit()
+            ..ordered = true
+            ..binaryType = 'binary',
+        );
+        bindDataChannel(remoteId, dc);
 
         final offer = await pc.createOffer(const {
           'mandatory': {
@@ -573,18 +537,13 @@ class MaglisPeerSession {
     queue.clear();
   }
 
-  void bindDataChannel(String remoteId, RTCDataChannel dc,
-      {bool isLossy = false}) {
-    if (isLossy) {
-      lossyChannels[remoteId] = dc;
-    } else {
-      channels[remoteId] = dc;
-    }
+  void bindDataChannel(String remoteId, RTCDataChannel dc) {
+    channels[remoteId] = dc;
     try {
       dc.bufferedAmountLowThreshold = 64 * 1024;
     } catch (_) {}
     dc.onBufferedAmountLow = (_) {
-      if (!isLossy && !disposed) {
+      if (!disposed) {
         if (pendingVitalPackets.isNotEmpty) {
           final toSend = List<String>.from(pendingVitalPackets);
           pendingVitalPackets.clear();
@@ -611,51 +570,49 @@ class MaglisPeerSession {
       }
       checkSocketSleepState();
 
-      if (!isLossy) {
-        try {
-          dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
-        } catch (_) {}
+      try {
+        dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+      } catch (_) {}
 
-        // Hedged 350ms follow-up snapshot guarantees state synchronization
-        // even if initial frame was sent before remote listener binding completed.
-        Future.delayed(const Duration(milliseconds: 350), () {
-          if (!disposed && dc.state == RTCDataChannelState.RTCDataChannelOpen) {
-            try {
-              dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
-            } catch (_) {}
-          }
-        });
-
-        final activeOthers =
-            peers.keys.where((p) => p != remoteId && p != localPeerId).toList();
-        if (activeOthers.isNotEmpty) {
+      // Hedged 350ms follow-up snapshot guarantees state synchronization
+      // even if initial frame was sent before remote listener binding completed.
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (!disposed && dc.state == RTCDataChannelState.RTCDataChannelOpen) {
           try {
-            dc.send(RTCDataChannelMessage(jsonEncode({
+            dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+          } catch (_) {}
+        }
+      });
+
+      final activeOthers =
+          peers.keys.where((p) => p != remoteId && p != localPeerId).toList();
+      if (activeOthers.isNotEmpty) {
+        try {
+          dc.send(RTCDataChannelMessage(jsonEncode({
+            't': 98,
+            'peers': activeOthers,
+          })));
+        } catch (_) {}
+      }
+      for (final existingPeerId in activeOthers) {
+        final existingDc = channels[existingPeerId];
+        if (existingDc != null &&
+            existingDc.state == RTCDataChannelState.RTCDataChannelOpen) {
+          try {
+            existingDc.send(RTCDataChannelMessage(jsonEncode({
               't': 98,
-              'peers': activeOthers,
+              'peers': [remoteId],
             })));
           } catch (_) {}
         }
-        for (final existingPeerId in activeOthers) {
-          final existingDc = channels[existingPeerId];
-          if (existingDc != null &&
-              existingDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-            try {
-              existingDc.send(RTCDataChannelMessage(jsonEncode({
-                't': 98,
-                'peers': [remoteId],
-              })));
-            } catch (_) {}
-          }
+      }
+      if (pendingVitalPackets.isNotEmpty) {
+        for (final vital in List<String>.from(pendingVitalPackets)) {
+          try {
+            dc.send(RTCDataChannelMessage(vital));
+          } catch (_) {}
         }
-        if (pendingVitalPackets.isNotEmpty) {
-          for (final vital in List<String>.from(pendingVitalPackets)) {
-            try {
-              dc.send(RTCDataChannelMessage(vital));
-            } catch (_) {}
-          }
-          pendingVitalPackets.clear();
-        }
+        pendingVitalPackets.clear();
       }
     }
 
@@ -685,19 +642,14 @@ class MaglisPeerSession {
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         onChannelOpen();
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
-        if (isLossy) {
-          lossyChannels.remove(remoteId);
-        } else {
-          channels.remove(remoteId);
-          if (!disposed && peers.containsKey(remoteId)) {
-            final peerState = peerStates[remoteId];
-            final isConnected = peerState ==
-                    RTCIceConnectionState.RTCIceConnectionStateConnected ||
-                peerState ==
-                    RTCIceConnectionState.RTCIceConnectionStateCompleted;
-            if (isConnected) {
-              unawaited(recoverDataChannel(remoteId));
-            }
+        channels.remove(remoteId);
+        if (!disposed && peers.containsKey(remoteId)) {
+          final peerState = peerStates[remoteId];
+          final isConnected = peerState ==
+                  RTCIceConnectionState.RTCIceConnectionStateConnected ||
+              peerState == RTCIceConnectionState.RTCIceConnectionStateCompleted;
+          if (isConnected) {
+            unawaited(recoverDataChannel(remoteId));
           }
         }
       }
@@ -799,7 +751,8 @@ class MaglisPeerSession {
     final msg = RTCDataChannelMessage(raw);
     bool anyChannelOpen = false;
 
-    for (final entry in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
+    for (final entry
+        in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
       final dc = entry.value;
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
         anyChannelOpen = true;
@@ -828,40 +781,10 @@ class MaglisPeerSession {
     }
   }
 
-  void dispatchLossy(String raw) {
-    final msg = RTCDataChannelMessage(raw);
-
-    for (final remoteId in List<String>.from(peers.keys)) {
-      final lossyDc = lossyChannels[remoteId];
-      if (lossyDc != null &&
-          lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        final buf = lossyDc.bufferedAmount ?? 0;
-        if (buf <= maxDataChannelBufferedAmount) {
-          try {
-            lossyDc.send(msg);
-            continue;
-          } catch (_) {}
-        } else {
-          continue;
-        }
-      }
-
-      final relDc = channels[remoteId];
-      if (relDc != null &&
-          relDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        final buf = relDc.bufferedAmount ?? 0;
-        if (buf <= maxDataChannelBufferedAmount) {
-          try {
-            relDc.send(msg);
-          } catch (_) {}
-        }
-      }
-    }
-  }
-
   void dispatchReliableBinary(Uint8List bytes) {
     final msg = RTCDataChannelMessage.fromBinary(bytes);
-    for (final entry in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
+    for (final entry
+        in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
       final dc = entry.value;
       if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
         final buf = dc.bufferedAmount ?? 0;
@@ -874,48 +797,8 @@ class MaglisPeerSession {
     }
   }
 
-  void dispatchLossyBinary(Uint8List bytes) {
-    final msg = RTCDataChannelMessage.fromBinary(bytes);
-    for (final remoteId in List<String>.from(peers.keys)) {
-      final lossyDc = lossyChannels[remoteId];
-      if (lossyDc != null &&
-          lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        final buf = lossyDc.bufferedAmount ?? 0;
-        if (buf <= maxDataChannelBufferedAmount) {
-          try {
-            lossyDc.send(msg);
-            continue;
-          } catch (_) {}
-        }
-      }
-
-      final relDc = channels[remoteId];
-      if (relDc != null &&
-          relDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-        final buf = relDc.bufferedAmount ?? 0;
-        if (buf <= maxDataChannelBufferedAmount) {
-          try {
-            relDc.send(msg);
-          } catch (_) {}
-        }
-      }
-    }
-  }
-
   void dispatchRaw(String raw, {bool? isVital}) {
-    final bool vital = isVital ??
-        (raw.startsWith('{"t":0,') ||
-            raw.startsWith('{"t":2,') ||
-            raw.startsWith('{"t":3,') ||
-            raw.startsWith('{"t":4,') ||
-            raw.startsWith('{"t":5,') ||
-            raw.contains('"t":99'));
-
-    if (vital) {
-      dispatchReliable(raw);
-    } else {
-      dispatchLossy(raw);
-    }
+    dispatchReliable(raw);
   }
 
   Future<void> handleOffer(
@@ -1063,21 +946,8 @@ class MaglisPeerSession {
 
   void sendPacket(MaglisPacket packet, {bool throttle = false}) {
     if (disposed) return;
-    final isVital = packet.type == MaglisPacketType.floorClaim ||
-        packet.type == MaglisPacketType.floorRelease ||
-        packet.type == MaglisPacketType.snapshot ||
-        (packet.errors != null && packet.errors!.isNotEmpty) ||
-        packet.activeWord == null ||
-        packet.greenWords.isNotEmpty ||
-        packet.yellowWords.isNotEmpty ||
-        packet.redWords.isNotEmpty;
-
     final bytes = packet.packBinary();
-    if (isVital) {
-      dispatchReliableBinary(bytes);
-    } else {
-      dispatchLossyBinary(bytes);
-    }
+    dispatchReliableBinary(bytes);
   }
 
   Future<void> setMicMuted(bool muted) async {
@@ -1088,7 +958,8 @@ class MaglisPeerSession {
         localStream = await navigator.mediaDevices.getUserMedia(
           MaglisMediaHelper.buildAudioConstraints(),
         );
-        for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
+        for (final entry
+            in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
           localStream?.getAudioTracks().forEach((track) {
             track.enabled = true;
             try {
@@ -1115,7 +986,8 @@ class MaglisPeerSession {
   }
 
   Future<void> retryConnections() async {
-    for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
+    for (final entry
+        in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
       final state = peerStates[entry.key];
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
           state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
@@ -1182,23 +1054,11 @@ class MaglisPeerSession {
     }
 
     try {
-      final lossyDc = lossyChannels.remove(peerId);
-      if (lossyDc != null) {
-        lossyDc.onDataChannelState = null;
-        lossyDc.onMessage = null;
-        try {
-          if (lossyDc.state == RTCDataChannelState.RTCDataChannelOpen) {
-            await lossyDc.close();
-          }
-        } catch (_) {}
-      }
-    } catch (_) {}
-
-    try {
       final dc = channels.remove(peerId);
       if (dc != null) {
         dc.onDataChannelState = null;
         dc.onMessage = null;
+        dc.onBufferedAmountLow = null;
         try {
           if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
             await dc.close();
@@ -1244,7 +1104,8 @@ class MaglisPeerSession {
       timer.cancel();
     }
     iceRestartGraceTimers.clear();
-    for (final window in List<MaglisPeerRecoveryWindow>.from(recoveryWindows.values)) {
+    for (final window
+        in List<MaglisPeerRecoveryWindow>.from(recoveryWindows.values)) {
       window.cancel();
     }
     recoveryWindows.clear();
@@ -1269,14 +1130,6 @@ class MaglisPeerSession {
     } catch (_) {}
 
     // 2. Clear all DataChannels callbacks
-    for (final dc in List<RTCDataChannel>.from(lossyChannels.values)) {
-      try {
-        dc.onDataChannelState = null;
-        dc.onMessage = null;
-      } catch (_) {}
-    }
-    lossyChannels.clear();
-
     for (final dc in List<RTCDataChannel>.from(channels.values)) {
       try {
         dc.onDataChannelState = null;

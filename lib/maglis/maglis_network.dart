@@ -31,7 +31,6 @@ class MaglisNetworkEngine {
   static const int maxRemotePeers = 3;
 
   static Future<void> syncRemoteConfig() => MaglisConfigManager.syncRemoteConfig();
-  static Future<void> prewarmIce() => MaglisConfigManager.prewarmIce();
   static List<String> roomRelaysForCode(String code) => MaglisConfigManager.roomRelaysForCode(code);
   static String formatRelayUrl(String baseUrl, String room) => MaglisRelayFleet.formatRelayUrl(baseUrl, room);
   static String mungeOpusSdp(
@@ -107,7 +106,7 @@ class MaglisNetworkEngine {
       onBuildSnapshot: onBuildSnapshot,
       onNatFailure: (peerId) => _natFailCtrl.add(peerId),
       onStatesChanged: (states) {
-        for (final entry in states.entries) {
+        for (final entry in List<MapEntry<String, RTCIceConnectionState>>.from(states.entries)) {
           _addOrUpdateParticipant(entry.key, iceState: entry.value);
         }
         _statesCtrl.add(states);
@@ -316,7 +315,7 @@ class MaglisNetworkEngine {
         if (now.difference(_relayFleet.lastRelayFrameTime).inSeconds > 35) {
           debugPrint('[MaglisNetwork] Zombie relay socket detected (no traffic for 35s), recycling...');
           _relayFleet.lastRelayFrameTime = now;
-          for (final ws in _relayFleet.sockets.values) {
+          for (final ws in List.from(_relayFleet.sockets.values)) {
             try {
               ws.sink.close();
             } catch (_) {}
@@ -328,7 +327,7 @@ class MaglisNetworkEngine {
       }
 
       // DataChannel health check on active WebRTC audio peers
-      for (final entry in _peerSession.peers.entries) {
+      for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(_peerSession.peers.entries)) {
         final peerId = entry.key;
         final state = _peerSession.peerStates[peerId];
         final isConnected =

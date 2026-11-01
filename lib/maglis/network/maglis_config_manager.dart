@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,18 +58,6 @@ class MaglisConfigManager {
   static Map<String, dynamic> get rtcConfig => Map.unmodifiable(_rtcConfig);
 
   static bool _configSyncAttempted = false;
-
-  /// Pre-warms STUN/TURN host and DNS bindings in the background (noscall pattern).
-  /// Resolves STUN hostnames and initializes the ICE socket pool so room joining is near-instantaneous.
-  static Future<void> prewarmIce() async {
-    try {
-      final config = Map<String, dynamic>.from(_rtcConfig);
-      config['iceCandidatePoolSize'] = 2;
-      final dummyPc = await createPeerConnection(config);
-      await dummyPc.close();
-      await dummyPc.dispose();
-    } catch (_) {}
-  }
 
   static List<String>? _testRelays;
 
