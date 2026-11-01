@@ -97,7 +97,7 @@ class MaglisPeerSession {
   void updateActiveFloor(String? activeReciterId) {
     _currentActiveReciterId = activeReciterId;
 
-    if (activeReciterId == localPeerId) {
+    if (activeReciterId == localPeerId || activeReciterId == null) {
       localStream?.getAudioTracks().forEach((t) {
         t.enabled = !isMicMuted;
         Helper.setMicrophoneMute(isMicMuted, t);
@@ -115,6 +115,11 @@ class MaglisPeerSession {
           Helper.setVolume(shouldHear ? 1.0 : 0.0, t);
         } catch (_) {}
       }
+    }
+
+    // Defensive audio route restoration when returning to open conference floor
+    if (activeReciterId == null) {
+      MaglisPlatform.setSpeaker(true);
     }
   }
 

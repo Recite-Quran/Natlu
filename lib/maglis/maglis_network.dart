@@ -225,17 +225,20 @@ class MaglisNetworkEngine {
     await MaglisPlatform.initAudio();
     await MaglisPlatform.setWakeLock(true);
 
-    try {
-      _peerSession.localStream = await navigator.mediaDevices.getUserMedia(
-        MaglisMediaHelper.buildAudioConstraints(inputDeviceId: inputDeviceId),
-      );
-    } catch (_) {
+    final hasAudioInput = await MaglisMediaHelper.preflightDesktopMediaDevices();
+    if (hasAudioInput) {
       try {
-        _peerSession.localStream = await navigator.mediaDevices.getUserMedia({
-          'audio': true,
-          'video': false,
-        });
-      } catch (_) {}
+        _peerSession.localStream = await navigator.mediaDevices.getUserMedia(
+          MaglisMediaHelper.buildAudioConstraints(inputDeviceId: inputDeviceId),
+        );
+      } catch (_) {
+        try {
+          _peerSession.localStream = await navigator.mediaDevices.getUserMedia({
+            'audio': true,
+            'video': false,
+          });
+        } catch (_) {}
+      }
     }
 
     // Unmute mic audio track so all room members hear each other continuously in conference call
@@ -314,16 +317,12 @@ class MaglisNetworkEngine {
       } else {
         final now = DateTime.now();
         if (now.difference(_relayFleet.lastRelayFrameTime).inSeconds > 35) {
-          debugPrint('[MaglisNetwork] Zombie relay socket detected (no traffic for 35s), recycling...');
+          debugPrint('[MaglisNetwork] Relay silence for 35s, resubscribing fleet and checking connections...');
           _relayFleet.lastRelayFrameTime = now;
-          for (final ws in List.from(_relayFleet.sockets.values)) {
-            try {
-              ws.sink.close();
-            } catch (_) {}
+          _relayFleet.resubscribeRelays();
+          if (_relayFleet.sockets.length < MaglisRelayFleet.targetRelayCount) {
+            _relayFleet.connectRelayFleet();
           }
-          _relayFleet.sockets.clear();
-          _relayFleet.connectRelayFleet();
-          return;
         }
       }
 

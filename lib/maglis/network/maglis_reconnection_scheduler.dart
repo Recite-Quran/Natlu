@@ -76,7 +76,8 @@ class MaglisReconnectionState {
     if (attemptCount > 0) {
       final timeSinceLastAttempt = DateTime.now().difference(lastAttemptTime);
       final backoffDelay = getBackoffDelay(withJitter: false);
-      if (timeSinceLastAttempt < backoffDelay) {
+      // Account for ±20% jitter so early-firing timers don't falsely reject reconnection
+      if (timeSinceLastAttempt < (backoffDelay * 0.75)) {
         return false;
       }
     }
