@@ -137,17 +137,8 @@
   <script>
     // Self-contained Setup Engine (IIFE prevents any global identifier clashes)
     (function () {
-      const BANDWIDTH_KEY = 'natlu_bandwidth_accepted';
-      const MODEL_DB_NAME = 'SherpaModelDB';
-      const MODEL_STORE_NAME = 'models';
       const PAGES_DB_NAME = 'MushafPagesDB';
       const PAGES_STORE_NAME = 'pages';
-      const PERMANENT_CACHE_NAME = 'recite-quran-permanent-assets';
-
-      let hasAcceptedBandwidth = false;
-      try {
-        hasAcceptedBandwidth = localStorage.getItem(BANDWIDTH_KEY) === 'true';
-      } catch (_) {}
 
       // 1. Guard against third-party wakelock_plus web concurrency bug in no_sleep.js
       if (typeof navigator !== 'undefined' && navigator.wakeLock && navigator.wakeLock.request) {
@@ -173,45 +164,7 @@
         document.body.appendChild(s);
       };
 
-      // 3. IndexedDB Helpers for Offline Model Cache
-      function openModelDB() {
-        return new Promise((resolve, reject) => {
-          const req = indexedDB.open(MODEL_DB_NAME, 1);
-          req.onupgradeneeded = (e) => {
-            const db = e.target.result;
-            if (!db.objectStoreNames.contains(MODEL_STORE_NAME)) db.createObjectStore(MODEL_STORE_NAME);
-          };
-          req.onsuccess = (e) => resolve(e.target.result);
-          req.onerror = (e) => reject(e.target.error);
-        });
-      }
-
-      async function storeModelInDB(url, buffer) {
-        try {
-          const db = await openModelDB();
-          const tx = db.transaction(MODEL_STORE_NAME, 'readwrite');
-          tx.objectStore(MODEL_STORE_NAME).put(buffer, url);
-          if (navigator.storage && navigator.storage.persist) {
-            navigator.storage.persist().catch(() => {});
-          }
-        } catch (_) {}
-      }
-
-      async function hasCachedModel() {
-        try {
-          const db = await openModelDB();
-          return new Promise((resolve) => {
-            const tx = db.transaction(MODEL_STORE_NAME, 'readonly');
-            const req = tx.objectStore(MODEL_STORE_NAME).get('/download-model?model=zipformer_p_arabic_v3.int8.onnx');
-            req.onsuccess = () => resolve(Boolean(req.result && req.result.byteLength > 50000000));
-            req.onerror = () => resolve(false);
-          });
-        } catch (_) {
-          return false;
-        }
-      }
-
-      // 4. IndexedDB Helpers for Decoded Mushaf Vector Pages
+      // 3. IndexedDB Helpers for Decoded Mushaf Vector Pages
       function openPagesDB() {
         return new Promise((resolve, reject) => {
           const req = indexedDB.open(PAGES_DB_NAME, 1);
