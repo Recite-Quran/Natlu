@@ -509,10 +509,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       AppState.instance.startModelDownload();
       try {
         await _engine.initialize();
-        AppState.instance.completeModelDownload();
+        if (_engine.isInitialized) {
+          AppState.instance.completeModelDownload();
+        } else {
+          AppState.instance.resetModelDownload();
+        }
       } catch (e) {
         AppState.instance.resetModelDownload();
-        rethrow;
       } finally {
         if (mounted) setState(() => _isEngineLoading = false);
       }

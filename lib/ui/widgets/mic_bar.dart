@@ -455,7 +455,7 @@ class BottomActionBar extends StatelessWidget {
         : const [Color(0xFF10B981), Color(0xFF059669)];
 
     return _TapScale(
-      onTapDown: AppHaptics.heavyImpact,
+      onTapDown: isLoadingEngine ? null : AppHaptics.heavyImpact,
       onTap: onMic,
       child: Container(
         width: width,
@@ -488,7 +488,7 @@ class BottomActionBar extends StatelessWidget {
                   final bool hasProgress = dl.isDownloading && dl.loadedBytes > 0;
                   final double? progressVal = hasProgress ? dl.progress.clamp(0.0, 1.0) : null;
                   final String pctText = '${dl.percent}%';
-                  final String mbText = '${dl.loadedMB.toStringAsFixed(0)}/71M';
+                  final String mbText = '${dl.loadedMB.toInt()}/71 MB';
 
                   return FittedBox(
                     fit: BoxFit.scaleDown,
