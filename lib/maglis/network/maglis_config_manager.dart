@@ -15,13 +15,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class MaglisConfigManager {
   static const List<String> defaultRelays = [
     'wss://quran-maglis.recitequrankarem.workers.dev',
-    'wss://relay.primal.net',
-    'wss://nostr.mom',
-    'wss://nos.lol',
     'wss://relay.damus.io',
+    'wss://relay.primal.net',
     'wss://relay.snort.social',
-    'wss://offchain.pub',
-    'wss://nostr.bitcoiner.social',
   ];
 
   static List<String> _relays = List.from(defaultRelays);
@@ -107,7 +103,25 @@ class MaglisConfigManager {
       if (cachedRelaysJson != null) {
         final List<dynamic> list = jsonDecode(cachedRelaysJson);
         if (list.isNotEmpty) {
-          _relays = list.map((e) => e.toString()).toList();
+          final List<String> loaded = list.map((e) => e.toString()).toList();
+          // Filter out known dead or obsolete relays from old device caches
+          const deadDomains = [
+            'nostr.mom',
+            'nos.lol',
+            'offchain.pub',
+            'nostr.bitcoiner.social',
+            'relay.nostr.band',
+            'relay.0xchat.com',
+          ];
+          final cleaned = loaded
+              .where((r) => !deadDomains.any((d) => r.contains(d)))
+              .toList();
+          if (cleaned.isNotEmpty) {
+            if (!cleaned.contains(defaultRelays.first)) {
+              cleaned.insert(0, defaultRelays.first);
+            }
+            _relays = cleaned;
+          }
         }
       }
       final cachedRtcJson = prefs.getString('maglis_cached_rtc');

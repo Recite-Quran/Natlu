@@ -1,15 +1,11 @@
 {
-  "version": 3,
+  "version": 4,
   "updated_at": "2026-11-01",
   "relays": [
     "wss://quran-maglis.recitequrankarem.workers.dev",
-    "wss://relay.primal.net",
-    "wss://nostr.mom",
-    "wss://nos.lol",
     "wss://relay.damus.io",
-    "wss://relay.snort.social",
-    "wss://offchain.pub",
-    "wss://nostr.bitcoiner.social"
+    "wss://relay.primal.net",
+    "wss://relay.snort.social"
   ],
   "iceServers": [
     {

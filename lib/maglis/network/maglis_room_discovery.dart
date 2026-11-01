@@ -79,7 +79,7 @@ class MaglisRoomDiscovery {
           frame: frame,
           tags: tags,
           probePeerId: probePeerId,
-          timeoutMs: 3200,
+          timeoutMs: 6500,
           privHex: privHex,
           pubHex: pubHex,
         );
@@ -90,7 +90,7 @@ class MaglisRoomDiscovery {
       }).toList();
 
       // Overall race timeout: 3500ms
-      final overallTimeout = Future.delayed(const Duration(milliseconds: 3500), () {
+      final overallTimeout = Future.delayed(const Duration(milliseconds: 7500), () {
         if (!completer.isCompleted) {
           completer.complete(MaglisJoinResult.notFound);
         }
@@ -126,7 +126,7 @@ class MaglisRoomDiscovery {
     try {
       final formattedUrl = MaglisRelayFleet.formatRelayUrl(url, trimmed);
       ws = WebSocketChannel.connect(Uri.parse(formattedUrl));
-      final readyMs = (timeoutMs - 400).clamp(1500, 3000);
+      final readyMs = (timeoutMs - 500).clamp(1500, 5000);
       await ws.ready.timeout(Duration(milliseconds: readyMs));
 
       final completer = Completer<MaglisJoinResult?>();
@@ -222,152 +222,4 @@ class MaglisRoomDiscovery {
       } catch (_) {}
     }
   }
-
-  /// Checks whether a room code is currently in use across the relay quorum.
-  static Future<bool> isRoomCodeInUse(String roomCode) async {
-    final trimmed = normalizeArabicDigits(roomCode.trim());
-    if (trimmed.length != 5) return false;
-
-    final tags = MaglisCrypto.activeBlindedTags(trimmed);
-    final probePeerId = MaglisCrypto.randomHex32().substring(0, 10);
-    final privHex = MaglisCrypto.randomHex32();
-    final pubHex = MaglisCrypto.getPublicKey(privHex);
-
-    try {
-      final probeSig = MaglisSignal(
-        type: 'presence_probe',
-        senderId: probePeerId,
-        data: {'auth': MaglisCrypto.admissionToken(trimmed, probePeerId)},
-      );
-      final cipher = await MaglisCrypto.encrypt(probeSig.pack(), trimmed);
-      final frame = await MaglisCrypto.signNostrEventAsync(
-        privHex: privHex,
-        pubHex: pubHex,
-        tag: tags.first,
-        additionalTags: tags.length > 1 ? tags.sublist(1) : null,
-        content: cipher,
-      );
-
-      final roomRelays = MaglisConfigManager.roomRelaysForCode(trimmed);
-      final targetRelays = roomRelays.take(3).toList();
-
-      final futures = targetRelays.map((url) => _presenceSingleRelay(
-            url: url,
-            trimmed: trimmed,
-            frame: frame,
-            tags: tags,
-            probePeerId: probePeerId,
-            timeoutMs: 1600,
-          ));
-
-      final results = await Future.wait(futures);
-      return results.any((r) => r == true);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<bool?> _presenceSingleRelay({
-    required String url,
-    required String trimmed,
-    required String frame,
-    required List<String> tags,
-    required String probePeerId,
-    required int timeoutMs,
-  }) async {
-    WebSocketChannel? ws;
-    StreamSubscription? sub;
-    try {
-      final formattedUrl = MaglisRelayFleet.formatRelayUrl(url, trimmed);
-      ws = WebSocketChannel.connect(Uri.parse(formattedUrl));
-      final readyMs = (timeoutMs - 400).clamp(800, 1400);
-      await ws.ready.timeout(Duration(milliseconds: readyMs));
-
-      final completer = Completer<bool?>();
-      sub = ws.stream.listen((dynamic raw) async {
-        if (completer.isCompleted || raw is! String) return;
-        try {
-          final list = jsonDecode(raw);
-          if (list is! List || list.length < 3 || list[0] != 'EVENT') return;
-          final ev = list[2] as Map<String, dynamic>;
-          final content = ev['content'] as String?;
-          if (content == null) return;
-
-          final clear = await MaglisCrypto.decrypt(content, trimmed);
-          if (clear == null) return;
-          final sig = MaglisSignal.unpack(clear);
-          if (sig.senderId == probePeerId) return;
-
-          if ((sig.type == 'presence_pong' ||
-                  sig.type == 'beacon' ||
-                  sig.type == 'offer' ||
-                  sig.type == 'join_ack' ||
-                  sig.type == 'reserve_code') &&
-              !completer.isCompleted) {
-            completer.complete(true);
-          }
-        } catch (_) {}
-      });
-
-      final subId = 'presence_${tags.first}';
-      ws.sink.add(jsonEncode([
-        'REQ',
-        subId,
-        {'kinds': [20000], '#t': tags}
-      ]));
-      ws.sink.add(frame);
-
-      final res = await completer.future
-          .timeout(Duration(milliseconds: timeoutMs), onTimeout: () => null);
-      return res;
-    } catch (_) {
-      return null;
-    } finally {
-      try {
-        await sub?.cancel();
-        await ws?.sink.close();
-      } catch (_) {}
-    }
-  }
-
-  /// Reserves a newly generated room code across the relay quorum.
-  static Future<void> reserveRoomCode(String roomCode, String tempId) async {
-    try {
-      final trimmed = normalizeArabicDigits(roomCode.trim());
-      final tags = MaglisCrypto.activeBlindedTags(trimmed);
-      final privHex = MaglisCrypto.randomHex32();
-      final pubHex = MaglisCrypto.getPublicKey(privHex);
-
-      final sig = MaglisSignal(
-        type: 'reserve_code',
-        senderId: tempId,
-        data: {'auth': MaglisCrypto.admissionToken(trimmed, tempId)},
-      );
-      final cipher = await MaglisCrypto.encrypt(sig.pack(), trimmed);
-      final frame = await MaglisCrypto.signNostrEventAsync(
-        privHex: privHex,
-        pubHex: pubHex,
-        tag: tags.first,
-        content: cipher,
-      );
-
-      final roomRelays = MaglisConfigManager.roomRelaysForCode(trimmed);
-      for (final url in roomRelays.take(2)) {
-        try {
-          final formattedUrl = MaglisRelayFleet.formatRelayUrl(url, trimmed);
-          final ws = WebSocketChannel.connect(Uri.parse(formattedUrl));
-          await ws.ready.timeout(const Duration(milliseconds: 1200));
-          ws.sink.add(frame);
-          await Future.delayed(const Duration(milliseconds: 150));
-          try {
-            await ws.sink.close();
-          } catch (_) {}
-          break; // Primary healthy relay succeeded
-        } catch (_) {
-          continue;
-        }
-      }
-    } catch (_) {}
-  }
 }
-

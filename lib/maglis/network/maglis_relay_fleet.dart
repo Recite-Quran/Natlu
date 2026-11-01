@@ -76,8 +76,8 @@ class MaglisRelayFleet {
     return baseUrl;
   }
 
-  Future<void> connectRelayFleet() async {
-    if (disposed) return;
+  Future<bool> connectRelayFleet({Duration timeout = const Duration(seconds: 6)}) async {
+    if (disposed) return false;
     final targets = targetRelayUrls;
     final futures = <Future<bool>>[];
     for (final url in targets) {
@@ -86,11 +86,19 @@ class MaglisRelayFleet {
       }
     }
     if (futures.isNotEmpty) {
+      final anySuccess = Completer<void>();
+      for (final f in futures) {
+        f.then((ok) {
+          if (ok && !anySuccess.isCompleted) anySuccess.complete();
+        });
+      }
       await Future.any([
         Future.wait(futures),
-        Future.delayed(const Duration(milliseconds: 2500)),
+        anySuccess.future,
+        Future.delayed(timeout),
       ]);
     }
+    return sockets.isNotEmpty && isSocketSubscribed;
   }
 
   Future<bool> connectRelay(String url) async {
@@ -99,10 +107,10 @@ class MaglisRelayFleet {
     try {
       final targetUrl = formatRelayUrl(url, roomCode);
       final ws = WebSocketChannel.connect(Uri.parse(targetUrl));
-      sockets[url] = ws;
 
       bool errored = false;
       void handleFail() {
+        sockets.remove(url);
         if (!completer.isCompleted) completer.complete(false);
         if (!errored) {
           errored = true;
@@ -110,14 +118,16 @@ class MaglisRelayFleet {
         }
       }
 
-      ws.ready.timeout(const Duration(milliseconds: 5000)).then((_) {
+      ws.ready.timeout(const Duration(milliseconds: 5500)).then((_) {
         if (disposed) {
           try {
             ws.sink.close();
           } catch (_) {}
+          sockets.remove(url);
           if (!completer.isCompleted) completer.complete(false);
           return;
         }
+        sockets[url] = ws;
         _reconnectionScheduler.recordSuccess(url);
         subscribeRelay(ws);
         if (pendingOutboundSignals.isNotEmpty) {
@@ -142,6 +152,7 @@ class MaglisRelayFleet {
       );
       return await completer.future;
     } catch (_) {
+      sockets.remove(url);
       scheduleReconnect(url);
       return false;
     }
@@ -358,9 +369,4 @@ class MaglisRelayFleet {
   static Future<MaglisJoinResult> verifyRoomJoinable(String roomCode) =>
       MaglisRoomDiscovery.verifyRoomJoinable(roomCode);
 
-  static Future<bool> isRoomCodeInUse(String roomCode) =>
-      MaglisRoomDiscovery.isRoomCodeInUse(roomCode);
-
-  static Future<void> reserveRoomCode(String roomCode, String tempId) =>
-      MaglisRoomDiscovery.reserveRoomCode(roomCode, tempId);
 }

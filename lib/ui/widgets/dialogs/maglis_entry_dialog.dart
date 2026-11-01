@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../services/app_haptics.dart';
@@ -7,7 +8,6 @@ import '../../../state/app_state.dart';
 import '../../../maglis/maglis_controller.dart';
 import '../../../maglis/maglis_core.dart';
 import 'maglis_explanation_dialog.dart';
-import '../../../maglis/maglis_network.dart';
 import '../mushaf/mushaf_provider.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
@@ -46,40 +46,20 @@ class MaglisEntryDialog extends StatefulWidget {
 class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   late int _selectedTab;
   String _newCode = '';
-  late final String _tempReservationId;
   final TextEditingController _codeCtrl = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   bool _canJoin = false;
   bool _isJoining = false;
+  bool _isCreating = false;
 
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab;
     _newCode = (10000 + Random().nextInt(90000)).toString();
-    _tempReservationId = MaglisCrypto.randomHex32().substring(0, 8);
-    _ensureUniqueNewCode();
     _focusNode.addListener(() {
       if (mounted) setState(() {});
     });
-  }
-
-  Future<void> _ensureUniqueNewCode() async {
-    String candidate = _newCode;
-    bool inUse = await MaglisNetworkEngine.isRoomCodeInUse(candidate);
-    int attempts = 0;
-    while (inUse && attempts < 5 && mounted) {
-      attempts++;
-      candidate = (10000 + Random().nextInt(90000)).toString();
-      inUse = await MaglisNetworkEngine.isRoomCodeInUse(candidate);
-    }
-    if (mounted) {
-      setState(() {
-        _newCode = candidate;
-      });
-      unawaited(
-          MaglisNetworkEngine.reserveRoomCode(_newCode, _tempReservationId));
-    }
   }
 
   void _openKeyboard() {
@@ -107,13 +87,34 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     }
   }
 
-  void _submitSession(String code) {
+  Future<void> _submitSession(String code) async {
     final trimmed = normalizeArabicDigits(code.trim());
-    if (trimmed.length != 5 || _isJoining) return;
+    if (trimmed.length != 5 || _isJoining || _isCreating) return;
 
     final app = AppState.instance;
     final codeAr = formatMaglisCode(trimmed, isArabic: true);
     final codeEn = formatMaglisCode(trimmed, isArabic: false);
+
+    // 1. Mandatory Connectivity Pre-flight (noscall / livekit pattern)
+    final connectivity = await Connectivity().checkConnectivity();
+    final hasConnection = connectivity.isNotEmpty &&
+        !connectivity.contains(ConnectivityResult.none);
+    if (!hasConnection) {
+      AppHaptics.selectionClick();
+      app.showBanner(AppBannerInfo(
+        id: 'maglis_offline',
+        messageAr: 'لا يوجد اتصال بالإنترنت. يرجى الاتصال بالشبكة للمتابعة',
+        messageEn: 'No internet connection. Please connect to continue',
+        icon: Icons.wifi_off_rounded,
+        isWarning: true,
+        customDuration: const Duration(seconds: 4),
+      ));
+      return;
+    }
+
+    final int effectivePage =
+        MushafProvider.instance.getPageForAyah(app.lastSurah, app.lastAyah) ??
+            app.currentMushafPage.value;
 
     if (_selectedTab == 0) {
       // ── JOINING EXISTING MAGLIS: Verify existence & capacity first! ──
@@ -121,18 +122,13 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       setState(() => _isJoining = true);
       AppHaptics.lightImpact();
 
-      final int effectivePage =
-          MushafProvider.instance.getPageForAyah(app.lastSurah, app.lastAyah) ??
-              app.currentMushafPage.value;
-
-      MaglisController.instance
-          .verifyAndJoinRoom(
-        code: trimmed,
-        page: effectivePage,
-        surah: app.lastSurah,
-        ayah: app.lastAyah,
-      )
-          .then((result) {
+      try {
+        final result = await MaglisController.instance.verifyAndJoinRoom(
+          code: trimmed,
+          page: effectivePage,
+          surah: app.lastSurah,
+          ayah: app.lastAyah,
+        );
         if (!mounted) return;
         setState(() => _isJoining = false);
 
@@ -170,7 +166,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             customDuration: const Duration(seconds: 4),
           ));
         }
-      }).catchError((_) {
+      } catch (_) {
         if (mounted) setState(() => _isJoining = false);
         app.showBanner(AppBannerInfo(
           id: 'maglis_not_found',
@@ -180,34 +176,28 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           isWarning: true,
           customDuration: const Duration(seconds: 4),
         ));
-      });
+      }
     } else {
-      // ── MAKING A NEW MAGLIS AS HOST: Instant 0ms launch ──
+      // ── MAKING A NEW MAGLIS AS HOST: Verified Relay Start ──
+      _focusNode.unfocus();
+      setState(() => _isCreating = true);
       AppHaptics.lightImpact();
-      Navigator.of(context).pop();
 
-      app.showBanner(AppBannerInfo(
-        id: 'maglis_connecting',
-        messageAr: 'جاري افتتاح المجلس \u202A$codeAr\u202C...',
-        messageEn: 'Starting Maglis $codeEn...',
-        icon: Icons.wifi_calling_3_rounded,
-        customDuration: const Duration(seconds: 2),
-      ));
+      try {
+        final success = await MaglisController.instance.startSession(
+          code: trimmed,
+          isHost: true,
+          page: effectivePage,
+          surah: app.lastSurah,
+          ayah: app.lastAyah,
+        );
 
-      final int effectivePage =
-          MushafProvider.instance.getPageForAyah(app.lastSurah, app.lastAyah) ??
-              app.currentMushafPage.value;
+        if (!mounted) return;
+        setState(() => _isCreating = false);
 
-      MaglisController.instance
-          .startSession(
-        code: trimmed,
-        isHost: true,
-        page: effectivePage,
-        surah: app.lastSurah,
-        ayah: app.lastAyah,
-      )
-          .then((success) {
         if (success) {
+          AppHaptics.mediumImpact();
+          Navigator.of(context).pop();
           app.showBanner(AppBannerInfo(
             id: 'maglis_created',
             messageAr:
@@ -217,23 +207,27 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             customDuration: const Duration(seconds: 3),
           ));
         } else {
+          AppHaptics.selectionClick();
           app.showBanner(AppBannerInfo(
             id: 'maglis_error',
-            messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
-            messageEn: 'Could not connect. Check mic permissions and network.',
+            messageAr: 'تعذر الاتصال بخوادم المجلس. تحقق من الإنترنت وإذن الميكروفون',
+            messageEn: 'Could not connect to Maglis. Check network and mic permissions',
             icon: Icons.error_outline_rounded,
+            isWarning: true,
             customDuration: const Duration(seconds: 4),
           ));
         }
-      }).catchError((_) {
+      } catch (_) {
+        if (mounted) setState(() => _isCreating = false);
         app.showBanner(AppBannerInfo(
           id: 'maglis_error',
-          messageAr: 'تعذر الاتصال بالمجلس. تحقق من إذن الميكروفون والاتصال.',
-          messageEn: 'Could not connect. Check mic permissions and network.',
+          messageAr: 'تعذر الاتصال بخوادم المجلس. تحقق من الإنترنت وإذن الميكروفون',
+          messageEn: 'Could not connect to Maglis. Check network and mic permissions',
           icon: Icons.error_outline_rounded,
+          isWarning: true,
           customDuration: const Duration(seconds: 4),
         ));
-      });
+      }
     }
   }
 
@@ -1068,10 +1062,21 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              onPressed: () => _submitSession(_newCode),
-              icon: const Icon(Icons.play_arrow_rounded, size: 21),
+              onPressed: _isCreating ? null : () => _submitSession(_newCode),
+              icon: _isCreating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.play_arrow_rounded, size: 21),
               label: Text(
-                isAr ? 'افتتاح المجلس الآن' : 'Start Maglis Now',
+                _isCreating
+                    ? (isAr ? 'جاري افتتاح المجلس...' : 'Opening Maglis...')
+                    : (isAr ? 'افتتاح المجلس الآن' : 'Start Maglis Now'),
                 style:
                     const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),

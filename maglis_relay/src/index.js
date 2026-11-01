@@ -124,17 +124,13 @@ export class MaglisRelay extends DurableObject {
 }
 
 const FLEET_CONFIG = {
-  version: 2,
-  updated_at: "2026-10-31",
+  version: 4,
+  updated_at: "2026-11-01",
   relays: [
     "wss://quran-maglis.recitequrankarem.workers.dev",
-    "wss://relay.primal.net",
-    "wss://nostr.mom",
-    "wss://nos.lol",
     "wss://relay.damus.io",
+    "wss://relay.primal.net",
     "wss://relay.snort.social",
-    "wss://offchain.pub",
-    "wss://nostr.bitcoiner.social",
   ],
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -144,6 +140,24 @@ const FLEET_CONFIG = {
     { urls: "stun:stun4.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
     { urls: "stun:global.stun.twilio.com:3478" },
+    {
+      urls: [
+        "turn:52.76.210.159:5349",
+        "turn:13.213.17.140:5349",
+        "turn:15.222.242.167:5349",
+      ],
+      username: "0xchat",
+      credential: "Prettyvs511",
+    },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ],
 };
 

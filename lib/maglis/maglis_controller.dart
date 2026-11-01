@@ -188,12 +188,6 @@ class MaglisController extends ChangeNotifier {
 
       await leaveSession(resetHardwareAudio: false, restoreMode: false);
 
-      final mappedPage = MushafProvider.instance.getPageForAyah(
-        AppState.instance.lastSurah,
-        AppState.instance.lastAyah,
-      ) ?? page;
-      AppState.instance.enterMaglisSession(mappedPage);
-
       _localPeerId = MaglisCrypto.randomHex32().substring(0, 10);
       _roomCode = (code != null && code.trim().isNotEmpty)
           ? code.trim()
@@ -281,14 +275,23 @@ class MaglisController extends ChangeNotifier {
       });
       _participantCount = _net!.participantCount;
 
+      // Connect and establish room presence across relays (throws if offline or unreachable)
       await _net!.start();
+
+      // Only enter session UI once room connection is verified!
+      final mappedPage = MushafProvider.instance.getPageForAyah(
+        AppState.instance.lastSurah,
+        AppState.instance.lastAyah,
+      ) ?? page;
+      AppState.instance.enterMaglisSession(mappedPage);
+
       _inSession = true;
       _notifySessionChanged();
       notifyListeners();
       return true;
     } catch (e, st) {
       debugPrint('Maglis startSession failed: $e\n$st');
-      AppState.instance.exitMaglisSession();
+      await leaveSession(resetHardwareAudio: true, restoreMode: false);
       return false;
     }
   }

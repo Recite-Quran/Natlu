@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -44,12 +45,6 @@ class MaglisNetworkEngine {
 
   static Future<MaglisJoinResult> verifyRoomJoinable(String roomCode) =>
       MaglisRelayFleet.verifyRoomJoinable(roomCode);
-
-  static Future<bool> isRoomCodeInUse(String roomCode) =>
-      MaglisRelayFleet.isRoomCodeInUse(roomCode);
-
-  static Future<void> reserveRoomCode(String roomCode, String tempId) =>
-      MaglisRelayFleet.reserveRoomCode(roomCode, tempId);
 
   final String roomCode;
   final String localPeerId;
@@ -159,6 +154,16 @@ class MaglisNetworkEngine {
   }
 
   Future<void> start({String? inputDeviceId}) async {
+    // 1. Rigorous pre-flight connectivity check (livekit / noscall pattern)
+    if (!kIsWeb) {
+      final connectivity = await Connectivity().checkConnectivity();
+      final hasConnection = connectivity.isNotEmpty &&
+          !connectivity.contains(ConnectivityResult.none);
+      if (!hasConnection) {
+        throw const SocketException('No active internet connection');
+      }
+    }
+
     unawaited(MaglisConfigManager.syncRemoteConfig());
     await MaglisPlatform.initAudio();
     await MaglisPlatform.setWakeLock(true);
@@ -217,8 +222,11 @@ class MaglisNetworkEngine {
       });
     }
 
-    // Connect to the multi-relay quorum (Primary + fallbacks concurrently)
-    await _relayFleet.connectRelayFleet();
+    // Connect to the multi-relay quorum and verify at least one relay is alive!
+    final ok = await _relayFleet.connectRelayFleet();
+    if (!ok || _relayFleet.sockets.isEmpty) {
+      throw const SocketException('Failed to connect to any Maglis signaling relay');
+    }
     _relayFleet.startHeartbeat();
 
     // Broadcast initial room discovery beacon
