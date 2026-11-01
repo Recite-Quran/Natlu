@@ -612,6 +612,7 @@ enum MaglisJoinResult {
 
 class MaglisPlatform {
   static StreamSubscription? _deviceChangeSub;
+  static StreamSubscription? _becomingNoisySub;
   static StreamSubscription? _interruptionSub;
   static bool _audioInitialized = false;
   static void Function(bool interrupted)? onAudioInterrupted;
@@ -721,6 +722,12 @@ class MaglisPlatform {
             setSpeaker(true);
           });
 
+          // Headset disconnect protection: prevents sudden audio blast or buffer crash when unplugged
+          _becomingNoisySub?.cancel();
+          _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
+            setSpeaker(true);
+          });
+
           // Recover audio route if interrupted by incoming phone call or system alarm
           _interruptionSub?.cancel();
           _interruptionSub = session.interruptionEventStream.listen((event) {
@@ -773,6 +780,8 @@ class MaglisPlatform {
       onAudioInterrupted = null;
       _deviceChangeSub?.cancel();
       _deviceChangeSub = null;
+      _becomingNoisySub?.cancel();
+      _becomingNoisySub = null;
       _interruptionSub?.cancel();
       _interruptionSub = null;
 

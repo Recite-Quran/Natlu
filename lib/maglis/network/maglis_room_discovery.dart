@@ -181,7 +181,8 @@ class MaglisRoomDiscovery {
       // Hedged 750ms warm re-transmit if no ACK received yet (defeats cellular packet loss)
       if (privHex != null && pubHex != null) {
         retransmitTimer = Timer(const Duration(milliseconds: 750), () async {
-          if (!completer.isCompleted && ws != null) {
+          final activeWs = ws;
+          if (!completer.isCompleted && activeWs != null) {
             try {
               final warmFrame = await MaglisCrypto.signNostrEventAsync(
                 privHex: privHex,
@@ -200,7 +201,7 @@ class MaglisRoomDiscovery {
                   trimmed,
                 ),
               );
-              ws.sink.add(warmFrame);
+              activeWs.sink.add(warmFrame);
             } catch (_) {}
           }
         });

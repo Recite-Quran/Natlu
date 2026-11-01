@@ -75,6 +75,7 @@ class MaglisNetworkEngine {
   Timer? _pingTimer;
   Timer? _watchdogTimer;
   Timer? _epochRefreshTimer;
+  int _lastKnownHostHeartbeatMs = 0;
   bool _disposed = false;
 
   MaglisNetworkEngine({
@@ -326,9 +327,10 @@ class MaglisNetworkEngine {
       _participantCountCtrl.add(participantCount);
     }
 
-    // Deterministic Host Arbitration:
-    if (_isHost && sig.data['host'] == true && remoteId != localPeerId) {
-      if (localPeerId.compareTo(remoteId) > 0) {
+    // Deterministic Host Arbitration & Lease Tracking:
+    if (sig.data['host'] == true && remoteId != localPeerId) {
+      _lastKnownHostHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
+      if (_isHost && localPeerId.compareTo(remoteId) > 0) {
         _isHost = false;
       }
     }
@@ -466,6 +468,14 @@ class MaglisNetworkEngine {
 
   void _checkHostMigration() {
     if (!_isHost) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      // Host lease grace period: do not usurp host if last host signal was within 6s
+      if (_lastKnownHostHeartbeatMs > 0 &&
+          (now - _lastKnownHostHeartbeatMs) < 6000 &&
+          _roomParticipants.isNotEmpty) {
+        return;
+      }
+
       if (_roomParticipants.isEmpty) {
         _isHost = true;
       } else {
