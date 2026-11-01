@@ -481,13 +481,65 @@ class BottomActionBar extends StatelessWidget {
         ),
         alignment: Alignment.center,
         child: isLoadingEngine
-            ? const SizedBox(
-                width: 19,
-                height: 19,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.2,
-                  color: Colors.white,
-                ),
+            ? ValueListenableBuilder<ModelDownloadProgress>(
+                valueListenable: AppState.instance.modelDownloadNotifier,
+                builder: (context, dl, _) {
+                  final bool isAr = AppState.instance.isArabic;
+                  final bool hasProgress = dl.isDownloading && dl.loadedBytes > 0;
+                  final double? progressVal = hasProgress ? dl.progress.clamp(0.0, 1.0) : null;
+                  final String pctText = '${dl.percent}%';
+                  final String mbText = '${dl.loadedMB.toStringAsFixed(0)}/71M';
+
+                  return FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SizedBox(
+                                width: 21,
+                                height: 21,
+                                child: CircularProgressIndicator(
+                                  value: progressVal,
+                                  strokeWidth: 2.1,
+                                  color: Colors.white,
+                                  backgroundColor: Colors.white.withValues(alpha: 0.25),
+                                ),
+                              ),
+                              if (hasProgress)
+                                Text(
+                                  pctText,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 7.5,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            hasProgress
+                                ? mbText
+                                : (isAr ? 'تحميل...' : 'Loading...'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8.0,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               )
             : (isRecording
                 ? const _AudioWaveform()

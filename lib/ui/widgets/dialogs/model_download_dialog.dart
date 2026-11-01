@@ -91,7 +91,7 @@ class ModelDownloadDialog extends StatelessWidget {
                         Icon(Icons.data_usage_rounded, size: 16, color: c.primary),
                         const SizedBox(width: 6),
                         Text(
-                          isAr ? 'حجم البيانات: ~72 ميجابايت' : 'Download size: ~72 MB',
+                          isAr ? 'حجم البيانات: ~71 ميجابايت' : 'Download size: ~71 MB',
                           style: TextStyle(
                             color: c.primary,
                             fontSize: 12,

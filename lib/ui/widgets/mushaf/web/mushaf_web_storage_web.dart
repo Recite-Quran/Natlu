@@ -1,3 +1,4 @@
+import '../../../../state/app_state.dart';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
@@ -85,4 +86,23 @@ Future<Uint8List?> fetchPageFromCdn(String filename) async {
     }
   } catch (_) {}
   return null;
+}
+
+
+/// Registers Dart callback with the browser JS runtime for model download progress.
+void initModelDownloadTracker() {
+  final JSFunction progressCallback = ((JSNumber loaded, JSNumber total, JSNumber fraction) {
+    try {
+      final int l = loaded.toDartInt;
+      final int t = total.toDartInt;
+      final double f = fraction.toDartDouble;
+      AppState.instance.updateModelDownloadProgress(
+        loaded: l,
+        total: t,
+        fraction: f,
+      );
+    } catch (_) {}
+  }).toJS;
+
+  globalContext.setProperty('dartOnModelDownloadProgress'.toJS, progressCallback);
 }

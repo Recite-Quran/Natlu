@@ -239,7 +239,19 @@ window.isSherpaModelCached = async function(modelFilename) {
   }
 };
 
-// --- Multi-Chunk Downloader ---
+// --- Progress Reporting to Flutter ---
+function reportSherpaModelProgress(loaded, total) {
+  const currentTotal = (total && total > 0) ? total : 72705392;
+  const fraction = Math.min(1.0, Math.max(0.0, loaded / currentTotal));
+  if (typeof window.dartOnModelDownloadProgress === 'function') {
+    try {
+      window.dartOnModelDownloadProgress(loaded, currentTotal, fraction);
+    } catch (_) {}
+  }
+}
+window.reportSherpaModelProgress = reportSherpaModelProgress;
+
+// --- Multi-Chunk Downloader with Live Progress Tracking ---
 let activeModelDownloadPromise = null;
 
 window.fetchSherpaModel = async function(url) {
@@ -254,18 +266,38 @@ window.fetchSherpaModel = async function(url) {
 
       const cached = await getCachedModel(targetUrl);
       if (cached && cached.byteLength > 50000000) {
+        reportSherpaModelProgress(cached.byteLength, cached.byteLength);
         return new Uint8Array(cached);
       }
+
+      // Initial progress report (0%)
+      reportSherpaModelProgress(0, 72705392);
 
       // Probe size and range support
       let totalSize = 72705392;
       let supportsRanges = false;
+      let activeUrl = targetUrl;
+
       try {
-        const headRes = await fetch(targetUrl, { method: 'HEAD' });
-        const len = headRes.headers.get('content-length');
-        if (len) totalSize = parseInt(len, 10);
-        supportsRanges = headRes.headers.get('accept-ranges') === 'bytes';
-      } catch (_) {}
+        let headRes = await fetch(activeUrl, { method: 'HEAD' });
+        const cType = headRes.headers.get('content-type') || '';
+        const cLen = parseInt(headRes.headers.get('content-length') || '0', 10);
+
+        // Fallback for local Flutter dev server (where /download-model serves index.html)
+        if (!headRes.ok || cType.includes('text/html') || (headRes.status === 200 && cLen < 1000000)) {
+          console.warn('[Sherpa] /download-model is not serving ONNX binary. Falling back to direct CDN mirror...');
+          activeUrl = 'https://tathbeet.pythonanywhere.com/api/recitation/model/';
+          headRes = await fetch(activeUrl, { method: 'HEAD' }).catch(() => null);
+        }
+
+        if (headRes && headRes.ok) {
+          const len = headRes.headers.get('content-length');
+          if (len) totalSize = parseInt(len, 10);
+          supportsRanges = headRes.headers.get('accept-ranges') === 'bytes';
+        }
+      } catch (e) {
+        console.warn('[Sherpa] Probe HEAD failed, falling back:', e);
+      }
 
       let arrayBuffer = null;
       if (supportsRanges && totalSize > 10000000) {
@@ -273,19 +305,39 @@ window.fetchSherpaModel = async function(url) {
           // 4-way parallel chunk download
           const numChunks = 4;
           const chunkSize = Math.ceil(totalSize / numChunks);
+          const chunkLoaded = new Array(numChunks).fill(0);
+
+          const updateProgress = () => {
+            const sum = chunkLoaded.reduce((a, b) => a + b, 0);
+            reportSherpaModelProgress(sum, totalSize);
+          };
 
           const chunkPromises = Array.from({ length: numChunks }, (_, i) => {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize - 1, totalSize - 1);
+            const expectedSize = end - start + 1;
 
             return new Promise((resolve, reject) => {
               const xhr = new XMLHttpRequest();
-              xhr.open('GET', targetUrl, true);
+              xhr.open('GET', activeUrl, true);
               xhr.responseType = 'arraybuffer';
               xhr.setRequestHeader('Range', `bytes=${start}-${end}`);
+
+              xhr.onprogress = (e) => {
+                chunkLoaded[i] = Math.min(e.loaded, expectedSize);
+                updateProgress();
+              };
+
               xhr.onload = () => {
                 if (xhr.status === 206) {
+                  chunkLoaded[i] = xhr.response.byteLength;
+                  updateProgress();
                   resolve({ index: i, buffer: xhr.response });
+                } else if (xhr.status === 200 && xhr.response.byteLength > 50000000) {
+                  // Upstream server returned entire file in this request
+                  chunkLoaded[i] = xhr.response.byteLength;
+                  updateProgress();
+                  resolve({ index: 0, fullBuffer: xhr.response });
                 } else {
                   reject(new Error(`Chunk ${i} HTTP ${xhr.status}`));
                 }
@@ -296,15 +348,19 @@ window.fetchSherpaModel = async function(url) {
           });
 
           const results = await Promise.all(chunkPromises);
-          results.sort((a, b) => a.index - b.index);
-
-          const assembled = new Uint8Array(totalSize);
-          let offset = 0;
-          for (const r of results) {
-            assembled.set(new Uint8Array(r.buffer), offset);
-            offset += r.buffer.byteLength;
+          const fullRes = results.find((r) => r && r.fullBuffer);
+          if (fullRes) {
+            arrayBuffer = fullRes.fullBuffer;
+          } else {
+            results.sort((a, b) => a.index - b.index);
+            const assembled = new Uint8Array(totalSize);
+            let offset = 0;
+            for (const r of results) {
+              assembled.set(new Uint8Array(r.buffer), offset);
+              offset += r.buffer.byteLength;
+            }
+            arrayBuffer = assembled.buffer;
           }
-          arrayBuffer = assembled.buffer;
         } catch (chunkErr) {
           console.warn('[Sherpa] Multi-chunk download failed, gracefully falling back to single stream:', chunkErr);
           arrayBuffer = null;
@@ -312,18 +368,29 @@ window.fetchSherpaModel = async function(url) {
       }
 
       if (!arrayBuffer) {
-        // Single-stream fallback
+        // Single-stream fallback with live progress
         arrayBuffer = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open('GET', targetUrl, true);
+          xhr.open('GET', activeUrl, true);
           xhr.responseType = 'arraybuffer';
-          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve(xhr.response) : reject(new Error(`HTTP ${xhr.status}`));
+          xhr.onprogress = (e) => {
+            reportSherpaModelProgress(e.loaded, e.total || totalSize);
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300 && xhr.response.byteLength > 1000000) {
+              reportSherpaModelProgress(xhr.response.byteLength, xhr.response.byteLength);
+              resolve(xhr.response);
+            } else {
+              reject(new Error(`HTTP ${xhr.status}`));
+            }
+          };
           xhr.onerror = () => reject(new Error('Network error'));
           xhr.send();
         });
       }
 
       cacheModel(targetUrl, arrayBuffer);
+      reportSherpaModelProgress(totalSize, totalSize);
       return new Uint8Array(arrayBuffer);
     } catch (err) {
       console.error('[Sherpa] Model download failed:', err);

@@ -39,6 +39,8 @@ import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
 import 'maglis/maglis_core.dart';
 import 'services/app_audio_processor.dart';
+import 'ui/widgets/mushaf/web/mushaf_web_storage.dart'
+    if (dart.library.js_interop) 'ui/widgets/mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -240,6 +242,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   @override
   void initState() {
     super.initState();
+    initModelDownloadTracker();
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
@@ -503,8 +506,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     if (!_engine.isInitialized) {
       if (mounted) setState(() => _isEngineLoading = true);
+      AppState.instance.startModelDownload();
       try {
         await _engine.initialize();
+        AppState.instance.completeModelDownload();
+      } catch (e) {
+        AppState.instance.resetModelDownload();
+        rethrow;
       } finally {
         if (mounted) setState(() => _isEngineLoading = false);
       }

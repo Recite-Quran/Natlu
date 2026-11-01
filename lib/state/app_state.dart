@@ -31,6 +31,25 @@ enum AudioFailureReason {
   unknown,
 }
 
+/// Real-time Sherpa ASR model download progress tracker for Web.
+class ModelDownloadProgress {
+  final bool isDownloading;
+  final double progress;
+  final int loadedBytes;
+  final int totalBytes;
+
+  const ModelDownloadProgress({
+    this.isDownloading = false,
+    this.progress = 0.0,
+    this.loadedBytes = 0,
+    this.totalBytes = 72705392,
+  });
+
+  double get loadedMB => loadedBytes / (1024 * 1024);
+  double get totalMB => totalBytes / (1024 * 1024);
+  int get percent => (progress * 100).clamp(0, 100).toInt();
+}
+
 /// Data payload for modern floating slide-up banners across the app.
 class AppBannerInfo {
   final String id;
@@ -71,6 +90,45 @@ class AppState extends ChangeNotifier {
       ValueNotifier<AppMode>(AppMode.wordChecker);
   final ValueNotifier<AppBannerInfo?> bannerNotifier =
       ValueNotifier<AppBannerInfo?>(null);
+
+  /// Web AI model download progress notifier (fine-grained reactive updates).
+  final ValueNotifier<ModelDownloadProgress> modelDownloadNotifier =
+      ValueNotifier<ModelDownloadProgress>(const ModelDownloadProgress());
+
+  void updateModelDownloadProgress({
+    required int loaded,
+    required int total,
+    required double fraction,
+  }) {
+    modelDownloadNotifier.value = ModelDownloadProgress(
+      isDownloading: fraction < 1.0,
+      progress: fraction,
+      loadedBytes: loaded,
+      totalBytes: total > 0 ? total : 72705392,
+    );
+  }
+
+  void startModelDownload() {
+    modelDownloadNotifier.value = const ModelDownloadProgress(
+      isDownloading: true,
+      progress: 0.0,
+      loadedBytes: 0,
+      totalBytes: 72705392,
+    );
+  }
+
+  void completeModelDownload() {
+    modelDownloadNotifier.value = const ModelDownloadProgress(
+      isDownloading: false,
+      progress: 1.0,
+      loadedBytes: 72705392,
+      totalBytes: 72705392,
+    );
+  }
+
+  void resetModelDownload() {
+    modelDownloadNotifier.value = const ModelDownloadProgress();
+  }
 
   SharedPreferences? _prefs;
 
