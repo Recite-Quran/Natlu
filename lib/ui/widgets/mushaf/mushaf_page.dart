@@ -399,19 +399,28 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       } else if (widget.isRecording && (hasMatchedAyah || hasRecitingAyah)) {
         final int s = activeMatch?.verse.surah ?? targetSurah;
         final int a = activeMatch?.verse.ayah ?? activeAyah!;
+        int lastSpokenWord0 = -1;
+        int? firstWordIdx;
         for (final w in page.words) {
           if (w.surah == s && w.ayah == a) {
+            firstWordIdx ??= w.index;
             final w0 = w.word - 1;
-            if (!ctrl.isWordGreen(w.ayah, w0, surah: w.surah) &&
-                !ctrl.isWordRed(w.ayah, w0, surah: w.surah) &&
-                !ctrl.isWordYellow(w.ayah, w0, surah: w.surah) &&
-                !ctrl.isWordNeutral(w.ayah, w0, surah: w.surah)) {
-              activeWord = w.index;
-              break;
+            if (ctrl.isWordGreen(w.ayah, w0, surah: w.surah) ||
+                ctrl.isWordRed(w.ayah, w0, surah: w.surah) ||
+                ctrl.isWordYellow(w.ayah, w0, surah: w.surah) ||
+                ctrl.isWordNeutral(w.ayah, w0, surah: w.surah)) {
+              if (w0 > lastSpokenWord0) lastSpokenWord0 = w0;
             }
           } else if (w.surah > s || (w.surah == s && w.ayah > a)) {
             break;
           }
+        }
+        if (lastSpokenWord0 >= 0) {
+          _ensurePageWordsIndexed(page);
+          final idx = _pageWordMap[MaglisController.wordKey(s, a, lastSpokenWord0 + 1)];
+          if (idx != null && idx >= 0) activeWord = idx;
+        } else {
+          activeWord = firstWordIdx;
         }
       }
 
@@ -454,7 +463,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
       // Blur/concealing is only effectively applied when actively recording or in a Maglis session
       final bool isBlurEffective =
-          app.isBlurMode && (widget.isRecording || inMaglis);
+          app.isBlurEffective(isRecording: widget.isRecording);
 
       // Smart guard: If in Maglis and not recording, and no new highlights/events, skip redundant scanning
       final bool skipRemoteWordScan = inMaglis &&

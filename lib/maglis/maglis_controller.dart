@@ -31,7 +31,6 @@ class MaglisController extends ChangeNotifier {
   String get localPeerId => _localPeerId;
   String? _activeReciterId;
   String? _natFailedPeer;
-  int _participantCount = 1;
 
   int _remotePage = 1;
   int _remoteSurah = 1;
@@ -50,8 +49,6 @@ class MaglisController extends ChangeNotifier {
   final MaglisHighlightStore _highlightStore = MaglisHighlightStore();
 
   Map<String, RTCIceConnectionState> _peers = {};
-  final Set<String> _connectedPeers = <String>{};
-  final Map<String, Timer> _peerDisconnectTimers = {};
 
   final ChangeNotifier _sessionNotifier = ChangeNotifier();
   Listenable get sessionListenable => _sessionNotifier;
@@ -96,10 +93,8 @@ class MaglisController extends ChangeNotifier {
   }
 
   void _onPeerJoined(String peerId) {
-    if (_connectedPeers.add(peerId)) {
-      AppState.instance.showMaglisPeerJoinedBanner();
-      _notifySessionChanged();
-    }
+    AppState.instance.showMaglisPeerJoinedBanner();
+    _notifySessionChanged();
   }
 
   void _onPeerLeft(String peerId) {
@@ -109,12 +104,10 @@ class MaglisController extends ChangeNotifier {
       _remoteWord = null;
       reciterLeft = true;
     }
-    if (_connectedPeers.remove(peerId)) {
-      AppState.instance.showMaglisPeerLeftBanner();
-      _notifySessionChanged();
-      if (reciterLeft) {
-        notifyListeners();
-      }
+    AppState.instance.showMaglisPeerLeftBanner();
+    _notifySessionChanged();
+    if (reciterLeft) {
+      notifyListeners();
     }
   }
 
@@ -123,7 +116,7 @@ class MaglisController extends ChangeNotifier {
   bool get isHost => _net?.isHost ?? false;
   String? get activeReciterId => _activeReciterId;
   String? get natFailedPeer => _natFailedPeer;
-  int get participantCount => _inSession ? (_connectedPeers.length + 1) : 1;
+  int get participantCount => _inSession ? (_net?.participantCount ?? 1) : 1;
   bool get isLocalReciting => _inSession && _activeReciterId == localPeerId;
   bool get isRemoteReciting =>
       _inSession && _activeReciterId != null && _activeReciterId != localPeerId;
@@ -205,58 +198,14 @@ class MaglisController extends ChangeNotifier {
         localPeerId: localPeerId,
         isHost: isHost,
         onBuildSnapshot: _buildSnapshot,
+        onParticipantJoined: _onPeerJoined,
+        onParticipantLeft: _onPeerLeft,
       );
 
       _pktSub = _net!.onPacket.listen(_handleIncomingPacket);
       _stateSub = _net!.onPeerStates.listen((map) {
-        bool peersChanged = false;
-        final currentConnected = map.entries
-            .where((e) =>
-                e.value == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-                e.value == RTCIceConnectionState.RTCIceConnectionStateCompleted)
-            .map((e) => e.key)
-            .toSet();
-
-        for (final peerId in currentConnected) {
-          _peerDisconnectTimers.remove(peerId)?.cancel();
-          if (!_connectedPeers.contains(peerId)) {
-            _onPeerJoined(peerId);
-            peersChanged = true;
-          }
-        }
-
-        for (final peerId in _connectedPeers.toList()) {
-          final state = map[peerId];
-          final bool isExplicitlyClosed =
-              state == RTCIceConnectionState.RTCIceConnectionStateClosed;
-          final bool isUnstableOrMissing = !map.containsKey(peerId) ||
-              state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-              state == RTCIceConnectionState.RTCIceConnectionStateFailed;
-
-          if (isExplicitlyClosed) {
-            _peerDisconnectTimers.remove(peerId)?.cancel();
-            _onPeerLeft(peerId);
-            peersChanged = true;
-          } else if (isUnstableOrMissing) {
-            if (!_peerDisconnectTimers.containsKey(peerId)) {
-              // Give an 8-second grace period for ICE to recover or renegotiate
-              // before considering the peer departed. Eliminates banner/state flapping!
-              _peerDisconnectTimers[peerId] =
-                  Timer(const Duration(seconds: 8), () {
-                _peerDisconnectTimers.remove(peerId);
-                if (_connectedPeers.contains(peerId)) {
-                  _onPeerLeft(peerId);
-                  _notifySessionChanged();
-                }
-              });
-            }
-          }
-        }
-
         _peers = map;
-        if (peersChanged) {
-          _notifySessionChanged();
-        }
+        _notifySessionChanged();
       });
       _natSub = _net!.onNatFailure.listen((peerId) {
         if (_natFailedPeer != peerId) {
@@ -264,13 +213,9 @@ class MaglisController extends ChangeNotifier {
           _notifySessionChanged();
         }
       });
-      _participantSub = _net!.onParticipantCount.listen((count) {
-        if (_participantCount != count) {
-          _participantCount = count;
-          _notifySessionChanged();
-        }
+      _participantSub = _net!.onParticipantCount.listen((_) {
+        _notifySessionChanged();
       });
-      _participantCount = _net!.participantCount;
 
       // Connect and establish room presence across relays (throws if offline or unreachable)
       await _net!.start();
@@ -313,10 +258,6 @@ class MaglisController extends ChangeNotifier {
   }
 
   void _handleIncomingPacket(MaglisPacket pkt) {
-    if (pkt.senderId.isNotEmpty && pkt.senderId != localPeerId) {
-      _onPeerJoined(pkt.senderId);
-    }
-
     // Merge cumulative and live words into persistent room highlights with fast radix decoding
     bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
@@ -713,8 +654,6 @@ class MaglisController extends ChangeNotifier {
     await _net?.dispose();
     _net = null;
     _peers = {};
-    _connectedPeers.clear();
-    _participantCount = 1;
     _remoteGreenWords = const [];
     _remoteYellowWords = const [];
     _remoteRedWords = const [];
@@ -723,10 +662,6 @@ class MaglisController extends ChangeNotifier {
     _lastBroadcastSurah = null;
     _lastBroadcastAyah = null;
     _lastBroadcastWord = null;
-    for (final t in List<Timer>.from(_peerDisconnectTimers.values)) {
-      t.cancel();
-    }
-    _peerDisconnectTimers.clear();
     if (resetHardwareAudio) {
       await MaglisPlatform.resetAudio();
     }

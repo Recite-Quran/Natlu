@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -71,8 +72,18 @@ class MaglisConfigManager {
     } catch (_) {}
   }
 
+  static List<String>? _testRelays;
+
+  @visibleForTesting
+  static void setRelaysForTesting(List<String>? testRelays) {
+    _testRelays = testRelays != null ? List.from(testRelays) : null;
+  }
+
   /// Deterministically distributes Nostr relays across rooms based on 5-digit roomCode hash.
   static List<String> roomRelaysForCode(String code) {
+    if (_testRelays != null && _testRelays!.isNotEmpty) {
+      return List.from(_testRelays!);
+    }
     if (_relays.isEmpty) return const [];
     if (_relays.length <= 2) return _relays;
     final primary = _relays.first;

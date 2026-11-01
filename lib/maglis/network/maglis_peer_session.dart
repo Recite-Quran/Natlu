@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../maglis_core.dart';
 import 'maglis_config_manager.dart';
 import 'maglis_media_helper.dart';
+import 'maglis_participant.dart';
 
 /// MaglisPeerSession
 ///
@@ -278,72 +279,80 @@ class MaglisPeerSession {
       });
     };
 
+    const iceHandler = CallingIceStateHandler();
     pc.onIceConnectionState = (RTCIceConnectionState state) {
       if (disposed) return;
       peerStates[remoteId] = state;
       onStatesChanged(Map.unmodifiable(peerStates));
 
-      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
-        reconnectAttempts.remove(remoteId);
-        isRestartInProgress[remoteId] = false;
-        recoveryWindows.remove(remoteId)?.cancel();
-        iceRestartGraceTimers[remoteId]?.cancel();
-        iceRestartGraceTimers.remove(remoteId);
-        checkSocketSleepState();
-        MaglisPlatform.setSpeaker(true);
-      } else if (state ==
-              RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        checkSocketSleepState();
-        if (isRestartInProgress[remoteId] == true) return;
+      iceHandler.handle(
+        state,
+        onConnected: () {
+          reconnectAttempts.remove(remoteId);
+          isRestartInProgress[remoteId] = false;
+          recoveryWindows.remove(remoteId)?.cancel();
+          iceRestartGraceTimers[remoteId]?.cancel();
+          iceRestartGraceTimers.remove(remoteId);
+          checkSocketSleepState();
+          MaglisPlatform.setSpeaker(true);
+        },
+        onHangup: () {
+          checkSocketSleepState();
+          if (isRestartInProgress[remoteId] == true) return;
 
-        // Bounded 15s recovery window (noscall pattern)
-        final window = recoveryWindows.putIfAbsent(
-          remoteId,
-          () => MaglisPeerRecoveryWindow(),
-        );
+          // Bounded 15s recovery window (noscall pattern)
+          final window = recoveryWindows.putIfAbsent(
+            remoteId,
+            () => MaglisPeerRecoveryWindow(),
+          );
 
-        window.start(
-          onTimeout: () {
-            if (!disposed &&
-                (peerStates[remoteId] ==
-                        RTCIceConnectionState.RTCIceConnectionStateFailed ||
-                    peerStates[remoteId] ==
-                        RTCIceConnectionState
-                            .RTCIceConnectionStateDisconnected)) {
-              onNatFailure(remoteId);
-              lastSeenPeerMs[remoteId] = 0;
-              onPeerClosed(remoteId);
-              unawaited(cleanupPeer(remoteId));
-              checkSocketSleepState();
-            }
-          },
-          onRetry: () {
-            if (!disposed &&
-                (peerStates[remoteId] ==
-                        RTCIceConnectionState.RTCIceConnectionStateFailed ||
-                    peerStates[remoteId] ==
-                        RTCIceConnectionState
-                            .RTCIceConnectionStateDisconnected)) {
-              final attempts = (reconnectAttempts[remoteId] ?? 0) + 1;
-              reconnectAttempts[remoteId] = attempts;
-              final isInitiator = localPeerId.compareTo(remoteId) < 0;
-              if (isInitiator) {
-                triggerIceRestart(remoteId);
-              } else {
-                sendSignal('reconnect_request',
-                    targetId: remoteId, data: const {});
+          window.start(
+            onTimeout: () {
+              if (!disposed &&
+                  (peerStates[remoteId] ==
+                          RTCIceConnectionState.RTCIceConnectionStateFailed ||
+                      peerStates[remoteId] ==
+                          RTCIceConnectionState
+                              .RTCIceConnectionStateDisconnected)) {
+                onNatFailure(remoteId);
+                lastSeenPeerMs[remoteId] = 0;
+                onPeerClosed(remoteId);
+                unawaited(cleanupPeer(remoteId));
+                checkSocketSleepState();
               }
-            }
-          },
-        );
-      }
+            },
+            onRetry: () {
+              if (!disposed &&
+                  (peerStates[remoteId] ==
+                          RTCIceConnectionState.RTCIceConnectionStateFailed ||
+                      peerStates[remoteId] ==
+                          RTCIceConnectionState
+                              .RTCIceConnectionStateDisconnected)) {
+                final attempts = (reconnectAttempts[remoteId] ?? 0) + 1;
+                reconnectAttempts[remoteId] = attempts;
+                final isInitiator = localPeerId.compareTo(remoteId) < 0;
+                if (isInitiator) {
+                  triggerIceRestart(remoteId);
+                } else {
+                  sendSignal('reconnect_request',
+                      targetId: remoteId, data: const {});
+                }
+              }
+            },
+          );
+        },
+      );
     };
 
     pc.onConnectionState = (RTCPeerConnectionState state) {
       if (disposed) return;
-      if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        peerStates[remoteId] =
+            RTCIceConnectionState.RTCIceConnectionStateConnected;
+        if (!disposed) {
+          onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
+        }
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         lastSeenPeerMs[remoteId] = 0;
         onPeerClosed(remoteId);
         unawaited(cleanupPeer(remoteId));
@@ -373,6 +382,14 @@ class MaglisPeerSession {
         try {
           Helper.setVolume(shouldHear ? 1.0 : 0.0, ev.track);
         } catch (_) {}
+        if (peerStates[remoteId] !=
+            RTCIceConnectionState.RTCIceConnectionStateConnected) {
+          peerStates[remoteId] =
+              RTCIceConnectionState.RTCIceConnectionStateConnected;
+          if (!disposed) {
+            onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
+          }
+        }
         MaglisPlatform.setSpeaker(true);
       }
     };
@@ -587,12 +604,27 @@ class MaglisPeerSession {
 
     void onChannelOpen() {
       lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
+      peerStates[remoteId] =
+          RTCIceConnectionState.RTCIceConnectionStateConnected;
+      if (!disposed) {
+        onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
+      }
       checkSocketSleepState();
 
       if (!isLossy) {
         try {
           dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
         } catch (_) {}
+
+        // Hedged 350ms follow-up snapshot guarantees state synchronization
+        // even if initial frame was sent before remote listener binding completed.
+        Future.delayed(const Duration(milliseconds: 350), () {
+          if (!disposed && dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+            try {
+              dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+            } catch (_) {}
+          }
+        });
 
         final activeOthers =
             peers.keys.where((p) => p != remoteId && p != localPeerId).toList();
@@ -627,6 +659,28 @@ class MaglisPeerSession {
       }
     }
 
+    // Attach dc.onMessage FIRST before inspecting dc.state or triggering onChannelOpen
+    dc.onMessage = (RTCDataChannelMessage msg) {
+      lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
+      if (peerStates[remoteId] !=
+          RTCIceConnectionState.RTCIceConnectionStateConnected) {
+        peerStates[remoteId] =
+            RTCIceConnectionState.RTCIceConnectionStateConnected;
+        if (!disposed) {
+          onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
+        }
+      }
+      if (msg.isBinary) {
+        final pkt = MaglisPacket.unpackBinary(msg.binary);
+        if (pkt != null) {
+          handleIncomingPacket(pkt);
+        }
+        return;
+      }
+      if (msg.text.isEmpty) return;
+      handleIncomingPacketString(msg.text);
+    };
+
     dc.onDataChannelState = (RTCDataChannelState state) {
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         onChannelOpen();
@@ -652,19 +706,6 @@ class MaglisPeerSession {
     if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
       onChannelOpen();
     }
-
-    dc.onMessage = (RTCDataChannelMessage msg) {
-      lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
-      if (msg.isBinary) {
-        final pkt = MaglisPacket.unpackBinary(msg.binary);
-        if (pkt != null) {
-          handleIncomingPacket(pkt);
-        }
-        return;
-      }
-      if (msg.text.isEmpty) return;
-      handleIncomingPacketString(msg.text);
-    };
   }
 
   void handleIncomingPacketString(String raw) {
@@ -701,19 +742,32 @@ class MaglisPeerSession {
 
   void handleIncomingPacket(MaglisPacket pkt) {
     try {
+      if (pkt.senderId.isNotEmpty && pkt.senderId != localPeerId) {
+        lastSeenPeerMs[pkt.senderId] = DateTime.now().millisecondsSinceEpoch;
+        if (peerStates[pkt.senderId] !=
+            RTCIceConnectionState.RTCIceConnectionStateConnected) {
+          peerStates[pkt.senderId] =
+              RTCIceConnectionState.RTCIceConnectionStateConnected;
+          if (!disposed) {
+            onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
+          }
+        }
+      }
+
       if (pkt.type == MaglisPacketType.ping) {
         dispatchRaw(jsonEncode({
           't': 5,
           'u': localPeerId,
           'm': pkt.ts,
         }));
+        onPacketReceived(pkt);
         return;
       }
       if (pkt.type == MaglisPacketType.pong) {
         final now = DateTime.now().millisecondsSinceEpoch;
         final rtt = (now - pkt.ts).clamp(0, 10000);
         peerLatency[pkt.senderId] = rtt;
-        lastSeenPeerMs[pkt.senderId] = now;
+        onPacketReceived(pkt);
         return;
       }
 

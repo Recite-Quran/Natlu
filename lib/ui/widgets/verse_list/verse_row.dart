@@ -482,13 +482,18 @@ class _VerseRowState extends State<VerseRow> {
     }
 
     final words = widget.verse.uthmaniWords;
+    int lastSpoken = -1;
     for (int i = 0; i < words.length; i++) {
-      if (!widget.controller.isWordGreen(ayah, i, surah: widget.verse.surah) &&
-          !widget.controller.isWordRed(ayah, i, surah: widget.verse.surah) &&
-          !widget.controller.isWordYellow(ayah, i, surah: widget.verse.surah) &&
-          !widget.controller.isWordNeutral(ayah, i, surah: widget.verse.surah)) {
-        return i; // First unspoken word: incoming/waited word to be dictated!
+      if (widget.controller.isWordGreen(ayah, i, surah: widget.verse.surah) ||
+          widget.controller.isWordRed(ayah, i, surah: widget.verse.surah) ||
+          widget.controller.isWordYellow(ayah, i, surah: widget.verse.surah) ||
+          widget.controller.isWordNeutral(ayah, i, surah: widget.verse.surah)) {
+        lastSpoken = i;
       }
+    }
+    final int nextTarget = lastSpoken >= 0 ? lastSpoken + 1 : 0;
+    if (nextTarget < words.length) {
+      return nextTarget;
     }
     return -1; // All words in this Ayah have been recited
   }
@@ -679,8 +684,10 @@ class _VerseRowState extends State<VerseRow> {
     }
     hash = hash * 31 + wordColorsHash;
 
-    hash = hash * 31 + (app.isBlurMode ? 1 : 0);
-    hash = hash * 31 + (app.isBlurMode && widget.isAutoScrolling ? 1 : 0);
+    final bool isBlurEffective =
+        app.isBlurEffective(isRecording: widget.isRecording);
+    hash = hash * 31 + (isBlurEffective ? 1 : 0);
+    hash = hash * 31 + (isBlurEffective && widget.isAutoScrolling ? 1 : 0);
     hash = hash * 31 + app.fontSize.hashCode;
     hash = hash * 31 + app.theme.index;
     hash = hash * 31 + (app.hasClickedTajweedWord ? 1 : 0);

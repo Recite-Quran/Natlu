@@ -30,9 +30,10 @@ class VerseSpanBuilder {
     required ThemeColors colors,
     required bool isAutoScrolling,
     int? surah,
+    bool isBlurEffective = false,
   }) {
     if (wordIndex < 0) return colors.text;
-    if (app.isBlurMode && !isAutoScrolling) {
+    if (isBlurEffective && !isAutoScrolling) {
       final isRead = controller.isWordGreen(ayah, wordIndex, surah: surah) ||
           controller.isWordRed(ayah, wordIndex, surah: surah) ||
           controller.isWordYellow(ayah, wordIndex, surah: surah) ||
@@ -67,6 +68,8 @@ class VerseSpanBuilder {
   }) {
     final List<InlineSpan> spans = [];
     final bool enableGestures = !isAutoScrolling;
+    final bool isBlurEffective =
+        app.isBlurEffective(isRecording: isRecording);
 
     final TextStyle defaultStyle = TextStyle(
       fontFamily: 'HafsSmart',
@@ -86,7 +89,7 @@ class VerseSpanBuilder {
     // when the user deselects them or stops recording.
     final bool hasHighlights = isActive ||
         isRecording ||
-        app.isBlurMode ||
+        isBlurEffective ||
         controller.globalRevision.value > 0 ||
         controller.completedAyahsFor(surah ?? controller.targetSurah).contains(ayah);
 
@@ -100,6 +103,7 @@ class VerseSpanBuilder {
               colors: colors,
               isAutoScrolling: isAutoScrolling,
               surah: surah,
+              isBlurEffective: isBlurEffective,
             )
           : colors.text;
 

@@ -9,6 +9,7 @@ import 'network/maglis_config_manager.dart';
 import 'network/maglis_media_helper.dart';
 import 'network/maglis_relay_fleet.dart';
 import 'network/maglis_peer_session.dart';
+import 'network/maglis_participant.dart';
 
 export 'network/maglis_config_manager.dart';
 export 'network/maglis_media_helper.dart';
@@ -16,6 +17,7 @@ export 'network/maglis_relay_fleet.dart';
 export 'network/maglis_peer_session.dart';
 export 'network/maglis_reconnection_scheduler.dart';
 export 'network/maglis_room_discovery.dart';
+export 'network/maglis_participant.dart';
 
 /// MaglisNetworkEngine
 ///
@@ -51,16 +53,24 @@ class MaglisNetworkEngine {
   bool _isHost;
   bool get isHost => _isHost;
   final MaglisPacket Function() onBuildSnapshot;
+  final void Function(String peerId)? onParticipantJoined;
+  final void Function(String peerId)? onParticipantLeft;
 
   late final MaglisRelayFleet _relayFleet;
   late final MaglisPeerSession _peerSession;
+
+  @visibleForTesting
+  MaglisRelayFleet get relayFleet => _relayFleet;
+
+  @visibleForTesting
+  MaglisPeerSession get peerSession => _peerSession;
 
   final _packetCtrl = StreamController<MaglisPacket>.broadcast();
   final _statesCtrl = StreamController<Map<String, RTCIceConnectionState>>.broadcast();
   final _natFailCtrl = StreamController<String>.broadcast();
   final _participantCountCtrl = StreamController<int>.broadcast();
 
-  final Set<String> _roomParticipants = <String>{};
+  final ParticipantCollection remoteParticipants = ParticipantCollection();
   final Set<String> _admittedPeers = <String>{};
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
@@ -78,6 +88,8 @@ class MaglisNetworkEngine {
     required this.localPeerId,
     bool isHost = true,
     required this.onBuildSnapshot,
+    this.onParticipantJoined,
+    this.onParticipantLeft,
   })  : roomCode = normalizeArabicDigits(roomCode.trim()),
         _isHost = isHost {
     _relayFleet = MaglisRelayFleet(
@@ -94,13 +106,20 @@ class MaglisNetworkEngine {
           _relayFleet.sendSignal(type, targetId: targetId, data: data),
       onBuildSnapshot: onBuildSnapshot,
       onNatFailure: (peerId) => _natFailCtrl.add(peerId),
-      onStatesChanged: (states) => _statesCtrl.add(states),
-      onPacketReceived: (packet) => _packetCtrl.add(packet),
+      onStatesChanged: (states) {
+        for (final entry in states.entries) {
+          _addOrUpdateParticipant(entry.key, iceState: entry.value);
+        }
+        _statesCtrl.add(states);
+      },
+      onPacketReceived: (packet) {
+        if (packet.senderId.isNotEmpty && packet.senderId != localPeerId) {
+          _addOrUpdateParticipant(packet.senderId, dataChannelOpen: true);
+        }
+        _packetCtrl.add(packet);
+      },
       onPeerClosed: (peerId) {
-        _roomParticipants.remove(peerId);
-        _admittedPeers.remove(peerId);
-        _participantCountCtrl.add(participantCount);
-        _checkHostMigration();
+        _removeParticipant(peerId);
       },
       onPeerListDiscovered: (discoveredPeers) {
         for (final p in discoveredPeers) {
@@ -109,11 +128,9 @@ class MaglisNetworkEngine {
               id != localPeerId &&
               !_peerSession.peers.containsKey(id) &&
               !_peerSession.negotiatingPeers.contains(id)) {
-            if (_roomParticipants.length < maxRemotePeers) {
+            if (remoteParticipants.length < maxRemotePeers) {
               _admittedPeers.add(id);
-              if (_roomParticipants.add(id)) {
-                _participantCountCtrl.add(participantCount);
-              }
+              _addOrUpdateParticipant(id);
               final isInitiator = localPeerId.compareTo(id) < 0;
               if (isInitiator) {
                 unawaited(_peerSession.initiatePeerConnection(id));
@@ -128,11 +145,51 @@ class MaglisNetworkEngine {
     );
   }
 
+  void _addOrUpdateParticipant(
+    String peerId, {
+    RTCIceConnectionState? iceState,
+    bool? dataChannelOpen,
+  }) {
+    if (peerId.isEmpty || peerId == localPeerId) return;
+    if (_disposed) return;
+    if (iceState == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+      _removeParticipant(peerId);
+      return;
+    }
+
+    var p = remoteParticipants.get(peerId);
+    final bool isNew = p == null;
+    if (isNew) {
+      if (remoteParticipants.length >= maxRemotePeers) return;
+      p = MaglisRemoteParticipant(
+        identity: peerId,
+        iceState: iceState ?? RTCIceConnectionState.RTCIceConnectionStateNew,
+        isDataChannelOpen: dataChannelOpen ?? false,
+      );
+      remoteParticipants.set(p);
+      _participantCountCtrl.add(participantCount);
+      onParticipantJoined?.call(peerId);
+    } else {
+      if (iceState != null) p.iceState = iceState;
+      if (dataChannelOpen != null) p.isDataChannelOpen = dataChannelOpen;
+      p.lastSeenMs = DateTime.now().millisecondsSinceEpoch;
+    }
+  }
+
+  void _removeParticipant(String peerId) {
+    if (remoteParticipants.removeByIdentity(peerId) != null) {
+      _admittedPeers.remove(peerId);
+      _participantCountCtrl.add(participantCount);
+      onParticipantLeft?.call(peerId);
+      _checkHostMigration();
+    }
+  }
+
   Stream<MaglisPacket> get onPacket => _packetCtrl.stream;
   Stream<Map<String, RTCIceConnectionState>> get onPeerStates => _statesCtrl.stream;
   Stream<String> get onNatFailure => _natFailCtrl.stream;
   Stream<int> get onParticipantCount => _participantCountCtrl.stream;
-  int get participantCount => _roomParticipants.length + 1; // self + remote
+  int get participantCount => _disposed ? 1 : (remoteParticipants.length + 1); // self + remote
   bool get isMicMuted => _peerSession.isMicMuted;
   int getPeerLatency(String peerId) => _peerSession.getPeerLatency(peerId);
   Map<String, MaglisPeerDiagnostics> get peerDiagnostics => _peerSession.peerDiagnostics;
@@ -140,15 +197,15 @@ class MaglisNetworkEngine {
 
   int get _activeRemoteParticipantCount {
     final now = DateTime.now().millisecondsSinceEpoch;
-    return _roomParticipants.where((p) {
-      final state = _peerSession.peerStates[p];
+    return remoteParticipants.where((p) {
+      final state = _peerSession.peerStates[p.identity];
       final isAlive =
           state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
               state == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
               state == RTCIceConnectionState.RTCIceConnectionStateChecking ||
               state == RTCIceConnectionState.RTCIceConnectionStateNew ||
-              _peerSession.negotiatingPeers.contains(p);
-      final lastSeen = _peerSession.lastSeenPeerMs[p] ?? 0;
+              _peerSession.negotiatingPeers.contains(p.identity);
+      final lastSeen = _peerSession.lastSeenPeerMs[p.identity] ?? p.lastSeenMs;
       return isAlive || (now - lastSeen) < 22000;
     }).length;
   }
@@ -286,7 +343,7 @@ class MaglisNetworkEngine {
       }
 
       // Periodic Mesh Self-Healing Audit
-      for (final p in _roomParticipants.toList()) {
+      for (final p in remoteParticipants.identities) {
         if (!_peerSession.peers.containsKey(p) && !_peerSession.negotiatingPeers.contains(p)) {
           final isInitiator = localPeerId.compareTo(p) < 0;
           if (isInitiator) {
@@ -330,9 +387,8 @@ class MaglisNetworkEngine {
     }
 
     _peerSession.lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
-    if (!isProbe && !_roomParticipants.contains(remoteId)) {
-      _roomParticipants.add(remoteId);
-      _participantCountCtrl.add(participantCount);
+    if (!isProbe) {
+      _addOrUpdateParticipant(remoteId);
     }
 
     // Deterministic Host Arbitration & Lease Tracking:
@@ -349,7 +405,7 @@ class MaglisNetworkEngine {
         if (_isHost) {
           if (_activeRemoteParticipantCount >= maxRemotePeers &&
               !_admittedPeers.contains(remoteId) &&
-              !_roomParticipants.contains(remoteId)) {
+              !remoteParticipants.containsIdentity(remoteId)) {
             await _relayFleet.sendSignal('join_reject',
                 targetId: remoteId, data: {'reason': 'full'});
           } else {
@@ -462,10 +518,7 @@ class MaglisNetworkEngine {
         break;
 
       case 'leave':
-        _roomParticipants.remove(remoteId);
-        _admittedPeers.remove(remoteId);
-        _participantCountCtrl.add(participantCount);
-        _checkHostMigration();
+        _removeParticipant(remoteId);
         await _peerSession.cleanupPeer(remoteId);
         _relayFleet.checkSocketSleepState();
         break;
@@ -478,14 +531,14 @@ class MaglisNetworkEngine {
       // Host lease grace period: do not usurp host if last host signal was within 6s
       if (_lastKnownHostHeartbeatMs > 0 &&
           (now - _lastKnownHostHeartbeatMs) < 6000 &&
-          _roomParticipants.isNotEmpty) {
+          remoteParticipants.isNotEmpty) {
         return;
       }
 
-      if (_roomParticipants.isEmpty) {
+      if (remoteParticipants.isEmpty) {
         _isHost = true;
       } else {
-        final allPeers = [localPeerId, ..._roomParticipants]..sort();
+        final allPeers = [localPeerId, ...remoteParticipants.identities]..sort();
         if (allPeers.first == localPeerId) {
           _isHost = true;
         }
@@ -526,8 +579,9 @@ class MaglisNetworkEngine {
     if (_disposed) return;
     final now = DateTime.now().millisecondsSinceEpoch;
     final stalePeers = <String>[];
-    for (final peerId in List<String>.from(_roomParticipants)) {
-      final lastSeen = _peerSession.lastSeenPeerMs[peerId] ?? 0;
+    for (final p in List<MaglisRemoteParticipant>.from(remoteParticipants)) {
+      final peerId = p.identity;
+      final lastSeen = _peerSession.lastSeenPeerMs[peerId] ?? p.lastSeenMs;
       final state = _peerSession.peerStates[peerId];
       final isConnected =
           state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
@@ -572,15 +626,9 @@ class MaglisNetworkEngine {
     }
 
     for (final p in stalePeers) {
-      _roomParticipants.remove(p);
-      _admittedPeers.remove(p);
+      _removeParticipant(p);
       _peerSession.lastSeenPeerMs.remove(p);
       unawaited(_peerSession.cleanupPeer(p));
-    }
-    if (stalePeers.isNotEmpty) {
-      _participantCountCtrl.add(participantCount);
-      _checkHostMigration();
-      _relayFleet.checkSocketSleepState();
     }
   }
 
@@ -627,6 +675,8 @@ class MaglisNetworkEngine {
 
     await _peerSession.dispose();
     _relayFleet.dispose();
+    remoteParticipants.clear();
+    _admittedPeers.clear();
 
     await _packetCtrl.close();
     await _statesCtrl.close();
