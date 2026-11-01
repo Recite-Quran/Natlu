@@ -133,11 +133,13 @@ class MaglisPeerSession {
         dispatchReliable(pingJson);
       }
 
-      // Ghost peer reaping (noscall pattern): reap dead peers after 12s without packets
+      // Ghost peer reaping (noscall pattern): reap dead peers after 25s without packets.
+      // Skip peers with active recovery windows to avoid cutting off ICE restart attempts.
       final stalePeers = <String>[];
       for (final peerId in List<String>.from(peers.keys)) {
+        if (recoveryWindows[peerId]?.active == true) continue;
         final lastSeen = lastSeenPeerMs[peerId];
-        if (lastSeen != null && lastSeen > 0 && (now - lastSeen) > 12000) {
+        if (lastSeen != null && lastSeen > 0 && (now - lastSeen) > 25000) {
           stalePeers.add(peerId);
         }
       }
@@ -852,6 +854,10 @@ class MaglisPeerSession {
 
         if (localStream != null) {
           for (final track in localStream!.getAudioTracks()) {
+            track.enabled = !isMicMuted;
+            try {
+              Helper.setMicrophoneMute(isMicMuted, track);
+            } catch (_) {}
             try {
               final senders = await pc.getSenders();
               if (!senders.any((s) => s.track?.kind == 'audio')) {
@@ -878,6 +884,9 @@ class MaglisPeerSession {
         await flushIceQueue(remoteId);
         await sendSignal('answer',
             targetId: remoteId, data: {'sdp': mungedSdp});
+      } catch (e) {
+        debugPrint('[MaglisPeerSession] handleOffer SDP exchange error: $e');
+        await cleanupPeerInternal(remoteId);
       } finally {
         negotiatingPeers.remove(remoteId);
       }
@@ -954,12 +963,20 @@ class MaglisPeerSession {
         );
         for (final entry
             in List<MapEntry<String, RTCPeerConnection>>.from(peers.entries)) {
-          localStream?.getAudioTracks().forEach((track) {
-            track.enabled = true;
-            try {
-              entry.value.addTrack(track, localStream!);
-            } catch (_) {}
-          });
+          if (localStream != null) {
+            for (final track in localStream!.getAudioTracks()) {
+              track.enabled = true;
+              try {
+                Helper.setMicrophoneMute(false, track);
+              } catch (_) {}
+              try {
+                final senders = await entry.value.getSenders();
+                if (!senders.any((s) => s.track?.kind == 'audio')) {
+                  await entry.value.addTrack(track, localStream!);
+                }
+              } catch (_) {}
+            }
+          }
           final isInitiator = localPeerId.compareTo(entry.key) < 0;
           if (isInitiator) {
             triggerIceRestart(entry.key);

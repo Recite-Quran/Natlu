@@ -286,25 +286,36 @@ class MaglisController extends ChangeNotifier {
 
         if (pkt.senderId != s.localPeerId) {
           if (s.isLocalReciting) {
-            final localWins = s.localPeerId.compareTo(pkt.senderId) < 0;
-            if (localWins) {
-              s.net.sendPacket(
-                MaglisPacket(
-                  type: MaglisPacketType.floorClaim,
-                  seq: ++s.seq,
-                  senderId: s.localPeerId,
-                  page: s.remotePage,
-                  surah: s.remoteSurah,
-                  ayah: s.remoteAyah,
-                  activeReciterId: s.localPeerId,
-                  ts: DateTime.now().millisecondsSinceEpoch,
-                ),
-              );
-              return;
-            } else {
-              s.recitationSyncTimer?.cancel();
-              s.recitationSyncTimer = null;
+            // TRUE GLARE DETECTION: Only apply deterministic tiebreak if both
+            // peers pressed Record within a tight 500ms window (simultaneous claims).
+            // For deliberate takeovers (B presses Record while A is already recording),
+            // the newer claim ALWAYS wins regardless of peer ID ordering.
+            final now = DateTime.now().millisecondsSinceEpoch;
+            final remoteClaimAge = (now - pkt.ts).abs();
+            final isSimultaneousGlare = remoteClaimAge < 500;
+
+            if (isSimultaneousGlare) {
+              final localWins = s.localPeerId.compareTo(pkt.senderId) < 0;
+              if (localWins) {
+                s.net.sendPacket(
+                  MaglisPacket(
+                    type: MaglisPacketType.floorClaim,
+                    seq: ++s.seq,
+                    senderId: s.localPeerId,
+                    page: s.remotePage,
+                    surah: s.remoteSurah,
+                    ayah: s.remoteAyah,
+                    activeReciterId: s.localPeerId,
+                    ts: now,
+                  ),
+                );
+                return;
+              }
             }
+            // DELIBERATE TAKEOVER or lost glare: yield floor to the remote peer
+            s.recitationSyncTimer?.cancel();
+            s.recitationSyncTimer = null;
+            onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
           }
         }
         s.activeReciterId = pkt.senderId;
