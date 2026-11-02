@@ -140,6 +140,27 @@ Unlike applications that render rasterized PNG page scans (which blur on high-DP
 
 **Maglis (مجلس)** is Natlu's decentralized, real-time collaboration engine for Quran study circles, teacher-student revision, and group recitation. It operates with zero user accounts, zero databases, and zero centralized servers.
 
+<div align="center">
+<table style="width: 100%; max-width: 900px; margin: 16px auto; border: none; border-collapse: collapse; text-align: center;">
+  <tr style="border: none;">
+    <td style="width: 25%; padding: 4px; border: none;">
+      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630236-695024-screenshot-20261102-074333-recite-quran.jpg" alt="Create Maglis Room" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
+    </td>
+    <td style="width: 25%; padding: 4px; border: none;">
+      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630236-848205-1.jpg" alt="Join via 5-Digit Code" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
+    </td>
+    <td style="width: 25%; padding: 4px; border: none;">
+      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630236-986731-2.jpg" alt="Synchronized Mushaf Canvas" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
+    </td>
+    <td style="width: 25%; padding: 4px; border: none;">
+      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630237-129526-3.jpg" alt="Real-Time Word Highlighting & Error Tracking" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
+    </td>
+  </tr>
+</table>
+
+[![Maglis Demo Video](https://img.shields.io/badge/YouTube-Watch%20Demo%20Video-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=3UEUPgECl5s)
+</div>
+
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Natlu Maglis Session (5-Digit Room Code)           │
