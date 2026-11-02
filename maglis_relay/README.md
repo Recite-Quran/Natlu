@@ -59,27 +59,40 @@ There are two files to keep in sync:
    Open `src/index.js` and locate the `FLEET_CONFIG` object (around line 126):
    ```javascript
    const FLEET_CONFIG = {
-     version: 3,
-     updated_at: "2026-11-01",
+     version: 5,
+     updated_at: "2026-11-02",
      relays: [
        "wss://quran-maglis.recitequrankarem.workers.dev",
-       "wss://relay.primal.net",
-       "wss://nostr.mom",
-       "wss://nos.lol",
        "wss://relay.damus.io",
+       "wss://relay.primal.net",
        "wss://relay.snort.social",
-       "wss://offchain.pub",
-       "wss://nostr.bitcoiner.social"
      ],
      iceServers: [
        { urls: "stun:stun.l.google.com:19302" },
        { urls: "stun:stun1.l.google.com:19302" },
-       { urls: "stun:stun2.l.google.com:19302" },
-       { urls: "stun:stun3.l.google.com:19302" },
-       { urls: "stun:stun4.l.google.com:19302" },
        { urls: "stun:stun.cloudflare.com:3478" },
-       { urls: "stun:global.stun.twilio.com:3478" }
-     ]
+       { urls: "stun:stun.relay.metered.ca:80" },
+       {
+         urls: "turn:global.relay.metered.ca:80",
+         username: "44f9116bb80fac8c92b6bd6c",
+         credential: "YunizT++uS0H1GRg",
+       },
+       {
+         urls: "turn:global.relay.metered.ca:80?transport=tcp",
+         username: "44f9116bb80fac8c92b6bd6c",
+         credential: "YunizT++uS0H1GRg",
+       },
+       {
+         urls: "turn:global.relay.metered.ca:443",
+         username: "44f9116bb80fac8c92b6bd6c",
+         credential: "YunizT++uS0H1GRg",
+       },
+       {
+         urls: "turns:global.relay.metered.ca:443?transport=tcp",
+         username: "44f9116bb80fac8c92b6bd6c",
+         credential: "YunizT++uS0H1GRg",
+       },
+     ],
    };
    ```
 

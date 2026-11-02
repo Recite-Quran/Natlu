@@ -1,6 +1,6 @@
 {
-  "version": 4,
-  "updated_at": "2026-11-01",
+  "version": 5,
+  "updated_at": "2026-11-02",
   "relays": [
     "wss://quran-maglis.recitequrankarem.workers.dev",
     "wss://relay.damus.io",
@@ -18,22 +18,27 @@
       "urls": "stun:stun.cloudflare.com:3478"
     },
     {
-      "urls": [
-        "turn:52.76.210.159:5349",
-        "turn:13.213.17.140:5349",
-        "turn:15.222.242.167:5349"
-      ],
-      "username": "0xchat",
-      "credential": "Prettyvs511"
+      "urls": "stun:stun.relay.metered.ca:80"
     },
     {
-      "urls": [
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp"
-      ],
-      "username": "openrelayproject",
-      "credential": "openrelayproject"
+      "urls": "turn:global.relay.metered.ca:80",
+      "username": "44f9116bb80fac8c92b6bd6c",
+      "credential": "YunizT++uS0H1GRg"
+    },
+    {
+      "urls": "turn:global.relay.metered.ca:80?transport=tcp",
+      "username": "44f9116bb80fac8c92b6bd6c",
+      "credential": "YunizT++uS0H1GRg"
+    },
+    {
+      "urls": "turn:global.relay.metered.ca:443",
+      "username": "44f9116bb80fac8c92b6bd6c",
+      "credential": "YunizT++uS0H1GRg"
+    },
+    {
+      "urls": "turns:global.relay.metered.ca:443?transport=tcp",
+      "username": "44f9116bb80fac8c92b6bd6c",
+      "credential": "YunizT++uS0H1GRg"
     }
   ]
 }

@@ -38,23 +38,26 @@ class MaglisConfigManager {
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
       {'urls': 'stun:stun.cloudflare.com:3478'},
+      {'urls': 'stun:stun.relay.metered.ca:80'},
       {
-        'urls': [
-          'turn:52.76.210.159:5349',
-          'turn:13.213.17.140:5349',
-          'turn:15.222.242.167:5349',
-        ],
-        'username': '0xchat',
-        'credential': 'Prettyvs511',
+        'urls': 'turn:global.relay.metered.ca:80',
+        'username': '44f9116bb80fac8c92b6bd6c',
+        'credential': 'YunizT++uS0H1GRg',
       },
       {
-        'urls': [
-          'turn:openrelay.metered.ca:80',
-          'turn:openrelay.metered.ca:443',
-          'turn:openrelay.metered.ca:443?transport=tcp',
-        ],
-        'username': 'openrelayproject',
-        'credential': 'openrelayproject',
+        'urls': 'turn:global.relay.metered.ca:80?transport=tcp',
+        'username': '44f9116bb80fac8c92b6bd6c',
+        'credential': 'YunizT++uS0H1GRg',
+      },
+      {
+        'urls': 'turn:global.relay.metered.ca:443',
+        'username': '44f9116bb80fac8c92b6bd6c',
+        'credential': 'YunizT++uS0H1GRg',
+      },
+      {
+        'urls': 'turns:global.relay.metered.ca:443?transport=tcp',
+        'username': '44f9116bb80fac8c92b6bd6c',
+        'credential': 'YunizT++uS0H1GRg',
       },
     ],
     'iceTransportPolicy': 'all',
@@ -145,10 +148,26 @@ class MaglisConfigManager {
         final Map<String, dynamic> rtc = jsonDecode(cachedRtcJson);
         final ice = rtc['iceServers'] as List?;
         if (ice != null && ice.isNotEmpty) {
-          final mergedRtc = Map<String, dynamic>.from(defaultRtcConfig);
-          mergedRtc.addAll(rtc);
-          mergedRtc['iceServers'] = List.from(ice);
-          _rtcConfig = mergedRtc;
+          final bool containsDeadTurn = ice.any((entry) {
+            if (entry is Map) {
+              final user = entry['username']?.toString() ?? '';
+              final urls = entry['urls']?.toString() ?? '';
+              return user == '0xchat' ||
+                  user == 'openrelayproject' ||
+                  urls.contains('openrelay.metered.ca') ||
+                  urls.contains('52.76.210.159');
+            }
+            return false;
+          });
+          if (!containsDeadTurn) {
+            final mergedRtc = Map<String, dynamic>.from(defaultRtcConfig);
+            mergedRtc.addAll(rtc);
+            mergedRtc['iceServers'] = List.from(ice);
+            _rtcConfig = mergedRtc;
+          } else {
+            // Invalidate stale cache so new Metered credentials take effect immediately
+            await prefs.remove('maglis_cached_rtc');
+          }
         }
       }
 
