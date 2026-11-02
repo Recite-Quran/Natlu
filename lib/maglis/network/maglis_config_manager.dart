@@ -33,6 +33,8 @@ class MaglisConfigManager {
   static List<String> _relays = List.from(defaultRelays);
   static List<String> get relays => List.unmodifiable(_relays);
 
+  static const int currentBundledVersion = 5;
+
   static const Map<String, dynamic> defaultRtcConfig = {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
@@ -159,20 +161,14 @@ class MaglisConfigManager {
             }
             return false;
           });
-          final bool hasValidTurn = ice.any((entry) {
-            if (entry is Map) {
-              final urls = entry['urls']?.toString() ?? '';
-              return urls.contains('turn:');
-            }
-            return false;
-          });
-          if (!containsDeadTurn && hasValidTurn) {
+          final int cachedVersion = (rtc['version'] as int?) ?? 0;
+          if (cachedVersion >= currentBundledVersion && !containsDeadTurn) {
             final mergedRtc = Map<String, dynamic>.from(defaultRtcConfig);
             mergedRtc.addAll(rtc);
             mergedRtc['iceServers'] = List.from(ice);
             _rtcConfig = mergedRtc;
           } else {
-            // Invalidate stale or TURN-less cache so built-in Metered credentials take effect immediately
+            // Invalidate stale, dead, or obsolete cache so built-in defaults take effect
             await prefs.remove('maglis_cached_rtc');
             _rtcConfig = Map.from(defaultRtcConfig);
           }
@@ -187,18 +183,14 @@ class MaglisConfigManager {
       const primaryUrl =
           'https://raw.githubusercontent.com/Recite-Quran/Natlu/Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
 
-      // Helper to verify a remote response contains modern config with active TURN servers
+      // Helper to verify a remote response is fresh (rejects outdated deployments < currentBundledVersion)
       bool isConfigFresh(http.Response r) {
         if (r.statusCode != 200) return false;
         try {
           final d = jsonDecode(r.body);
           if (d is Map) {
             final v = (d['version'] as int?) ?? 0;
-            final ice = d['iceServers'] as List?;
-            final hasTurn = ice != null &&
-                ice.any((e) =>
-                    e is Map && (e['urls']?.toString() ?? '').contains('turn:'));
-            return v >= 5 && hasTurn;
+            return v >= currentBundledVersion;
           }
         } catch (_) {}
         return false;
@@ -264,6 +256,7 @@ class MaglisConfigManager {
             final List<dynamic> fetchedIce =
                 List.from(data['iceServers'] as List);
             updatedRtc['iceServers'] = fetchedIce;
+            updatedRtc['version'] = (data['version'] as int?) ?? 5;
             _rtcConfig = updatedRtc;
             await prefs.setString('maglis_cached_rtc', jsonEncode(updatedRtc));
           }
