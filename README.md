@@ -136,7 +136,7 @@ Unlike applications that render rasterized PNG page scans (which blur on high-DP
 
 ---
 
-## Collaborative Recitation Circles — Maglis P2P (مجلس القرآن)
+## Collaborative Recitation Circles — Maglis P2P ( القران العظيم)
 
 **Maglis (مجلس)** is Natlu's decentralized, real-time collaboration engine for Quran study circles, teacher-student revision, and group recitation. It operates with zero user accounts, zero databases, and zero centralized servers.
 
