@@ -315,6 +315,7 @@ class _VerseRowState extends State<VerseRow> {
     AppState.instance.activeAudioAyah.addListener(_onAudioStateChanged);
     AppState.instance.activeAudioSurah.addListener(_onAudioStateChanged);
     AppState.instance.activeAudioWordIndex.addListener(_onAudioWordChanged);
+    AppState.instance.fontSizeNotifier.addListener(_onStateChanged);
     _updateSubscription();
     if (_getActiveTargetIndex() >= 0) {
       _scheduleWordPositionCheck();
@@ -343,6 +344,7 @@ class _VerseRowState extends State<VerseRow> {
     }
     if (oldWidget.isRecording != widget.isRecording) {
       _invalidate();
+      _updateSubscription();
       _onStateChanged();
       _scheduleWordPositionCheck();
     }
@@ -372,6 +374,7 @@ class _VerseRowState extends State<VerseRow> {
     AppState.instance.activeAudioAyah.removeListener(_onAudioStateChanged);
     AppState.instance.activeAudioSurah.removeListener(_onAudioStateChanged);
     AppState.instance.activeAudioWordIndex.removeListener(_onAudioWordChanged);
+    AppState.instance.fontSizeNotifier.removeListener(_onStateChanged);
     _delayedWordPositionTimer?.cancel();
     _disposeRecognizers();
     _wordLayout?.dispose();
@@ -430,10 +433,9 @@ class _VerseRowState extends State<VerseRow> {
 
     // Listen to highlights if we are the active, preceding, or upcoming Ayah
     bool shouldListen = false;
-    if (active != null) {
-      if (myAyah == active || myAyah == active - 1 || myAyah == active + 1) {
-        shouldListen = true;
-      }
+    final int effectiveActive = active ?? (widget.isRecording ? 1 : -999);
+    if (myAyah == effectiveActive || myAyah == effectiveActive - 1 || myAyah == effectiveActive + 1) {
+      shouldListen = true;
     }
     if (shouldListen && !_isListeningToController) {
       widget.controller.addListener(_onStateChanged);
@@ -651,8 +653,8 @@ class _VerseRowState extends State<VerseRow> {
 
     final int wordColorsHash;
     final int? activeAyahVal = ctrl.activeAyah.value;
-    final bool isNearActive = activeAyahVal != null &&
-        (ayah >= activeAyahVal - 1 && ayah <= activeAyahVal + 1);
+    final int effectiveActiveAyah = activeAyahVal ?? (widget.isRecording ? 1 : -999);
+    final bool isNearActive = (ayah >= effectiveActiveAyah - 1 && ayah <= effectiveActiveAyah + 1);
     final bool couldHaveNewHighlights = isActive ||
         isAudioActive ||
         _wasAudioActive ||
@@ -668,7 +670,9 @@ class _VerseRowState extends State<VerseRow> {
       _cachedWordColorsHash = 17;
       _cachedWordColorsRevision = currentRevision;
     } else {
-      final bool needsWordScan = _cachedWordColorsRevision != currentRevision ||
+      final bool isLiveActive = (widget.isRecording || isAudioActive) && (isActive || isNearActive);
+      final bool needsWordScan = isLiveActive ||
+          _cachedWordColorsRevision != currentRevision ||
           _cachedWordColorsHash == null;
 
       if (needsWordScan) {

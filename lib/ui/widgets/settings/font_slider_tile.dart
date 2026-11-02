@@ -69,9 +69,10 @@ class _FontSliderTileState extends State<FontSliderTile> {
                 max: 42.0,
                 onChanged: (v) {
                   setState(() => _localSize = v);
+                  app.setFontSize(v);
                 },
                 onChangeEnd: (v) {
-                  app.setFontSize(v);
+                  app.setFontSize(v, persistImmediately: true);
                 },
               ),
             ),

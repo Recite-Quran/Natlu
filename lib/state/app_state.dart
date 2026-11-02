@@ -316,13 +316,33 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Font Size ──
-  double fontSize = 28.0;
+  final ValueNotifier<double> fontSizeNotifier = ValueNotifier<double>(28.0);
+  double get fontSize => fontSizeNotifier.value;
+  set fontSize(double size) => fontSizeNotifier.value = size;
 
-  void setFontSize(double size) async {
-    fontSize = size;
-    notifyListeners();
-    final prefs = await _getPrefs();
-    await prefs.setDouble('fontSize', fontSize);
+  Timer? _fontSizeDebounceTimer;
+
+  void setFontSize(double size, {bool persistImmediately = false}) {
+    if (fontSizeNotifier.value != size) {
+      fontSizeNotifier.value = size;
+      notifyListeners();
+    }
+    if (persistImmediately) {
+      _fontSizeDebounceTimer?.cancel();
+      _saveFontSize(size);
+    } else {
+      _fontSizeDebounceTimer?.cancel();
+      _fontSizeDebounceTimer = Timer(const Duration(milliseconds: 300), () {
+        _saveFontSize(size);
+      });
+    }
+  }
+
+  Future<void> _saveFontSize(double size) async {
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setDouble('fontSize', size);
+    } catch (_) {}
   }
 
   int mushafAudioClickCount = 0;
@@ -821,7 +841,7 @@ class AppState extends ChangeNotifier {
       hasSeenMaglisExplanation =
           prefs.getBool('has_seen_maglis_explanation') ?? false;
       if (prefs.containsKey('fontSize')) {
-        fontSize = prefs.getDouble('fontSize') ?? 28.0;
+        fontSizeNotifier.value = prefs.getDouble('fontSize') ?? 28.0;
       }
 
       themeNotifier.value = _theme;
