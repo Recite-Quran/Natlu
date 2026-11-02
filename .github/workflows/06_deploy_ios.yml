@@ -26,8 +26,7 @@
 #
 # Tags are the documented path because they do not depend on GitHub having
 # indexed this file for manual dispatch — see ios/docs/IOS_DEPLOYMENT.md.
-#
-# A signed build takes roughly 25-40 minutes.
+
 
 name: 06 - Deploy iOS (signed)
 
