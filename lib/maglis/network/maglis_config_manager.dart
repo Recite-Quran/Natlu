@@ -159,14 +159,22 @@ class MaglisConfigManager {
             }
             return false;
           });
-          if (!containsDeadTurn) {
+          final bool hasValidTurn = ice.any((entry) {
+            if (entry is Map) {
+              final urls = entry['urls']?.toString() ?? '';
+              return urls.contains('turn:');
+            }
+            return false;
+          });
+          if (!containsDeadTurn && hasValidTurn) {
             final mergedRtc = Map<String, dynamic>.from(defaultRtcConfig);
             mergedRtc.addAll(rtc);
             mergedRtc['iceServers'] = List.from(ice);
             _rtcConfig = mergedRtc;
           } else {
-            // Invalidate stale cache so new Metered credentials take effect immediately
+            // Invalidate stale or TURN-less cache so built-in Metered credentials take effect immediately
             await prefs.remove('maglis_cached_rtc');
+            _rtcConfig = Map.from(defaultRtcConfig);
           }
         }
       }
@@ -179,29 +187,55 @@ class MaglisConfigManager {
       const primaryUrl =
           'https://raw.githubusercontent.com/Recite-Quran/Natlu/Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
 
+      // Helper to verify a remote response contains modern config with active TURN servers
+      bool isConfigFresh(http.Response r) {
+        if (r.statusCode != 200) return false;
+        try {
+          final d = jsonDecode(r.body);
+          if (d is Map) {
+            final v = (d['version'] as int?) ?? 0;
+            final ice = d['iceServers'] as List?;
+            final hasTurn = ice != null &&
+                ice.any((e) =>
+                    e is Map && (e['urls']?.toString() ?? '').contains('turn:'));
+            return v >= 5 && hasTurn;
+          }
+        } catch (_) {}
+        return false;
+      }
+
       http.Response? res;
       // Try Tier 1: Cloudflare Edge
       try {
-        res = await http
+        final r = await http
             .get(Uri.parse(edgeUrl))
             .timeout(const Duration(milliseconds: 2500));
+        if (isConfigFresh(r)) {
+          res = r;
+        }
       } catch (_) {}
 
       // Try Tier 2: jsDelivr CDN
-      if (res == null || res.statusCode != 200) {
+      if (res == null) {
         try {
-          res = await http
+          final r = await http
               .get(Uri.parse(cdnUrl))
               .timeout(const Duration(milliseconds: 2500));
+          if (isConfigFresh(r)) {
+            res = r;
+          }
         } catch (_) {}
       }
 
       // Try Tier 3: GitHub Raw
-      if (res == null || res.statusCode != 200) {
+      if (res == null) {
         try {
-          res = await http
+          final r = await http
               .get(Uri.parse(primaryUrl))
               .timeout(const Duration(milliseconds: 2500));
+          if (isConfigFresh(r)) {
+            res = r;
+          }
         } catch (_) {}
       }
 
