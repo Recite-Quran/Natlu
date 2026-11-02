@@ -351,21 +351,34 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   @override
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final isBackgroundOrLocked = state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.detached;
-
-    if (isBackgroundOrLocked) {
-      if (state == AppLifecycleState.detached) {
-        AppState.instance.stopVerseAudio();
-      }
-      // When user switches apps or locks screen, automatically leave halqa cleanly
+    if (state == AppLifecycleState.detached) {
+      AppState.instance.stopVerseAudio();
       if (MaglisController.instance.inSession) {
         unawaited(MaglisController.instance.leaveSession());
       }
-    } else if (QuranAudioService.instance.isSingleWordMode) {
+      return;
+    }
+
+    // On Desktop (Windows, macOS, Linux) and Web, alt-tab, tab switching, and loss of focus
+    // must NEVER leave the Maglis session so users can multitask while talking/listening!
+    final bool isDesktopOrWeb = kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.linux;
+
+    if (!isDesktopOrWeb) {
+      // On mobile (Android / iOS), automatically leave room when the app is minimized into background
+      if (state == AppLifecycleState.paused) {
+        if (MaglisController.instance.inSession) {
+          unawaited(MaglisController.instance.leaveSession());
+        }
+      }
+    }
+
+    if (QuranAudioService.instance.isSingleWordMode &&
+        state == AppLifecycleState.resumed) {
       AppState.instance.stopVerseAudio();
     }
   }
@@ -387,6 +400,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
     _transcriptionSub?.cancel();
     AppState.instance.stopVerseAudio();
+    _audio.dispose();
     _ctrl?.dispose();
     _voiceSearchAsrNotifier.dispose();
     super.dispose();

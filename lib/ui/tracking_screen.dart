@@ -157,29 +157,40 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (kIsWeb) return;
+
+    final bool isDesktop = defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.linux;
+
     if (state == AppLifecycleState.detached) {
       AppState.instance.stopVerseAudio();
-    } else if (state == AppLifecycleState.paused ||
-               state == AppLifecycleState.inactive ||
-               state == AppLifecycleState.hidden) {
-      if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
-        AppState.instance.stopVerseAudio();
-      } else if (defaultTargetPlatform == TargetPlatform.android) {
-        _checkAndStopIfBackgrounded();
-      } else {
-        AppState.instance.stopVerseAudio();
-      }
+      if (widget.isRecording) widget.onToggleRecord();
+      if (widget.isVoiceSearching) widget.onVoiceSearchToggle();
+      return;
     }
 
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.detached) {
-      if (widget.isRecording) {
-        widget.onToggleRecord();
+    if (!isDesktop) {
+      if (state == AppLifecycleState.paused ||
+          state == AppLifecycleState.inactive ||
+          state == AppLifecycleState.hidden) {
+        if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
+          AppState.instance.stopVerseAudio();
+        } else if (defaultTargetPlatform == TargetPlatform.android) {
+          _checkAndStopIfBackgrounded();
+        } else {
+          AppState.instance.stopVerseAudio();
+        }
       }
-      if (widget.isVoiceSearching) {
-        widget.onVoiceSearchToggle();
+
+      if (state == AppLifecycleState.paused ||
+          state == AppLifecycleState.inactive ||
+          state == AppLifecycleState.hidden) {
+        if (widget.isRecording) {
+          widget.onToggleRecord();
+        }
+        if (widget.isVoiceSearching) {
+          widget.onVoiceSearchToggle();
+        }
       }
     }
   }

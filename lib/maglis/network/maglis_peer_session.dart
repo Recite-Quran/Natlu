@@ -70,6 +70,7 @@ class MaglisPeerSession {
   final Set<String> departedPeers = {};
   final Map<String, List<MediaStreamTrack>> remoteTracks = {};
   final Map<String, List<MediaStream>> remoteStreams = {};
+  final Map<String, RTCVideoRenderer> _audioRenderers = {};
   final Set<String> peersNeedingCatchup = <String>{};
   final Set<String> renegotiatePending = <String>{};
   final PeerTaskQueue _taskQueue = PeerTaskQueue();
@@ -99,16 +100,14 @@ class MaglisPeerSession {
   /// All 4 connected peers share conference audio continuously while only the active reciter
   /// broadcasts highlighting and Tajweed data.
   void updateActiveFloor(String? activeReciterId) {
-    if (activeReciterId == localPeerId || activeReciterId == null) {
-      localStream?.getAudioTracks().forEach((t) {
-        t.enabled = !isMicMuted;
-        try {
-          Helper.setMicrophoneMute(isMicMuted, t);
-        } catch (_) {}
-      });
-    }
+    localStream?.getAudioTracks().forEach((t) {
+      t.enabled = !isMicMuted;
+      try {
+        Helper.setMicrophoneMute(isMicMuted, t);
+      } catch (_) {}
+    });
 
-    // Keep all remote audio tracks enabled at full volume so all 4 peers share audio
+    // Keep all remote audio tracks enabled at full volume so all peers share audio
     // without Android/iOS OpenSLES/AVAudioEngine playout stalls.
     for (final entry in List<MapEntry<String, List<MediaStreamTrack>>>.from(
         remoteTracks.entries)) {
@@ -121,9 +120,7 @@ class MaglisPeerSession {
       }
     }
 
-    if (activeReciterId == null) {
-      MaglisPlatform.setSpeaker(true);
-    }
+    MaglisPlatform.setSpeaker(true);
   }
 
   void _startHeartbeatTimer() {
@@ -419,6 +416,14 @@ class MaglisPeerSession {
             if (!streamList.any((existing) => existing.id == s.id)) {
               streamList.add(s);
             }
+          }
+          if (kIsWeb) {
+            _attachWebAudioRenderer(remoteId, ev.streams.first);
+          }
+        } else if (kIsWeb) {
+          final existing = remoteStreams[remoteId];
+          if (existing != null && existing.isNotEmpty) {
+            _attachWebAudioRenderer(remoteId, existing.first);
           }
         }
         final list = remoteTracks.putIfAbsent(remoteId, () => []);
@@ -1305,6 +1310,14 @@ class MaglisPeerSession {
       }
     }
 
+    final webRenderer = _audioRenderers.remove(peerId);
+    if (webRenderer != null) {
+      try {
+        webRenderer.srcObject = null;
+        await webRenderer.dispose();
+      } catch (_) {}
+    }
+
     final tracks = remoteTracks.remove(peerId);
     if (tracks != null) {
       for (final t in tracks) {
@@ -1421,8 +1434,36 @@ class MaglisPeerSession {
         } catch (_) {}
       }
     }
+    for (final r in List<RTCVideoRenderer>.from(_audioRenderers.values)) {
+      try {
+        r.srcObject = null;
+        await r.dispose();
+      } catch (_) {}
+    }
+    _audioRenderers.clear();
     remoteStreams.clear();
     remoteTracks.clear();
+  }
+
+  void _attachWebAudioRenderer(String remoteId, MediaStream stream) {
+    if (!kIsWeb) return;
+    unawaited(() async {
+      try {
+        var renderer = _audioRenderers[remoteId];
+        if (renderer == null) {
+          renderer = RTCVideoRenderer();
+          await renderer.initialize();
+          if (disposed || departedPeers.contains(remoteId)) {
+            await renderer.dispose();
+            return;
+          }
+          _audioRenderers[remoteId] = renderer;
+        }
+        renderer.srcObject = stream;
+      } catch (e) {
+        debugPrint('[MaglisPeerSession] Web audio renderer error: $e');
+      }
+    }());
   }
 }
 

@@ -20,101 +20,123 @@ class AppAudioProcessor {
       (recordSampleRate * numChannels * bytesPerSample * chunkMs) ~/ 1000;
 
   Uint8List _frameBuffer = Uint8List(0);
-  AudioRecorder? _recorder;
+  final AudioRecorder _recorder = AudioRecorder();
   StreamSubscription<Uint8List>? _subscription;
+  bool _isRecording = false;
+  Future<void>? _activeOp;
 
   Future<bool> hasPermission() async {
-    final recorder = AudioRecorder();
     try {
-      return await recorder.hasPermission();
-    } finally {
-      await recorder.dispose();
+      return await _recorder.hasPermission();
+    } catch (_) {
+      return false;
     }
   }
 
   Future<void> start({
     required void Function(Float32List chunk, bool isFinal) onChunk,
   }) async {
-    await stop();
+    while (_activeOp != null) {
+      await _activeOp;
+    }
+    final completer = Completer<void>();
+    _activeOp = completer.future;
 
-    _recorder = AudioRecorder();
+    try {
+      await _stopInternal();
 
-    final bool inMaglis = MaglisController.instance.inSession;
+      final bool inMaglis = MaglisController.instance.inSession;
 
-    final config = RecordConfig(
-      encoder: AudioEncoder.pcm16bits,
-      sampleRate: recordSampleRate,
-      numChannels: numChannels,
-      autoGain: false,
-      echoCancel: inMaglis,
-      noiseSuppress: false,
-      audioInterruption: inMaglis
-          ? AudioInterruptionMode.none
-          : AudioInterruptionMode.pause,
-      androidConfig: AndroidRecordConfig(
-        audioSource: inMaglis
-            ? AndroidAudioSource.voiceRecognition
-            : AndroidAudioSource.mic,
-        audioManagerMode: AudioManagerMode.modeNormal,
-        manageBluetooth: !inMaglis,
-      ),
-      iosConfig: const IosRecordConfig(
-        categoryOptions: [
-          IosAudioCategoryOption.defaultToSpeaker,
-          IosAudioCategoryOption.allowBluetooth,
-          IosAudioCategoryOption.allowBluetoothA2DP,
-          IosAudioCategoryOption.allowAirPlay,
-        ],
-      ),
-    );
+      final config = RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: recordSampleRate,
+        numChannels: numChannels,
+        autoGain: false,
+        echoCancel: inMaglis,
+        noiseSuppress: false,
+        audioInterruption: inMaglis
+            ? AudioInterruptionMode.none
+            : AudioInterruptionMode.pause,
+        androidConfig: AndroidRecordConfig(
+          audioSource: inMaglis
+              ? AndroidAudioSource.voiceRecognition
+              : AndroidAudioSource.mic,
+          audioManagerMode: inMaglis
+              ? AudioManagerMode.modeInCommunication
+              : AudioManagerMode.modeNormal,
+          manageBluetooth: !inMaglis,
+        ),
+        iosConfig: const IosRecordConfig(
+          categoryOptions: [
+            IosAudioCategoryOption.defaultToSpeaker,
+            IosAudioCategoryOption.allowBluetooth,
+            IosAudioCategoryOption.allowBluetoothA2DP,
+            IosAudioCategoryOption.allowAirPlay,
+          ],
+        ),
+      );
 
-    final recordStream = await _recorder!.startStream(config);
+      final recordStream = await _recorder.startStream(config);
+      _isRecording = true;
 
-    _subscription = recordStream.listen((Uint8List rawData) {
-      if (rawData.offsetInBytes % 2 != 0) {
-        rawData = Uint8List.fromList(rawData);
-      }
+      _subscription = recordStream.listen(
+        (Uint8List rawData) {
+          if (rawData.offsetInBytes % 2 != 0) {
+            rawData = Uint8List.fromList(rawData);
+          }
 
-      Uint8List allBytes;
-      if (_frameBuffer.isEmpty) {
-        allBytes = rawData;
-      } else {
-        allBytes = Uint8List(_frameBuffer.length + rawData.length);
-        allBytes.setAll(0, _frameBuffer);
-        allBytes.setAll(_frameBuffer.length, rawData);
-      }
+          Uint8List allBytes;
+          if (_frameBuffer.isEmpty) {
+            allBytes = rawData;
+          } else {
+            allBytes = Uint8List(_frameBuffer.length + rawData.length);
+            allBytes.setAll(0, _frameBuffer);
+            allBytes.setAll(_frameBuffer.length, rawData);
+          }
 
-      int offset = 0;
-      while (allBytes.length - offset >= recordChunkBytes) {
-        final byteView = Uint8List.view(
-          allBytes.buffer,
-          allBytes.offsetInBytes + offset,
-          recordChunkBytes,
-        );
-        offset += recordChunkBytes;
+          int offset = 0;
+          while (allBytes.length - offset >= recordChunkBytes) {
+            final byteView = Uint8List.view(
+              allBytes.buffer,
+              allBytes.offsetInBytes + offset,
+              recordChunkBytes,
+            );
+            offset += recordChunkBytes;
 
-        final int16samples = Int16List.view(
-          byteView.buffer,
-          byteView.offsetInBytes,
-          recordChunkBytes ~/ bytesPerSample,
-        );
+            final int16samples = Int16List.view(
+              byteView.buffer,
+              byteView.offsetInBytes,
+              recordChunkBytes ~/ bytesPerSample,
+            );
 
-        final float32Samples = Float32List(int16samples.length);
-        for (int i = 0; i < int16samples.length; i++) {
-          float32Samples[i] = int16samples[i] / 32768.0;
-        }
+            final float32Samples = Float32List(int16samples.length);
+            for (int i = 0; i < int16samples.length; i++) {
+              float32Samples[i] = int16samples[i] / 32768.0;
+            }
 
-        onChunk(float32Samples, false);
-      }
+            onChunk(float32Samples, false);
+          }
 
-      if (offset < allBytes.length) {
-        _frameBuffer = Uint8List.fromList(
-          Uint8List.view(allBytes.buffer, allBytes.offsetInBytes + offset),
-        );
-      } else {
-        _frameBuffer = Uint8List(0);
-      }
-    });
+          if (offset < allBytes.length) {
+            _frameBuffer = Uint8List.fromList(
+              Uint8List.view(allBytes.buffer, allBytes.offsetInBytes + offset),
+            );
+          } else {
+            _frameBuffer = Uint8List(0);
+          }
+        },
+        onError: (err) {
+          _isRecording = false;
+        },
+        onDone: () {
+          _isRecording = false;
+        },
+        cancelOnError: true,
+      );
+    } finally {
+      completer.complete();
+      _activeOp = null;
+    }
   }
 
   void clearBuffer() {
@@ -122,12 +144,36 @@ class AppAudioProcessor {
   }
 
   Future<void> stop() async {
+    while (_activeOp != null) {
+      await _activeOp;
+    }
+    final completer = Completer<void>();
+    _activeOp = completer.future;
+
+    try {
+      await _stopInternal();
+    } finally {
+      completer.complete();
+      _activeOp = null;
+    }
+  }
+
+  Future<void> _stopInternal() async {
     await _subscription?.cancel();
     _subscription = null;
 
-    await _recorder?.stop();
-    await _recorder?.dispose();
-    _recorder = null;
+    if (_isRecording) {
+      _isRecording = false;
+      try {
+        await _recorder.stop();
+      } catch (_) {}
+    } else {
+      try {
+        if (await _recorder.isRecording()) {
+          await _recorder.stop();
+        }
+      } catch (_) {}
+    }
 
     _frameBuffer = Uint8List(0);
 
@@ -135,5 +181,12 @@ class AppAudioProcessor {
     if (MaglisController.instance.inSession) {
       MaglisPlatform.setSpeaker(true);
     }
+  }
+
+  Future<void> dispose() async {
+    await stop();
+    try {
+      await _recorder.dispose();
+    } catch (_) {}
   }
 }
