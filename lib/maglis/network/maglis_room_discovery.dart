@@ -39,6 +39,9 @@ class MaglisRoomDiscovery {
     final privHex = MaglisCrypto.randomHex32();
     final pubHex = MaglisCrypto.getPublicKey(privHex);
 
+    final cancelSignal = Completer<void>();
+    Timer? overallTimeoutTimer;
+
     try {
       final probeSig = MaglisSignal(
         type: 'join_probe',
@@ -80,19 +83,30 @@ class MaglisRoomDiscovery {
           tags: tags,
           probePeerId: probePeerId,
           timeoutMs: 6500,
+          cancelSignal: cancelSignal.future,
           privHex: privHex,
           pubHex: pubHex,
         );
         if (result != null && !completer.isCompleted) {
+          if (_discoveredRelayCache.length > 64 &&
+              !_discoveredRelayCache.containsKey(trimmed)) {
+            _discoveredRelayCache.remove(_discoveredRelayCache.keys.first);
+          }
           _discoveredRelayCache[trimmed] = url;
           completer.complete(result);
+          if (!cancelSignal.isCompleted) {
+            cancelSignal.complete();
+          }
         }
       }).toList();
 
-      // Overall race timeout: 3500ms
-      final overallTimeout = Future.delayed(const Duration(milliseconds: 7500), () {
+      // Overall race timeout: 7500ms
+      overallTimeoutTimer = Timer(const Duration(milliseconds: 7500), () {
         if (!completer.isCompleted) {
           completer.complete(MaglisJoinResult.notFound);
+        }
+        if (!cancelSignal.isCompleted) {
+          cancelSignal.complete();
         }
       });
 
@@ -100,13 +114,20 @@ class MaglisRoomDiscovery {
         if (!completer.isCompleted) {
           completer.complete(MaglisJoinResult.notFound);
         }
+        if (!cancelSignal.isCompleted) {
+          cancelSignal.complete();
+        }
       }));
 
-      await Future.any([completer.future, overallTimeout]);
       return await completer.future;
     } catch (e) {
       debugPrint('[MaglisRoomDiscovery] verifyRoomJoinable error: $e');
       return MaglisJoinResult.notFound;
+    } finally {
+      overallTimeoutTimer?.cancel();
+      if (!cancelSignal.isCompleted) {
+        cancelSignal.complete();
+      }
     }
   }
 
@@ -117,64 +138,108 @@ class MaglisRoomDiscovery {
     required List<String> tags,
     required String probePeerId,
     required int timeoutMs,
+    required Future<void> cancelSignal,
     String? privHex,
     String? pubHex,
   }) async {
     WebSocketChannel? ws;
     StreamSubscription? sub;
     Timer? retransmitTimer;
+    final completer = Completer<MaglisJoinResult?>();
+
+    unawaited(cancelSignal.then((_) {
+      retransmitTimer?.cancel();
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+    }));
+
     try {
       final formattedUrl = MaglisRelayFleet.formatRelayUrl(url, trimmed);
       ws = WebSocketChannel.connect(Uri.parse(formattedUrl));
       final readyMs = (timeoutMs - 500).clamp(1500, 5000);
-      await ws.ready.timeout(Duration(milliseconds: readyMs));
+      await Future.any([
+        ws.ready.timeout(Duration(milliseconds: readyMs)),
+        cancelSignal,
+      ]);
+      if (completer.isCompleted) return null;
 
-      final completer = Completer<MaglisJoinResult?>();
-      sub = ws.stream.listen((dynamic raw) async {
-        if (completer.isCompleted || raw is! String) return;
-        try {
-          final list = jsonDecode(raw);
-          if (list is! List || list.length < 3 || list[0] != 'EVENT') return;
-          final ev = list[2] as Map<String, dynamic>;
-          final content = ev['content'] as String?;
-          if (content == null) return;
+      final probeStartSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
-          final clear = await MaglisCrypto.decrypt(content, trimmed);
-          if (clear == null) return;
-          final sig = MaglisSignal.unpack(clear);
-          if (sig.senderId == probePeerId) return;
+      sub = ws.stream.listen(
+        (dynamic raw) async {
+          if (completer.isCompleted || raw is! String) return;
+          try {
+            final list = jsonDecode(raw);
+            if (list is! List || list.length < 3 || list[0] != 'EVENT') return;
+            final ev = list[2] as Map<String, dynamic>;
+            final content = ev['content'] as String?;
+            final createdAt = ev['created_at'] as int?;
+            if (content == null) return;
 
-          if (sig.type == 'join_reject' &&
-              (sig.targetId == null || sig.targetId == probePeerId)) {
-            retransmitTimer?.cancel();
-            if (!completer.isCompleted) {
-              completer.complete(MaglisJoinResult.full);
+            // Ignore stale historical events older than 5 minutes
+            if (createdAt != null && createdAt < (probeStartSec - 300)) {
+              return;
             }
-          } else if (sig.type == 'join_ack') {
-            final count = sig.data['count'] as int? ?? 1;
-            retransmitTimer?.cancel();
-            if (!completer.isCompleted) {
-              completer.complete(count >= 4
-                  ? MaglisJoinResult.full
-                  : MaglisJoinResult.success);
+
+            final clear = await MaglisCrypto.decrypt(content, trimmed);
+            if (clear == null || completer.isCompleted) return;
+            final sig = MaglisSignal.unpack(clear);
+            if (sig.senderId.isEmpty || sig.senderId == probePeerId) return;
+
+            // Authenticate admission token so corrupted/foreign frames are ignored
+            final auth = sig.data['auth'] as String?;
+            if (auth == null ||
+                !MaglisCrypto.verifyAdmissionToken(
+                    trimmed, sig.senderId, auth)) {
+              return;
             }
-          } else if (sig.type == 'beacon' ||
-              sig.type == 'offer' ||
-              sig.type == 'presence_pong' ||
-              sig.type == 'floor_claim') {
-            retransmitTimer?.cancel();
-            if (!completer.isCompleted) {
-              completer.complete(MaglisJoinResult.success);
+
+            if (sig.type == 'join_reject' &&
+                (sig.targetId == null || sig.targetId == probePeerId)) {
+              retransmitTimer?.cancel();
+              if (!completer.isCompleted) {
+                completer.complete(MaglisJoinResult.full);
+              }
+            } else if (sig.type == 'join_ack' &&
+                (sig.targetId == null || sig.targetId == probePeerId)) {
+              final count = sig.data['count'] as int? ?? 1;
+              retransmitTimer?.cancel();
+              if (!completer.isCompleted) {
+                completer.complete(count >= 4
+                    ? MaglisJoinResult.full
+                    : MaglisJoinResult.success);
+              }
+            } else if (sig.type == 'beacon' ||
+                sig.type == 'offer' ||
+                sig.type == 'presence_pong' ||
+                sig.type == 'floor_claim') {
+              retransmitTimer?.cancel();
+              if (!completer.isCompleted) {
+                completer.complete(MaglisJoinResult.success);
+              }
             }
-          }
-        } catch (_) {}
-      });
+          } catch (_) {}
+        },
+        onError: (_) {
+          retransmitTimer?.cancel();
+          if (!completer.isCompleted) completer.complete(null);
+        },
+        onDone: () {
+          retransmitTimer?.cancel();
+          if (!completer.isCompleted) completer.complete(null);
+        },
+        cancelOnError: true,
+      );
 
       final subId = 'probe_${tags.first}';
       ws.sink.add(jsonEncode([
         'REQ',
         subId,
-        {'kinds': [20000], '#t': tags}
+        {
+          'kinds': [20000],
+          '#t': tags,
+        }
       ]));
       ws.sink.add(frame);
 
@@ -201,7 +266,9 @@ class MaglisRoomDiscovery {
                   trimmed,
                 ),
               );
-              activeWs.sink.add(warmFrame);
+              if (!completer.isCompleted) {
+                activeWs.sink.add(warmFrame);
+              }
             } catch (_) {}
           }
         });

@@ -31,6 +31,8 @@ class MaglisRelayFleet {
   List<String> get activeTags => MaglisCrypto.activeBlindedTags(roomCode);
 
   final Map<String, WebSocketChannel> sockets = {};
+  final Map<String, Future<bool>> _inFlightConnections = {};
+  final Map<WebSocketChannel, String> _socketSubIds = {};
   final Set<String> reconnectingRelays = {};
   final LinkedHashSet<String> seenNostrIds = LinkedHashSet<String>();
   final List<String> pendingOutboundSignals = [];
@@ -47,7 +49,8 @@ class MaglisRelayFleet {
   Timer? relayHeartbeatTimer;
   static const int targetRelayCount = 3;
 
-  List<String> get roomRelays => MaglisConfigManager.roomRelaysForCode(roomCode);
+  List<String> get roomRelays =>
+      MaglisConfigManager.roomRelaysForCode(roomCode);
 
   List<String> get targetRelayUrls {
     final list = roomRelays;
@@ -76,7 +79,9 @@ class MaglisRelayFleet {
     return baseUrl;
   }
 
-  Future<bool> connectRelayFleet({Duration timeout = const Duration(seconds: 6)}) async {
+  Future<bool> connectRelayFleet({
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
     if (disposed) return false;
     final targets = targetRelayUrls;
     final futures = <Future<bool>>[];
@@ -101,16 +106,46 @@ class MaglisRelayFleet {
     return sockets.isNotEmpty && isSocketSubscribed;
   }
 
-  Future<bool> connectRelay(String url) async {
+  Future<bool> connectRelay(String url) {
+    if (disposed) return Future.value(false);
+    if (sockets.containsKey(url)) return Future.value(true);
+    final existingInFlight = _inFlightConnections[url];
+    if (existingInFlight != null) {
+      return existingInFlight;
+    }
+
+    final future = _connectRelayInternal(url);
+    _inFlightConnections[url] = future;
+    future.whenComplete(() {
+      _inFlightConnections.remove(url);
+    });
+    return future;
+  }
+
+  Future<bool> _connectRelayInternal(String url) async {
     if (disposed) return false;
     final completer = Completer<bool>();
+    WebSocketChannel? ws;
     try {
       final targetUrl = formatRelayUrl(url, roomCode);
-      final ws = WebSocketChannel.connect(Uri.parse(targetUrl));
+      ws = WebSocketChannel.connect(Uri.parse(targetUrl));
 
       bool errored = false;
       void handleFail() {
-        sockets.remove(url);
+        if (ws != null) {
+          _socketSubIds.remove(ws);
+          if (sockets[url] == ws) {
+            sockets.remove(url);
+          }
+          try {
+            ws.sink.close();
+          } catch (_) {}
+        } else {
+          sockets.remove(url);
+        }
+        if (sockets.isEmpty) {
+          isSocketSubscribed = false;
+        }
         if (!completer.isCompleted) completer.complete(false);
         if (!errored) {
           errored = true;
@@ -119,15 +154,18 @@ class MaglisRelayFleet {
       }
 
       ws.ready.timeout(const Duration(milliseconds: 5500)).then((_) {
-        if (disposed) {
+        if (disposed || errored) {
           try {
-            ws.sink.close();
+            ws?.sink.close();
           } catch (_) {}
+          if (ws != null) {
+            _socketSubIds.remove(ws);
+          }
           sockets.remove(url);
           if (!completer.isCompleted) completer.complete(false);
           return;
         }
-        sockets[url] = ws;
+        sockets[url] = ws!;
         _reconnectionScheduler.recordSuccess(url);
         subscribeRelay(ws);
         if (pendingOutboundSignals.isNotEmpty) {
@@ -152,6 +190,12 @@ class MaglisRelayFleet {
       );
       return await completer.future;
     } catch (_) {
+      if (ws != null) {
+        _socketSubIds.remove(ws);
+        try {
+          ws.sink.close();
+        } catch (_) {}
+      }
       sockets.remove(url);
       scheduleReconnect(url);
       return false;
@@ -161,11 +205,13 @@ class MaglisRelayFleet {
   void subscribeRelay(WebSocketChannel ws) {
     final tags = activeTags;
     final newSubId = 'maglis_${tags.first}';
-    if (lastSubId != null && lastSubId != newSubId) {
+    final prevSubId = _socketSubIds[ws];
+    if (prevSubId != null && prevSubId != newSubId) {
       try {
-        ws.sink.add(jsonEncode(['CLOSE', lastSubId]));
+        ws.sink.add(jsonEncode(['CLOSE', prevSubId]));
       } catch (_) {}
     }
+    _socketSubIds[ws] = newSubId;
     lastSubId = newSubId;
     ws.sink.add(jsonEncode([
       'REQ',
@@ -189,7 +235,7 @@ class MaglisRelayFleet {
 
   void checkSocketSleepState() {
     if (disposed) return;
-    if (!isSocketSubscribed) {
+    if (!isSocketSubscribed && sockets.isNotEmpty) {
       resubscribeRelays();
     }
   }
@@ -199,7 +245,7 @@ class MaglisRelayFleet {
     if (disposed) return;
 
     reconnectingRelays.add(url);
-    _reconnectionScheduler.schedule(
+    final scheduled = _reconnectionScheduler.schedule(
       relay: url,
       hasNetworkConnectivity: hasNetworkConnectivity,
       isRelayManaged: () => !disposed && roomRelays.contains(url),
@@ -210,6 +256,9 @@ class MaglisRelayFleet {
         }
       },
     );
+    if (!scheduled) {
+      reconnectingRelays.remove(url);
+    }
   }
 
   void startHeartbeat() {
@@ -257,10 +306,14 @@ class MaglisRelayFleet {
       additionalTags: tags.length > 1 ? tags.sublist(1) : null,
       content: cipher,
     );
+    if (disposed) return;
+
     if (sockets.isEmpty) {
-      pendingOutboundSignals.add(frame);
-      if (pendingOutboundSignals.length > 25) {
-        pendingOutboundSignals.removeAt(0);
+      if (!pendingOutboundSignals.contains(frame)) {
+        pendingOutboundSignals.add(frame);
+        if (pendingOutboundSignals.length > 25) {
+          pendingOutboundSignals.removeAt(0);
+        }
       }
       return;
     }
@@ -278,9 +331,14 @@ class MaglisRelayFleet {
 
     if (isCriticalSignaling && sockets.length < 2 && roomRelays.isNotEmpty) {
       final primaryUrl = roomRelays.first;
-      if (!sockets.containsKey(primaryUrl) && !reconnectingRelays.contains(primaryUrl)) {
+      if (!sockets.containsKey(primaryUrl) &&
+          !reconnectingRelays.contains(primaryUrl) &&
+          !_inFlightConnections.containsKey(primaryUrl)) {
         if (!pendingOutboundSignals.contains(frame)) {
           pendingOutboundSignals.add(frame);
+          if (pendingOutboundSignals.length > 25) {
+            pendingOutboundSignals.removeAt(0);
+          }
         }
         unawaited(connectRelay(primaryUrl));
       }
@@ -299,8 +357,10 @@ class MaglisRelayFleet {
       final createdAt = ev['created_at'] as int?;
       if (id == null || content == null) return;
 
-      // Discard stale events from prior sessions or older than 300s (5 min) before engine start
-      if (createdAt != null && createdAt < (engineStartTime - 300)) {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // Discard stale events from prior sessions or older than 300s (5 min)
+      if (createdAt != null &&
+          (createdAt < (engineStartTime - 300) || createdAt < (nowSec - 300))) {
         return;
       }
 
@@ -311,10 +371,10 @@ class MaglisRelayFleet {
       }
 
       final clear = await MaglisCrypto.decrypt(content, roomCode);
-      if (clear == null) return;
+      if (clear == null || disposed) return;
 
       final sig = MaglisSignal.unpack(clear);
-      if (sig.senderId == localPeerId) return;
+      if (sig.senderId.isEmpty || sig.senderId == localPeerId) return;
       if (sig.targetId != null && sig.targetId != localPeerId) return;
 
       // Host Admission Shield: Authenticate admission token derived from roomCode + peerId + pepper
@@ -350,6 +410,8 @@ class MaglisRelayFleet {
       } catch (_) {}
     }
     sockets.clear();
+    _inFlightConnections.clear();
+    _socketSubIds.clear();
     reconnectingRelays.clear();
     pendingOutboundSignals.clear();
   }
@@ -358,5 +420,4 @@ class MaglisRelayFleet {
 
   static Future<MaglisJoinResult> verifyRoomJoinable(String roomCode) =>
       MaglisRoomDiscovery.verifyRoomJoinable(roomCode);
-
 }

@@ -10,23 +10,41 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 /// and noscall session state (from C:\Users\redaa\Downloads\noscall\lib\call\calling_controller.dart).
 class MaglisRemoteParticipant {
   final String identity; // Peer public/session identifier
-  RTCIceConnectionState iceState;
+  RTCIceConnectionState _iceState;
   bool isDataChannelOpen;
   int lastSeenMs;
   int latencyMs;
 
   MaglisRemoteParticipant({
     required this.identity,
-    this.iceState = RTCIceConnectionState.RTCIceConnectionStateNew,
+    RTCIceConnectionState iceState =
+        RTCIceConnectionState.RTCIceConnectionStateNew,
     this.isDataChannelOpen = false,
     int? lastSeenMs,
     this.latencyMs = 0,
-  }) : lastSeenMs = lastSeenMs ?? DateTime.now().millisecondsSinceEpoch;
+  })  : _iceState = iceState,
+        lastSeenMs = lastSeenMs ?? DateTime.now().millisecondsSinceEpoch;
 
-  bool get isConnected =>
-      iceState == RTCIceConnectionState.RTCIceConnectionStateConnected ||
-      iceState == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
-      isDataChannelOpen;
+  RTCIceConnectionState get iceState => _iceState;
+
+  set iceState(RTCIceConnectionState value) {
+    _iceState = value;
+    if (value == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+        value == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+      isDataChannelOpen = false;
+    }
+  }
+
+  bool get isConnected {
+    if (_iceState == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+        _iceState == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
+        _iceState == RTCIceConnectionState.RTCIceConnectionStateClosed) {
+      return false;
+    }
+    return _iceState == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+        _iceState == RTCIceConnectionState.RTCIceConnectionStateCompleted ||
+        isDataChannelOpen;
+  }
 }
 
 /// ParticipantCollection
@@ -97,4 +115,3 @@ class CallingIceStateHandler {
     }
   }
 }
-

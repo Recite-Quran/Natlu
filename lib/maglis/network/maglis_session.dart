@@ -27,6 +27,15 @@ class MaglisActiveSession {
   String? natFailedPeer;
   Map<String, RTCIceConnectionState> peers = {};
 
+  /// Local epoch timestamp (ms) when the local user last pressed Record (claimFloor).
+  /// Used to distinguish true <500ms simultaneous button-press glare from deliberate takeovers
+  /// without relying on remote peer wall-clock synchronization.
+  int localFloorClaimTs = 0;
+
+  /// Local epoch timestamp (ms) when the most recent floor claim (local or remote) was accepted.
+  /// Used to fence out stale in-flight recitationUpdate packets from a preempted reciter.
+  int lastFloorClaimTs = 0;
+
   int remotePage;
   int remoteSurah;
   int remoteAyah;
@@ -57,6 +66,8 @@ class MaglisActiveSession {
   Future<void> dispose() async {
     recitationSyncTimer?.cancel();
     recitationSyncTimer = null;
+    localFloorClaimTs = 0;
+    lastFloorClaimTs = 0;
     await pktSub?.cancel();
     await stateSub?.cancel();
     await natSub?.cancel();
@@ -71,4 +82,3 @@ class MaglisActiveSession {
     highlightStore.clearAll();
   }
 }
-

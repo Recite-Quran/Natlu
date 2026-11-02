@@ -77,6 +77,7 @@ class MaglisController extends ChangeNotifier {
     if (s.activeReciterId == peerId) {
       s.activeReciterId = null;
       s.remoteWord = null;
+      s.net.updateActiveFloor(null);
       reciterLeft = true;
     }
     AppState.instance.showMaglisPeerLeftBanner();
@@ -203,9 +204,10 @@ class MaglisController extends ChangeNotifier {
 
       // Only enter session UI once room connection is verified!
       final mappedPage = MushafProvider.instance.getPageForAyah(
-        AppState.instance.lastSurah,
-        AppState.instance.lastAyah,
-      ) ?? page;
+            AppState.instance.lastSurah,
+            AppState.instance.lastAyah,
+          ) ??
+          page;
       AppState.instance.enterMaglisSession(mappedPage);
 
       _notifySessionChanged();
@@ -242,7 +244,58 @@ class MaglisController extends ChangeNotifier {
     final s = _session;
     if (s == null) return;
 
-    // Merge cumulative and live words into persistent room highlights with fast radix decoding
+    if (pkt.type == MaglisPacketType.ping ||
+        pkt.type == MaglisPacketType.pong) {
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    // 1. Preemption & Local-Reciter Shield:
+    // Evaluate BEFORE merging words/errors so stale in-flight packets from a
+    // preempted reciter never overwrite the new reciter's cleared highlights.
+    if (s.isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
+      if (pkt.activeReciterId != null && pkt.activeReciterId != s.localPeerId) {
+        final localClaimAge = now - s.localFloorClaimTs;
+        if (localClaimAge >= 0 && localClaimAge < 1500) {
+          // Stale in-flight packet from the previous reciter sent before our
+          // floorClaim reached them. Ignore completely.
+          return;
+        }
+        // Fail-safe: Another peer is genuinely reciting after the grace window
+        // (e.g., their floorClaim packet was dropped on a lossy link). Yield floor!
+        s.recitationSyncTimer?.cancel();
+        s.recitationSyncTimer = null;
+        s.activeReciterId = pkt.activeReciterId;
+        s.lastFloorClaimTs = now;
+        s.net.updateActiveFloor(pkt.activeReciterId);
+        onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
+      } else {
+        // Local reciter drives their own UI from local engine.
+        // Only merge background cumulative history from initial snapshots if present.
+        if (pkt.type == MaglisPacketType.snapshot &&
+            pkt.cumulative != null &&
+            pkt.cumulative!.isNotEmpty) {
+          if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
+            notifyListeners();
+          }
+        }
+        return;
+      }
+    }
+
+    // 2. Listener Preemption Fence:
+    // If Peer B just claimed the floor, drop any late in-flight recitationUpdate
+    // packets arriving from Peer A within the 1500ms transition window.
+    if (pkt.type == MaglisPacketType.recitationUpdate &&
+        s.activeReciterId != null &&
+        pkt.senderId != s.activeReciterId &&
+        (now - s.lastFloorClaimTs) >= 0 &&
+        (now - s.lastFloorClaimTs) < 1500) {
+      return;
+    }
+
+    // 3. Merge cumulative and live words into persistent room highlights with fast radix decoding
     bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
       if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
@@ -263,36 +316,27 @@ class MaglisController extends ChangeNotifier {
       s.highlightStore.mergeErrors(pkt.surah, pkt.ayah, pkt.errors!);
     }
 
-    if (s.isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
-      if (pkt.activeReciterId != null && pkt.activeReciterId != s.localPeerId) {
-        // Fail-safe: Another peer is actively reciting! Force-stop local recording immediately.
-        s.recitationSyncTimer?.cancel();
-        s.recitationSyncTimer = null;
-        onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
-        s.activeReciterId = pkt.activeReciterId;
-      } else {
-        // Local reciter drives their own UI from local engine. Do not let incoming packets stutter local screen.
-        return;
-      }
-    }
-
     switch (pkt.type) {
       case MaglisPacketType.floorClaim:
+        // Deduplicate dual-path (DataChannel + Nostr fast signal) arrival for the same claim
         if (s.activeReciterId == pkt.senderId &&
             s.remoteSurah == pkt.surah &&
-            s.remoteAyah == pkt.ayah) {
+            s.remoteAyah == pkt.ayah &&
+            (now - s.lastFloorClaimTs).abs() < 2000) {
           return;
         }
 
         if (pkt.senderId != s.localPeerId) {
           if (s.isLocalReciting) {
-            // TRUE GLARE DETECTION: Only apply deterministic tiebreak if both
-            // peers pressed Record within a tight 500ms window (simultaneous claims).
-            // For deliberate takeovers (B presses Record while A is already recording),
-            // the newer claim ALWAYS wins regardless of peer ID ordering.
-            final now = DateTime.now().millisecondsSinceEpoch;
-            final remoteClaimAge = (now - pkt.ts).abs();
-            final isSimultaneousGlare = remoteClaimAge < 500;
+            // TRUE GLARE DETECTION (Clock-Skew Immune):
+            // Measure how long the LOCAL user has been reciting using strictly local time.
+            // Only apply deterministic tiebreak if the local user ALSO pressed Record
+            // within the last 500ms (true simultaneous button press).
+            // For deliberate takeovers (local user has been recording >= 500ms),
+            // the new remote claim ALWAYS wins regardless of peer ID ordering.
+            final localRecitingAge = now - s.localFloorClaimTs;
+            final isSimultaneousGlare =
+                localRecitingAge >= 0 && localRecitingAge < 500;
 
             if (isSimultaneousGlare) {
               final localWins = s.localPeerId.compareTo(pkt.senderId) < 0;
@@ -319,14 +363,15 @@ class MaglisController extends ChangeNotifier {
           }
         }
         s.activeReciterId = pkt.senderId;
+        s.lastFloorClaimTs = now;
         s.net.updateActiveFloor(pkt.senderId);
         s.remotePage = pkt.page;
         s.remoteSurah = pkt.surah;
         s.remoteAyah = pkt.ayah;
         s.remoteWord = pkt.activeWord;
-        s.remoteGreenWords = pkt.greenWords;
-        s.remoteYellowWords = pkt.yellowWords;
-        s.remoteRedWords = pkt.redWords;
+        s.remoteGreenWords = List<int>.from(pkt.greenWords)..sort();
+        s.remoteYellowWords = List<int>.from(pkt.yellowWords)..sort();
+        s.remoteRedWords = List<int>.from(pkt.redWords)..sort();
 
         if (pkt.senderId != s.localPeerId) {
           onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
@@ -359,8 +404,8 @@ class MaglisController extends ChangeNotifier {
 
         final bool wordsChanged =
             !listEquals(s.remoteGreenWords, newGreenList) ||
-            !listEquals(s.remoteYellowWords, newYellowList) ||
-            !listEquals(s.remoteRedWords, newRedList);
+                !listEquals(s.remoteYellowWords, newYellowList) ||
+                !listEquals(s.remoteRedWords, newRedList);
 
         final bool posChanged = pageChanged ||
             ayahChanged ||
@@ -371,6 +416,7 @@ class MaglisController extends ChangeNotifier {
           return;
         }
 
+        final bool reciterChanged = s.activeReciterId != pkt.senderId;
         s.activeReciterId = pkt.senderId;
         s.net.updateActiveFloor(pkt.senderId);
         s.remotePage = pkt.page;
@@ -381,6 +427,9 @@ class MaglisController extends ChangeNotifier {
         s.remoteYellowWords = newYellowList;
         s.remoteRedWords = newRedList;
 
+        if (reciterChanged) {
+          _notifySessionChanged();
+        }
         notifyListeners();
         if (pageChanged) {
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
@@ -390,6 +439,7 @@ class MaglisController extends ChangeNotifier {
       case MaglisPacketType.snapshot:
         if (pkt.activeReciterId != null) {
           s.activeReciterId = pkt.activeReciterId;
+          s.net.updateActiveFloor(pkt.activeReciterId);
           s.remotePage = pkt.page;
           s.remoteSurah = pkt.surah;
           s.remoteAyah = pkt.ayah;
@@ -422,6 +472,9 @@ class MaglisController extends ChangeNotifier {
   }) async {
     final s = _session;
     if (s == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    s.localFloorClaimTs = now;
+    s.lastFloorClaimTs = now;
     s.activeReciterId = s.localPeerId;
     s.net.updateActiveFloor(s.localPeerId);
     unawaited(setMicMuted(false));
@@ -448,7 +501,7 @@ class MaglisController extends ChangeNotifier {
         surah: surah,
         ayah: ayah,
         activeReciterId: s.localPeerId,
-        ts: DateTime.now().millisecondsSinceEpoch,
+        ts: now,
       ),
     );
     s.net.sendSignalFast('floor_claim', data: {
@@ -512,6 +565,7 @@ class MaglisController extends ChangeNotifier {
     s.recitationSyncTimer = null;
     if (s.activeReciterId == s.localPeerId) {
       s.activeReciterId = null;
+      s.localFloorClaimTs = 0;
       s.net.updateActiveFloor(null);
 
       s.net.sendPacket(
@@ -546,13 +600,17 @@ class MaglisController extends ChangeNotifier {
     final s = _session;
     if (s == null || s.activeReciterId != s.localPeerId) return;
 
+    final sortedGreen = List<int>.from(greenWords)..sort();
+    final sortedYellow = List<int>.from(yellowWords)..sort();
+    final sortedRed = List<int>.from(redWords)..sort();
+
     // Persist local words into cumulative session highlights with fast integer hashing
     s.highlightStore.mergeWords(
       surah,
       ayah,
-      greenWords: greenWords,
-      yellowWords: yellowWords,
-      redWords: redWords,
+      greenWords: sortedGreen,
+      yellowWords: sortedYellow,
+      redWords: sortedRed,
     );
 
     // Save local errors into remoteWordErrors as well so local reciter has exact same lookup map
@@ -572,14 +630,16 @@ class MaglisController extends ChangeNotifier {
 
     final bool cursorMoved = activeWord != s.lastBroadcastWord;
 
-    final bool wordsChanged =
-        !listEquals(greenWords, s.remoteGreenWords) ||
-        !listEquals(yellowWords, s.remoteYellowWords) ||
-        !listEquals(redWords, s.remoteRedWords);
+    final bool wordsChanged = !listEquals(sortedGreen, s.remoteGreenWords) ||
+        !listEquals(sortedYellow, s.remoteYellowWords) ||
+        !listEquals(sortedRed, s.remoteRedWords);
 
     final bool errorsChanged = errors != null && errors.isNotEmpty;
 
-    if (!pageOrVerseChanged && !cursorMoved && !wordsChanged && !errorsChanged) {
+    if (!pageOrVerseChanged &&
+        !cursorMoved &&
+        !wordsChanged &&
+        !errorsChanged) {
       return; // Absolute zero packets sent if reciter pauses or stays on current word!
     }
 
@@ -588,9 +648,9 @@ class MaglisController extends ChangeNotifier {
     s.lastBroadcastAyah = ayah;
     s.lastBroadcastWord = activeWord;
 
-    s.remoteGreenWords = List<int>.from(greenWords);
-    s.remoteYellowWords = List<int>.from(yellowWords);
-    s.remoteRedWords = List<int>.from(redWords);
+    s.remoteGreenWords = sortedGreen;
+    s.remoteYellowWords = sortedYellow;
+    s.remoteRedWords = sortedRed;
 
     // Serialize active errors strictly once per word to achieve minimum packet size
     final serializedErrors = s.highlightStore.serializeNewErrors(
@@ -608,9 +668,9 @@ class MaglisController extends ChangeNotifier {
         surah: surah,
         ayah: ayah,
         activeWord: activeWord,
-        greenWords: greenWords,
-        yellowWords: yellowWords,
-        redWords: redWords,
+        greenWords: sortedGreen,
+        yellowWords: sortedYellow,
+        redWords: sortedRed,
         activeReciterId: s.localPeerId,
         errors: serializedErrors,
         ts: DateTime.now().millisecondsSinceEpoch,

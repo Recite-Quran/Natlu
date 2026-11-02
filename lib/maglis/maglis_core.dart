@@ -121,16 +121,16 @@ class MaglisBinaryPacker {
   static const int version = 0x01;
 
   static List<int> encodeVarint(int value) {
-    if (value < 0) {
-      value = (value << 1) ^ (value >> 31);
+    if (value <= 0) {
+      return const [0];
     }
     final bytes = <int>[];
     while (value > 0x7F) {
       bytes.add((value & 0x7F) | 0x80);
-      value >>= 7;
+      value >>>= 7;
     }
     bytes.add(value & 0x7F);
-    return bytes.isEmpty ? [0] : bytes;
+    return bytes;
   }
 
   static (int, int) decodeVarint(Uint8List bytes, int offset) {
@@ -139,10 +139,10 @@ class MaglisBinaryPacker {
     int bytesRead = 0;
 
     while (offset + bytesRead < bytes.length) {
-      int byte = bytes[offset + bytesRead];
+      final int byte = bytes[offset + bytesRead];
       result |= (byte & 0x7F) << shift;
       bytesRead++;
-      if ((byte & 0x80) == 0) break;
+      if ((byte & 0x80) == 0 || shift >= 56) break;
       shift += 7;
     }
     return (result, bytesRead);
@@ -226,7 +226,8 @@ class MaglisBinaryPacker {
 
     if (packet.cumulative != null && packet.cumulative!.isNotEmpty) {
       builder.add(encodeVarint(packet.cumulative!.length));
-      for (final entry in List<MapEntry<String, int>>.from(packet.cumulative!.entries)) {
+      for (final entry
+          in List<MapEntry<String, int>>.from(packet.cumulative!.entries)) {
         final kBytes = utf8.encode(entry.key);
         builder.add(encodeVarint(kBytes.length));
         builder.add(kBytes);
@@ -249,115 +250,122 @@ class MaglisBinaryPacker {
     if (bytes.length < 3) return null;
     if (bytes[0] != magic || bytes[1] != version) return null;
 
-    int offset = 2;
-    if (offset >= bytes.length) return null;
-    final typeIdx = bytes[offset++];
-    final type = MaglisPacketType
-        .values[typeIdx.clamp(0, MaglisPacketType.values.length - 1)];
+    try {
+      int offset = 2;
+      if (offset >= bytes.length) return null;
+      final typeIdx = bytes[offset++];
+      final type = MaglisPacketType
+          .values[typeIdx.clamp(0, MaglisPacketType.values.length - 1)];
 
-    var (seq, read) = decodeVarint(bytes, offset);
-    offset += read;
+      var (seq, read) = decodeVarint(bytes, offset);
+      offset += read;
 
-    var (senderLen, readLen) = decodeVarint(bytes, offset);
-    offset += readLen;
-    if (offset + senderLen > bytes.length) return null;
-    final senderId = utf8.decode(bytes.sublist(offset, offset + senderLen));
-    offset += senderLen;
+      var (senderLen, readLen) = decodeVarint(bytes, offset);
+      offset += readLen;
+      if (senderLen < 0 || offset + senderLen > bytes.length) return null;
+      final senderId = utf8.decode(bytes.sublist(offset, offset + senderLen));
+      offset += senderLen;
 
-    var (page, readPage) = decodeVarint(bytes, offset);
-    offset += readPage;
+      var (page, readPage) = decodeVarint(bytes, offset);
+      offset += readPage;
 
-    var (surah, readSurah) = decodeVarint(bytes, offset);
-    offset += readSurah;
+      var (surah, readSurah) = decodeVarint(bytes, offset);
+      offset += readSurah;
 
-    var (ayah, readAyah) = decodeVarint(bytes, offset);
-    offset += readAyah;
+      var (ayah, readAyah) = decodeVarint(bytes, offset);
+      offset += readAyah;
 
-    if (offset >= bytes.length) return null;
-    final flags = bytes[offset++];
+      if (offset >= bytes.length) return null;
+      final flags = bytes[offset++];
 
-    int? activeWord;
-    if ((flags & (1 << 0)) != 0) {
-      var (w, r) = decodeVarint(bytes, offset);
-      offset += r;
-      activeWord = w;
-    }
-
-    List<int> greenWords = const [];
-    if ((flags & (1 << 3)) != 0) {
-      var (count, r) = decodeVarint(bytes, offset);
-      offset += r;
-      final list = <int>[];
-      for (int i = 0; i < count; i++) {
-        var (val, rVal) = decodeVarint(bytes, offset);
-        offset += rVal;
-        list.add(val);
+      int? activeWord;
+      if ((flags & (1 << 0)) != 0) {
+        if (offset >= bytes.length) return null;
+        var (w, r) = decodeVarint(bytes, offset);
+        offset += r;
+        activeWord = w;
       }
-      greenWords = list;
-    }
 
-    List<int> yellowWords = const [];
-    if ((flags & (1 << 4)) != 0) {
-      var (count, r) = decodeVarint(bytes, offset);
-      offset += r;
-      final list = <int>[];
-      for (int i = 0; i < count; i++) {
-        var (val, rVal) = decodeVarint(bytes, offset);
-        offset += rVal;
-        list.add(val);
+      List<int> greenWords = const [];
+      if ((flags & (1 << 3)) != 0) {
+        var (count, r) = decodeVarint(bytes, offset);
+        offset += r;
+        final list = <int>[];
+        for (int i = 0; i < count; i++) {
+          if (offset >= bytes.length) return null;
+          var (val, rVal) = decodeVarint(bytes, offset);
+          offset += rVal;
+          list.add(val);
+        }
+        greenWords = list;
       }
-      yellowWords = list;
-    }
 
-    List<int> redWords = const [];
-    if ((flags & (1 << 5)) != 0) {
-      var (count, r) = decodeVarint(bytes, offset);
-      offset += r;
-      final list = <int>[];
-      for (int i = 0; i < count; i++) {
-        var (val, rVal) = decodeVarint(bytes, offset);
-        offset += rVal;
-        list.add(val);
+      List<int> yellowWords = const [];
+      if ((flags & (1 << 4)) != 0) {
+        var (count, r) = decodeVarint(bytes, offset);
+        offset += r;
+        final list = <int>[];
+        for (int i = 0; i < count; i++) {
+          if (offset >= bytes.length) return null;
+          var (val, rVal) = decodeVarint(bytes, offset);
+          offset += rVal;
+          list.add(val);
+        }
+        yellowWords = list;
       }
-      redWords = list;
-    }
 
-    String? activeReciterId;
-    if ((flags & (1 << 1)) != 0) {
-      if ((flags & (1 << 2)) != 0) {
-        activeReciterId = senderId;
-      } else {
-        var (rLen, rR) = decodeVarint(bytes, offset);
-        offset += rR;
-        if (offset + rLen <= bytes.length) {
+      List<int> redWords = const [];
+      if ((flags & (1 << 5)) != 0) {
+        var (count, r) = decodeVarint(bytes, offset);
+        offset += r;
+        final list = <int>[];
+        for (int i = 0; i < count; i++) {
+          if (offset >= bytes.length) return null;
+          var (val, rVal) = decodeVarint(bytes, offset);
+          offset += rVal;
+          list.add(val);
+        }
+        redWords = list;
+      }
+
+      String? activeReciterId;
+      if ((flags & (1 << 1)) != 0) {
+        if ((flags & (1 << 2)) != 0) {
+          activeReciterId = senderId;
+        } else {
+          var (rLen, rR) = decodeVarint(bytes, offset);
+          offset += rR;
+          if (rLen < 0 || offset + rLen > bytes.length) return null;
           activeReciterId = utf8.decode(bytes.sublist(offset, offset + rLen));
           offset += rLen;
         }
       }
-    }
 
-    Map<String, int>? cumulative;
-    if ((flags & (1 << 6)) != 0) {
-      var (count, r) = decodeVarint(bytes, offset);
-      offset += r;
-      final map = <String, int>{};
-      for (int i = 0; i < count; i++) {
-        var (kLen, rK) = decodeVarint(bytes, offset);
-        offset += rK;
-        final k = utf8.decode(bytes.sublist(offset, offset + kLen));
-        offset += kLen;
-        var (v, rV) = decodeVarint(bytes, offset);
-        offset += rV;
-        map[k] = v;
+      Map<String, int>? cumulative;
+      if ((flags & (1 << 6)) != 0) {
+        var (count, r) = decodeVarint(bytes, offset);
+        offset += r;
+        final map = <String, int>{};
+        for (int i = 0; i < count; i++) {
+          if (offset >= bytes.length) return null;
+          var (kLen, rK) = decodeVarint(bytes, offset);
+          offset += rK;
+          if (kLen < 0 || offset + kLen > bytes.length) return null;
+          final k = utf8.decode(bytes.sublist(offset, offset + kLen));
+          offset += kLen;
+          if (offset >= bytes.length) return null;
+          var (v, rV) = decodeVarint(bytes, offset);
+          offset += rV;
+          map[k] = v;
+        }
+        cumulative = map;
       }
-      cumulative = map;
-    }
 
-    Map<String, List<Map<String, dynamic>>>? errors;
-    if ((flags & (1 << 7)) != 0) {
-      var (eLen, rE) = decodeVarint(bytes, offset);
-      offset += rE;
-      if (offset + eLen <= bytes.length) {
+      Map<String, List<Map<String, dynamic>>>? errors;
+      if ((flags & (1 << 7)) != 0) {
+        var (eLen, rE) = decodeVarint(bytes, offset);
+        offset += rE;
+        if (eLen < 0 || offset + eLen > bytes.length) return null;
         final rawErr = utf8.decode(bytes.sublist(offset, offset + eLen));
         offset += eLen;
         final decoded = jsonDecode(rawErr) as Map<String, dynamic>;
@@ -368,31 +376,33 @@ class MaglisBinaryPacker {
                   .toList(),
             ));
       }
-    }
 
-    int ts = 0;
-    if (offset < bytes.length) {
-      var (tVal, rT) = decodeVarint(bytes, offset);
-      offset += rT;
-      ts = tVal;
-    }
+      int ts = 0;
+      if (offset < bytes.length) {
+        var (tVal, rT) = decodeVarint(bytes, offset);
+        offset += rT;
+        ts = tVal;
+      }
 
-    return MaglisPacket(
-      type: type,
-      seq: seq,
-      senderId: senderId,
-      page: page.clamp(1, 604),
-      surah: surah.clamp(1, 114),
-      ayah: ayah.clamp(1, 286),
-      activeWord: activeWord,
-      greenWords: greenWords,
-      yellowWords: yellowWords,
-      redWords: redWords,
-      activeReciterId: activeReciterId,
-      cumulative: cumulative,
-      errors: errors,
-      ts: ts == 0 ? DateTime.now().millisecondsSinceEpoch : ts,
-    );
+      return MaglisPacket(
+        type: type,
+        seq: seq,
+        senderId: senderId,
+        page: page.clamp(1, 604),
+        surah: surah.clamp(1, 114),
+        ayah: ayah.clamp(1, 286),
+        activeWord: activeWord,
+        greenWords: greenWords,
+        yellowWords: yellowWords,
+        redWords: redWords,
+        activeReciterId: activeReciterId,
+        cumulative: cumulative,
+        errors: errors,
+        ts: ts == 0 ? DateTime.now().millisecondsSinceEpoch : ts,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
 
@@ -440,7 +450,8 @@ class MaglisCrypto {
   ];
 
   static int get currentEpoch =>
-      DateTime.now().millisecondsSinceEpoch ~/ (15 * 60 * 1000); // 15-minute rotation window
+      DateTime.now().millisecondsSinceEpoch ~/
+      (15 * 60 * 1000); // 15-minute rotation window
 
   static String randomHex32() {
     final bytes = List<int>.generate(32, (_) => _rng.nextInt(256));
@@ -471,6 +482,9 @@ class MaglisCrypto {
 
   static SecretKey _deriveKey(String code) {
     final trimmed = code.trim();
+    if (_keyCache.length > 64 && !_keyCache.containsKey(trimmed)) {
+      _keyCache.remove(_keyCache.keys.first);
+    }
     return _keyCache.putIfAbsent(trimmed, () {
       final hmac = Hmac(sha256, _appPepper);
       final bytes = hmac.convert(utf8.encode('maglis_v2_aes_$trimmed')).bytes;
@@ -520,7 +534,11 @@ class MaglisCrypto {
   static final Map<String, String> _pubKeyCache = {};
 
   static String getPublicKey(String privHex) {
-    return _pubKeyCache.putIfAbsent(privHex, () => bip340.getPublicKey(privHex));
+    if (_pubKeyCache.length > 64 && !_pubKeyCache.containsKey(privHex)) {
+      _pubKeyCache.remove(_pubKeyCache.keys.first);
+    }
+    return _pubKeyCache.putIfAbsent(
+        privHex, () => bip340.getPublicKey(privHex));
   }
 
   static String signNostrEvent({
@@ -620,7 +638,8 @@ class MaglisPlatform {
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return true;
     try {
-      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) {
         final mic = await Permission.microphone.request();
         return mic.isGranted;
       }
@@ -656,31 +675,34 @@ class MaglisPlatform {
         await WebRTC.initialize(options: {
           'audioSampleRate': 48000,
           'audioOutputSampleRate': 48000,
-          'androidUseHardwareAudioProcessing': false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
-          if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android))
+          'androidUseHardwareAudioProcessing':
+              false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
+          if (defaultTargetPlatform == TargetPlatform.android)
             'androidAudioConfiguration': androidConfig.toMap(),
         });
       } catch (_) {}
 
       // 2. Set silent microphone mute mode (prevents OS beep on iOS/macOS)
       try {
-        if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.macOS)) {
+        if (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS) {
           await Helper.setMicrophoneMuteMode(MicrophoneMuteMode.inputMixer);
         }
       } catch (_) {}
 
       // 3. Configure platform audio routing for high-fidelity media loudspeaker playout
-      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android)) {
+      if (defaultTargetPlatform == TargetPlatform.android) {
         await Helper.setAndroidAudioConfiguration(androidConfig);
         await Helper.setSpeakerphoneOn(true);
-      } else if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      } else if (defaultTargetPlatform == TargetPlatform.iOS) {
         try {
           await Helper.ensureAudioSession();
         } catch (_) {}
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
             appleAudioCategory: AppleAudioCategory.playAndRecord,
-            appleAudioMode: AppleAudioMode.videoChat, // videoChat provides loud loudspeaker handsfree playout + full AEC
+            appleAudioMode: AppleAudioMode
+                .videoChat, // videoChat provides loud loudspeaker handsfree playout + full AEC
             appleAudioCategoryOptions: {
               AppleAudioCategoryOption.defaultToSpeaker,
               AppleAudioCategoryOption.allowBluetooth,
@@ -693,7 +715,8 @@ class MaglisPlatform {
       }
 
       // 4. Configure system audio_session for loud media playout & hardware speakerphone
-      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) {
         try {
           final session = await AudioSession.instance;
           await session.configure(
@@ -701,7 +724,7 @@ class MaglisPlatform {
               avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
               avAudioSessionCategoryOptions:
                   AVAudioSessionCategoryOptions.defaultToSpeaker |
-                       AVAudioSessionCategoryOptions.allowBluetooth |
+                      AVAudioSessionCategoryOptions.allowBluetooth |
                       AVAudioSessionCategoryOptions.allowBluetoothA2dp |
                       AVAudioSessionCategoryOptions.allowAirPlay,
               avAudioSessionMode: AVAudioSessionMode.videoChat,
@@ -759,9 +782,10 @@ class MaglisPlatform {
     _setSpeakerAction = action;
 
     try {
-      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android) || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) {
         await Helper.setSpeakerphoneOn(on);
-        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
           try {
             await Helper.selectAudioOutput(on ? 'speaker' : 'earpiece');
           } catch (_) {}
@@ -785,13 +809,13 @@ class MaglisPlatform {
       _interruptionSub?.cancel();
       _interruptionSub = null;
 
-      if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.android)) {
+      if (defaultTargetPlatform == TargetPlatform.android) {
         await Helper.setAndroidAudioConfiguration(
           AndroidAudioConfiguration.media,
         );
         await Helper.clearAndroidCommunicationDevice();
         await Helper.setSpeakerphoneOn(false);
-      } else if ((!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      } else if (defaultTargetPlatform == TargetPlatform.iOS) {
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
             appleAudioCategory: AppleAudioCategory.playback,

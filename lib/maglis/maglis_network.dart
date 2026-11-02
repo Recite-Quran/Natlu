@@ -31,9 +31,12 @@ export 'network/maglis_session.dart';
 class MaglisNetworkEngine {
   static const int maxRemotePeers = 3;
 
-  static Future<void> syncRemoteConfig() => MaglisConfigManager.syncRemoteConfig();
-  static List<String> roomRelaysForCode(String code) => MaglisConfigManager.roomRelaysForCode(code);
-  static String formatRelayUrl(String baseUrl, String room) => MaglisRelayFleet.formatRelayUrl(baseUrl, room);
+  static Future<void> syncRemoteConfig() =>
+      MaglisConfigManager.syncRemoteConfig();
+  static List<String> roomRelaysForCode(String code) =>
+      MaglisConfigManager.roomRelaysForCode(code);
+  static String formatRelayUrl(String baseUrl, String room) =>
+      MaglisRelayFleet.formatRelayUrl(baseUrl, room);
   static String mungeOpusSdp(
     String sdp, {
     int maxAverageBitrate = 48000,
@@ -66,7 +69,8 @@ class MaglisNetworkEngine {
   MaglisPeerSession get peerSession => _peerSession;
 
   final _packetCtrl = StreamController<MaglisPacket>.broadcast();
-  final _statesCtrl = StreamController<Map<String, RTCIceConnectionState>>.broadcast();
+  final _statesCtrl =
+      StreamController<Map<String, RTCIceConnectionState>>.broadcast();
   final _natFailCtrl = StreamController<String>.broadcast();
   final _participantCountCtrl = StreamController<int>.broadcast();
 
@@ -77,7 +81,6 @@ class MaglisNetworkEngine {
   List<ConnectivityResult> _lastConnectivity = const [];
   Timer? _networkChangeDebounceTimer;
   Timer? _beaconTimer;
-  Timer? _pingTimer;
   Timer? _watchdogTimer;
   Timer? _epochRefreshTimer;
   int _lastKnownHostHeartbeatMs = 0;
@@ -107,7 +110,8 @@ class MaglisNetworkEngine {
       onBuildSnapshot: onBuildSnapshot,
       onNatFailure: (peerId) => _natFailCtrl.add(peerId),
       onStatesChanged: (states) {
-        for (final entry in List<MapEntry<String, RTCIceConnectionState>>.from(states.entries)) {
+        for (final entry in List<MapEntry<String, RTCIceConnectionState>>.from(
+            states.entries)) {
           _addOrUpdateParticipant(entry.key, iceState: entry.value);
         }
         _statesCtrl.add(states);
@@ -135,7 +139,8 @@ class MaglisNetworkEngine {
               if (isInitiator) {
                 unawaited(_peerSession.initiatePeerConnection(id));
               } else {
-                unawaited(_relayFleet.sendSignal('beacon', targetId: id, data: const {}));
+                unawaited(_relayFleet.sendSignal('beacon',
+                    targetId: id, data: const {}));
               }
             }
           }
@@ -167,6 +172,7 @@ class MaglisNetworkEngine {
         isDataChannelOpen: dataChannelOpen ?? false,
       );
       remoteParticipants.set(p);
+      _admittedPeers.add(peerId);
       _participantCountCtrl.add(participantCount);
       onParticipantJoined?.call(peerId);
     } else {
@@ -177,8 +183,8 @@ class MaglisNetworkEngine {
   }
 
   void _removeParticipant(String peerId) {
+    _admittedPeers.remove(peerId);
     if (remoteParticipants.removeByIdentity(peerId) != null) {
-      _admittedPeers.remove(peerId);
       _participantCountCtrl.add(participantCount);
       onParticipantLeft?.call(peerId);
       _checkHostMigration();
@@ -186,14 +192,18 @@ class MaglisNetworkEngine {
   }
 
   Stream<MaglisPacket> get onPacket => _packetCtrl.stream;
-  Stream<Map<String, RTCIceConnectionState>> get onPeerStates => _statesCtrl.stream;
+  Stream<Map<String, RTCIceConnectionState>> get onPeerStates =>
+      _statesCtrl.stream;
   Stream<String> get onNatFailure => _natFailCtrl.stream;
   Stream<int> get onParticipantCount => _participantCountCtrl.stream;
-  int get participantCount => _disposed ? 1 : (remoteParticipants.length + 1); // self + remote
+  int get participantCount =>
+      _disposed ? 1 : (remoteParticipants.length + 1); // self + remote
   bool get isMicMuted => _peerSession.isMicMuted;
   int getPeerLatency(String peerId) => _peerSession.getPeerLatency(peerId);
-  Map<String, MaglisPeerDiagnostics> get peerDiagnostics => _peerSession.peerDiagnostics;
-  void updateActiveFloor(String? activeReciterId) => _peerSession.updateActiveFloor(activeReciterId);
+  Map<String, MaglisPeerDiagnostics> get peerDiagnostics =>
+      _peerSession.peerDiagnostics;
+  void updateActiveFloor(String? activeReciterId) =>
+      _peerSession.updateActiveFloor(activeReciterId);
 
   int get _activeRemoteParticipantCount {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -225,7 +235,8 @@ class MaglisNetworkEngine {
     await MaglisPlatform.initAudio();
     await MaglisPlatform.setWakeLock(true);
 
-    final hasAudioInput = await MaglisMediaHelper.preflightDesktopMediaDevices();
+    final hasAudioInput =
+        await MaglisMediaHelper.preflightDesktopMediaDevices();
     if (hasAudioInput) {
       try {
         _peerSession.localStream = await navigator.mediaDevices.getUserMedia(
@@ -244,7 +255,9 @@ class MaglisNetworkEngine {
     // Unmute mic audio track so all room members hear each other continuously in conference call
     _peerSession.localStream?.getAudioTracks().forEach((track) {
       track.enabled = true;
-      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android ||
+              defaultTargetPlatform == TargetPlatform.iOS)) {
         try {
           Helper.setMicrophoneMute(false, track);
         } catch (_) {}
@@ -269,7 +282,8 @@ class MaglisNetworkEngine {
 
     if (!kIsWeb) {
       _connectivitySub?.cancel();
-      _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      _connectivitySub =
+          Connectivity().onConnectivityChanged.listen((results) {
         if (_disposed) return;
         final hasConnection =
             results.isNotEmpty && !results.contains(ConnectivityResult.none);
@@ -285,7 +299,8 @@ class MaglisNetworkEngine {
     // Connect to the multi-relay quorum and verify at least one relay is alive!
     final ok = await _relayFleet.connectRelayFleet();
     if (!ok || _relayFleet.sockets.isEmpty) {
-      throw const SocketException('Failed to connect to any Maglis signaling relay');
+      throw const SocketException(
+          'Failed to connect to any Maglis signaling relay');
     }
     _relayFleet.startHeartbeat();
 
@@ -294,20 +309,15 @@ class MaglisNetworkEngine {
 
     // Re-announce beacon every 12s ONLY when waiting for initial peer; completely idle once connected
     _beaconTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      if (!_disposed && _peerSession.peers.isEmpty && _peerSession.negotiatingPeers.isEmpty) {
+      if (!_disposed &&
+          _peerSession.peers.isEmpty &&
+          _peerSession.negotiatingPeers.isEmpty) {
         _relayFleet.sendSignal('beacon', data: const {});
       }
     });
 
-    // Zero-overhead 6s keep-alive ping strictly over direct WebRTC DataChannels (zero Nostr traffic)
-    _pingTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (_disposed) return;
-      _peerSession.dispatchRaw(jsonEncode({
-        't': 4,
-        'u': localPeerId,
-        'm': DateTime.now().millisecondsSinceEpoch,
-      }));
-    });
+    // Note: Keep-alive pings over WebRTC DataChannels are handled directly by
+    // MaglisPeerSession._heartbeatTimer (every 4s), avoiding duplicate timer traffic.
 
     // 5s Watchdog Timer: keeps relay fleet connected, recovers dropped DataChannels, heals mesh links, and prunes abandoned ghost peers
     _watchdogTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -317,7 +327,8 @@ class MaglisNetworkEngine {
       } else {
         final now = DateTime.now();
         if (now.difference(_relayFleet.lastRelayFrameTime).inSeconds > 35) {
-          debugPrint('[MaglisNetwork] Relay silence for 35s, resubscribing fleet and checking connections...');
+          debugPrint(
+              '[MaglisNetwork] Relay silence for 35s, resubscribing fleet and checking connections...');
           _relayFleet.lastRelayFrameTime = now;
           _relayFleet.resubscribeRelays();
           if (_relayFleet.sockets.length < MaglisRelayFleet.targetRelayCount) {
@@ -327,7 +338,8 @@ class MaglisNetworkEngine {
       }
 
       // DataChannel health check on active WebRTC audio peers
-      for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(_peerSession.peers.entries)) {
+      for (final entry in List<MapEntry<String, RTCPeerConnection>>.from(
+          _peerSession.peers.entries)) {
         final peerId = entry.key;
         final state = _peerSession.peerStates[peerId];
         final isConnected =
@@ -335,7 +347,8 @@ class MaglisNetworkEngine {
                 state == RTCIceConnectionState.RTCIceConnectionStateCompleted;
         if (isConnected) {
           final dc = _peerSession.channels[peerId];
-          if (dc == null || dc.state == RTCDataChannelState.RTCDataChannelClosed) {
+          if (dc == null ||
+              dc.state == RTCDataChannelState.RTCDataChannelClosed) {
             _peerSession.recoverDataChannel(peerId);
           }
         }
@@ -343,12 +356,14 @@ class MaglisNetworkEngine {
 
       // Periodic Mesh Self-Healing Audit
       for (final p in remoteParticipants.identities) {
-        if (!_peerSession.peers.containsKey(p) && !_peerSession.negotiatingPeers.contains(p)) {
+        if (!_peerSession.peers.containsKey(p) &&
+            !_peerSession.negotiatingPeers.contains(p)) {
           final isInitiator = localPeerId.compareTo(p) < 0;
           if (isInitiator) {
             unawaited(_peerSession.initiatePeerConnection(p));
           } else {
-            unawaited(_relayFleet.sendSignal('beacon', targetId: p, data: const {}));
+            unawaited(
+                _relayFleet.sendSignal('beacon', targetId: p, data: const {}));
           }
         }
       }
@@ -379,13 +394,15 @@ class MaglisNetworkEngine {
     if (_isHost && !isProbe) {
       _pruneStalePeers();
       if (!_admittedPeers.contains(remoteId) &&
-          _activeRemoteParticipantCount >= maxRemotePeers) {
+          (remoteParticipants.length >= maxRemotePeers ||
+              _activeRemoteParticipantCount >= maxRemotePeers)) {
         return; // Drop signals exceeding room capacity
       }
       _admittedPeers.add(remoteId);
     }
 
-    _peerSession.lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
+    _peerSession.lastSeenPeerMs[remoteId] =
+        DateTime.now().millisecondsSinceEpoch;
     if (!isProbe) {
       _addOrUpdateParticipant(remoteId);
     }
@@ -402,7 +419,8 @@ class MaglisNetworkEngine {
       case 'join_probe':
         _pruneStalePeers();
         if (_isHost) {
-          if (_activeRemoteParticipantCount >= maxRemotePeers &&
+          if ((remoteParticipants.length >= maxRemotePeers ||
+                  _activeRemoteParticipantCount >= maxRemotePeers) &&
               !_admittedPeers.contains(remoteId) &&
               !remoteParticipants.containsIdentity(remoteId)) {
             await _relayFleet.sendSignal('join_reject',
@@ -438,14 +456,14 @@ class MaglisNetworkEngine {
               unawaited(_peerSession.triggerIceRestart(remoteId));
             }
           } else {
-            unawaited(_relayFleet.sendSignal('beacon', targetId: remoteId, data: const {}));
+            unawaited(_relayFleet.sendSignal('beacon',
+                targetId: remoteId, data: const {}));
           }
         }
         break;
 
       case 'floor_claim':
         final nextSeq = (_peerSession.lastSeq[remoteId] ?? 0) + 1;
-        _peerSession.lastSeq[remoteId] = nextSeq;
         final pkt = MaglisPacket(
           type: MaglisPacketType.floorClaim,
           seq: nextSeq,
@@ -454,9 +472,9 @@ class MaglisNetworkEngine {
           surah: sig.data['surah'] as int? ?? 1,
           ayah: sig.data['ayah'] as int? ?? 1,
           activeReciterId: remoteId,
-          ts: DateTime.now().millisecondsSinceEpoch,
+          ts: (sig.data['ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
         );
-        _peerSession.handleIncomingPacketString(pkt.pack());
+        _peerSession.handleIncomingPacket(pkt);
         break;
 
       case 'beacon':
@@ -486,7 +504,8 @@ class MaglisNetworkEngine {
         if (isInitiator) {
           await _peerSession.initiatePeerConnection(remoteId);
         } else {
-          await _relayFleet.sendSignal('beacon', targetId: remoteId, data: const {});
+          await _relayFleet.sendSignal('beacon',
+              targetId: remoteId, data: const {});
         }
         break;
 
@@ -537,7 +556,8 @@ class MaglisNetworkEngine {
       if (remoteParticipants.isEmpty) {
         _isHost = true;
       } else {
-        final allPeers = [localPeerId, ...remoteParticipants.identities]..sort();
+        final allPeers = [localPeerId, ...remoteParticipants.identities]
+          ..sort();
         if (allPeers.first == localPeerId) {
           _isHost = true;
         }
@@ -657,7 +677,6 @@ class MaglisNetworkEngine {
     _disposed = true;
 
     _beaconTimer?.cancel();
-    _pingTimer?.cancel();
     _watchdogTimer?.cancel();
     _epochRefreshTimer?.cancel();
     _networkChangeDebounceTimer?.cancel();
@@ -666,7 +685,10 @@ class MaglisNetworkEngine {
     MaglisPlatform.onAudioInterrupted = null;
 
     try {
-      _peerSession.dispatchRaw(jsonEncode({'t': 99, 'u': localPeerId, 'type': 'leave'}));
+      _peerSession.dispatchRaw(
+        jsonEncode({'t': 99, 'u': localPeerId, 'type': 'leave'}),
+        isVital: false,
+      );
       await _relayFleet.sendSignal('leave', data: const {});
       // Brief flush delay so TCP buffer transmits leave frame before socket teardown
       await Future.delayed(const Duration(milliseconds: 80));

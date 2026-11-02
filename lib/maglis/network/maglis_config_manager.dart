@@ -57,7 +57,7 @@ class MaglisConfigManager {
   static Map<String, dynamic> _rtcConfig = Map.from(defaultRtcConfig);
   static Map<String, dynamic> get rtcConfig => Map.unmodifiable(_rtcConfig);
 
-  static bool _configSyncAttempted = false;
+  static Future<void>? _configSyncFuture;
 
   static List<String>? _testRelays;
 
@@ -72,10 +72,12 @@ class MaglisConfigManager {
       return List.from(_testRelays!);
     }
     if (_relays.isEmpty) return const [];
-    if (_relays.length <= 2) return _relays;
+    if (_relays.length <= 2) return List.unmodifiable(_relays);
     final primary = _relays.first;
     final fallbacks = _relays.sublist(1);
-    final hash = code.codeUnits.fold<int>(0, (p, c) => (p * 31 + c) & 0x7FFFFFFF);
+    final trimmed = code.trim();
+    final hash =
+        trimmed.codeUnits.fold<int>(0, (p, c) => (p * 31 + c) & 0x7FFFFFFF);
     final ordered = List<String>.generate(
       fallbacks.length,
       (i) => fallbacks[(hash + i) % fallbacks.length],
@@ -84,11 +86,12 @@ class MaglisConfigManager {
   }
 
   /// Fetches latest dynamic fleet configuration from GitHub raw / CDN in the background.
-  /// Completely non-blocking with 4-second timeout, falling back seamlessly on network errors.
-  static Future<void> syncRemoteConfig() async {
-    if (_configSyncAttempted) return;
-    _configSyncAttempted = true;
+  /// Completely non-blocking with 2.5-second per-tier timeout, falling back seamlessly on network errors.
+  static Future<void> syncRemoteConfig() {
+    return _configSyncFuture ??= _syncRemoteConfigInternal();
+  }
 
+  static Future<void> _syncRemoteConfigInternal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
 
@@ -123,7 +126,10 @@ class MaglisConfigManager {
         final Map<String, dynamic> rtc = jsonDecode(cachedRtcJson);
         final ice = rtc['iceServers'] as List?;
         if (ice != null && ice.isNotEmpty) {
-          _rtcConfig = rtc;
+          final mergedRtc = Map<String, dynamic>.from(defaultRtcConfig);
+          mergedRtc.addAll(rtc);
+          mergedRtc['iceServers'] = List.from(ice);
+          _rtcConfig = mergedRtc;
         }
       }
 
@@ -178,7 +184,8 @@ class MaglisConfigManager {
           if (data['iceServers'] is List &&
               (data['iceServers'] as List).isNotEmpty) {
             final updatedRtc = Map<String, dynamic>.from(defaultRtcConfig);
-            final List<dynamic> fetchedIce = List.from(data['iceServers'] as List);
+            final List<dynamic> fetchedIce =
+                List.from(data['iceServers'] as List);
             updatedRtc['iceServers'] = fetchedIce;
             _rtcConfig = updatedRtc;
             await prefs.setString('maglis_cached_rtc', jsonEncode(updatedRtc));
@@ -190,4 +197,3 @@ class MaglisConfigManager {
     }
   }
 }
-

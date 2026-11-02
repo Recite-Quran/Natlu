@@ -5,6 +5,8 @@ import 'dart:math';
 /// Directly inspired by noscall's ReconnectionState pattern with added jitter
 /// to prevent thundering-herd spikes against public relays.
 class MaglisReconnectionState {
+  static final Random _rng = Random();
+
   int attemptCount;
   DateTime lastAttemptTime;
   DateTime? lastSuccessTime;
@@ -52,7 +54,7 @@ class MaglisReconnectionState {
     }
 
     // Jitter: 0.8 to 1.2 x delay
-    final jitterFactor = 0.8 + (Random().nextDouble() * 0.4);
+    final jitterFactor = 0.8 + (_rng.nextDouble() * 0.4);
     final jitteredMs = (clampedSeconds * 1000 * jitterFactor).round();
     return Duration(milliseconds: jitteredMs);
   }
@@ -86,7 +88,7 @@ class MaglisReconnectionState {
   }
 }
 
-/// Schedular managing multi-relay reconnection backoffs (noscall pattern).
+/// Scheduler managing multi-relay reconnection backoffs (noscall pattern).
 /// Prevents socket thrashing, handles network drops, and eliminates relay spamming.
 class MaglisReconnectionScheduler {
   final Map<String, Timer> _timers = {};
@@ -99,22 +101,27 @@ class MaglisReconnectionScheduler {
   int getRelayAttemptCount(String relay) => _states[relay]?.attemptCount ?? 0;
 
   void resetAll() {
-    for (final state in List<dynamic>.from(_states.values)) {
+    for (final timer in List<Timer>.from(_timers.values)) {
+      timer.cancel();
+    }
+    _timers.clear();
+    for (final state in List<MaglisReconnectionState>.from(_states.values)) {
       state.reset();
     }
   }
 
   void resetRelay(String relay) {
+    _timers.remove(relay)?.cancel();
     _states[relay]?.reset();
   }
 
   void recordSuccess(String relay) {
-    _states[relay]?.recordSuccess();
+    _timers.remove(relay)?.cancel();
+    (_states[relay] ??= MaglisReconnectionState()).recordSuccess();
   }
 
   void cancelRelay(String relay) {
-    _timers[relay]?.cancel();
-    _timers.remove(relay);
+    _timers.remove(relay)?.cancel();
     _states.remove(relay);
   }
 
@@ -141,7 +148,7 @@ class MaglisReconnectionScheduler {
 
     final state = _states[relay] ??= MaglisReconnectionState();
 
-    if (state.isReconnecting) {
+    if (state.isReconnecting || _timers.containsKey(relay)) {
       return false;
     }
 

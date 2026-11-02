@@ -910,6 +910,15 @@ class _FivePersonsPainter extends CustomPainter {
   final bool isDark;
   _FivePersonsPainter(this.isDark);
 
+  static final Paint _fillPaint = Paint()
+    ..style = PaintingStyle.fill
+    ..isAntiAlias = true;
+
+  static final Paint _strokePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..isAntiAlias = true;
+
   @override
   void paint(Canvas canvas, Size size) {
     final double w = size.width;
@@ -923,47 +932,12 @@ class _FivePersonsPainter extends CustomPainter {
     final Color backColor =
         isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8);
 
-    // Back-row members (Head + Shoulderpaint)
-    final Paint backHead = Paint()
-      ..color = backColor
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
-
-    final Paint backShoulder = Paint()
-      ..color = backColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.072
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-
-    // Mid-flank members (Head + Shoulderpaint)
-    final Paint midHead = Paint()
-      ..color = midColor
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
-
-    final Paint midShoulder = Paint()
-      ..color = midColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.080
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-
-    // Center foreground member (Head + Shoulderpaint)
-    final Paint centerHead = Paint()
-      ..color = centerColor
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
-
-    final Paint centerShoulder = Paint()
-      ..color = centerColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.090
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-
     // 1. Back-Left Member (Full head + curved shoulder arc)
-    canvas.drawCircle(Offset(w * 0.33, h * 0.17), w * 0.072, backHead);
+    _fillPaint.color = backColor;
+    canvas.drawCircle(Offset(w * 0.33, h * 0.17), w * 0.072, _fillPaint);
+
+    _strokePaint.color = backColor;
+    _strokePaint.strokeWidth = w * 0.072;
     canvas.drawArc(
       Rect.fromCenter(
         center: Offset(w * 0.33, h * 0.43),
@@ -973,11 +947,15 @@ class _FivePersonsPainter extends CustomPainter {
       math.pi * 1.12,
       math.pi * 0.76,
       false,
-      backShoulder,
+      _strokePaint,
     );
 
     // 2. Back-Right Member (Full head + curved shoulder arc)
-    canvas.drawCircle(Offset(w * 0.67, h * 0.17), w * 0.072, backHead);
+    _fillPaint.color = backColor;
+    canvas.drawCircle(Offset(w * 0.67, h * 0.17), w * 0.072, _fillPaint);
+
+    _strokePaint.color = backColor;
+    _strokePaint.strokeWidth = w * 0.072;
     canvas.drawArc(
       Rect.fromCenter(
         center: Offset(w * 0.67, h * 0.43),
@@ -987,11 +965,15 @@ class _FivePersonsPainter extends CustomPainter {
       math.pi * 1.12,
       math.pi * 0.76,
       false,
-      backShoulder,
+      _strokePaint,
     );
 
     // 3. Front-Left Flanking Member (Full head + outer shoulder arc)
-    canvas.drawCircle(Offset(w * 0.16, h * 0.50), w * 0.082, midHead);
+    _fillPaint.color = midColor;
+    canvas.drawCircle(Offset(w * 0.16, h * 0.50), w * 0.082, _fillPaint);
+
+    _strokePaint.color = midColor;
+    _strokePaint.strokeWidth = w * 0.080;
     canvas.drawArc(
       Rect.fromCenter(
         center: Offset(w * 0.17, h * 0.82),
@@ -1001,11 +983,15 @@ class _FivePersonsPainter extends CustomPainter {
       math.pi * 1.06,
       math.pi * 0.64,
       false,
-      midShoulder,
+      _strokePaint,
     );
 
     // 4. Front-Right Flanking Member (Full head + outer shoulder arc)
-    canvas.drawCircle(Offset(w * 0.84, h * 0.50), w * 0.082, midHead);
+    _fillPaint.color = midColor;
+    canvas.drawCircle(Offset(w * 0.84, h * 0.50), w * 0.082, _fillPaint);
+
+    _strokePaint.color = midColor;
+    _strokePaint.strokeWidth = w * 0.080;
     canvas.drawArc(
       Rect.fromCenter(
         center: Offset(w * 0.83, h * 0.82),
@@ -1015,11 +1001,15 @@ class _FivePersonsPainter extends CustomPainter {
       math.pi * 1.30,
       math.pi * 0.64,
       false,
-      midShoulder,
+      _strokePaint,
     );
 
     // 5. Center Foreground Member (Full head + full shoulder arc)
-    canvas.drawCircle(Offset(w * 0.50, h * 0.47), w * 0.098, centerHead);
+    _fillPaint.color = centerColor;
+    canvas.drawCircle(Offset(w * 0.50, h * 0.47), w * 0.098, _fillPaint);
+
+    _strokePaint.color = centerColor;
+    _strokePaint.strokeWidth = w * 0.090;
     canvas.drawArc(
       Rect.fromCenter(
         center: Offset(w * 0.50, h * 0.86),
@@ -1029,7 +1019,7 @@ class _FivePersonsPainter extends CustomPainter {
       math.pi * 1.10,
       math.pi * 0.80,
       false,
-      centerShoulder,
+      _strokePaint,
     );
   }
 
@@ -1060,18 +1050,20 @@ class _OneMemberPainter extends CustomPainter {
   final Color color;
   _OneMemberPainter(this.color);
 
+  static final Paint _paint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..isAntiAlias = true;
+
   @override
   void paint(Canvas canvas, Size size) {
     final double w = size.width;
     final double h = size.height;
-    final Paint paint = Paint()
+    _paint
       ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.11
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
+      ..strokeWidth = w * 0.11;
 
-    canvas.drawCircle(Offset(w * 0.50, h * 0.30), w * 0.17, paint);
+    canvas.drawCircle(Offset(w * 0.50, h * 0.30), w * 0.17, _paint);
     canvas.drawArc(
       Rect.fromCenter(
         center: Offset(w * 0.50, h * 0.78),
@@ -1081,7 +1073,7 @@ class _OneMemberPainter extends CustomPainter {
       math.pi * 1.10,
       math.pi * 0.80,
       false,
-      paint,
+      _paint,
     );
   }
 
@@ -1112,19 +1104,24 @@ class _EmptyMushafPainter extends CustomPainter {
   final Color color;
   _EmptyMushafPainter(this.color);
 
+  static final Paint _paint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round
+    ..isAntiAlias = true;
+
+  static final Path _path = Path();
+
   @override
   void paint(Canvas canvas, Size size) {
     final double w = size.width;
     final double h = size.height;
-    final Paint paint = Paint()
+    _paint
       ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = w * 0.095
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round
-      ..isAntiAlias = true;
+      ..strokeWidth = w * 0.095;
 
-    final Path pages = Path()
+    _path.reset();
+    _path
       ..moveTo(w * 0.50, h * 0.25)
       ..quadraticBezierTo(w * 0.31, h * 0.17, w * 0.12, h * 0.23)
       ..lineTo(w * 0.12, h * 0.75)
@@ -1134,11 +1131,11 @@ class _EmptyMushafPainter extends CustomPainter {
       ..lineTo(w * 0.88, h * 0.75)
       ..quadraticBezierTo(w * 0.69, h * 0.69, w * 0.50, h * 0.79);
 
-    canvas.drawPath(pages, paint);
+    canvas.drawPath(_path, _paint);
     canvas.drawLine(
       Offset(w * 0.50, h * 0.25),
       Offset(w * 0.50, h * 0.80),
-      paint,
+      _paint,
     );
   }
 

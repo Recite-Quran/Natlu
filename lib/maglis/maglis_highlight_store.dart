@@ -48,7 +48,7 @@ class MaglisHighlightStore {
   // Remote word errors received from peers: key = wordKey(surah, ayah, word0)
   final Map<int, List<ReciterError>> remoteWordErrors = {};
 
-  // Error deduplication: strictly ensure each Tajweed error map is serialized once per verse
+  // Error deduplication: strictly ensure each Tajweed error map is serialized once per unique (surah, ayah, word0) key
   final Set<int> sentErrorWords = <int>{};
 
   List<ReciterError>? getWordErrors(int surah, int ayah, int word0) =>
@@ -134,6 +134,7 @@ class MaglisHighlightStore {
         changed = true;
       }
       remoteWordErrors.remove(key);
+      sentErrorWords.remove(key);
     }
     for (final w in yellowWords) {
       final key = wordKey(surah, ayah, w);
@@ -155,6 +156,18 @@ class MaglisHighlightStore {
     return changed;
   }
 
+  void _pruneErrorsIfNeeded() {
+    // Memory protection: prune oldest errors if session spans many pages (>250 word entries)
+    if (remoteWordErrors.length > 250) {
+      final removeCount = remoteWordErrors.length - 200;
+      final keysToRemove = remoteWordErrors.keys.take(removeCount).toList();
+      for (final k in keysToRemove) {
+        remoteWordErrors.remove(k);
+        sentErrorWords.remove(k);
+      }
+    }
+  }
+
   /// Merges incoming errors and applies memory-bounding protection.
   void mergeErrors(
     int surah,
@@ -168,20 +181,12 @@ class MaglisHighlightStore {
         if (w0 != null) key = wordKey(surah, ayah, w0);
       }
       if (key != null) {
-        remoteWordErrors[key] = list
-            .map((m) => ReciterError.fromMap(m))
-            .toList();
+        remoteWordErrors[key] =
+            list.map((m) => ReciterError.fromMap(m)).toList();
       }
     });
 
-    // Memory protection: prune oldest errors if session spans many pages (>250 verses)
-    if (remoteWordErrors.length > 250) {
-      final removeCount = remoteWordErrors.length - 200;
-      final keysToRemove = remoteWordErrors.keys.take(removeCount).toList();
-      for (final k in keysToRemove) {
-        remoteWordErrors.remove(k);
-      }
-    }
+    _pruneErrorsIfNeeded();
   }
 
   /// Records local recitation errors into word error map for symmetrical lookup.
@@ -194,9 +199,11 @@ class MaglisHighlightStore {
       final key = wordKey(surah, ayah, w0);
       remoteWordErrors[key] = errList;
     });
+
+    _pruneErrorsIfNeeded();
   }
 
-  /// Serializes active errors strictly once per word to achieve minimum packet size.
+  /// Serializes active errors strictly once per unique (surah, ayah, word0) key to achieve minimum packet size.
   Map<String, List<Map<String, dynamic>>>? serializeNewErrors(
     int surah,
     int ayah,
@@ -204,9 +211,10 @@ class MaglisHighlightStore {
   ) {
     if (errors == null || errors.isEmpty) return null;
     Map<String, List<Map<String, dynamic>>>? serializedErrors;
-    for (final entry in List<MapEntry<int, List<ReciterError>>>.from(errors.entries)) {
-      if (sentErrorWords.add(entry.key)) {
-        final key = wordKey(surah, ayah, entry.key);
+    for (final entry
+        in List<MapEntry<int, List<ReciterError>>>.from(errors.entries)) {
+      final key = wordKey(surah, ayah, entry.key);
+      if (sentErrorWords.add(key)) {
         (serializedErrors ??= {})[key.toRadixString(16)] =
             entry.value.map((e) => compactErrorMap(e)).toList();
       }
@@ -217,7 +225,8 @@ class MaglisHighlightStore {
   /// Builds radix-16 string snapshot of cumulative highlights.
   Map<String, int> buildSnapshotCumulativeMap() {
     final stringMap = <String, int>{};
-    for (final entry in List<MapEntry<int, int>>.from(cumulativeHighlights.entries)) {
+    for (final entry
+        in List<MapEntry<int, int>>.from(cumulativeHighlights.entries)) {
       stringMap[entry.key.toRadixString(16)] = entry.value;
     }
     return stringMap;

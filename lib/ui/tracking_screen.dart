@@ -423,12 +423,13 @@ class _TrackingScreenState extends State<TrackingScreen>
             backgroundColor: c.bg,
             body: ValueListenableBuilder<bool>(
               valueListenable: _isAutoScrolling,
-              builder: (context, isAutoScrolling, _) {
+              child: Positioned.fill(child: _buildVerseContent(c, app)),
+              builder: (context, isAutoScrolling, verseContentChild) {
                 return Stack(
                   fit: StackFit.expand,
                   children: [
-                    // Main Verse Content (Mushaf View or Verse List View)
-                    Positioned.fill(child: _buildVerseContent(c, app)),
+                    // Main Verse Content (Mushaf View or Verse List View - preserved across auto-scroll toggles)
+                    if (verseContentChild != null) verseContentChild,
 
                     // Bottom Action Bar (Unified Glassmorphic Command Dock)
                     // Disappears during auto-scroll for zero-distraction teleprompter reading!
@@ -448,7 +449,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                               app,
                               app.currentMushafPage,
                               widget.controller.activeAyah,
-                              widget.controller,
                               MaglisController.instance.sessionListenable,
                             ]),
                             builder: (context, _) {
@@ -458,80 +458,78 @@ class _TrackingScreenState extends State<TrackingScreen>
                               final maglis = MaglisController.instance;
                               final int peerCount = maglis.participantCount;
 
-                              return RepaintBoundary(
-                                child: BottomActionBar(
-                                  key: const ValueKey('unified_dock_bar'),
-                                  isRecording: widget.isRecording,
-                                  isLoadingEngine: widget.isLoadingEngine,
-                                  c: c,
-                                  onMic: () {
+                              return BottomActionBar(
+                                key: const ValueKey('unified_dock_bar'),
+                                isRecording: widget.isRecording,
+                                isLoadingEngine: widget.isLoadingEngine,
+                                c: c,
+                                onMic: () {
+                                  app.dismissBanner();
+                                  if (widget.isVoiceSearching) {
+                                    widget.onVoiceSearchToggle();
+                                  } else {
+                                    widget.onToggleRecord();
+                                  }
+                                },
+                                isBlur: app.isBlurMode,
+                                onToggleBlur: () {
+                                  app.toggleBlurMode();
+                                  if (app.isBlurMode) {
+                                    app.showBlurBanner(true);
+                                  } else {
                                     app.dismissBanner();
-                                    if (widget.isVoiceSearching) {
-                                      widget.onVoiceSearchToggle();
-                                    } else {
-                                      widget.onToggleRecord();
-                                    }
-                                  },
-                                  isBlur: app.isBlurMode,
-                                  onToggleBlur: () {
-                                    app.toggleBlurMode();
-                                    if (app.isBlurMode) {
-                                      app.showBlurBanner(true);
-                                    } else {
-                                      app.dismissBanner();
-                                    }
-                                  },
-                                  isTajweed: app.currentMode == AppMode.tajweed,
-                                  onToggleTajweed: () {
-                                    final bool newIsTajweed =
-                                        app.currentMode != AppMode.tajweed;
-                                    if (newIsTajweed) {
-                                      app.setMode(AppMode.tajweed);
-                                      widget.controller.setTajweedMode(true);
-                                      app.showTajweedBanner();
-                                    } else {
-                                      app.setMode(AppMode.wordChecker);
-                                      widget.controller.setTajweedMode(false);
-                                      app.dismissTajweedBanner();
-                                    }
-                                  },
-                                  surahName: surahName,
-                                  onSurahTap: _showSurahPicker,
-                                  onSettingsTap: () {
-                                    AppHaptics.lightImpact();
-                                    _showSettingsDialog();
-                                  },
-                                  isInMaglis: maglis.inSession,
-                                  maglisRoomCode: maglis.roomCode,
-                                  maglisPeerCount: peerCount,
-                                  isRemoteReciting: maglis.isRemoteReciting,
-                                  onMaglisTap: () async {
-                                    AppHaptics.lightImpact();
-                                    app.recordMaglisTap();
-                                    if (!app.hasSeenMaglisExplanation) {
-                                      await MaglisExplanationDialog.show(context);
-                                      if (context.mounted) {
-                                        MaglisEntryDialog.show(context);
-                                      }
-                                    } else {
+                                  }
+                                },
+                                isTajweed: app.currentMode == AppMode.tajweed,
+                                onToggleTajweed: () {
+                                  final bool newIsTajweed =
+                                      app.currentMode != AppMode.tajweed;
+                                  if (newIsTajweed) {
+                                    app.setMode(AppMode.tajweed);
+                                    widget.controller.setTajweedMode(true);
+                                    app.showTajweedBanner();
+                                  } else {
+                                    app.setMode(AppMode.wordChecker);
+                                    widget.controller.setTajweedMode(false);
+                                    app.dismissTajweedBanner();
+                                  }
+                                },
+                                surahName: surahName,
+                                onSurahTap: _showSurahPicker,
+                                onSettingsTap: () {
+                                  AppHaptics.lightImpact();
+                                  _showSettingsDialog();
+                                },
+                                isInMaglis: maglis.inSession,
+                                maglisRoomCode: maglis.roomCode,
+                                maglisPeerCount: peerCount,
+                                isRemoteReciting: maglis.isRemoteReciting,
+                                onMaglisTap: () async {
+                                  AppHaptics.lightImpact();
+                                  app.recordMaglisTap();
+                                  if (!app.hasSeenMaglisExplanation) {
+                                    await MaglisExplanationDialog.show(context);
+                                    if (context.mounted) {
                                       MaglisEntryDialog.show(context);
                                     }
-                                  },
-                                  onMaglisExitTap: () async {
-                                    AppHaptics.heavyImpact();
-                                    if (widget.isRecording) {
-                                      widget.onToggleRecord();
-                                    }
-                                    app.exitMaglisSession();
-                                    await maglis.leaveSession();
-                                    app.showBanner(AppBannerInfo(
-                                      id: 'maglis_left',
-                                      messageAr: 'تمت مغادرة المجلس بنجاح',
-                                      messageEn: 'Left Maglis session',
-                                      icon: Icons.exit_to_app_rounded,
-                                    ));
-                                  },
-                                ),
+                                  } else {
+                                    MaglisEntryDialog.show(context);
+                                  }
+                                },
+                                onMaglisExitTap: () async {
+                                  AppHaptics.heavyImpact();
+                                  if (widget.isRecording) {
+                                    widget.onToggleRecord();
+                                  }
+                                  app.exitMaglisSession();
+                                  await maglis.leaveSession();
+                                  app.showBanner(AppBannerInfo(
+                                    id: 'maglis_left',
+                                    messageAr: 'تمت مغادرة المجلس بنجاح',
+                                    messageEn: 'Left Maglis session',
+                                    icon: Icons.exit_to_app_rounded,
+                                  ));
+                                },
                               );
                             },
                           ),
