@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
+import 'package:recite_quran/recite_quran.dart';
 
 import '../../../state/app_state.dart';
+import '../../../maglis/maglis_controller.dart';
 
 /// Modern flat card behind the Surah title calligraphy.
 /// Uses exact viewport coordinates from [page.surahHeadersView()].
@@ -264,4 +266,206 @@ class AyahMarkPainter extends CustomPainter {
       old.goldColor != goldColor ||
       old.neutralRingColor != neutralRingColor ||
       old.ayahHighlightColor != ayahHighlightColor;
+}
+
+/// Minimalist Tajweed tutorial tooltip ("اضغط هنا" / "Tap here")
+/// painted directly beneath yellow Tajweed error words on the Mushaf vector page.
+///
+/// Performance & UI invariants:
+/// - Only active in Tajweed mode during onboarding (!hasClickedTajweedWord).
+/// - Positioned strictly DOWN underneath the word ink baseline using exact layout math.
+/// - Anti-collision: concurrent/adjacent yellow words share a single clean badge (never collapses/overlaps).
+/// - Instant O(1) exit if no words on this page are yellow.
+/// - Zero impact on non-Tajweed modes or once onboarding clicks reach 10.
+class MushafTajweedTooltipPainter extends CustomPainter {
+  final QvpPage page;
+  final HighlightingController controller;
+  final AppState app;
+  final Color goldColor;
+
+  MushafTajweedTooltipPainter({
+    required this.page,
+    required this.controller,
+    required this.app,
+    required this.goldColor,
+  }) : super(
+          repaint: Listenable.merge([
+            page,
+            app,
+            app.modeNotifier,
+            controller.globalRevision,
+            MaglisController.instance,
+          ]),
+        );
+
+  static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
+  static const Radius _rrectRadius = Radius.circular(4);
+  static const TextStyle _textStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 7,
+    fontWeight: FontWeight.w600,
+    fontFamily: 'sans-serif',
+  );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (app.hasClickedTajweedWord ||
+        app.currentMode != AppMode.tajweed ||
+        page.isDisposed) {
+      return;
+    }
+
+    final maglis = MaglisController.instance;
+
+    bool isWordYellow(int a, int w0, int s) =>
+        controller.isWordYellow(a, w0, surah: s) ||
+        (maglis.inSession &&
+            (maglis.remoteYellowWords.contains(w0) ||
+                maglis.getWordHighlight(s, a, w0) == 2 ||
+                maglis.getWordErrors(s, a, w0) != null));
+
+    final yellowWords = <int>[];
+    for (int i = 0; i < page.words.length; i++) {
+      final w = page.words[i];
+      final w0 = w.word - 1;
+      if (isWordYellow(w.ayah, w0, w.surah)) {
+        yellowWords.add(i);
+      }
+    }
+
+    if (yellowWords.isEmpty) return;
+
+    final layout = page.readLayout() ?? page.currentLayout;
+    if (layout == null) return;
+
+    final String text = app.isArabic ? 'اضغط هنا' : 'Tap here';
+    final textPainter = TextPainter(
+      text: TextSpan(text: text, style: _textStyle),
+      textAlign: TextAlign.center,
+      textDirection: app.isArabic ? TextDirection.rtl : TextDirection.ltr,
+    )..layout();
+
+    final tooltipWidth = (textPainter.width + 8).roundToDouble();
+    final tooltipHeight = (textPainter.height + 2).roundToDouble();
+    textPainter.layout(minWidth: tooltipWidth, maxWidth: tooltipWidth);
+
+    _bgPaint.color = goldColor;
+
+    final double ls = layout.scale;
+    final double fitScale = layout.fitScale;
+    final double fitX = layout.fitX;
+    final double fitY = layout.fitY;
+    final List<double> lineDy = layout.lineDy;
+
+    // Group yellow words by line so concurrent/adjacent words on the same line
+    // can each have their own badge without overlapping or collapsing.
+    final Map<int, List<int>> wordsByLine = {};
+    for (final wordIdx in yellowWords) {
+      if (wordIdx < 0 || wordIdx >= page.words.length) continue;
+      final line = page.words[wordIdx].line;
+      (wordsByLine[line] ??= []).add(wordIdx);
+    }
+
+    const double minGap = 2.0;
+
+    for (final entry in wordsByLine.entries) {
+      final wordsOnLine = entry.value;
+
+      final List<_MushafBadgeItem> lineBadges = [];
+      for (final wordIdx in wordsOnLine) {
+        final w = page.words[wordIdx];
+        final double lineOffset =
+            (w.line >= 0 && w.line < lineDy.length) ? lineDy[w.line] : 0.0;
+        final double vx0 = layout.offsetX + w.x0 * ls;
+        final double vx1 = layout.offsetX + w.x1 * ls;
+        final double vy0 = layout.offsetY + (w.y0 + lineOffset) * ls;
+        final double vy1 = layout.offsetY + (w.y1 + lineOffset) * ls;
+
+        final double left = fitX + fitScale * math.min(vx0, vx1);
+        final double right = fitX + fitScale * math.max(vx0, vx1);
+        final double bottom = fitY + fitScale * math.max(vy0, vy1);
+        final double centerX = (left + right) / 2.0;
+
+        final double idealX = centerX - tooltipWidth / 2.0;
+        // Tucked snugly 3px closer directly beneath the word glyphs
+        final double tooltipY = (bottom - 1.0).roundToDouble();
+
+        lineBadges.add(_MushafBadgeItem(x: idealX, y: tooltipY));
+      }
+
+      if (lineBadges.length > 1) {
+        // Sort left-to-right
+        lineBadges.sort((a, b) => a.x.compareTo(b.x));
+
+        // Push overlapping adjacent badges apart so both words get their own distinct badge
+        for (int i = 0; i < lineBadges.length - 1; i++) {
+          final cur = lineBadges[i];
+          final next = lineBadges[i + 1];
+          if (cur.x + tooltipWidth + minGap > next.x) {
+            final overlap = (cur.x + tooltipWidth + minGap) - next.x;
+            cur.x -= overlap / 2.0;
+            next.x += overlap / 2.0;
+          }
+        }
+
+        // Enforce strictly non-overlapping positions
+        for (int i = 1; i < lineBadges.length; i++) {
+          if (lineBadges[i].x < lineBadges[i - 1].x + tooltipWidth + minGap) {
+            lineBadges[i].x = lineBadges[i - 1].x + tooltipWidth + minGap;
+          }
+        }
+
+        // Clamp group within screen boundaries
+        if (lineBadges.last.x + tooltipWidth > size.width - 4.0) {
+          final shift = (lineBadges.last.x + tooltipWidth) - (size.width - 4.0);
+          for (final b in lineBadges) {
+            b.x -= shift;
+          }
+        }
+        if (lineBadges.first.x < 4.0) {
+          final shift = 4.0 - lineBadges.first.x;
+          for (final b in lineBadges) {
+            b.x += shift;
+          }
+        }
+      } else if (lineBadges.isNotEmpty) {
+        lineBadges.first.x = lineBadges.first.x
+            .clamp(4.0, size.width - tooltipWidth - 4.0)
+            .roundToDouble();
+      }
+
+      // Paint all badges on this line
+      for (final badge in lineBadges) {
+        final double bx = badge.x.roundToDouble();
+        final double by = badge.y;
+
+        final bgRect = RRect.fromLTRBR(
+          bx,
+          by,
+          bx + tooltipWidth,
+          by + tooltipHeight,
+          _rrectRadius,
+        );
+
+        canvas.drawRRect(bgRect, _bgPaint);
+        textPainter.paint(canvas, Offset(bx, by + 1.0));
+      }
+    }
+
+    textPainter.dispose();
+  }
+
+  @override
+  bool shouldRepaint(MushafTajweedTooltipPainter oldDelegate) =>
+      oldDelegate.page != page ||
+      oldDelegate.goldColor != goldColor ||
+      oldDelegate.app.isArabic != app.isArabic ||
+      oldDelegate.app.hasClickedTajweedWord != app.hasClickedTajweedWord ||
+      oldDelegate.app.currentMode != app.currentMode;
+}
+
+class _MushafBadgeItem {
+  double x;
+  final double y;
+  _MushafBadgeItem({required this.x, required this.y});
 }

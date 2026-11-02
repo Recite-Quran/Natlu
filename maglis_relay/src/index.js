@@ -124,7 +124,7 @@ export class MaglisRelay extends DurableObject {
 }
 
 const FLEET_CONFIG = {
-  version: 5,
+  version: 6,
   updated_at: "2026-11-02",
   relays: [
     "wss://quran-maglis.recitequrankarem.workers.dev",
@@ -137,6 +137,7 @@ const FLEET_CONFIG = {
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
     { urls: "stun:stun.relay.metered.ca:80" },
+    { urls: "stun:free.expressturn.com:3478" },
     {
       urls: "turn:global.relay.metered.ca:80",
       username: "44f9116bb80fac8c92b6bd6c",
@@ -156,6 +157,16 @@ const FLEET_CONFIG = {
       urls: "turns:global.relay.metered.ca:443?transport=tcp",
       username: "44f9116bb80fac8c92b6bd6c",
       credential: "YunizT++uS0H1GRg",
+    },
+    {
+      urls: "turn:free.expressturn.com:3478",
+      username: "000000002109057653",
+      credential: "mtGI2hInpxcwhvd4+cP1mdqXcSo=",
+    },
+    {
+      urls: "turn:free.expressturn.com:3478?transport=tcp",
+      username: "000000002109057653",
+      credential: "mtGI2hInpxcwhvd4+cP1mdqXcSo=",
     },
   ],
 };

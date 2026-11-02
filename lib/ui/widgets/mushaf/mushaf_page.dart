@@ -233,6 +233,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     app.isAudioBuffering.addListener(_onAudioStateChanged);
     app.blurModeNotifier.addListener(_requestSyncVisuals);
     app.themeNotifier.addListener(_requestSyncVisuals);
+    app.modeNotifier.addListener(_requestSyncVisuals);
     widget.controller.addListener(_requestSyncVisuals);
     widget.controller.activeAyah.addListener(_requestSyncVisuals);
     widget.controller.globalRevision.addListener(_requestSyncVisuals);
@@ -249,6 +250,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     app.isAudioBuffering.removeListener(_onAudioStateChanged);
     app.blurModeNotifier.removeListener(_requestSyncVisuals);
     app.themeNotifier.removeListener(_requestSyncVisuals);
+    app.modeNotifier.removeListener(_requestSyncVisuals);
     widget.controller.removeListener(_requestSyncVisuals);
     widget.controller.activeAyah.removeListener(_requestSyncVisuals);
     widget.controller.globalRevision.removeListener(_requestSyncVisuals);
@@ -879,6 +881,26 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
                 ),
               ),
             ),
+          ),
+          ListenableBuilder(
+            listenable: Listenable.merge([app.modeNotifier, app]),
+            builder: (context, _) {
+              if (app.hasClickedTajweedWord || app.currentMode != AppMode.tajweed) {
+                return const SizedBox.shrink();
+              }
+              return IgnorePointer(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: MushafTajweedTooltipPainter(
+                      page: page,
+                      controller: widget.controller,
+                      app: app,
+                      goldColor: c.gold,
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
