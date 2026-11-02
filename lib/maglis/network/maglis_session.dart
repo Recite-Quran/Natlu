@@ -40,8 +40,12 @@ class MaglisActiveSession {
 
   /// Origin packet timestamp (`pkt.ts`) of the most recently accepted floorClaim.
   /// Deduplicates dual-path (DataChannel + Nostr + hedged re-transmits) arrival even if the
-  /// reciter has already advanced to the next ayah before the slower copy arrives.
+  /// reciter has already advanced to the next ayah or released the floor before the slower copy arrives.
   int lastFloorClaimRemoteOriginTs = 0;
+
+  /// Per-sender timestamp of the most recent floorRelease (`pkt.ts`), preventing a late-arriving
+  /// Nostr `floor_claim` from an already-finished recording turn from re-locking the floor.
+  final Map<String, int> lastFloorReleaseOriginTsByPeer = {};
 
   /// Local timestamp (ms) of the last preemptive floorClaim re-assertion sent to silence
   /// a previous reciter whose in-flight recitationUpdate packets are still arriving.
@@ -85,6 +89,7 @@ class MaglisActiveSession {
     lastFloorClaimTs = 0;
     lastFloorClaimRemoteOriginTs = 0;
     lastPreemptionRemindTs = 0;
+    lastFloorReleaseOriginTsByPeer.clear();
     await pktSub?.cancel();
     await stateSub?.cancel();
     await natSub?.cancel();

@@ -337,29 +337,35 @@ class MaglisController extends ChangeNotifier {
       return;
     }
 
-    // 3. Deduplicate dual-path (DataChannel + Nostr + hedged re-transmits) arrival for the same floorClaim
-    // BEFORE merging words or clearing highlights so a late copy never rolls back the verse position
-    // or wipes highlights after the reciter already advanced.
+    // 3. Deduplicate dual-path (DataChannel + Nostr + hedged re-transmits + mesh relay) arrival for floorClaim
+    // BEFORE merging words or clearing highlights so a late copy never rolls back the verse position,
+    // wipes highlights after the reciter already advanced, or re-locks a floor that was already released.
     if (pkt.type == MaglisPacketType.floorClaim) {
       final bool isSameClaimByTimestamp =
           pkt.ts > 0 && pkt.ts == s.lastFloorClaimRemoteOriginTs;
+      final lastReleaseTs = s.lastFloorReleaseOriginTsByPeer[pkt.senderId] ?? 0;
+      final bool isAlreadyReleasedClaim =
+          pkt.ts > 0 && lastReleaseTs > 0 && pkt.ts <= lastReleaseTs;
       final bool isRecentDuplicateFromActiveReciter =
           s.activeReciterId == pkt.senderId &&
-              (isSameClaimByTimestamp ||
-                  (s.remoteSurah == pkt.surah &&
-                      s.remoteAyah == pkt.ayah &&
-                      (now - s.lastFloorClaimTs).abs() < 2000));
-      if (isRecentDuplicateFromActiveReciter) {
+              s.remoteSurah == pkt.surah &&
+              s.remoteAyah == pkt.ayah &&
+              (now - s.lastFloorClaimTs).abs() < 2000;
+      if (isSameClaimByTimestamp ||
+          isAlreadyReleasedClaim ||
+          isRecentDuplicateFromActiveReciter) {
         return;
       }
     }
 
-    // 4. Ignore stale snapshots carrying an outdated activeReciterId shortly after a floor claim
+    // 4. Protect active recitation cursor from third-party background connection snapshots:
+    // If we are already tracking an active reciter, a snapshot from a different peer
+    // (e.g. a 3rd or 4th peer whose DataChannel just opened) must only merge cumulative history,
+    // never overwrite the live reciter's ID or verse cursor.
     if (pkt.type == MaglisPacketType.snapshot &&
         s.activeReciterId != null &&
-        pkt.activeReciterId != s.activeReciterId &&
-        (now - s.lastFloorClaimTs) >= 0 &&
-        (now - s.lastFloorClaimTs) < 3500) {
+        pkt.senderId != s.activeReciterId &&
+        pkt.activeReciterId != s.activeReciterId) {
       if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
         if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
           notifyListeners();
@@ -455,6 +461,9 @@ class MaglisController extends ChangeNotifier {
         break;
 
       case MaglisPacketType.floorRelease:
+        if (pkt.ts > 0) {
+          s.lastFloorReleaseOriginTsByPeer[pkt.senderId] = pkt.ts;
+        }
         if (s.activeReciterId == pkt.senderId) {
           s.activeReciterId = null;
           s.remoteWord = null;
@@ -601,7 +610,7 @@ class MaglisController extends ChangeNotifier {
         s.net.sendPacket(
           MaglisPacket(
             type: MaglisPacketType.floorClaim,
-            seq: ++s.seq,
+            seq: claimSeq,
             senderId: s.localPeerId,
             page: s.remotePage,
             surah: s.remoteSurah,
@@ -619,7 +628,7 @@ class MaglisController extends ChangeNotifier {
         s.net.sendPacket(
           MaglisPacket(
             type: MaglisPacketType.floorClaim,
-            seq: ++s.seq,
+            seq: claimSeq,
             senderId: s.localPeerId,
             page: s.remotePage,
             surah: s.remoteSurah,
@@ -689,21 +698,31 @@ class MaglisController extends ChangeNotifier {
     s.floorClaimHedgeTimer2?.cancel();
     s.floorClaimHedgeTimer2 = null;
     if (s.activeReciterId == s.localPeerId) {
+      final now = DateTime.now().millisecondsSinceEpoch;
       s.activeReciterId = null;
       s.localFloorClaimTs = 0;
+      s.lastFloorReleaseOriginTsByPeer[s.localPeerId] = now;
       s.net.updateActiveFloor(null);
 
+      final releaseSeq = ++s.seq;
       s.net.sendPacket(
         MaglisPacket(
           type: MaglisPacketType.floorRelease,
-          seq: ++s.seq,
+          seq: releaseSeq,
           senderId: s.localPeerId,
           page: page,
           surah: surah,
           ayah: ayah,
-          ts: DateTime.now().millisecondsSinceEpoch,
+          ts: now,
         ),
       );
+      s.net.sendSignalFast('floor_release', data: {
+        'page': page,
+        'surah': surah,
+        'ayah': ayah,
+        'seq': releaseSeq,
+        'ts': now,
+      });
       _notifySessionChanged();
       notifyListeners();
     }

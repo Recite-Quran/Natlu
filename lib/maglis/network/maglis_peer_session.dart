@@ -53,6 +53,8 @@ class MaglisPeerSession {
   final Map<String, int> lastSeq = {};
   final Map<String, int> lastSeenSurah = {};
   final Map<String, int> lastSeenAyah = {};
+  final Map<String, int> _lastRelayedSeq = {};
+  final Map<String, int> _lastRelayedClaimTs = {};
   final Map<String, RTCIceConnectionState> peerStates = {};
   final Map<String, int> lastSeenPeerMs = {};
   final Map<String, int> peerLatency = {};
@@ -137,6 +139,19 @@ class MaglisPeerSession {
           'm': now,
         });
         dispatchReliable(pingJson, isVital: false);
+
+        // Periodic full-mesh peer gossip: ensures 3- and 4-peer rooms always
+        // converge to a complete mesh even if two peers joined at the exact same millisecond.
+        final activePeerIds = peers.keys
+            .where((p) => p != localPeerId && !departedPeers.contains(p))
+            .toList();
+        if (activePeerIds.length >= 2) {
+          final gossipJson = jsonEncode({
+            't': 98,
+            'peers': activePeerIds,
+          });
+          dispatchReliable(gossipJson, isVital: false);
+        }
       }
 
       // Ghost peer reaping (noscall pattern): reap dead peers after 25s without packets.
@@ -639,36 +654,7 @@ class MaglisPeerSession {
       }
     };
 
-    void onChannelOpen() {
-      if (disposed ||
-          channels[remoteId] != dc ||
-          departedPeers.contains(remoteId)) {
-        return;
-      }
-      lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
-      peerStates[remoteId] =
-          RTCIceConnectionState.RTCIceConnectionStateConnected;
-      if (!disposed) {
-        onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
-      }
-      checkSocketSleepState();
-
-      try {
-        dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
-      } catch (_) {}
-
-      // Hedged 350ms follow-up snapshot guarantees state synchronization
-      // even if initial frame was sent before remote listener binding completed.
-      Future.delayed(const Duration(milliseconds: 350), () {
-        if (!disposed &&
-            channels[remoteId] == dc &&
-            dc.state == RTCDataChannelState.RTCDataChannelOpen) {
-          try {
-            dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
-          } catch (_) {}
-        }
-      });
-
+    void sendGossipList() {
       final activeOthers = peers.keys
           .where((p) =>
               p != remoteId && p != localPeerId && !departedPeers.contains(p))
@@ -693,6 +679,40 @@ class MaglisPeerSession {
           } catch (_) {}
         }
       }
+    }
+
+    void onChannelOpen() {
+      if (disposed ||
+          channels[remoteId] != dc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
+      lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
+      peerStates[remoteId] =
+          RTCIceConnectionState.RTCIceConnectionStateConnected;
+      if (!disposed) {
+        onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
+      }
+      checkSocketSleepState();
+
+      try {
+        dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+      } catch (_) {}
+
+      sendGossipList();
+
+      // Hedged 350ms follow-up snapshot + peer gossip guarantees state and mesh synchronization
+      // even if initial frame was sent before remote listener binding or concurrent peer negotiation completed.
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (!disposed &&
+            channels[remoteId] == dc &&
+            dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+          try {
+            dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
+          } catch (_) {}
+          sendGossipList();
+        }
+      });
 
       final peerQueue = _peerVitalQueues.remove(remoteId);
       if (peerQueue != null && peerQueue.isNotEmpty) {
@@ -799,13 +819,51 @@ class MaglisPeerSession {
     } catch (_) {}
   }
 
+  void _relayPacketToOtherPeers(MaglisPacket pkt) {
+    if (disposed || channels.length < 2) return;
+    if (pkt.senderId.isEmpty || pkt.senderId == localPeerId) return;
+
+    if (pkt.type == MaglisPacketType.floorClaim) {
+      if (pkt.ts > 0 && _lastRelayedClaimTs[pkt.senderId] == pkt.ts) return;
+      _lastRelayedClaimTs[pkt.senderId] = pkt.ts;
+    } else if (pkt.type == MaglisPacketType.floorRelease ||
+        pkt.type == MaglisPacketType.recitationUpdate) {
+      final prevRelayed = _lastRelayedSeq[pkt.senderId] ?? -1;
+      if (pkt.seq <= prevRelayed && (prevRelayed - pkt.seq) < 50000) return;
+      _lastRelayedSeq[pkt.senderId] = pkt.seq;
+    } else {
+      return;
+    }
+
+    final msg = RTCDataChannelMessage.fromBinary(pkt.packBinary());
+    for (final entry
+        in List<MapEntry<String, RTCDataChannel>>.from(channels.entries)) {
+      final targetId = entry.key;
+      if (targetId == pkt.senderId ||
+          targetId == localPeerId ||
+          departedPeers.contains(targetId)) {
+        continue;
+      }
+      final dc = entry.value;
+      if (dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+        final buf = dc.bufferedAmount ?? 0;
+        if (buf <= maxDataChannelBufferedAmount) {
+          try {
+            dc.send(msg);
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
   void handleIncomingPacket(MaglisPacket pkt) {
     try {
       if (pkt.senderId.isEmpty || departedPeers.contains(pkt.senderId)) return;
       if (pkt.senderId != localPeerId) {
         lastSeenPeerMs[pkt.senderId] = DateTime.now().millisecondsSinceEpoch;
-        if (peerStates[pkt.senderId] !=
-            RTCIceConnectionState.RTCIceConnectionStateConnected) {
+        if (peers.containsKey(pkt.senderId) &&
+            peerStates[pkt.senderId] !=
+                RTCIceConnectionState.RTCIceConnectionStateConnected) {
           peerStates[pkt.senderId] =
               RTCIceConnectionState.RTCIceConnectionStateConnected;
           if (!disposed) {
@@ -843,30 +901,39 @@ class MaglisPeerSession {
         return;
       }
 
-      if (pkt.type == MaglisPacketType.floorClaim ||
-          pkt.type == MaglisPacketType.snapshot) {
+      final prev = lastSeq[pkt.senderId] ?? -1;
+      if ((pkt.type == MaglisPacketType.floorClaim ||
+              pkt.type == MaglisPacketType.snapshot) &&
+          (prev - pkt.seq) > 50000) {
         lastSeq.remove(pkt.senderId);
       }
 
-      final prev = lastSeq[pkt.senderId] ?? -1;
-      final bool isVerseChange =
+      final curPrev = lastSeq[pkt.senderId] ?? -1;
+      final lastS = lastSeenSurah[pkt.senderId] ?? -1;
+      final lastA = lastSeenAyah[pkt.senderId] ?? -1;
+      final bool isForwardVerseChange =
           pkt.type == MaglisPacketType.recitationUpdate &&
-              (pkt.surah != (lastSeenSurah[pkt.senderId] ?? -1) ||
-                  pkt.ayah != (lastSeenAyah[pkt.senderId] ?? -1));
+              (pkt.surah != lastS || pkt.ayah != lastA) &&
+              pkt.seq != curPrev;
 
       if (pkt.type == MaglisPacketType.recitationUpdate &&
-          !isVerseChange &&
-          pkt.seq <= prev &&
-          (prev - pkt.seq) < 50000) {
+          !isForwardVerseChange &&
+          pkt.seq <= curPrev &&
+          (curPrev - pkt.seq) < 50000) {
         return;
       }
-      if (pkt.seq > prev ||
+      if (pkt.seq > curPrev ||
           pkt.type == MaglisPacketType.floorClaim ||
           pkt.type == MaglisPacketType.snapshot) {
         lastSeq[pkt.senderId] = pkt.seq;
       }
       lastSeenSurah[pkt.senderId] = pkt.surah;
       lastSeenAyah[pkt.senderId] = pkt.ayah;
+
+      // 1-hop deduplicated mesh relay: ensures peers whose direct P2P link is still
+      // negotiating (or behind Symmetric NAT) still receive floor claims and highlights immediately.
+      _relayPacketToOtherPeers(pkt);
+
       onPacketReceived(pkt);
     } catch (_) {}
   }
@@ -1219,6 +1286,8 @@ class MaglisPeerSession {
     lastSeq.remove(peerId);
     lastSeenSurah.remove(peerId);
     lastSeenAyah.remove(peerId);
+    _lastRelayedSeq.remove(peerId);
+    _lastRelayedClaimTs.remove(peerId);
 
     if (!isReconnecting) {
       peerStates.remove(peerId);
@@ -1316,6 +1385,8 @@ class MaglisPeerSession {
     _peerVitalQueues.clear();
     renegotiatePending.clear();
     departedPeers.clear();
+    _lastRelayedSeq.clear();
+    _lastRelayedClaimTs.clear();
     _taskQueue.clear();
 
     // 1. Immediately stop hardware mic track to terminate native audio recording and buffer
