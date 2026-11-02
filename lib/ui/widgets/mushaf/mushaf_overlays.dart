@@ -325,11 +325,15 @@ class MushafTajweedTooltipPainter extends CustomPainter {
                 maglis.getWordErrors(s, a, w0) != null));
 
     final yellowWords = <int>[];
+    final seenAyahs = <int>{};
     for (int i = 0; i < page.words.length; i++) {
       final w = page.words[i];
+      final ayahKey = (w.surah << 16) | w.ayah;
+      if (seenAyahs.contains(ayahKey)) continue;
       final w0 = w.word - 1;
       if (isWordYellow(w.ayah, w0, w.surah)) {
         yellowWords.add(i);
+        seenAyahs.add(ayahKey);
       }
     }
 
@@ -387,8 +391,8 @@ class MushafTajweedTooltipPainter extends CustomPainter {
         final double centerX = (left + right) / 2.0;
 
         final double idealX = centerX - tooltipWidth / 2.0;
-        // Tucked snugly 3px closer directly beneath the word glyphs
-        final double tooltipY = (bottom - 1.0).roundToDouble();
+        // Positioned closer to the word from down, tucked snugly beneath the baseline
+        final double tooltipY = (bottom - 4.0).roundToDouble();
 
         lineBadges.add(_MushafBadgeItem(x: idealX, y: tooltipY));
       }

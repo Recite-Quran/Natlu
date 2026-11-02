@@ -108,8 +108,8 @@ class TajweedTooltipPainter extends CustomPainter {
             Offset(tooltipX, tooltipY + 1),
           );
           
-          // Reset layout for the next word calculation
-          textPainter.layout();
+          // Only 1 label per ayah: stop after painting the first yellow word
+          break;
         }
       }
       charOffset += word.length + 1; // +1 for the space separator

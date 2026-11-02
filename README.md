@@ -46,135 +46,202 @@
 ---
 
 ## Overview
-open the branch [ReciteQuran-الحمدلله](https://github.com/Recite-Quran/Natlu/tree/ReciteQuran-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87) For the production app on web/playstore/android/ios/windows  but here it is the latest updates and stable
 
-**Natlu (نتلو)** is an open-source, on-device Quran Recitation application for Flutter. It listens to your recitation in real time, guides your pronunciation word-by-word with instant visual feedback, checks acoustic Tajweed rules with millisecond precision, and allows hands-free navigation across an authentic 15-line  Mus'haf.
+> **Release Status**: Production builds for Google Play, App Store, Web, and Windows are tracked on the [`ReciteQuran-الحمدلله`](https://github.com/Recite-Quran/Natlu/tree/ReciteQuran-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87) release branch. This branch hosts active mainline development.
 
-Natlu is the flagship reference application built upon [`recite_quran`](https://pub.dev/packages/recite_quran). All neural ASR inference, phoneme alignment, Myers phonetic search, and Tajweed duration grading are handled directly by the `recite_quran` engine package.
+**Natlu (نتلو)** is an open-source, fully offline, privacy-first Quran recitation, memorization, and Tajweed revision application built with Flutter. It combines an on-device neural ASR pipeline with real-time acoustic phoneme alignment, measuring vowel duration (المدود), nasalization (الغنة), and consonant pressure (الشدة) with millisecond accuracy across an authentic 15-line Mus'haf rendered natively via vector graphics.
 
-- **100% On-Device**: Speech recognition runs entirely offline via quantized ONNX models (`zipformer_p_arabic_v3.int8.onnx`).
-- **Complete Privacy**: Zero audio is transmitted over the network, zero accounts required, and zero telemetry collected.
-- **For the Sake of Allah**: 100% free with no ads, no subscriptions, and no monetization.
+Natlu serves as the flagship reference application for [`package:recite_quran`](https://pub.dev/packages/recite_quran)—the open Dart package that abstracts streaming sherpa-onnx inference, acoustic duration analysis, and Myers phonetic search into an embeddable engine.
 
----
-
-## Key Features
-
-### 1. Real-Time Word Tracking (تتبع الكلمات المباشر)
-- Sub-frame acoustic alignment follows speech word-by-word as you recite.
-- **Live Color Feedback**:
-  - **Green**: Correct recitation (consonants and Harakat match the Quranic text).
-  - **Yellow**: Tajweed observation (e.g. insufficient Madd holding or premature release).
-  - **Red**: Word skipped, substituted, or mispronounced.
-- Smooth automatic page scrolling and turning as recitation advances.
-
-### 2. Acoustic Tajweed Checking (فحص وتدقيق أحكام التجويد)
-- Evaluates acoustic vowel holding durations against authentic Quranic *Tadweer* timing standards:
-  - **Madd Elongation (المدود)**: Differentiates 2-harakah Madd Asli, 4–5 harakat Madd Munfasil/Muttasil, and 6-harakat Madd Lazim.
-  - **Mushaddad Ghunnah (غنة النون والميم المشددتين)**: Confirms complete 2-harakah nasalization duration.
-  - **Shaddah Holding (الشدة)**: Confirms consonant doubling pressure.
-- Tap any highlighted word to inspect expected vs. recited duration in milliseconds.
-
-### 3. "Recite to Navigate" Instant Voice Search (البحث الصوتي الفوري)
-- Recite any phrase from any Ayah in the Great Quran (القرآن العظيم) to jump directly to its exact page in under 15ms.
-- Powered by Myers bit-parallel approximate string matching across all 6,236 verses.
-
-### 4. 15-Line  Mus'haf (مصحف   15 سطرًا)
-- Rendered using the official King Fahd Complex font standard (`HafsSmart`).
-- True-to-print 15-line layout with accurate word spacing, surah headers, and ayah end markers.
-
-### 5. Hifz Revision & Memorization Mode (وضع تثبيت الحفظ)
-- Words stay concealed until recited correctly from memory, providing an interactive self-testing tool for Huffaz.
-- Employs Best-Drop LCS omission detection to flag skipped words or line jumps.
-
-### 6. Reference Audio Playback (الاستماع المرجعي المتقن)
-- Unified audio playback for words and full Ayahs by Sheikh Mahmoud Khalil Al-Husary via MP3Quran API.
-- Sample-accurate timestamp seeking with a single unified audio session.
-
-### 7. Multi-Riwayah Architecture (الروايات المتواترة ومذاهب العد)
-- Architecture designed to support the 10 Mutawatir Qira'at and canonical counting schools.
-
-### 8. Collaborative Recitation Circles — Maglis P2P (مجلس التلاوة التشاركي)
-- Real-time P2P study circles for up to 4 participants with zero central database or user accounts.
-- **Sub-15ms Recitation Sync**: Direct WebRTC DataChannels replicate live word highlights across participants' Mus'hafs as the active reciter reads.
-- **High-Fidelity Voice Call**: Dedicated Opus audio profile (voiceCommunication mode) configured specifically for natural Quran recitation without gating or aggressive cutoffs.
-- **BIP-340 Schnorr Cryptography**: 5-digit room codes derive deterministic AES-256-GCM tokens and rotating blinded tags, ensuring complete room isolation over public Nostr relays.
-- **Smart Socket Sleep**: Nostr relays automatically sleep once peers connect, dropping idle data consumption to 0 KB/s.
+- **100% On-Device Neural Inference**: Powered by a quantized INT8 Zipformer model (`zipformer_p_arabic_v3.int8.onnx`). Zero audio frames ever leave the physical device.
+- **Zero Telemetry & Zero Accounts**: No tracking, no user identifiers, no remote database, and no mandatory internet connection.
+- **Collaborative Study Circles (Maglis P2P)**: Decentralized, serverless group recitation for up to 4 participants with synchronized Mus'haf tracking, custom binary DataChannel serialization, and WebRTC voice calls.
+- **Dedicated for Allah Alone**: 100% free forever—no ads, no paywalls, no subscriptions, and no commercialization.
 
 ---
 
-## Modern Architecture
+## Architecture
 
-Natlu is structured into a clean presentation and application layer, delegating all acoustic and alignment engineering to `package:recite_quran`:
-
-```
-┌────────────────────────────────────────────────────────┐
-│                       Natlu App                        │
-│   (UI / 15-Line Mushaf / AppState / AudioSession)      │
-└───────────────────────────┬────────────────────────────┘
-                            │ imports
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│             package:recite_quran (^1.0.5)              │
-│ ├── SherpaEngine (Streaming Zipformer ONNX Isolate)    │
-│ ├── AudioProcessor (16 kHz PCM chunk capture)          │
-│ ├── HighlightingController (DP phoneme alignment & UI) │
-│ ├── TajweedValidator (Acoustic duration verification)  │
-│ └── QuranData (6,236 Ayahs, Myers phonetic search)     │
-└────────────────────────────────────────────────────────┘
-```
-
----
-
-## Maglis P2P Signaling & Cloudflare Relay Setup
-
-Natlu uses a decentralized signaling fleet combining a **private Cloudflare Edge Relay** with **7 public Nostr backbones** and dynamic remote fleet configuration.
-
-### Signaling Architecture
+Natlu separates high-performance presentation, native vector rendering, decentralized real-time networking, and neural acoustic modeling into strictly decoupled layers:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│                     Natlu P2P Room (5-Digit Code)                      │
+│                              Natlu UI                                  │
+│  ├── MushafPageView (Gestures, smooth viewport scrolling & pagination) │
+│  ├── MushafOverlays (Dynamic painters: highlights, markers, tooltips)  │
+│  └── AppState (Theme, mode notifier, audio session management)         │
+└───────────────┬────────────────────────────┬───────────────────────────┘
+                │                            │
+                ▼                            ▼
+┌──────────────────────────────┐  ┌──────────────────────────────────────┐
+│     package:qvp_flutter      │  │        package:recite_quran          │
+│  (Native Vector Engine)      │  │  (ASR & Acoustic Tajweed Pipeline)   │
+│  ├── C++/Rust FFI & WASM     │  │  ├── SherpaEngine (ONNX Isolate)     │
+│  ├── Sub-ms HafsSmart layout │  │  ├── AudioProcessor (16 kHz PCM)     │
+│  └── Dynamic vector canvas   │  │  ├── HighlightingController (DP)     │
+└──────────────────────────────┘  │  ├── TajweedValidator (Acoustic ms)  │
+                                  │  └── QuranData (Myers Search, 6236 v)│
+                                  └──────────────────────────────────────┘
+                                                     ▲
+                                                     │ Direct WebRTC & Data
+┌────────────────────────────────────────────────────┴───────────────────┐
+│                     Maglis P2P Engine (lib/maglis/)                    │
+│  ├── MaglisBinaryPacker (Custom varint wire protocol, >60% payload drop)│
+│  ├── MaglisPeerSession (Dual SCTP DataChannels, WebRTC Opus conference)│
+│  ├── MaglisRelayFleet (Hybrid signaling: Cloudflare DO + 7 Nostr nodes) │
+│  └── MaglisConfigManager (Remote fleet discovery & dynamic TURN cache) │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Core Capabilities & Engineering
+
+### 1. On-Device Real-Time Neural Speech Alignment
+- **Quantized INT8 Zipformer**: Executes speech recognition entirely offline using `zipformer_p_arabic_v3.int8.onnx` inside a dedicated background Dart worker isolate, guaranteeing 60/120 FPS UI rendering without dropped frames.
+- **Dynamic Programming (DP) Phoneme Alignment**: Continuously aligns live 16 kHz PCM audio chunks against Quranic phonetic targets in real time.
+- **Color-Coded Instant Feedback**:
+  - **Green**: Exact phonetic and Harakat match against the Uthmanic text.
+  - **Yellow**: Acoustic Tajweed observation (e.g. premature release of Madd, under-elongated Ghunnah).
+  - **Red**: Word skipped, omitted, substituted, or mispronounced.
+- **Automatic Page & Line Progression**: Viewport scrolls and turns pages smoothly as recitation advances.
+
+### 2. Acoustic Tajweed Duration Verification (فحص وتدقيق أحكام التجويد)
+Instead of relying on fuzzy heuristics, Natlu evaluates vowel holding durations against authentic Quranic *Tadweer* tempo using millisecond acoustic boundaries:
+- **Madd Elongation (المدود)**:
+  - *Madd Asli / Tabee'i (المد الطبيعي)*: Confirms strict 2-harakah duration.
+  - *Madd Munfasil / Muttasil (المد المنفصل والمتصل)*: Verifies 4–5 harakat holding.
+  - *Madd Lazim (المد اللازم)*: Strictly enforces full 6-harakah elongation.
+- **Mushaddad Ghunnah (غنة النون والميم المشددتين)**: Validates complete 2-harakah nasal resonance.
+- **Consonant Doubling (الشدة)**: Measures acoustic closure and contact pressure duration.
+- **Interactive Diagnostics**: Tapping any highlighted word displays expected vs. recited durations in milliseconds. Onboard tooltips (`MushafTajweedTooltipPainter`) paint dynamic guides directly below the word ink baseline on the vector canvas.
+
+### 3. QVP Native Vector Mushaf Engine (`packages/qvp_flutter`)
+Unlike applications that render rasterized PNG page scans (which blur on high-DPI tablets or zoom) or raw WebViews (which suffer high memory pressure):
+- **C++/Rust FFI & WebAssembly**: High-performance native bindings (`qvp_ffi.dll`, `QvpEngine.xcframework`, and web WASM) load and render geometry once.
+- **King Fahd Standard Typography**: Authentic 15-line Mus'haf layout rendered using the official `HafsSmart` font standard with sub-pixel glyph positioning.
+- **Instant Vector Hit-Testing**: Words, ayah end-markers, and surah headers are interactive vector hit-targets with zero layout recalculation overhead.
+
+### 4. Sub-15ms Voice Search: "Recite to Navigate" (البحث الصوتي الفوري)
+- Recite any short phrase or sequence of words from anywhere in the Great Quran to jump directly to its exact page in **under 15 milliseconds**.
+- Implements Myers bit-parallel approximate string matching over all 6,236 verses, handling diacritical variations, phonetic shifts, and acoustic noise effortlessly.
+
+### 5. Hifz Revision & Self-Testing Mode (وضع تثبيت الحفظ)
+- Conceals words dynamically until the reciter pronounces them correctly from memory.
+- Uses **Best-Drop LCS (Longest Common Subsequence)** omission detection to instantly catch skipped words, premature line jumps, or verse substitutions without breaking rhythm.
+
+### 6. Master Reference Audio & Multi-Riwayah
+- **Reference Audio**: High-clarity unified audio playback by Sheikh Mahmoud Khalil Al-Husary via the MP3Quran API, featuring sample-accurate timestamp seeking.
+- **Multi-Riwayah Ready**: Architectural foundations designed to support the 10 Mutawatir Qira'at and canonical verse-counting traditions.
+
+---
+
+## Collaborative Recitation Circles — Maglis P2P (مجلس القرآن)
+
+**Maglis (مجلس)** is Natlu's decentralized, real-time collaboration engine for Quran study circles, teacher-student revision, and group recitation. It operates with zero user accounts, zero databases, and zero centralized servers.
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                     Natlu Maglis Session (5-Digit Room Code)           │
 │                                                                        │
-│   Peer A (Reciter) ◄── Direct WebRTC DataChannel (Highlights) ──► Peer B │
-│   Peer A (Mic)     ◄── Direct WebRTC Audio (Opus 48 kHz)    ──► Peer B │
+│   Peer A (Active Reciter) ◄── Direct WebRTC DataChannel (Sync) ──► Peer B (Student)
+│   Peer A (Microphone)     ◄── Direct WebRTC Opus (48 kHz)      ──► Peer B (Speaker)
+│             │                                                            │
+│             └─────────────────────┬──────────────────────────────────────┘
+│                                   │ Direct WebRTC Full Mesh
+│                                   ▼
+│                        Peer C (Teacher / Listener)
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Ephemeral SDP & ICE
+                                    │ Ephemeral BIP-340 Signaling
                                     ▼
                     ┌───────────────────────────────┐
-                    │   Signaling Fleet (8 Relays)   │
+                    │     Decentralized Fleet       │
                     ├───────────────────────────────┤
-                    │ 1. Private Cloudflare Worker  │
-                    │    (Durable Objects / Edge)   │
-                    │ 2. Public Nostr Relays        │
-                    │    (damus, nos.lol, primal...)│
+                    │ 1. Cloudflare Edge Relay (DO) │
+                    │ 2. Public Nostr Relays (7x)   │
+                    │ 3. Dynamic STUN/TURN Engine   │
                     └───────────────────────────────┘
 ```
 
-### Setting Up Your Own Cloudflare Relay (`maglis_relay/`)
+### 1. Frictionless User Experience
+- **5-Digit Room Codes**: Connect instantly by sharing a simple 5-digit room code (supports Eastern Arabic numerals `٠-٩`). No phone numbers, email addresses, or account registrations.
+- **Up to 4 Participants**: Optimized full-mesh peer topology for family halaqas, teacher-student evaluations, and study circles.
+- **Turn-Taking Floor Control**: Tap "Record / تلاوة" to claim the active recitation floor (`floorClaim`). The Mus'haf page, active verse, and word-by-word highlights automatically synchronize to all participant screens in real time.
 
-The `maglis_relay/` directory contains a self-contained Cloudflare Worker with SQLite-backed Durable Objects and WebSocket Hibernation (100% free on the Cloudflare Workers Free plan).
+### 2. High-Efficiency Binary Wire Protocol (`MaglisBinaryPacker`)
+To eliminate the overhead and JSON parsing latency over WebRTC SCTP DataChannels, Maglis implements a custom binary serialization format:
 
-#### 1. Prerequisites
+| Byte Offset | Field | Format / Encoding | Purpose |
+| :--- | :--- | :--- | :--- |
+| `0x00` | Magic | `0x51` (ASCII 'Q') | Wire protocol identifier |
+| `0x01` | Version | `0x01` | Protocol versioning |
+| `0x02` | Packet Type | `uint8` enum (0-5) | `snapshot`, `recitationUpdate`, `floorClaim`, `floorRelease`, `ping`, `pong` |
+| `0x03+` | Sequence & Sender | Varint + Length-prefixed UTF-8 | Monotonic ordering & peer ID |
+| `Offset` | Navigation | 3x Varints (`page`, `surah`, `ayah`) | Viewport page & verse coordinate |
+| `Offset` | Bit Flags | `uint8` bitmask | Indicates presence of words, errors, active reciter, and cumulative maps |
+| `Offset` | Packed Word Arrays | Varint lengths + Varint IDs | Delta-compressed green, yellow, and red word indices |
+| `End` | Epoch Timestamp | Varint (platform-safe division) | 41-bit+ millisecond timestamp safe from 32-bit truncation on Web |
+
+> **Performance Impact**: Achieves a **>60% payload reduction** compared to equivalent JSON payloads, cutting DataChannel transmission latency down to **sub-15 milliseconds**.
+
+### 3. Dedicated Quranic Opus Audio Pipeline
+General VoIP algorithms (like Zoom or Discord) aggressively gate background sound and cut off soft frequencies, causing prolonged Madd (up to 6 harakat) and quiet Ghunnah to stutter. Maglis custom-tunes the audio stack specifically for Quran recitation:
+- **Sample Rate**: Full-band 48 kHz / 16-bit PCM mono.
+- **Tailored APM Constraints**: Echo cancellation (`echoCancellation: true`) and automatic gain control (`autoGainControl: true`) are enforced for loud loudspeaker output across Android, iOS, Windows, and Web.
+- **Preserved Vocal Warmth**: Telephony noise suppression (`noiseSuppression: false`) and telephony highpass filters (`highpassFilter: false`) are intentionally disabled to preserve subtle vocal resonance and breath pauses.
+- **Custom SDP Munging**: Injects Opus parameters (`useinbandfec=1`, `usedtx=0`, `maxaveragebitrate=48000`, `ptime=20`) to eliminate audio gating and guarantee forward error recovery over lossy cellular networks.
+- **Hardware Routing**: Automatic loudspeaker enforcement, headphone unplug protection (`becomingNoisyEventStream`), and automatic audio recovery after incoming phone calls.
+
+### 4. Synchronized Mus'haf & Collaborative Tajweed Tooltips
+- As the active reciter reads, all connected peers follow the exact page turns, scrolling, and word-level coloring live.
+- **Remote Tajweed Inspector**: When an acoustic Tajweed error occurs, the word turns yellow on everyone's screen, and an on-canvas tooltip ("اضغط هنا") appears. Any participant can tap the word to inspect the error diagnostics in real time.
+- **Cumulative Session History**: Highlights from earlier verses in the current session are retained across page turns and cleared deterministically upon new passage recitation.
+
+### 5. Resilient Hybrid Signaling Fleet
+- **Tier 1 (Sub-30ms Edge)**: Private Cloudflare Edge Worker utilizing SQLite-backed **Durable Objects** and WebSocket Hibernation (zero compute costs when idle).
+- **Tier 2 (Decentralized Backbone)**: Connects to a quorum of 7 public Nostr relays (`relay.damus.io`, `relay.primal.net`, `nos.lol`, `nostr.mom`, etc.) ensuring censorship resistance and high availability even if custom servers are unreachable.
+- **Smart Socket Sleep**: Once WebRTC direct peer connections are established, signaling WebSocket connections automatically sleep, dropping idle network traffic to **0 KB/s**.
+
+### 6. End-to-End Cryptographic Privacy
+- **BIP-340 Schnorr Cryptography**: Ephemeral keypairs are generated per session for Nostr signaling event authorization.
+- **Rotating Blinded Room Tags**: 15-minute epoch-based blinded tags (`blindedTag`) derived via HMAC-SHA256 with an internal 256-bit application pepper prevent public relay observers from rainbow-tabling or tracking 5-digit room codes.
+- **AES-256-GCM Payload Encryption**: All signaling payloads (SDP offers, answers, and ICE candidate batches) are symmetrically encrypted before leaving the device.
+
+### 7. Dynamic Fleet Configuration (Zero App Updates)
+Natlu synchronizes its relay list and STUN/TURN ICE fleet dynamically on startup via `maglis_config.json`:
+- **Multi-Tier CDN Fallback**: `Edge Worker (/config)` ➔ `jsDelivr CDN` ➔ `GitHub Raw` ➔ `SharedPreferences Cache` ➔ `Hardcoded Fallback`.
+- **Zero Store Delays**: Maintainers can cycle, optimize, or replace STUN/TURN servers remotely in seconds without waiting for Google Play or Apple App Store review cycles.
+
+### 8. Mesh Self-Healing & Glare Resolution
+- **Deterministic Glare Resolution**: When two peers initiate connections simultaneously, the peer with the lexicographically lower peer ID acts as the designated offerer, cleanly preventing WebRTC offer glare.
+- **1-Hop Deduplicated Mesh Relay**: If a peer is temporarily blocked behind symmetric NAT or mid-negotiation, other connected peers relay floor claims and recitation packets transparently over active DataChannels.
+- **Bounded 15s Recovery Window**: Disconnections trigger paced ICE restarts (at 2s and 6.5s) before tearing down peer state, absorbing transient Wi-Fi/cellular handoffs.
+
+---
+
+## Deploying Your Own Maglis Relay (`maglis_relay/`)
+
+The `maglis_relay/` directory contains a self-contained Cloudflare Worker with SQLite-backed Durable Objects and WebSocket Hibernation. It runs within Cloudflare's free tier with zero ongoing hosting costs.
+
+### 1. Prerequisites
 - [Node.js](https://nodejs.org/) v18 or later.
 - A free [Cloudflare Account](https://dash.cloudflare.com/sign-up).
 
-#### 2. Deploy the Worker
-Open your terminal in the repository root and run:
+### 2. Deploy the Worker
+From the repository root:
 ```bash
 cd maglis_relay
 npx wrangler deploy
 ```
-- Wrangler will open your browser to authorize your Cloudflare account.
-- Click **Allow**.
-- Wrangler will provision the Durable Object binding and output your live URL:
+- Wrangler will authenticate via your browser.
+- Authorize your account, and Wrangler will provision the Durable Object binding and output your live endpoint:
   ```text
   Deployed quran-maglis triggers
     https://quran-maglis.<your-account>.workers.dev
   ```
 
-#### 3. Update Dynamic Fleet Configuration
-Open `maglis_relay/maglis_config.json`:
+### 3. Update the Dynamic Fleet
+Edit `maglis_relay/maglis_config.json`:
 ```json
 {
   "version": 1,
@@ -182,38 +249,39 @@ Open `maglis_relay/maglis_config.json`:
     "wss://quran-maglis.<your-account>.workers.dev",
     "wss://relay.primal.net",
     "wss://nos.lol",
-    "wss://relay.nostr.band",
-    "wss://nostr.mom",
-    "wss://relay.snort.social"
+    "wss://relay.damus.io"
   ]
 }
 ```
-Commit and push your changes to GitHub.
+Push changes to your repository. Connected client applications will automatically ingest the new relay fleet upon launch.
 
-#### 4. How Client Apps Consume the Config
-Natlu fetches `maglis_config.json` in the background on startup (via GitHub raw with a jsDelivr CDN fallback):
-- **Zero App Updates**: When you add or swap relays in `maglis_config.json`, mobile clients pick up the new fleet dynamically without waiting for store reviews.
-- **Local Cache**: Saved in `SharedPreferences` so the app connects even when offline.
-- **Fail-Safe**: If GitHub is blocked or unreachable, the app falls back to built-in hardcoded relays automatically.
+---
 
-## Guide
+## Build & Development Guide
 
-### 1. Clone & Fetch Dependencies
+### 1. Prerequisites
+- [Flutter SDK](https://docs.flutter.dev/get-started/install) 3.5.0 or later.
+- Platform toolchains:
+  - **Android**: Android Studio & Android NDK (r25c+ recommended).
+  - **iOS**: macOS with Xcode 15+.
+  - **Windows**: Visual Studio 2022 with C++ desktop development workload.
+
+### 2. Clone Repository
 ```bash
-git clone https://github.com/Iam-Muslim/Natlu.git
+git clone https://github.com/Recite-Quran/Natlu.git
 cd Natlu
 flutter pub get
 ```
 
-### 2. Neural ASR Model
-On first launch, Natlu automatically displays an in-app download dialog to fetch the neural model. Alternatively, you can pre-download it manually into `assets/model/`:
+### 3. Download Neural ASR Model
+On first launch, Natlu automatically presents an in-app download dialog to fetch the neural model. Alternatively, you can pre-fetch it manually into `assets/model/`:
 
 ```bash
 pip install -U "huggingface_hub[cli]"
 hf download Quran-Lab/zipformer_p-arabic-v3 zipformer_p_arabic_v3.int8.onnx --local-dir assets/model
 ```
 
-### 3. Run Across Platforms
+### 4. Run Across Platforms
 
 #### Android
 ```bash
@@ -224,15 +292,26 @@ flutter build apk --release --split-per-abi
 #### Windows
 ```bash
 flutter run -d windows
+flutter build windows --release
 ```
 
-#### Other Platforms works Elhamdle Allah
+#### Web (WASM & PWA)
+```bash
+flutter run -d chrome --web-renderer canvaskit
+flutter build web --web-renderer canvaskit --release
+```
+
+#### iOS
+```bash
+flutter run -d ios
+flutter build ipa --release
+```
 
 ---
 
-## Using `recite_quran` in Your Flutter App
+## Using `package:recite_quran` in Your Flutter App
 
-To integrate real-time Quran tracking into any Flutter application, add `recite_quran` to your `pubspec.yaml`:
+To integrate real-time Quran speech alignment into your own Flutter application, add `recite_quran` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
@@ -245,23 +324,30 @@ dependencies:
 import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
 
-// Initialize the engine and controller
-final engine = SherpaEngine();
-final audio = AudioProcessor();
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-final controller = HighlightingController(
-  engine: engine,
-  audioProcessor: audio,
-  onWordMatched: (wordIndex, status, tajweedError) {
-    // Live update UI as words are recited
-  },
-);
+  final engine = SherpaEngine();
+  final audio = AudioProcessor();
 
-await engine.initialize(modelPath: 'assets/model/zipformer_p_arabic_v3.int8.onnx');
+  final controller = HighlightingController(
+    engine: engine,
+    audioProcessor: audio,
+    onWordMatched: (wordIndex, status, tajweedError) {
+      // Receives real-time word match status & acoustic duration errors
+      debugPrint('Word: $wordIndex, Status: $status, Tajweed: $tajweedError');
+    },
+  );
+
+  // Initialize offline neural ASR model
+  await engine.initialize(modelPath: 'assets/model/zipformer_p_arabic_v3.int8.onnx');
+
+  // Start continuous listening & dynamic phoneme alignment
+  await controller.startRecitation(surah: 1, ayah: 1);
+}
 ```
 
 ---
-
 
 ## For the Sake of Allah Alone (في سبيل الله سبحانه وتعالى وحده)
 
