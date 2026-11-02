@@ -177,9 +177,11 @@ class _TrackingScreenState extends State<TrackingScreen>
           AppState.instance.stopVerseAudio();
         } else if (defaultTargetPlatform == TargetPlatform.android) {
           _checkAndStopIfBackgrounded();
-        } else {
+        } else if (defaultTargetPlatform != TargetPlatform.iOS) {
           AppState.instance.stopVerseAudio();
         }
+        // On iOS, continuous verse recitation remains playing across lock screen
+        // and background to satisfy UIBackgroundModes: ["audio"] (App Store Guideline 2.5.4).
       }
 
       if (state == AppLifecycleState.paused ||

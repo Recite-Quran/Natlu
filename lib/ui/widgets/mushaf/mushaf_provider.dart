@@ -108,6 +108,12 @@ class MushafProvider {
           atlasFile.existsSync() &&
           atlasFile.lengthSync() > 0) {
         _extractedPagesPath = dir.path;
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+          try {
+            const MethodChannel('com.recitequran.app/storage')
+                .invokeMethod('excludeFromBackup', {'path': dir.path});
+          } catch (_) {}
+        }
         return;
       }
 
@@ -122,6 +128,12 @@ class MushafProvider {
       final targetPath = dir.path;
       await compute(_extractTarXzIsolate, (bytes, targetPath));
       _extractedPagesPath = targetPath;
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        try {
+          const MethodChannel('com.recitequran.app/storage')
+              .invokeMethod('excludeFromBackup', {'path': targetPath});
+        } catch (_) {}
+      }
     } catch (e) {
       debugPrint('Error extracting pages.tar.xz: $e');
     }
