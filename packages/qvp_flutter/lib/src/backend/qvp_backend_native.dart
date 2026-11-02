@@ -490,10 +490,27 @@ class QvpNativeBackend implements QvpBackend {
 
   @override
   String text(PageHandle handle, QvpTarget target, int form, String wordSep, String lineSep) =>
-      _withTarget(handle, target, (t) => _withString(wordSep, (wPtr, wLen) => _withString(lineSep, (lPtr, lLen) {
-        b.text(_page(handle), t, form, wPtr, wLen, lPtr, lLen, _str);
-        return _s();
-      })));
+      _withTarget(handle, target, (t) {
+        final wb = utf8.encode(wordSep), lb = utf8.encode(lineSep);
+        final offset2 = wb.length < 256 ? 256 : wb.length;
+        if (offset2 + lb.length <= _scratchBytes) {
+          _scratchIn.asTypedList(wb.length).setAll(0, wb);
+          final lp = _scratchIn + offset2;
+          lp.asTypedList(lb.length).setAll(0, lb);
+          b.text(_page(handle), t, form, _scratchIn, wb.length, lp, lb.length, _str);
+          return _s();
+        }
+        final p = pffi.malloc<ffi.Uint8>(wb.length + lb.length);
+        try {
+          p.asTypedList(wb.length).setAll(0, wb);
+          final lp = p + wb.length;
+          lp.asTypedList(lb.length).setAll(0, lb);
+          b.text(_page(handle), t, form, p, wb.length, lp, lb.length, _str);
+          return _s();
+        } finally {
+          pffi.malloc.free(p);
+        }
+      });
 
   @override
   List<QvpMatch> search(PageHandle handle, String query, {int form = 4, String mode = 'includes', bool normalize = true, bool looseMatch = true, int limit = 0}) {

@@ -204,10 +204,10 @@ class QvpPageView extends StatefulWidget {
   /// the page inside the screen. 0 or below is the engine's own ceiling.
   final double maxZoom;
 
-  /// Pre-rasterizes base ink into the global GPU texture cache so page turns are instant.
+  /// Pre-records base ink into the global picture cache so page turns are instant.
   static void prepare(QvpPage page,
       {double scale = 1.0, double dpr = 1.0, Color? inkColor}) {
-    _InkCache.prepare(page, scale: scale, dpr: dpr, inkColor: inkColor);
+    _InkCache.prepare(page, inkColor: inkColor);
   }
 
   @override
@@ -280,16 +280,18 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _applyInk() {
     final ink = widget.defaultInk;
-    if (ink != null && rgba(ink) != widget.page.defaultInk)
+    if (ink != null && rgba(ink) != widget.page.defaultInk) {
       widget.page.setDefaultColor(ink);
+    }
   }
 
   @override
   void didUpdateWidget(QvpPageView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller)
+    if (oldWidget.controller != widget.controller) {
       _ctl = widget.controller ??
           (oldWidget.controller == null ? _ctl : QvpViewController());
+    }
     if (oldWidget.page != widget.page) {
       oldWidget.page.removeListener(_onPageChanged);
       _attachPage();
@@ -382,6 +384,7 @@ class QvpPageViewState extends State<QvpPageView>
     _isRelayouting = true;
     try {
       page.layout(_spec(size));
+      _cache._drawList = null;
       _laidOut = widget.layout;
       _size = size;
       _ctl.viewport = size;
@@ -697,15 +700,18 @@ class _InkCache {
   static void keepGlobalOrnament(String key, ui.Picture pic) =>
       _globalOrnamentCache.put(key, pic);
 
-  static void prepare(QvpPage page,
-      {double scale = 1.0, double dpr = 1.0, Color? inkColor}) {
+  static int _colorToRgba(Color c) {
+    final argb = c.toARGB32();
+    return ((argb & 0x00FFFFFF) << 8) | ((argb >> 24) & 0xFF);
+  }
+
+  static void prepare(QvpPage page, {Color? inkColor}) {
     if (page.isDisposed) return;
     final l = page.currentLayout;
     if (l == null) return;
-    final ink =
-        inkColor != null ? (inkColor.toARGB32() & 0xFFFFFF) : page.defaultInk;
+    final ink = inkColor != null ? _colorToRgba(inkColor) : page.defaultInk;
     final key =
-        '${page.page}|$ink|${l.scale}|0.0|${math.max(l.contentH, 1.0).toInt()}|1';
+        '${page.page}|$ink|${l.scale}|${l.offsetX}|${l.offsetY}|0.0|${math.max(l.contentH, 1.0).toInt()}|1';
     if (getGlobalInk(key) != null) return;
 
     final rec = ui.PictureRecorder();
@@ -748,15 +754,17 @@ class _InkCache {
 
   _DrawList getDrawList(
       QvpPage page, QvpLayout? l, double top, double bandH, double contentH) {
-    final key = '${page.page}|$top|$bandH|$contentH|${l?.scale}';
+    final key =
+        '${page.page}|$top|$bandH|$contentH|${l?.scale}|${l?.offsetX}|${l?.offsetY}';
     if (_drawList != null && _drawList!.key == key) return _drawList!;
     final draws = top == 0.0 && bandH >= contentH
         ? page.layoutDrawList()
         : page.layoutDrawList(bandTop: top, bandBottom: top + bandH);
     final places = page.layoutPlacements();
-    final ofPath = <int, int>{
-      for (var i = 0; i < draws.length; i++) draws[i].path: draws[i].placement,
-    };
+    final ofPath = <int, int>{};
+    for (var i = 0; i < draws.length; i++) {
+      ofPath.putIfAbsent(draws[i].path, () => draws[i].placement);
+    }
     return _drawList =
         _DrawList(draws: draws, places: places, ofPath: ofPath, key: key);
   }
@@ -921,7 +929,8 @@ class _QvpPainter extends CustomPainter {
       if (cache.ornaments != null) cache.dropOrnaments();
       return;
     }
-    final key = '${page.page}|${info.revision}|${l?.scale}';
+    final key =
+        '${page.page}|${info.ayahMark}|${info.surahHeader}|${info.pageFrame}|${page.dressSpec?.style}|${l?.scale}|${l?.offsetX}|${l?.offsetY}';
     final kept = _InkCache.getGlobalOrnament(key);
     if (kept != null) {
       cache.ornaments = kept.picture;
@@ -1058,7 +1067,7 @@ class _QvpPainter extends CustomPainter {
     }
     final q = cache.getDrawList(page, l, top, bandH, contentH);
     final key =
-        '${page.page}|$ink|${l?.scale}|$top|${bandH.toInt()}|$styledKey';
+        '${page.page}|$ink|${l?.scale}|${l?.offsetX}|${l?.offsetY}|$top|${bandH.toInt()}|$styledKey';
     final kept = _InkCache.getGlobalInk(key);
     if (kept != null) {
       cache.picture = kept.picture;
@@ -1131,8 +1140,8 @@ class _QvpPainter extends CustomPainter {
       for (var i = 0; i < styled.length; i++) {
         final s = styled[i];
         if ((s.color & 0xff) == 0) continue;
-        final pi = q.ofPath[s.path] ?? page.pathLine(s.path);
-        if (pi < 0) continue;
+        final pi = q.ofPath[s.path];
+        if (pi == null || pi < 0) continue;
         if (pi != cur) {
           if (open) canvas.restore();
           canvas.save();

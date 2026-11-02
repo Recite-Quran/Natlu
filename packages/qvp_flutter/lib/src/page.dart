@@ -416,7 +416,11 @@ class QvpPage extends ChangeNotifier {
 
   // ── Clock & Display list ──
 
-  bool tick(double nowMs) => _backend.tick(handle, nowMs);
+  bool tick(double nowMs) {
+    final more = _backend.tick(handle, nowMs);
+    if (more) revision++;
+    return more;
+  }
   Uint32List colors() => _backend.colors(handle, nPaths);
   List<QvpStyledPath> styledPaths() => _backend.styledPaths(handle);
   int colorOf(int path) => _backend.colorOf(handle, path);
