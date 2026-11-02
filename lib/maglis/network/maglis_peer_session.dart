@@ -72,6 +72,7 @@ class MaglisPeerSession {
   final Set<String> renegotiatePending = <String>{};
   final PeerTaskQueue _taskQueue = PeerTaskQueue();
   final List<String> pendingVitalPackets = [];
+  final Map<String, List<String>> _peerVitalQueues = {};
 
   static const int maxDataChannelBufferedAmount = 128 * 1024;
   static const int maxRemotePeers = 3;
@@ -275,6 +276,7 @@ class MaglisPeerSession {
     }
 
     pc.onIceCandidate = (RTCIceCandidate c) {
+      if (disposed || peers[remoteId] != pc) return;
       final str = c.candidate;
       if (!MaglisMediaHelper.isValidCandidate(str)) return;
       queueOutboundIce(remoteId, {
@@ -286,7 +288,7 @@ class MaglisPeerSession {
 
     const iceHandler = CallingIceStateHandler();
     pc.onIceConnectionState = (RTCIceConnectionState state) {
-      if (disposed) return;
+      if (disposed || peers[remoteId] != pc) return;
       peerStates[remoteId] = state;
       onStatesChanged(Map.unmodifiable(peerStates));
 
@@ -314,6 +316,7 @@ class MaglisPeerSession {
           window.start(
             onTimeout: () {
               if (!disposed &&
+                  peers[remoteId] == pc &&
                   (peerStates[remoteId] ==
                           RTCIceConnectionState.RTCIceConnectionStateFailed ||
                       peerStates[remoteId] ==
@@ -328,6 +331,7 @@ class MaglisPeerSession {
             },
             onRetry: () {
               if (!disposed &&
+                  peers[remoteId] == pc &&
                   (peerStates[remoteId] ==
                           RTCIceConnectionState.RTCIceConnectionStateFailed ||
                       peerStates[remoteId] ==
@@ -350,7 +354,7 @@ class MaglisPeerSession {
     };
 
     pc.onConnectionState = (RTCPeerConnectionState state) {
-      if (disposed) return;
+      if (disposed || peers[remoteId] != pc) return;
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         peerStates[remoteId] =
             RTCIceConnectionState.RTCIceConnectionStateConnected;
@@ -368,6 +372,7 @@ class MaglisPeerSession {
 
     // Route incoming audio stream to hardware speakerphone at full volume (noscall stream preservation pattern)
     pc.onTrack = (RTCTrackEvent ev) {
+      if (disposed || peers[remoteId] != pc) return;
       if (ev.track.kind == 'audio') {
         final shouldHear = (_currentActiveReciterId == null) ||
             (_currentActiveReciterId == remoteId);
@@ -400,6 +405,7 @@ class MaglisPeerSession {
     };
 
     pc.onDataChannel = (RTCDataChannel dc) {
+      if (disposed || peers[remoteId] != pc) return;
       bindDataChannel(remoteId, dc);
     };
 
@@ -472,8 +478,11 @@ class MaglisPeerSession {
       await cleanupPeerInternal(remoteId);
       await sendSignal('beacon', targetId: remoteId, data: const {});
     } finally {
-      Timer(const Duration(milliseconds: 2500), () {
+      iceRestartGraceTimers[remoteId]?.cancel();
+      iceRestartGraceTimers[remoteId] =
+          Timer(const Duration(milliseconds: 2500), () {
         isRestartInProgress[remoteId] = false;
+        iceRestartGraceTimers.remove(remoteId);
       });
     }
   }
@@ -501,6 +510,19 @@ class MaglisPeerSession {
             curDc.state == RTCDataChannelState.RTCDataChannelOpen;
 
         if (isDcOk) return;
+
+        final curSigState = await pc.getSignalingState() ?? pc.signalingState;
+        if (curSigState != RTCSignalingState.RTCSignalingStateStable) {
+          renegotiatePending.add(remoteId);
+          return;
+        }
+
+        // Detach stale callbacks on any defunct DataChannel before replacing it
+        if (curDc != null) {
+          curDc.onDataChannelState = null;
+          curDc.onMessage = null;
+          curDc.onBufferedAmountLow = null;
+        }
 
         final dc = await pc.createDataChannel(
           'maglis_data',
@@ -549,12 +571,26 @@ class MaglisPeerSession {
   }
 
   void bindDataChannel(String remoteId, RTCDataChannel dc) {
+    final prevDc = channels[remoteId];
+    if (prevDc != null && prevDc != dc) {
+      prevDc.onDataChannelState = null;
+      prevDc.onMessage = null;
+      prevDc.onBufferedAmountLow = null;
+    }
     channels[remoteId] = dc;
     try {
       dc.bufferedAmountLowThreshold = 64 * 1024;
     } catch (_) {}
     dc.onBufferedAmountLow = (_) {
-      if (!disposed) {
+      if (!disposed && channels[remoteId] == dc) {
+        final peerQueue = _peerVitalQueues.remove(remoteId);
+        if (peerQueue != null && peerQueue.isNotEmpty) {
+          for (final vital in peerQueue) {
+            try {
+              dc.send(RTCDataChannelMessage(vital));
+            } catch (_) {}
+          }
+        }
         if (pendingVitalPackets.isNotEmpty) {
           final toSend = List<String>.from(pendingVitalPackets);
           pendingVitalPackets.clear();
@@ -573,6 +609,7 @@ class MaglisPeerSession {
     };
 
     void onChannelOpen() {
+      if (disposed || channels[remoteId] != dc) return;
       lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
       peerStates[remoteId] =
           RTCIceConnectionState.RTCIceConnectionStateConnected;
@@ -588,7 +625,9 @@ class MaglisPeerSession {
       // Hedged 350ms follow-up snapshot guarantees state synchronization
       // even if initial frame was sent before remote listener binding completed.
       Future.delayed(const Duration(milliseconds: 350), () {
-        if (!disposed && dc.state == RTCDataChannelState.RTCDataChannelOpen) {
+        if (!disposed &&
+            channels[remoteId] == dc &&
+            dc.state == RTCDataChannelState.RTCDataChannelOpen) {
           try {
             dc.send(RTCDataChannelMessage(onBuildSnapshot().pack()));
           } catch (_) {}
@@ -617,6 +656,15 @@ class MaglisPeerSession {
           } catch (_) {}
         }
       }
+
+      final peerQueue = _peerVitalQueues.remove(remoteId);
+      if (peerQueue != null && peerQueue.isNotEmpty) {
+        for (final vital in peerQueue) {
+          try {
+            dc.send(RTCDataChannelMessage(vital));
+          } catch (_) {}
+        }
+      }
       if (pendingVitalPackets.isNotEmpty) {
         for (final vital in List<String>.from(pendingVitalPackets)) {
           try {
@@ -629,6 +677,7 @@ class MaglisPeerSession {
 
     // Attach dc.onMessage FIRST before inspecting dc.state or triggering onChannelOpen
     dc.onMessage = (RTCDataChannelMessage msg) {
+      if (disposed) return;
       lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
       if (peerStates[remoteId] !=
           RTCIceConnectionState.RTCIceConnectionStateConnected) {
@@ -650,6 +699,7 @@ class MaglisPeerSession {
     };
 
     dc.onDataChannelState = (RTCDataChannelState state) {
+      if (disposed || channels[remoteId] != dc) return;
       if (state == RTCDataChannelState.RTCDataChannelOpen) {
         onChannelOpen();
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
@@ -763,7 +813,11 @@ class MaglisPeerSession {
           (prev - pkt.seq) < 50000) {
         return;
       }
-      lastSeq[pkt.senderId] = pkt.seq;
+      if (pkt.seq > prev ||
+          pkt.type == MaglisPacketType.floorClaim ||
+          pkt.type == MaglisPacketType.snapshot) {
+        lastSeq[pkt.senderId] = pkt.seq;
+      }
       lastSeenSurah[pkt.senderId] = pkt.surah;
       lastSeenAyah[pkt.senderId] = pkt.ayah;
       onPacketReceived(pkt);
@@ -785,13 +839,25 @@ class MaglisPeerSession {
             dc.send(msg);
           } catch (_) {}
         } else if (isVital) {
-          queueVitalPacket(raw);
+          _queuePeerVitalPacket(entry.key, raw);
         }
+      } else if (isVital) {
+        _queuePeerVitalPacket(entry.key, raw);
       }
     }
 
     if (!anyChannelOpen && isVital) {
       queueVitalPacket(raw);
+    }
+  }
+
+  void _queuePeerVitalPacket(String peerId, String raw) {
+    final list = _peerVitalQueues.putIfAbsent(peerId, () => <String>[]);
+    if (!list.contains(raw)) {
+      list.add(raw);
+      if (list.length > 30) {
+        list.removeAt(0);
+      }
     }
   }
 
@@ -821,9 +887,11 @@ class MaglisPeerSession {
         } else {
           peersNeedingCatchup.add(entry.key);
           if (vitalFallbackJson != null) {
-            queueVitalPacket(vitalFallbackJson);
+            _queuePeerVitalPacket(entry.key, vitalFallbackJson);
           }
         }
+      } else if (vitalFallbackJson != null) {
+        _queuePeerVitalPacket(entry.key, vitalFallbackJson);
       }
     }
 
@@ -1069,6 +1137,7 @@ class MaglisPeerSession {
       {bool isReconnecting = false}) async {
     peersNeedingCatchup.remove(peerId);
     renegotiatePending.remove(peerId);
+    _peerVitalQueues.remove(peerId);
     iceQueues.remove(peerId);
     pendingOutboundCandidates.remove(peerId);
     iceDebounceTimers.remove(peerId)?.cancel();
@@ -1088,7 +1157,6 @@ class MaglisPeerSession {
     if (!isReconnecting) {
       peerStates.remove(peerId);
       lastSeenPeerMs.remove(peerId);
-      _taskQueue.cancelPeer(peerId);
     } else {
       peerStates[peerId] = RTCIceConnectionState.RTCIceConnectionStateChecking;
     }
@@ -1146,6 +1214,11 @@ class MaglisPeerSession {
       }
     } catch (_) {}
 
+    // Cancel any pending tasks queued for this peer AFTER async teardown completes
+    if (!isReconnecting) {
+      _taskQueue.cancelPeer(peerId);
+    }
+
     if (!disposed) {
       onStatesChanged(Map.unmodifiable(Map.from(peerStates)));
     }
@@ -1174,6 +1247,7 @@ class MaglisPeerSession {
     peerLatency.clear();
     pendingOutboundCandidates.clear();
     pendingVitalPackets.clear();
+    _peerVitalQueues.clear();
     renegotiatePending.clear();
     _taskQueue.clear();
 
@@ -1304,7 +1378,11 @@ class PeerTaskQueue {
 
   void cancelPeer(String peerId) {
     final queue = _queues.remove(peerId);
-    _running.remove(peerId);
+    // Do NOT remove _running[peerId] here if a task is currently mid-flight;
+    // whenComplete() will clear _running[peerId] once the active task finishes.
+    if (_running[peerId] != true) {
+      _running.remove(peerId);
+    }
     if (queue != null) {
       for (final t in queue) {
         if (!t.completer.isCompleted) {
@@ -1316,7 +1394,15 @@ class PeerTaskQueue {
 
   void clear() {
     for (final peerId in List<String>.from(_queues.keys)) {
-      cancelPeer(peerId);
+      final queue = _queues.remove(peerId);
+      if (queue != null) {
+        for (final t in queue) {
+          if (!t.completer.isCompleted) {
+            t.completer
+                .completeError(StateError('Peer $peerId queue cancelled'));
+          }
+        }
+      }
     }
     _queues.clear();
     _running.clear();

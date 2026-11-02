@@ -28,14 +28,18 @@ class MaglisMediaHelper {
     return (delay * (0.5 + _rng.nextDouble())).round();
   }
 
-  /// Filters out private/loopback/bogus ICE candidates to conserve bandwidth.
+  static final RegExp _ipv6LoopbackTokenRegex =
+      RegExp(r'(?:^|\s)::1(?:\s|$)');
+
+  /// Filters out private/loopback/bogus ICE candidates to conserve bandwidth
+  /// while preserving valid public IPv6 candidates ending in `::1` (e.g. `2001:4860:4860::1`).
   static bool isValidCandidate(String? cand) {
     if (cand == null || cand.isEmpty) return false;
     final lower = cand.toLowerCase();
     if (lower.contains('fe80:') ||
         lower.contains(' 169.254.') ||
         lower.contains('127.0.0.') ||
-        lower.contains('::1') ||
+        _ipv6LoopbackTokenRegex.hasMatch(lower) ||
         lower.contains('localhost') ||
         lower.contains(' 0.0.0.0 ')) {
       return false;

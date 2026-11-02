@@ -305,7 +305,6 @@ class _TrackingScreenState extends State<TrackingScreen>
         );
       }
     }
-    if (mounted) setState(() {});
   }
 
   int get _effectiveSurah {
@@ -446,8 +445,12 @@ class _TrackingScreenState extends State<TrackingScreen>
                           ignoring: !app.isMushafMode && isAutoScrolling,
                           child: AnimatedBuilder(
                             animation: Listenable.merge([
-                              app,
+                              app.themeNotifier,
+                              app.languageNotifier,
+                              app.blurModeNotifier,
+                              app.modeNotifier,
                               app.currentMushafPage,
+                              widget.controller,
                               widget.controller.activeAyah,
                               MaglisController.instance.sessionListenable,
                             ]),

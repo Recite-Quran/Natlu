@@ -158,11 +158,14 @@ class MaglisRoomDiscovery {
       final formattedUrl = MaglisRelayFleet.formatRelayUrl(url, trimmed);
       ws = WebSocketChannel.connect(Uri.parse(formattedUrl));
       final readyMs = (timeoutMs - 500).clamp(1500, 5000);
-      await Future.any([
-        ws.ready.timeout(Duration(milliseconds: readyMs)),
-        cancelSignal,
+      final readyFuture = ws.ready
+          .timeout(Duration(milliseconds: readyMs))
+          .then<bool>((_) => true, onError: (_) => false);
+      final readyResult = await Future.any<bool>([
+        readyFuture,
+        cancelSignal.then((_) => false),
       ]);
-      if (completer.isCompleted) return null;
+      if (!readyResult || completer.isCompleted) return null;
 
       final probeStartSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 

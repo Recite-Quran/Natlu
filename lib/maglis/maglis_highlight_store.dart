@@ -49,7 +49,9 @@ class MaglisHighlightStore {
   final Map<int, List<ReciterError>> remoteWordErrors = {};
 
   // Error deduplication: strictly ensure each Tajweed error map is serialized once per unique (surah, ayah, word0) key
+  // Value stores a lightweight signature (error count + first error type) so if a word's error list is updated, it re-transmits.
   final Set<int> sentErrorWords = <int>{};
+  final Map<int, int> _sentErrorSignatures = <int, int>{};
 
   List<ReciterError>? getWordErrors(int surah, int ayah, int word0) =>
       remoteWordErrors[wordKey(surah, ayah, word0)];
@@ -67,6 +69,11 @@ class MaglisHighlightStore {
       cumulativeHighlights[key] = color;
       cumulativeVersion++;
     }
+    if (color == 1) {
+      remoteWordErrors.remove(key);
+      sentErrorWords.remove(key);
+      _sentErrorSignatures.remove(key);
+    }
   }
 
   /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
@@ -83,6 +90,7 @@ class MaglisHighlightStore {
       return s > startSurah || (s == startSurah && a >= startAyah);
     });
     sentErrorWords.clear();
+    _sentErrorSignatures.clear();
     cumulativeVersion++;
   }
 
@@ -90,11 +98,15 @@ class MaglisHighlightStore {
   bool mergeCumulative(Map<String, int> cumulative) {
     bool changed = false;
     cumulative.forEach((k, v) {
+      if (v < 1 || v > 3) return;
       final parsed = int.tryParse(k, radix: 16);
       if (parsed != null) {
         if (cumulativeHighlights[parsed] != v) {
           cumulativeHighlights[parsed] = v;
           changed = true;
+        }
+        if (v == 1) {
+          remoteWordErrors.remove(parsed);
         }
       } else if (k.contains('_')) {
         final parts = k.split('_');
@@ -107,6 +119,9 @@ class MaglisHighlightStore {
             if (cumulativeHighlights[key] != v) {
               cumulativeHighlights[key] = v;
               changed = true;
+            }
+            if (v == 1) {
+              remoteWordErrors.remove(key);
             }
           }
         }
@@ -135,6 +150,7 @@ class MaglisHighlightStore {
       }
       remoteWordErrors.remove(key);
       sentErrorWords.remove(key);
+      _sentErrorSignatures.remove(key);
     }
     for (final w in yellowWords) {
       final key = wordKey(surah, ayah, w);
@@ -164,6 +180,7 @@ class MaglisHighlightStore {
       for (final k in keysToRemove) {
         remoteWordErrors.remove(k);
         sentErrorWords.remove(k);
+        _sentErrorSignatures.remove(k);
       }
     }
   }
@@ -203,7 +220,20 @@ class MaglisHighlightStore {
     _pruneErrorsIfNeeded();
   }
 
-  /// Serializes active errors strictly once per unique (surah, ayah, word0) key to achieve minimum packet size.
+  static int _computeErrorListSignature(List<ReciterError> list) {
+    int hash = list.length;
+    for (final e in list) {
+      hash = ((hash * 31) ^
+              e.errorType.index ^
+              (e.speechErrorType.index << 4) ^
+              (e.durationStatus?.index ?? 0)) &
+          0x3FFFFFFF;
+    }
+    return hash;
+  }
+
+  /// Serializes active errors strictly once per unique (surah, ayah, word0) state
+  /// to achieve minimum packet size while still propagating updated error details.
   Map<String, List<Map<String, dynamic>>>? serializeNewErrors(
     int surah,
     int ayah,
@@ -213,8 +243,13 @@ class MaglisHighlightStore {
     Map<String, List<Map<String, dynamic>>>? serializedErrors;
     for (final entry
         in List<MapEntry<int, List<ReciterError>>>.from(errors.entries)) {
+      if (entry.value.isEmpty) continue;
       final key = wordKey(surah, ayah, entry.key);
-      if (sentErrorWords.add(key)) {
+      final sig = _computeErrorListSignature(entry.value);
+      final isFirstSend = sentErrorWords.add(key);
+      final prevSig = _sentErrorSignatures[key];
+      if (isFirstSend || (prevSig != null && prevSig != sig)) {
+        _sentErrorSignatures[key] = sig;
         (serializedErrors ??= {})[key.toRadixString(16)] =
             entry.value.map((e) => compactErrorMap(e)).toList();
       }
@@ -299,6 +334,9 @@ class MaglisHighlightStore {
           cumulativeHighlights[key] = color;
           changed = true;
         }
+        if (color == 1) {
+          remoteWordErrors.remove(key);
+        }
       }
     }
     if (changed) {
@@ -313,5 +351,6 @@ class MaglisHighlightStore {
     cumulativeVersion = 0;
     remoteWordErrors.clear();
     sentErrorWords.clear();
+    _sentErrorSignatures.clear();
   }
 }

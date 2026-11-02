@@ -176,6 +176,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _requestSyncVisuals() {
     if (!mounted) return;
+    final curr = AppState.instance.currentMushafPage.value;
+    if (curr > 0 &&
+        (widget.pageNumber - curr).abs() > 1 &&
+        _lastActiveAyah == null &&
+        _lastActiveWord == null) {
+      return;
+    }
     if (_syncScheduled) return;
     _syncScheduled = true;
     scheduleMicrotask(() {
@@ -186,7 +193,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   void _onCurrentMushafPageChanged() {
     final curr = AppState.instance.currentMushafPage.value;
-    if (widget.pageNumber == curr || _lastActiveAyah != null) {
+    if (widget.pageNumber == curr ||
+        (widget.pageNumber - curr).abs() <= 1 ||
+        _lastActiveAyah != null) {
       _requestSyncVisuals();
     }
   }

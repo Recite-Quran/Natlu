@@ -36,6 +36,11 @@ class MaglisActiveSession {
   /// Used to fence out stale in-flight recitationUpdate packets from a preempted reciter.
   int lastFloorClaimTs = 0;
 
+  /// Origin packet timestamp (`pkt.ts`) of the most recently accepted floorClaim.
+  /// Deduplicates dual-path (DataChannel + Nostr) arrival even if the reciter has already
+  /// advanced to the next ayah before the slower Nostr copy arrives.
+  int lastFloorClaimRemoteOriginTs = 0;
+
   int remotePage;
   int remoteSurah;
   int remoteAyah;
@@ -68,6 +73,7 @@ class MaglisActiveSession {
     recitationSyncTimer = null;
     localFloorClaimTs = 0;
     lastFloorClaimTs = 0;
+    lastFloorClaimRemoteOriginTs = 0;
     await pktSub?.cancel();
     await stateSub?.cancel();
     await natSub?.cancel();

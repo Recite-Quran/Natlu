@@ -116,6 +116,8 @@ class MaglisPacket {
 
 /// High-efficiency binary serialization inspired by PeerRTC Packer.
 /// Achieves >60% payload reduction compared to JSON over WebRTC DataChannel.
+/// Uses platform-safe arithmetic division/multiplication for varints so 41-bit+
+/// epoch millisecond timestamps never suffer 32-bit bitwise truncation on Flutter Web.
 class MaglisBinaryPacker {
   static const int magic = 0x51; // 'Q'
   static const int version = 0x01;
@@ -125,25 +127,26 @@ class MaglisBinaryPacker {
       return const [0];
     }
     final bytes = <int>[];
-    while (value > 0x7F) {
-      bytes.add((value & 0x7F) | 0x80);
-      value >>>= 7;
+    int v = value;
+    while (v >= 0x80) {
+      bytes.add((v % 128) | 0x80);
+      v ~/= 128;
     }
-    bytes.add(value & 0x7F);
+    bytes.add(v % 128);
     return bytes;
   }
 
   static (int, int) decodeVarint(Uint8List bytes, int offset) {
     int result = 0;
-    int shift = 0;
+    int multiplier = 1;
     int bytesRead = 0;
 
     while (offset + bytesRead < bytes.length) {
       final int byte = bytes[offset + bytesRead];
-      result |= (byte & 0x7F) << shift;
+      result += (byte & 0x7F) * multiplier;
       bytesRead++;
-      if ((byte & 0x80) == 0 || shift >= 56) break;
-      shift += 7;
+      if ((byte & 0x80) == 0 || bytesRead >= 9) break;
+      multiplier *= 128;
     }
     return (result, bytesRead);
   }
@@ -290,6 +293,7 @@ class MaglisBinaryPacker {
       if ((flags & (1 << 3)) != 0) {
         var (count, r) = decodeVarint(bytes, offset);
         offset += r;
+        if (count < 0 || count > 1024) return null;
         final list = <int>[];
         for (int i = 0; i < count; i++) {
           if (offset >= bytes.length) return null;
@@ -304,6 +308,7 @@ class MaglisBinaryPacker {
       if ((flags & (1 << 4)) != 0) {
         var (count, r) = decodeVarint(bytes, offset);
         offset += r;
+        if (count < 0 || count > 1024) return null;
         final list = <int>[];
         for (int i = 0; i < count; i++) {
           if (offset >= bytes.length) return null;
@@ -318,6 +323,7 @@ class MaglisBinaryPacker {
       if ((flags & (1 << 5)) != 0) {
         var (count, r) = decodeVarint(bytes, offset);
         offset += r;
+        if (count < 0 || count > 1024) return null;
         final list = <int>[];
         for (int i = 0; i < count; i++) {
           if (offset >= bytes.length) return null;
@@ -345,6 +351,7 @@ class MaglisBinaryPacker {
       if ((flags & (1 << 6)) != 0) {
         var (count, r) = decodeVarint(bytes, offset);
         offset += r;
+        if (count < 0 || count > 100000) return null;
         final map = <String, int>{};
         for (int i = 0; i < count; i++) {
           if (offset >= bytes.length) return null;
@@ -462,8 +469,9 @@ class MaglisCrypto {
   /// Without the internal app pepper, no third-party relay scraper can rainbow-table 5-digit codes.
   static String blindedTag(String code, {int? epoch}) {
     final ep = epoch ?? currentEpoch;
+    final cleanCode = normalizeArabicDigits(code.trim());
     final hmac = Hmac(sha256, _appPepper);
-    final digest = hmac.convert(utf8.encode('maglis_v2_${ep}_${code.trim()}'));
+    final digest = hmac.convert(utf8.encode('maglis_v2_${ep}_$cleanCode'));
     return digest.toString().substring(0, 32);
   }
 
@@ -481,7 +489,7 @@ class MaglisCrypto {
   static final Map<String, SecretKey> _keyCache = {};
 
   static SecretKey _deriveKey(String code) {
-    final trimmed = code.trim();
+    final trimmed = normalizeArabicDigits(code.trim());
     if (_keyCache.length > 64 && !_keyCache.containsKey(trimmed)) {
       _keyCache.remove(_keyCache.keys.first);
     }
@@ -494,15 +502,22 @@ class MaglisCrypto {
 
   /// Generates a HMAC admission token proving knowledge of the room code and peer identity
   static String admissionToken(String code, String peerId) {
+    final cleanCode = normalizeArabicDigits(code.trim());
     final hmac = Hmac(sha256, _appPepper);
     final digest =
-        hmac.convert(utf8.encode('maglis_v2_auth_${code.trim()}_$peerId'));
+        hmac.convert(utf8.encode('maglis_v2_auth_${cleanCode}_$peerId'));
     return digest.toString().substring(0, 16);
   }
 
-  /// Validates an incoming admission token
+  /// Validates an incoming admission token in constant time
   static bool verifyAdmissionToken(String code, String peerId, String token) {
-    return admissionToken(code, peerId) == token;
+    final expected = admissionToken(code, peerId);
+    if (expected.length != token.length) return false;
+    int diff = 0;
+    for (int i = 0; i < expected.length; i++) {
+      diff |= expected.codeUnitAt(i) ^ token.codeUnitAt(i);
+    }
+    return diff == 0;
   }
 
   static Future<String> encrypt(String plain, String code) async {
@@ -772,9 +787,11 @@ class MaglisPlatform {
   }
 
   static Completer<void>? _setSpeakerAction;
+  static bool? _pendingSpeakerTarget;
 
   static Future<void> setSpeaker(bool on) async {
     if (kIsWeb) return;
+    _pendingSpeakerTarget = on;
     if (_setSpeakerAction != null && !_setSpeakerAction!.isCompleted) {
       return _setSpeakerAction!.future;
     }
@@ -782,13 +799,17 @@ class MaglisPlatform {
     _setSpeakerAction = action;
 
     try {
-      if (defaultTargetPlatform == TargetPlatform.android ||
-          defaultTargetPlatform == TargetPlatform.iOS) {
-        await Helper.setSpeakerphoneOn(on);
-        if (defaultTargetPlatform == TargetPlatform.android) {
-          try {
-            await Helper.selectAudioOutput(on ? 'speaker' : 'earpiece');
-          } catch (_) {}
+      while (_pendingSpeakerTarget != null) {
+        final target = _pendingSpeakerTarget!;
+        _pendingSpeakerTarget = null;
+        if (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS) {
+          await Helper.setSpeakerphoneOn(target);
+          if (defaultTargetPlatform == TargetPlatform.android) {
+            try {
+              await Helper.selectAudioOutput(target ? 'speaker' : 'earpiece');
+            } catch (_) {}
+          }
         }
       }
     } catch (_) {

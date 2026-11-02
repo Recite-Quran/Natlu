@@ -165,19 +165,23 @@ class MaglisRelayFleet {
           if (!completer.isCompleted) completer.complete(false);
           return;
         }
-        sockets[url] = ws!;
-        _reconnectionScheduler.recordSuccess(url);
-        subscribeRelay(ws);
-        if (pendingOutboundSignals.isNotEmpty) {
-          final toSend = List<String>.from(pendingOutboundSignals);
-          pendingOutboundSignals.clear();
-          for (final f in toSend) {
-            try {
-              ws.sink.add(f);
-            } catch (_) {}
+        try {
+          sockets[url] = ws!;
+          _reconnectionScheduler.recordSuccess(url);
+          subscribeRelay(ws);
+          if (pendingOutboundSignals.isNotEmpty) {
+            final toSend = List<String>.from(pendingOutboundSignals);
+            pendingOutboundSignals.clear();
+            for (final f in toSend) {
+              try {
+                ws.sink.add(f);
+              } catch (_) {}
+            }
           }
+          if (!completer.isCompleted) completer.complete(true);
+        } catch (_) {
+          handleFail();
         }
-        if (!completer.isCompleted) completer.complete(true);
       }).catchError((_) {
         handleFail();
       });
@@ -213,15 +217,17 @@ class MaglisRelayFleet {
     }
     _socketSubIds[ws] = newSubId;
     lastSubId = newSubId;
-    ws.sink.add(jsonEncode([
-      'REQ',
-      newSubId,
-      {
-        'kinds': [20000],
-        '#t': tags,
-      }
-    ]));
-    isSocketSubscribed = true;
+    try {
+      ws.sink.add(jsonEncode([
+        'REQ',
+        newSubId,
+        {
+          'kinds': [20000],
+          '#t': tags,
+        }
+      ]));
+      isSocketSubscribed = true;
+    } catch (_) {}
   }
 
   void resubscribeRelays() {

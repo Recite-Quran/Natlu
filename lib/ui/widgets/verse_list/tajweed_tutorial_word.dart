@@ -114,6 +114,9 @@ class TajweedTooltipPainter extends CustomPainter {
       }
       charOffset += word.length + 1; // +1 for the space separator
     }
+
+    painter.dispose();
+    textPainter.dispose();
   }
 
   @override

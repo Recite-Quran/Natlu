@@ -300,9 +300,7 @@ class _VerseRowState extends State<VerseRow> {
   final GlobalKey _textKey = GlobalKey();
   bool _positionCheckScheduled = false;
   Timer? _delayedWordPositionTimer;
-  int? _cachedRectTargetIndex;
-  double? _cachedRectMaxWidth;
-  Rect? _cachedWordRect;
+  _AyahWordLayout? _wordLayout;
 
   @override
   void initState() {
@@ -438,11 +436,9 @@ class _VerseRowState extends State<VerseRow> {
   void _invalidate() {
     _lastFingerprint = -1;
     _cachedSpans = null;
+    _wordLayout = null;
     _cachedWordColorsHash = null;
     _cachedWordColorsRevision = null;
-    _cachedRectTargetIndex = null;
-    _cachedRectMaxWidth = null;
-    _cachedWordRect = null;
   }
 
   void _onStateChanged() {
@@ -570,6 +566,21 @@ class _VerseRowState extends State<VerseRow> {
     );
   }
 
+  _AyahWordLayout? _getOrCreateWordLayout(double maxWidth) {
+    if (_cachedSpans == null || maxWidth <= 0) return null;
+    if (_wordLayout != null &&
+        (_wordLayout!.width - maxWidth).abs() < 0.5 &&
+        identical(_wordLayout!.spans, _cachedSpans)) {
+      return _wordLayout;
+    }
+    _wordLayout = _AyahWordLayout.compute(
+      spans: _cachedSpans!,
+      words: widget.verse.uthmaniWords,
+      width: maxWidth,
+    );
+    return _wordLayout;
+  }
+
   Rect? _calculateWordRect(int targetIndex, double maxWidth) {
     if (_cachedSpans == null ||
         targetIndex < 0 ||
@@ -578,58 +589,11 @@ class _VerseRowState extends State<VerseRow> {
       return null;
     }
 
-    if (_cachedRectTargetIndex == targetIndex &&
-        _cachedRectMaxWidth == maxWidth &&
-        _cachedWordRect != null) {
-      return _cachedWordRect;
+    final layout = _getOrCreateWordLayout(maxWidth);
+    if (layout == null || targetIndex >= layout.wordRects.length) {
+      return null;
     }
-
-    final painter = TextPainter(
-      text: TextSpan(children: _cachedSpans),
-      textAlign: TextAlign.justify,
-      textDirection: TextDirection.rtl,
-    )..layout(minWidth: maxWidth, maxWidth: maxWidth);
-
-    int charOffset = 0;
-    final words = widget.verse.uthmaniWords;
-    for (int i = 0; i < targetIndex; i++) {
-      charOffset += words[i].length + 1;
-    }
-
-    final rawBoxes = painter.getBoxesForSelection(
-      TextSelection(
-        baseOffset: charOffset,
-        extentOffset: charOffset + words[targetIndex].length,
-      ),
-    );
-    painter.dispose();
-
-    final validBoxes =
-        rawBoxes.where((b) => (b.right - b.left).abs() > 1.0).toList();
-    if (validBoxes.isEmpty) return null;
-
-    double left = math.min(validBoxes.first.left, validBoxes.first.right);
-    double right = math.max(validBoxes.first.left, validBoxes.first.right);
-    double top = math.min(validBoxes.first.top, validBoxes.first.bottom);
-    double bottom = math.max(validBoxes.first.top, validBoxes.first.bottom);
-
-    for (int k = 1; k < validBoxes.length; k++) {
-      final b = validBoxes[k];
-      final bLeft = math.min(b.left, b.right);
-      final bRight = math.max(b.left, b.right);
-      final bTop = math.min(b.top, b.bottom);
-      final bBottom = math.max(b.top, b.bottom);
-      if (bLeft < left) left = bLeft;
-      if (bRight > right) right = bRight;
-      if (bTop < top) top = bTop;
-      if (bBottom > bottom) bottom = bBottom;
-    }
-
-    final result = Rect.fromLTRB(left, top, right, bottom);
-    _cachedRectTargetIndex = targetIndex;
-    _cachedRectMaxWidth = maxWidth;
-    _cachedWordRect = result;
-    return result;
+    return layout.wordRects[targetIndex];
   }
 
   /// Compact hash representing active state, word colors, blur, theme, and font size.
@@ -824,6 +788,7 @@ class _VerseRowState extends State<VerseRow> {
                             cachedSpans: _cachedSpans!,
                             isAudioMode: isAudioActive,
                             isRecording: widget.isRecording,
+                            getWordLayout: _getOrCreateWordLayout,
                           )
                         : null,
                     foregroundPainter: _cachedSpans != null &&
@@ -1113,6 +1078,7 @@ class _ActiveWordHighlightPainter extends CustomPainter {
   final List<InlineSpan> cachedSpans;
   final bool isAudioMode;
   final bool isRecording;
+  final _AyahWordLayout? Function(double width) getWordLayout;
 
   _ActiveWordHighlightPainter({
     required this.surah,
@@ -1123,6 +1089,7 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     required this.cachedSpans,
     required this.isAudioMode,
     required this.isRecording,
+    required this.getWordLayout,
   }) : super(
           repaint: isAudioMode
               ? Listenable.merge([
@@ -1134,9 +1101,6 @@ class _ActiveWordHighlightPainter extends CustomPainter {
         );
 
   static final Paint _paint = Paint()..style = PaintingStyle.fill;
-  int _lastActiveIndex = -1;
-  double _lastWidth = -1.0;
-  List<Rect> _cachedLineRects = const [];
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1162,66 +1126,11 @@ class _ActiveWordHighlightPainter extends CustomPainter {
 
     if (activeIndex < 0 || activeIndex >= words.length) return;
 
-    final List<Rect> lineRects;
-    if (activeIndex == _lastActiveIndex &&
-        (size.width - _lastWidth).abs() < 0.5 &&
-        _cachedLineRects.isNotEmpty) {
-      lineRects = _cachedLineRects;
-    } else {
-      final painter = TextPainter(
-        text: TextSpan(children: cachedSpans),
-        textAlign: TextAlign.justify,
-        textDirection: TextDirection.rtl,
-      )..layout(minWidth: size.width, maxWidth: size.width);
+    final layout = getWordLayout(size.width);
+    if (layout == null || activeIndex >= layout.wordLineRects.length) return;
 
-      int charOffset = 0;
-      for (int i = 0; i < activeIndex; i++) {
-        charOffset += words[i].length + 1;
-      }
-
-      final rawBoxes = painter.getBoxesForSelection(
-        TextSelection(
-          baseOffset: charOffset,
-          extentOffset: charOffset + words[activeIndex].length,
-        ),
-      );
-      painter.dispose();
-
-      // Filter out zero-width cursor affinity / line margin boxes that cause bounds explosion
-      final validBoxes =
-          rawBoxes.where((b) => (b.right - b.left).abs() > 1.0).toList();
-      if (validBoxes.isEmpty) return;
-
-      // Group boxes by line to unite all letter/glyph boxes into one smooth, single word pill
-      final List<Rect> computed = [];
-      for (final box in validBoxes) {
-        final bLeft = math.min(box.left, box.right);
-        final bRight = math.max(box.left, box.right);
-        final bTop = math.min(box.top, box.bottom);
-        final bBottom = math.max(box.top, box.bottom);
-        final rect = Rect.fromLTRB(bLeft, bTop, bRight, bBottom);
-
-        int lineIndex = -1;
-        for (int i = 0; i < computed.length; i++) {
-          final existing = computed[i];
-          if ((rect.top - existing.top).abs() < 12.0 ||
-              (rect.bottom - existing.bottom).abs() < 12.0) {
-            lineIndex = i;
-            break;
-          }
-        }
-
-        if (lineIndex >= 0) {
-          computed[lineIndex] = computed[lineIndex].expandToInclude(rect);
-        } else {
-          computed.add(rect);
-        }
-      }
-      lineRects = computed;
-      _cachedLineRects = computed;
-      _lastActiveIndex = activeIndex;
-      _lastWidth = size.width;
-    }
+    final lineRects = layout.wordLineRects[activeIndex];
+    if (lineRects.isEmpty) return;
 
     final bool isBlack = app.isDarkMode;
     final Color highlightColor = app.colors.wordHighlight;
@@ -1249,5 +1158,103 @@ class _ActiveWordHighlightPainter extends CustomPainter {
         oldDelegate.cachedSpans != cachedSpans ||
         oldDelegate.isAudioMode != isAudioMode ||
         oldDelegate.isRecording != isRecording;
+  }
+}
+
+/// Precomputed layout geometry for an Ayah's words at a specific layout width.
+/// Eliminates redundant HarfBuzz OpenType layout passes during recitation and audio tracking.
+class _AyahWordLayout {
+  final double width;
+  final List<InlineSpan> spans;
+  final List<Rect?> wordRects;
+  final List<List<Rect>> wordLineRects;
+
+  const _AyahWordLayout({
+    required this.width,
+    required this.spans,
+    required this.wordRects,
+    required this.wordLineRects,
+  });
+
+  static _AyahWordLayout compute({
+    required List<InlineSpan> spans,
+    required List<String> words,
+    required double width,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(children: spans),
+      textAlign: TextAlign.justify,
+      textDirection: TextDirection.rtl,
+    )..layout(minWidth: width, maxWidth: width);
+
+    final wordRects = List<Rect?>.filled(words.length, null);
+    final wordLineRects =
+        List<List<Rect>>.generate(words.length, (_) => const []);
+
+    int charOffset = 0;
+    for (int i = 0; i < words.length; i++) {
+      final int wordLen = words[i].length;
+      final rawBoxes = painter.getBoxesForSelection(
+        TextSelection(
+          baseOffset: charOffset,
+          extentOffset: charOffset + wordLen,
+        ),
+      );
+
+      final validBoxes =
+          rawBoxes.where((b) => (b.right - b.left).abs() > 1.0).toList();
+
+      if (validBoxes.isNotEmpty) {
+        double left = math.min(validBoxes.first.left, validBoxes.first.right);
+        double right = math.max(validBoxes.first.left, validBoxes.first.right);
+        double top = math.min(validBoxes.first.top, validBoxes.first.bottom);
+        double bottom = math.max(validBoxes.first.top, validBoxes.first.bottom);
+
+        final List<Rect> lineBoxes = [];
+
+        for (final box in validBoxes) {
+          final bLeft = math.min(box.left, box.right);
+          final bRight = math.max(box.left, box.right);
+          final bTop = math.min(box.top, box.bottom);
+          final bBottom = math.max(box.top, box.bottom);
+          if (bLeft < left) left = bLeft;
+          if (bRight > right) right = bRight;
+          if (bTop < top) top = bTop;
+          if (bBottom > bottom) bottom = bBottom;
+
+          final rect = Rect.fromLTRB(bLeft, bTop, bRight, bBottom);
+
+          int lineIndex = -1;
+          for (int k = 0; k < lineBoxes.length; k++) {
+            final existing = lineBoxes[k];
+            if ((rect.top - existing.top).abs() < 12.0 ||
+                (rect.bottom - existing.bottom).abs() < 12.0) {
+              lineIndex = k;
+              break;
+            }
+          }
+
+          if (lineIndex >= 0) {
+            lineBoxes[lineIndex] = lineBoxes[lineIndex].expandToInclude(rect);
+          } else {
+            lineBoxes.add(rect);
+          }
+        }
+
+        wordLineRects[i] = lineBoxes;
+        wordRects[i] = Rect.fromLTRB(left, top, right, bottom);
+      }
+
+      charOffset += wordLen + 1;
+    }
+
+    painter.dispose();
+
+    return _AyahWordLayout(
+      width: width,
+      spans: spans,
+      wordRects: wordRects,
+      wordLineRects: wordLineRects,
+    );
   }
 }

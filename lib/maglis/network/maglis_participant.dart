@@ -6,8 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 ///
 /// Models a remote participant in the room session.
 /// Directly mirrors the LiveKit Flutter Client SDK participant structure
-/// (from C:\Users\redaa\Downloads\client-sdk-flutter\lib\src\participant\participant.dart)
-/// and noscall session state (from C:\Users\redaa\Downloads\noscall\lib\call\calling_controller.dart).
+/// and noscall session state.
 class MaglisRemoteParticipant {
   final String identity; // Peer public/session identifier
   RTCIceConnectionState _iceState;
@@ -49,8 +48,7 @@ class MaglisRemoteParticipant {
 
 /// ParticipantCollection
 ///
-/// Line-for-line port of LiveKit's ParticipantCollection
-/// (from C:\Users\redaa\Downloads\client-sdk-flutter\lib\src\core\participant_collection.dart).
+/// Line-for-line port of LiveKit's ParticipantCollection.
 /// Provides a single, deterministic source of truth for all room participants.
 class ParticipantCollection extends IterableBase<MaglisRemoteParticipant> {
   final Map<String, MaglisRemoteParticipant> _byIdentity = {};
@@ -88,8 +86,7 @@ class ParticipantCollection extends IterableBase<MaglisRemoteParticipant> {
 
 /// CallingIceStateHandler
 ///
-/// Line-for-line port of noscall's CallingIceStateHandler
-/// (from C:\Users\redaa\Downloads\noscall\lib\call\calling_ice_state_handler.dart).
+/// Line-for-line port of noscall's CallingIceStateHandler.
 typedef CallingIceConnected = FutureOr<void> Function();
 typedef CallingIceHangup = FutureOr<void> Function();
 

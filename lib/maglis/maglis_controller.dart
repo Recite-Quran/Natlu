@@ -295,7 +295,24 @@ class MaglisController extends ChangeNotifier {
       return;
     }
 
-    // 3. Merge cumulative and live words into persistent room highlights with fast radix decoding
+    // 3. Deduplicate dual-path (DataChannel + Nostr fast signal) arrival for the same floorClaim
+    // BEFORE merging words or clearing highlights so a late Nostr floor_claim copy never
+    // rolls back the verse position or wipes highlights after the reciter already advanced.
+    if (pkt.type == MaglisPacketType.floorClaim) {
+      final bool isSameClaimByTimestamp =
+          pkt.ts > 0 && pkt.ts == s.lastFloorClaimRemoteOriginTs;
+      final bool isRecentDuplicateFromActiveReciter =
+          s.activeReciterId == pkt.senderId &&
+              (isSameClaimByTimestamp ||
+                  (s.remoteSurah == pkt.surah &&
+                      s.remoteAyah == pkt.ayah &&
+                      (now - s.lastFloorClaimTs).abs() < 2500));
+      if (isRecentDuplicateFromActiveReciter) {
+        return;
+      }
+    }
+
+    // 4. Merge cumulative and live words into persistent room highlights with fast radix decoding
     bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
       if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
@@ -318,14 +335,6 @@ class MaglisController extends ChangeNotifier {
 
     switch (pkt.type) {
       case MaglisPacketType.floorClaim:
-        // Deduplicate dual-path (DataChannel + Nostr fast signal) arrival for the same claim
-        if (s.activeReciterId == pkt.senderId &&
-            s.remoteSurah == pkt.surah &&
-            s.remoteAyah == pkt.ayah &&
-            (now - s.lastFloorClaimTs).abs() < 2000) {
-          return;
-        }
-
         if (pkt.senderId != s.localPeerId) {
           if (s.isLocalReciting) {
             // TRUE GLARE DETECTION (Clock-Skew Immune):
@@ -359,11 +368,11 @@ class MaglisController extends ChangeNotifier {
             // DELIBERATE TAKEOVER or lost glare: yield floor to the remote peer
             s.recitationSyncTimer?.cancel();
             s.recitationSyncTimer = null;
-            onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
           }
         }
         s.activeReciterId = pkt.senderId;
         s.lastFloorClaimTs = now;
+        s.lastFloorClaimRemoteOriginTs = pkt.ts;
         s.net.updateActiveFloor(pkt.senderId);
         s.remotePage = pkt.page;
         s.remoteSurah = pkt.surah;
@@ -475,6 +484,7 @@ class MaglisController extends ChangeNotifier {
     final now = DateTime.now().millisecondsSinceEpoch;
     s.localFloorClaimTs = now;
     s.lastFloorClaimTs = now;
+    s.lastFloorClaimRemoteOriginTs = now;
     s.activeReciterId = s.localPeerId;
     s.net.updateActiveFloor(s.localPeerId);
     unawaited(setMicMuted(false));
@@ -492,10 +502,11 @@ class MaglisController extends ChangeNotifier {
     s.lastBroadcastWord = null;
     s.highlightStore.sentErrorWords.clear();
 
+    final claimSeq = ++s.seq;
     s.net.sendPacket(
       MaglisPacket(
         type: MaglisPacketType.floorClaim,
-        seq: ++s.seq,
+        seq: claimSeq,
         senderId: s.localPeerId,
         page: page,
         surah: surah,
@@ -508,6 +519,8 @@ class MaglisController extends ChangeNotifier {
       'page': page,
       'surah': surah,
       'ayah': ayah,
+      'seq': claimSeq,
+      'ts': now,
     });
 
     // Periodic 2.5s recitation state sync: heals any packet dropped over cellular/VPN
@@ -618,6 +631,14 @@ class MaglisController extends ChangeNotifier {
       s.highlightStore.recordLocalErrors(surah, ayah, errors);
     }
 
+    // Serialize active errors strictly once per word BEFORE deduplication check
+    // so already-transmitted verse errors do not trigger redundant packets when the reciter pauses.
+    final serializedErrors = s.highlightStore.serializeNewErrors(
+      surah,
+      ayah,
+      errors,
+    );
+
     s.remotePage = page;
     s.remoteSurah = surah;
     s.remoteAyah = ayah;
@@ -634,7 +655,8 @@ class MaglisController extends ChangeNotifier {
         !listEquals(sortedYellow, s.remoteYellowWords) ||
         !listEquals(sortedRed, s.remoteRedWords);
 
-    final bool errorsChanged = errors != null && errors.isNotEmpty;
+    final bool errorsChanged =
+        serializedErrors != null && serializedErrors.isNotEmpty;
 
     if (!pageOrVerseChanged &&
         !cursorMoved &&
@@ -651,13 +673,6 @@ class MaglisController extends ChangeNotifier {
     s.remoteGreenWords = sortedGreen;
     s.remoteYellowWords = sortedYellow;
     s.remoteRedWords = sortedRed;
-
-    // Serialize active errors strictly once per word to achieve minimum packet size
-    final serializedErrors = s.highlightStore.serializeNewErrors(
-      surah,
-      ayah,
-      errors,
-    );
 
     s.net.sendPacket(
       MaglisPacket(

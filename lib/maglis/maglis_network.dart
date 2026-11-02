@@ -84,6 +84,7 @@ class MaglisNetworkEngine {
   Timer? _watchdogTimer;
   Timer? _epochRefreshTimer;
   int _lastKnownHostHeartbeatMs = 0;
+  String? _knownHostPeerId;
   bool _disposed = false;
 
   MaglisNetworkEngine({
@@ -94,7 +95,8 @@ class MaglisNetworkEngine {
     this.onParticipantJoined,
     this.onParticipantLeft,
   })  : roomCode = normalizeArabicDigits(roomCode.trim()),
-        _isHost = isHost {
+        _isHost = isHost,
+        _knownHostPeerId = isHost ? localPeerId : null {
     _relayFleet = MaglisRelayFleet(
       roomCode: this.roomCode,
       localPeerId: localPeerId,
@@ -118,6 +120,9 @@ class MaglisNetworkEngine {
       },
       onPacketReceived: (packet) {
         if (packet.senderId.isNotEmpty && packet.senderId != localPeerId) {
+          if (packet.senderId == _knownHostPeerId) {
+            _lastKnownHostHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
+          }
           _addOrUpdateParticipant(packet.senderId, dataChannelOpen: true);
         }
         _packetCtrl.add(packet);
@@ -184,6 +189,9 @@ class MaglisNetworkEngine {
 
   void _removeParticipant(String peerId) {
     _admittedPeers.remove(peerId);
+    if (_knownHostPeerId == peerId) {
+      _knownHostPeerId = null;
+    }
     if (remoteParticipants.removeByIdentity(peerId) != null) {
       _participantCountCtrl.add(participantCount);
       onParticipantLeft?.call(peerId);
@@ -410,8 +418,11 @@ class MaglisNetworkEngine {
     // Deterministic Host Arbitration & Lease Tracking:
     if (sig.data['host'] == true && remoteId != localPeerId) {
       _lastKnownHostHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
-      if (_isHost && localPeerId.compareTo(remoteId) > 0) {
+      if (!_isHost) {
+        _knownHostPeerId = remoteId;
+      } else if (localPeerId.compareTo(remoteId) > 0) {
         _isHost = false;
+        _knownHostPeerId = remoteId;
       }
     }
 
@@ -463,10 +474,11 @@ class MaglisNetworkEngine {
         break;
 
       case 'floor_claim':
-        final nextSeq = (_peerSession.lastSeq[remoteId] ?? 0) + 1;
+        final claimSeq = (sig.data['seq'] as int?) ??
+            ((_peerSession.lastSeq[remoteId] ?? 0) + 1);
         final pkt = MaglisPacket(
           type: MaglisPacketType.floorClaim,
-          seq: nextSeq,
+          seq: claimSeq,
           senderId: remoteId,
           page: sig.data['page'] as int? ?? 1,
           surah: sig.data['surah'] as int? ?? 1,
@@ -546,6 +558,16 @@ class MaglisNetworkEngine {
   void _checkHostMigration() {
     if (!_isHost) {
       final now = DateTime.now().millisecondsSinceEpoch;
+      // Do not usurp host if the known host is still an active participant in the room
+      if (_knownHostPeerId != null &&
+          remoteParticipants.containsIdentity(_knownHostPeerId!)) {
+        final hostLastSeen = _peerSession.lastSeenPeerMs[_knownHostPeerId!] ??
+            remoteParticipants.get(_knownHostPeerId!)?.lastSeenMs ??
+            0;
+        if ((now - hostLastSeen) < 20000) {
+          return;
+        }
+      }
       // Host lease grace period: do not usurp host if last host signal was within 6s
       if (_lastKnownHostHeartbeatMs > 0 &&
           (now - _lastKnownHostHeartbeatMs) < 6000 &&
@@ -555,11 +577,13 @@ class MaglisNetworkEngine {
 
       if (remoteParticipants.isEmpty) {
         _isHost = true;
+        _knownHostPeerId = localPeerId;
       } else {
         final allPeers = [localPeerId, ...remoteParticipants.identities]
           ..sort();
         if (allPeers.first == localPeerId) {
           _isHost = true;
+          _knownHostPeerId = localPeerId;
         }
       }
     }
