@@ -291,6 +291,8 @@ class _VerseRowState extends State<VerseRow> {
   List<InlineSpan>? _cachedSpans;
   bool _isListeningToController = false;
   bool _wasAudioActive = false;
+  bool _wasAudioPlaying = false;
+  bool _wasAudioBuffering = false;
 
   /// Fast O(1) word colors hash cache for idle/unrecited verses.
   int? _cachedWordColorsHash;
@@ -384,8 +386,17 @@ class _VerseRowState extends State<VerseRow> {
       ayah: widget.verse.ayah,
       app: app,
     );
-    if (isAudioActive != _wasAudioActive) {
+    final bool isPlaying =
+        VerseRow.isAyahAudioPlaying(widget.verse.surah, widget.verse.ayah);
+    final bool isBuffering =
+        VerseRow.isAyahAudioBuffering(widget.verse.surah, widget.verse.ayah);
+
+    if (isAudioActive != _wasAudioActive ||
+        isPlaying != _wasAudioPlaying ||
+        isBuffering != _wasAudioBuffering) {
       _wasAudioActive = isAudioActive;
+      _wasAudioPlaying = isPlaying;
+      _wasAudioBuffering = isBuffering;
       _invalidate();
       if (mounted) setState(() {});
     }

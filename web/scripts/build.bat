@@ -22,9 +22,13 @@ echo === [5/5] Setting Up Cloudflare Pages Artifacts ===
 if exist web\cloudflare\_headers copy /Y web\cloudflare\_headers build\web\_headers >nul
 if exist web\cloudflare\_redirects copy /Y web\cloudflare\_redirects build\web\_redirects >nul
 if not exist functions mkdir functions
+if not exist functions\api mkdir functions\api
 if not exist build\web\functions mkdir build\web\functions
+if not exist build\web\functions\api mkdir build\web\functions\api
 if exist web\cloudflare\functions\download-model.js copy /Y web\cloudflare\functions\download-model.js functions\download-model.js >nul
 if exist web\cloudflare\functions\download-model.js copy /Y web\cloudflare\functions\download-model.js build\web\functions\download-model.js >nul
+if exist web\cloudflare\functions\api\qvp.js copy /Y web\cloudflare\functions\api\qvp.js functions\api\qvp.js >nul
+if exist web\cloudflare\functions\api\qvp.js copy /Y web\cloudflare\functions\api\qvp.js build\web\functions\api\qvp.js >nul
 if exist web\cloudflare\wrangler.toml copy /Y web\cloudflare\wrangler.toml build\web\wrangler.toml >nul
 if exist web\wasm\sherpa-onnx-wasm-main-asr.wasm copy /Y web\wasm\sherpa-onnx-wasm-main-asr.wasm build\web\sherpa-onnx-wasm-main-asr.wasm >nul
 if exist build\web\assets\packages\sherpa_onnx_web rmdir /s /q build\web\assets\packages\sherpa_onnx_web

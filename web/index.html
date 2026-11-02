@@ -4,7 +4,8 @@
 <head>
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="استمع وتتبع تلاوة القرآن الكريم بالذكاء الاصطناعي على جهازك بدون إنترنت.">
   <meta name="theme-color" content="#059669">
@@ -46,7 +47,8 @@
   <link rel="manifest" href="manifest.json">
 
   <style>
-    html, body {
+    html,
+    body {
       margin: 0;
       padding: 0;
       width: 100%;
@@ -215,7 +217,7 @@
           const db = await openPagesDB();
           const tx = db.transaction(PAGES_STORE_NAME, 'readwrite');
           tx.objectStore(PAGES_STORE_NAME).put(bytes, String(key));
-        } catch (_) {}
+        } catch (_) { }
       };
 
       window.saveMushafPagesBatchToDB = async function (batch) {
@@ -235,22 +237,26 @@
         }
       };
 
-      // 5. High-Performance On-Demand Asset Fetcher (for QVP vector pages & Atlas from CDN)
+      // 5. High-Performance On-Demand Asset Fetcher (with multi-tier fallback for Firefox/AdBlock/ISP blocks)
       window.fetchPageAsset = async function (url) {
-        try {
-          const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
-          if (!res.ok) return null;
-          const buf = await res.arrayBuffer();
-          return new Uint8Array(buf);
-        } catch (err) {
-          console.warn('[QVP Web] Failed to fetch on-demand asset:', url, err);
-          return null;
+        const file = url.includes('/') ? url.split('/').pop() : url;
+        const targets = [url, '/api/qvp?file=' + encodeURIComponent(file)];
+        for (const target of targets) {
+          try {
+            const res = await fetch(target, { mode: 'cors' });
+            const type = res.headers.get('content-type') || '';
+            if (res.ok && !type.includes('text/html')) {
+              return new Uint8Array(await res.arrayBuffer());
+            }
+          } catch (_) { }
         }
+        console.warn('[QVP Web] Failed to fetch on-demand asset:', url);
+        return null;
       };
 
       // Instant Boot: Start Flutter immediately on page load with zero splash or loading screen
       window.bootFlutterApp();
-      window.hideAppSplash = function () {};
+      window.hideAppSplash = function () { };
 
       window.clearAppCacheAndReload = async function () {
         try {
@@ -262,7 +268,7 @@
             const keys = await caches.keys();
             for (const k of keys) await caches.delete(k);
           }
-        } catch (_) {}
+        } catch (_) { }
         window.location.reload(true);
       };
     })();
