@@ -1,7 +1,7 @@
 // Service Worker for Recite Quran (اتلو القران)
 // Provides complete offline caching, dynamic caching, and Cross-Origin Isolation (COOP/COEP) for WebAssembly.
 
-const CACHE_NAME = 'recite-quran-pwa-v21-1793586920';
+const CACHE_NAME = 'recite-quran-pwa-v22-1793586920';
 const PERMANENT_CACHE_NAME = 'recite-quran-permanent-assets';
 
 const STATIC_PRECACHE = [
@@ -9,7 +9,6 @@ const STATIC_PRECACHE = [
   'index.html',
   'manifest.json',
   'icons/favicon.png',
-  'ReciteQuran.png',
   'icons/apple-touch-icon.png',
   'icons/Icon-192.png',
   'icons/Icon-512.png',
@@ -161,7 +160,6 @@ self.addEventListener('fetch', (event) => {
   // 1. Navigation requests & entry bootstrap scripts: Network First, fallback to cached
   const isBootstrapOrVersion = url.pathname.endsWith('/flutter_bootstrap.js') ||
     url.pathname.endsWith('/version.json') ||
-    url.pathname.endsWith('/main.dart.js') ||
     url.pathname.endsWith('/manifest.json') ||
     url.pathname.endsWith('/pwa_install.js');
 

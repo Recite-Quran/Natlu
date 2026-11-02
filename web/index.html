@@ -46,6 +46,10 @@
   <title>Recite Quran - اتلو القران</title>
   <link rel="manifest" href="manifest.json">
 
+  <!-- Preload critical Web bootstrap & font resources -->
+  <link rel="preload" href="flutter_bootstrap.js" as="script">
+  <link rel="preload" href="assets/assets/fonts/Cairo-Regular.ttf" as="font" type="font/ttf" crossorigin>
+
   <style>
     html,
     body {
@@ -154,6 +158,14 @@
       }
 
       // 2. Flutter Web Bootstrapper
+      if (!window.registerAppServiceWorker && 'serviceWorker' in navigator) {
+        window.registerAppServiceWorker = function () {
+          navigator.serviceWorker.register('sw.js')
+            .then((reg) => { if (navigator.onLine) reg.update().catch(() => {}); })
+            .catch((err) => console.warn('[PWA] ServiceWorker error:', err));
+        };
+      }
+
       window.bootFlutterApp = function () {
         if (window._flutterBootStarted) return;
         window._flutterBootStarted = true;
@@ -166,17 +178,28 @@
         (document.head || document.documentElement).appendChild(s);
       };
 
-      // 3. IndexedDB Helpers for Decoded Mushaf Vector Pages
+      // 3. IndexedDB Helpers for Decoded Mushaf Vector Pages (Singleton Connection)
+      let _pagesDbPromise = null;
       function openPagesDB() {
-        return new Promise((resolve, reject) => {
+        if (_pagesDbPromise) return _pagesDbPromise;
+        _pagesDbPromise = new Promise((resolve, reject) => {
           const req = indexedDB.open(PAGES_DB_NAME, 1);
           req.onupgradeneeded = (e) => {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(PAGES_STORE_NAME)) db.createObjectStore(PAGES_STORE_NAME);
           };
-          req.onsuccess = (e) => resolve(e.target.result);
-          req.onerror = (e) => reject(e.target.error);
+          req.onsuccess = (e) => {
+            const db = e.target.result;
+            db.onversionchange = () => { db.close(); _pagesDbPromise = null; };
+            db.onclose = () => { _pagesDbPromise = null; };
+            resolve(db);
+          };
+          req.onerror = (e) => {
+            _pagesDbPromise = null;
+            reject(e.target.error);
+          };
         });
+        return _pagesDbPromise;
       }
 
       window.hasCachedPages = async function () {

@@ -78,7 +78,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void initState() {
     super.initState();
-    _surahNotifier = ValueNotifier<int>(widget.controller.targetSurah);
+    _surahNotifier = ValueNotifier<int>(_effectiveSurah);
     if (!kIsWeb) {
       WidgetsBinding.instance.addObserver(this);
       try {
@@ -92,6 +92,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.activeAudioSurah.addListener(_onActiveAudioAyahChanged);
     AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
     AppState.instance.mushafModeNotifier.addListener(_onMushafModeChanged);
+    AppState.instance.currentMushafPage.addListener(_onMushafPageChanged);
 
     // Listen for explicit native user leave hint (Home button pressed or app switched)
     if (!kIsWeb) {
@@ -210,6 +211,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.activeAudioSurah.removeListener(_onActiveAudioAyahChanged);
     AppState.instance.isAudioPlaying.removeListener(_onActiveAudioAyahChanged);
     AppState.instance.mushafModeNotifier.removeListener(_onMushafModeChanged);
+    AppState.instance.currentMushafPage.removeListener(_onMushafPageChanged);
     _voiceSearchNotifier.dispose();
     _isAutoScrolling.dispose();
     _surahNotifier.dispose();
@@ -311,6 +313,16 @@ class _TrackingScreenState extends State<TrackingScreen>
           preserveOtherSurahStates: true,
           clearTargetSurah: false,
         );
+      }
+    }
+    _surahNotifier.value = _effectiveSurah;
+  }
+
+  void _onMushafPageChanged() {
+    if (AppState.instance.isMushafMode) {
+      final newSurah = _effectiveSurah;
+      if (_surahNotifier.value != newSurah) {
+        _surahNotifier.value = newSurah;
       }
     }
   }
@@ -457,7 +469,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                               app.languageNotifier,
                               app.blurModeNotifier,
                               app.modeNotifier,
-                              app.currentMushafPage,
                               _surahNotifier,
                               MaglisController.instance.sessionListenable,
                             ]),
