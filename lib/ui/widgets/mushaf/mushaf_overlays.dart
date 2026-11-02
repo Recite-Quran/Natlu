@@ -69,6 +69,26 @@ class SurahHeaderPainter extends CustomPainter {
       old.page != page || old.isDark != isDark || old.colors != colors;
 }
 
+class _CachedMarkGeometry {
+  final int surah;
+  final int ayah;
+  final Offset center;
+  final double customR;
+  final Rect spinRect;
+  final double spinnerStrokeWidth;
+  final RRect stopRRect;
+
+  const _CachedMarkGeometry({
+    required this.surah,
+    required this.ayah,
+    required this.center,
+    required this.customR,
+    required this.spinRect,
+    required this.spinnerStrokeWidth,
+    required this.stopRRect,
+  });
+}
+
 /// Minimalist vector circle around the Ayah numeral:
 /// - Idle: Subtle neutral ring with generous clearance from adjacent words.
 /// - Buffering: Gold spinning vector loader arc over a highlight-matched mask.
@@ -82,6 +102,9 @@ class AyahMarkPainter extends CustomPainter {
   final Color goldColor;
   final Color neutralRingColor;
   final Color ayahHighlightColor;
+
+  Object? _lastLayout;
+  List<_CachedMarkGeometry>? _cachedMarks;
 
   AyahMarkPainter({
     required this.page,
@@ -108,32 +131,15 @@ class AyahMarkPainter extends CustomPainter {
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (page.isDisposed) return;
-    final layout = page.currentLayout;
-    if (layout == null) return;
+  List<_CachedMarkGeometry> _computeGeometries(
+      dynamic layout, List<QvpAyahMark> marks) {
+    final ls = layout.scale as double;
+    final fitScale = layout.fitScale as double;
+    final fitX = layout.fitX as double;
+    final fitY = layout.fitY as double;
+    final lineDy = layout.lineDy as List<double>;
 
-    final marks = page.ayahMarks();
-    if (marks.isEmpty) return;
-
-    final ls = layout.scale;
-    final fitScale = layout.fitScale;
-    final fitX = layout.fitX;
-    final fitY = layout.fitY;
-    final lineDy = layout.lineDy;
-
-    final int? audioSurah = app.activeAudioSurah.value;
-    final int? audioAyah = app.activeAudioAyah.value;
-    final bool isBuffering = app.isAudioBuffering.value;
-    final bool isPlaying = app.isAudioPlaying.value;
-
-    final Color blendedMaskColor =
-        Color.alphaBlend(ayahHighlightColor, surfaceColor);
-
-    _goldPaint.color = goldColor;
-    _spinnerPaint.color = goldColor;
-
+    final result = <_CachedMarkGeometry>[];
     for (final m in marks) {
       final lineOffset =
           (m.line >= 0 && m.line < lineDy.length) ? lineDy[m.line] : 0.0;
@@ -149,6 +155,62 @@ class AyahMarkPainter extends CustomPainter {
       final double customR = sr * 0.80;
       final center = Offset(sx, sy);
 
+      final double spinRadius = customR * 0.58;
+      final double strokeW = math.max(customR * 0.18, 1.4);
+      final spinRect = Rect.fromCircle(center: center, radius: spinRadius);
+
+      final double stopHalf = customR * 0.32;
+      final stopRect = Rect.fromCenter(
+        center: center,
+        width: stopHalf * 2,
+        height: stopHalf * 2,
+      );
+      final stopRRect = RRect.fromRectAndRadius(
+        stopRect,
+        Radius.circular(stopHalf * 0.25),
+      );
+
+      result.add(_CachedMarkGeometry(
+        surah: m.surah,
+        ayah: m.ayah,
+        center: center,
+        customR: customR,
+        spinRect: spinRect,
+        spinnerStrokeWidth: strokeW,
+        stopRRect: stopRRect,
+      ));
+    }
+    return result;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (page.isDisposed) return;
+    final layout = page.currentLayout;
+    if (layout == null) return;
+
+    if (!identical(_lastLayout, layout) || _cachedMarks == null) {
+      final marks = page.ayahMarks();
+      if (marks.isEmpty) return;
+      _lastLayout = layout;
+      _cachedMarks = _computeGeometries(layout, marks);
+    }
+
+    final cachedMarks = _cachedMarks;
+    if (cachedMarks == null || cachedMarks.isEmpty) return;
+
+    final int? audioSurah = app.activeAudioSurah.value;
+    final int? audioAyah = app.activeAudioAyah.value;
+    final bool isBuffering = app.isAudioBuffering.value;
+    final bool isPlaying = app.isAudioPlaying.value;
+
+    final Color blendedMaskColor =
+        Color.alphaBlend(ayahHighlightColor, surfaceColor);
+
+    _goldPaint.color = goldColor;
+    _spinnerPaint.color = goldColor;
+
+    for (final m in cachedMarks) {
       final bool isThisBuffering =
           isBuffering && audioSurah == m.surah && audioAyah == m.ayah;
       final bool isThisPlaying =
@@ -157,19 +219,18 @@ class AyahMarkPainter extends CustomPainter {
       if (isThisBuffering) {
         // Mask numeral seamlessly matching background + ayah highlight
         _bgPaint.color = blendedMaskColor;
-        canvas.drawCircle(center, customR, _bgPaint);
+        canvas.drawCircle(m.center, m.customR, _bgPaint);
 
         // Gold active ring
         _ringPaint.color = goldColor;
         _ringPaint.strokeWidth = 1.2;
-        canvas.drawCircle(center, customR, _ringPaint);
+        canvas.drawCircle(m.center, m.customR, _ringPaint);
 
         // Rotating gold loader arc
-        final double spinRadius = customR * 0.58;
-        _spinnerPaint.strokeWidth = math.max(customR * 0.18, 1.4);
+        _spinnerPaint.strokeWidth = m.spinnerStrokeWidth;
         final double startAngle = spinnerAnimation.value * 2 * math.pi;
         canvas.drawArc(
-          Rect.fromCircle(center: center, radius: spinRadius),
+          m.spinRect,
           startAngle,
           2.4,
           false,
@@ -178,29 +239,20 @@ class AyahMarkPainter extends CustomPainter {
       } else if (isThisPlaying) {
         // Mask numeral seamlessly matching background + ayah highlight
         _bgPaint.color = blendedMaskColor;
-        canvas.drawCircle(center, customR, _bgPaint);
+        canvas.drawCircle(m.center, m.customR, _bgPaint);
 
         // Gold active ring
         _ringPaint.color = goldColor;
         _ringPaint.strokeWidth = 1.2;
-        canvas.drawCircle(center, customR, _ringPaint);
+        canvas.drawCircle(m.center, m.customR, _ringPaint);
 
         // Rounded gold stop square
-        final double stopHalf = customR * 0.32;
-        final stopRect = Rect.fromCenter(
-          center: center,
-          width: stopHalf * 2,
-          height: stopHalf * 2,
-        );
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(stopRect, Radius.circular(stopHalf * 0.25)),
-          _goldPaint,
-        );
+        canvas.drawRRect(m.stopRRect, _goldPaint);
       } else {
         // Idle state: Subtle neutral ring, native numeral visible
         _ringPaint.color = neutralRingColor;
         _ringPaint.strokeWidth = 1.0;
-        canvas.drawCircle(center, customR, _ringPaint);
+        canvas.drawCircle(m.center, m.customR, _ringPaint);
       }
     }
   }

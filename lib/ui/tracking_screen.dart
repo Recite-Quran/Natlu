@@ -65,6 +65,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   final GlobalKey<VerseListViewState> _verseListKey =
       GlobalKey<VerseListViewState>();
   final ValueNotifier<bool> _isAutoScrolling = ValueNotifier<bool>(false);
+  late final ValueNotifier<int> _surahNotifier;
 
   static const MethodChannel _lifecycleChannel =
       MethodChannel('com.recitequran.app/audio_lifecycle');
@@ -77,6 +78,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void initState() {
     super.initState();
+    _surahNotifier = ValueNotifier<int>(widget.controller.targetSurah);
     if (!kIsWeb) {
       WidgetsBinding.instance.addObserver(this);
       try {
@@ -210,12 +212,16 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.mushafModeNotifier.removeListener(_onMushafModeChanged);
     _voiceSearchNotifier.dispose();
     _isAutoScrolling.dispose();
+    _surahNotifier.dispose();
     super.dispose();
   }
 
   @override
   void didUpdateWidget(TrackingScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      _surahNotifier.value = widget.controller.targetSurah;
+    }
     if (widget.isRecording != oldWidget.isRecording ||
         widget.isVoiceSearching != oldWidget.isVoiceSearching) {
       _syncScreenWakeLock();
@@ -255,10 +261,12 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   void _onControllerUpdate() {
     if (widget.controller.targetSurah != _lastSurah) {
+      final newSurah = widget.controller.targetSurah;
+      _surahNotifier.value = newSurah;
       void applyUpdate() {
         if (!mounted) return;
         setState(() {
-          _lastSurah = widget.controller.targetSurah;
+          _lastSurah = newSurah;
           _lastAyah = null;
         });
       }
@@ -450,7 +458,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                               app.blurModeNotifier,
                               app.modeNotifier,
                               app.currentMushafPage,
-                              widget.controller,
+                              _surahNotifier,
                               widget.controller.activeAyah,
                               MaglisController.instance.sessionListenable,
                             ]),

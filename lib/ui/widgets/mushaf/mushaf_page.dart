@@ -489,11 +489,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       final int currentGlobalRevision = ctrl.globalRevision.value;
       final bool revisionChanged = (_appliedGlobalRevision != currentGlobalRevision);
 
-      final bool needsWordEvaluation = widget.isRecording ||
+      final bool needsWordEvaluation =
+          (widget.isRecording && (revisionChanged || !_hasEvaluatedWords)) ||
           hasRemoteReciterOnPage ||
           hasNewCumulative ||
           (inMaglis && (_lastHiddenWords.isNotEmpty || maglis.hasCumulativeHighlights)) ||
-          isBlurEffective ||
           blurChanged ||
           recordingChanged ||
           themeChanged ||

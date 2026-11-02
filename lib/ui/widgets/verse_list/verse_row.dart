@@ -372,6 +372,8 @@ class _VerseRowState extends State<VerseRow> {
     AppState.instance.activeAudioWordIndex.removeListener(_onAudioWordChanged);
     _delayedWordPositionTimer?.cancel();
     _disposeRecognizers();
+    _wordLayout?.dispose();
+    _wordLayout = null;
     super.dispose();
   }
 
@@ -436,6 +438,7 @@ class _VerseRowState extends State<VerseRow> {
   void _invalidate() {
     _lastFingerprint = -1;
     _cachedSpans = null;
+    _wordLayout?.dispose();
     _wordLayout = null;
     _cachedWordColorsHash = null;
     _cachedWordColorsRevision = null;
@@ -446,6 +449,8 @@ class _VerseRowState extends State<VerseRow> {
     if (fp != _lastFingerprint) {
       _lastFingerprint = fp;
       _cachedSpans = null;
+      _wordLayout?.dispose();
+      _wordLayout = null;
       if (mounted) {
         if (SchedulerBinding.instance.schedulerPhase ==
             SchedulerPhase.persistentCallbacks) {
@@ -573,6 +578,7 @@ class _VerseRowState extends State<VerseRow> {
         identical(_wordLayout!.spans, _cachedSpans)) {
       return _wordLayout;
     }
+    _wordLayout?.dispose();
     _wordLayout = _AyahWordLayout.compute(
       spans: _cachedSpans!,
       words: widget.verse.uthmaniWords,
@@ -590,10 +596,10 @@ class _VerseRowState extends State<VerseRow> {
     }
 
     final layout = _getOrCreateWordLayout(maxWidth);
-    if (layout == null || targetIndex >= layout.wordRects.length) {
+    if (layout == null) {
       return null;
     }
-    return layout.wordRects[targetIndex];
+    return layout.getWordRect(targetIndex);
   }
 
   /// Compact hash representing active state, word colors, blur, theme, and font size.
@@ -635,7 +641,20 @@ class _VerseRowState extends State<VerseRow> {
         currentRevision > 0;
 
     final int wordColorsHash;
-    if (!hasHighlights) {
+    final int? activeAyahVal = ctrl.activeAyah.value;
+    final bool isNearActive = activeAyahVal != null &&
+        (ayah >= activeAyahVal - 1 && ayah <= activeAyahVal + 1);
+    final bool couldHaveNewHighlights = isActive ||
+        isAudioActive ||
+        _wasAudioActive ||
+        isCompleted ||
+        isNearActive ||
+        (_cachedWordColorsHash != null && _cachedWordColorsHash != 17);
+
+    if (!couldHaveNewHighlights && _cachedWordColorsHash == 17) {
+      wordColorsHash = 17;
+      _cachedWordColorsRevision = currentRevision;
+    } else if (!hasHighlights) {
       wordColorsHash = 17;
       _cachedWordColorsHash = 17;
       _cachedWordColorsRevision = currentRevision;
@@ -686,6 +705,8 @@ class _VerseRowState extends State<VerseRow> {
     if (fp != _lastFingerprint) {
       _lastFingerprint = fp;
       _cachedSpans = null;
+      _wordLayout?.dispose();
+      _wordLayout = null;
     }
     final AppState app = AppState.instance;
     final ThemeColors c = app.colors;
@@ -1127,9 +1148,9 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     if (activeIndex < 0 || activeIndex >= words.length) return;
 
     final layout = getWordLayout(size.width);
-    if (layout == null || activeIndex >= layout.wordLineRects.length) return;
+    if (layout == null) return;
 
-    final lineRects = layout.wordLineRects[activeIndex];
+    final lineRects = layout.getWordLineRects(activeIndex);
     if (lineRects.isEmpty) return;
 
     final bool isBlack = app.isDarkMode;
@@ -1162,19 +1183,28 @@ class _ActiveWordHighlightPainter extends CustomPainter {
 }
 
 /// Precomputed layout geometry for an Ayah's words at a specific layout width.
-/// Eliminates redundant HarfBuzz OpenType layout passes during recitation and audio tracking.
+/// Lazily evaluates HarfBuzz bounding boxes per requested word on demand.
 class _AyahWordLayout {
   final double width;
   final List<InlineSpan> spans;
-  final List<Rect?> wordRects;
-  final List<List<Rect>> wordLineRects;
+  final List<String> words;
+  final TextPainter _painter;
+  final List<int> _wordOffsets;
+  final List<Rect?> _wordRects;
+  final List<List<Rect>?> _wordLineRects;
 
-  const _AyahWordLayout({
+  _AyahWordLayout._({
     required this.width,
     required this.spans,
-    required this.wordRects,
-    required this.wordLineRects,
-  });
+    required this.words,
+    required TextPainter painter,
+    required List<int> wordOffsets,
+    required List<Rect?> wordRects,
+    required List<List<Rect>?> wordLineRects,
+  })  : _painter = painter,
+        _wordOffsets = wordOffsets,
+        _wordRects = wordRects,
+        _wordLineRects = wordLineRects;
 
   static _AyahWordLayout compute({
     required List<InlineSpan> spans,
@@ -1187,74 +1217,100 @@ class _AyahWordLayout {
       textDirection: TextDirection.rtl,
     )..layout(minWidth: width, maxWidth: width);
 
-    final wordRects = List<Rect?>.filled(words.length, null);
-    final wordLineRects =
-        List<List<Rect>>.generate(words.length, (_) => const []);
-
-    int charOffset = 0;
+    final wordOffsets = List<int>.filled(words.length, 0);
+    int offset = 0;
     for (int i = 0; i < words.length; i++) {
-      final int wordLen = words[i].length;
-      final rawBoxes = painter.getBoxesForSelection(
-        TextSelection(
-          baseOffset: charOffset,
-          extentOffset: charOffset + wordLen,
-        ),
-      );
+      wordOffsets[i] = offset;
+      offset += words[i].length + 1;
+    }
 
-      final validBoxes =
-          rawBoxes.where((b) => (b.right - b.left).abs() > 1.0).toList();
+    return _AyahWordLayout._(
+      width: width,
+      spans: spans,
+      words: words,
+      painter: painter,
+      wordOffsets: wordOffsets,
+      wordRects: List<Rect?>.filled(words.length, null),
+      wordLineRects: List<List<Rect>?>.filled(words.length, null),
+    );
+  }
 
-      if (validBoxes.isNotEmpty) {
-        double left = math.min(validBoxes.first.left, validBoxes.first.right);
-        double right = math.max(validBoxes.first.left, validBoxes.first.right);
-        double top = math.min(validBoxes.first.top, validBoxes.first.bottom);
-        double bottom = math.max(validBoxes.first.top, validBoxes.first.bottom);
+  void _computeWord(int i) {
+    if (i < 0 || i >= words.length) return;
+    final int charOffset = _wordOffsets[i];
+    final int wordLen = words[i].length;
+    final rawBoxes = _painter.getBoxesForSelection(
+      TextSelection(
+        baseOffset: charOffset,
+        extentOffset: charOffset + wordLen,
+      ),
+    );
 
-        final List<Rect> lineBoxes = [];
+    final validBoxes =
+        rawBoxes.where((b) => (b.right - b.left).abs() > 1.0).toList();
 
-        for (final box in validBoxes) {
-          final bLeft = math.min(box.left, box.right);
-          final bRight = math.max(box.left, box.right);
-          final bTop = math.min(box.top, box.bottom);
-          final bBottom = math.max(box.top, box.bottom);
-          if (bLeft < left) left = bLeft;
-          if (bRight > right) right = bRight;
-          if (bTop < top) top = bTop;
-          if (bBottom > bottom) bottom = bBottom;
+    if (validBoxes.isNotEmpty) {
+      double left = math.min(validBoxes.first.left, validBoxes.first.right);
+      double right = math.max(validBoxes.first.left, validBoxes.first.right);
+      double top = math.min(validBoxes.first.top, validBoxes.first.bottom);
+      double bottom = math.max(validBoxes.first.top, validBoxes.first.bottom);
 
-          final rect = Rect.fromLTRB(bLeft, bTop, bRight, bBottom);
+      final List<Rect> lineBoxes = [];
 
-          int lineIndex = -1;
-          for (int k = 0; k < lineBoxes.length; k++) {
-            final existing = lineBoxes[k];
-            if ((rect.top - existing.top).abs() < 12.0 ||
-                (rect.bottom - existing.bottom).abs() < 12.0) {
-              lineIndex = k;
-              break;
-            }
-          }
+      for (final box in validBoxes) {
+        final bLeft = math.min(box.left, box.right);
+        final bRight = math.max(box.left, box.right);
+        final bTop = math.min(box.top, box.bottom);
+        final bBottom = math.max(box.top, box.bottom);
+        if (bLeft < left) left = bLeft;
+        if (bRight > right) right = bRight;
+        if (bTop < top) top = bTop;
+        if (bBottom > bottom) bottom = bBottom;
 
-          if (lineIndex >= 0) {
-            lineBoxes[lineIndex] = lineBoxes[lineIndex].expandToInclude(rect);
-          } else {
-            lineBoxes.add(rect);
+        final rect = Rect.fromLTRB(bLeft, bTop, bRight, bBottom);
+
+        int lineIndex = -1;
+        for (int k = 0; k < lineBoxes.length; k++) {
+          final existing = lineBoxes[k];
+          if ((rect.top - existing.top).abs() < 12.0 ||
+              (rect.bottom - existing.bottom).abs() < 12.0) {
+            lineIndex = k;
+            break;
           }
         }
 
-        wordLineRects[i] = lineBoxes;
-        wordRects[i] = Rect.fromLTRB(left, top, right, bottom);
+        if (lineIndex >= 0) {
+          lineBoxes[lineIndex] = lineBoxes[lineIndex].expandToInclude(rect);
+        } else {
+          lineBoxes.add(rect);
+        }
       }
 
-      charOffset += wordLen + 1;
+      _wordLineRects[i] = lineBoxes;
+      _wordRects[i] = Rect.fromLTRB(left, top, right, bottom);
+    } else {
+      _wordLineRects[i] = const [];
+      _wordRects[i] = null;
     }
+  }
 
-    painter.dispose();
+  List<Rect> getWordLineRects(int i) {
+    if (i < 0 || i >= words.length) return const [];
+    if (_wordLineRects[i] == null) {
+      _computeWord(i);
+    }
+    return _wordLineRects[i] ?? const [];
+  }
 
-    return _AyahWordLayout(
-      width: width,
-      spans: spans,
-      wordRects: wordRects,
-      wordLineRects: wordLineRects,
-    );
+  Rect? getWordRect(int i) {
+    if (i < 0 || i >= words.length) return null;
+    if (_wordRects[i] == null && _wordLineRects[i] == null) {
+      _computeWord(i);
+    }
+    return _wordRects[i];
+  }
+
+  void dispose() {
+    _painter.dispose();
   }
 }

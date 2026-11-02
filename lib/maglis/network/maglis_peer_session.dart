@@ -45,7 +45,6 @@ class MaglisPeerSession {
   bool isMicMuted = false;
   bool disposed = false;
   Timer? _heartbeatTimer;
-  String? _currentActiveReciterId;
 
   final Map<String, RTCPeerConnection> peers = {};
   final Map<String, RTCDataChannel> channels = {};
@@ -66,6 +65,7 @@ class MaglisPeerSession {
   final Map<String, bool> isRestartInProgress = {};
   final Map<String, bool> answerInFlight = {};
   final Set<String> negotiatingPeers = {};
+  final Set<String> departedPeers = {};
   final Map<String, List<MediaStreamTrack>> remoteTracks = {};
   final Map<String, List<MediaStream>> remoteStreams = {};
   final Set<String> peersNeedingCatchup = <String>{};
@@ -93,11 +93,10 @@ class MaglisPeerSession {
     return map;
   }
 
-  /// Synchronizes audio track playout to the active reciter (Floor-Forwarding).
-  /// Disables decoding and audio output for silent peers, cutting cellular bandwidth and noise.
+  /// Synchronizes audio track playout across all room participants.
+  /// All 4 connected peers share conference audio continuously while only the active reciter
+  /// broadcasts highlighting and Tajweed data.
   void updateActiveFloor(String? activeReciterId) {
-    _currentActiveReciterId = activeReciterId;
-
     if (activeReciterId == localPeerId || activeReciterId == null) {
       localStream?.getAudioTracks().forEach((t) {
         t.enabled = !isMicMuted;
@@ -107,21 +106,19 @@ class MaglisPeerSession {
       });
     }
 
+    // Keep all remote audio tracks enabled at full volume so all 4 peers share audio
+    // without Android/iOS OpenSLES/AVAudioEngine playout stalls.
     for (final entry in List<MapEntry<String, List<MediaStreamTrack>>>.from(
         remoteTracks.entries)) {
-      final remoteId = entry.key;
       final tracks = entry.value;
-      final shouldHear =
-          (activeReciterId == null) || (activeReciterId == remoteId);
       for (final t in List<MediaStreamTrack>.from(tracks)) {
-        t.enabled = shouldHear;
+        t.enabled = true;
         try {
-          Helper.setVolume(shouldHear ? 1.0 : 0.0, t);
+          Helper.setVolume(1.0, t);
         } catch (_) {}
       }
     }
 
-    // Defensive audio route restoration when returning to open conference floor
     if (activeReciterId == null) {
       MaglisPlatform.setSpeaker(true);
     }
@@ -162,8 +159,9 @@ class MaglisPeerSession {
       }
 
       for (final peerId in stalePeers) {
-        cleanupPeer(peerId);
+        peerStates.remove(peerId);
         onPeerClosed(peerId);
+        unawaited(cleanupPeer(peerId));
       }
     });
   }
@@ -174,6 +172,7 @@ class MaglisPeerSession {
   }
 
   void queueOutboundIce(String remoteId, Map<String, dynamic> candMap) {
+    if (departedPeers.contains(remoteId)) return;
     final candStr = candMap['candidate'] as String?;
     if (candStr != null) {
       final sent = sentCandidateKeys.putIfAbsent(remoteId, () => <String>{});
@@ -185,19 +184,25 @@ class MaglisPeerSession {
     if (iceDebounceTimers[remoteId]?.isActive ?? false) return;
     iceDebounceTimers[remoteId] = Timer(const Duration(milliseconds: 80), () {
       final list = pendingOutboundCandidates.remove(remoteId);
-      if (list != null && list.isNotEmpty && !disposed) {
+      if (list != null &&
+          list.isNotEmpty &&
+          !disposed &&
+          !departedPeers.contains(remoteId)) {
         sendSignal('ice_batch', targetId: remoteId, data: {'candidates': list});
       }
     });
   }
 
   Future<void> initiatePeerConnection(String remoteId) {
+    if (departedPeers.contains(remoteId)) return Future.value();
     return runPeerExclusive(
         remoteId, () => initiatePeerConnectionInternal(remoteId));
   }
 
   Future<void> initiatePeerConnectionInternal(String remoteId) async {
-    if (peers.containsKey(remoteId) || negotiatingPeers.contains(remoteId)) {
+    if (departedPeers.contains(remoteId) ||
+        peers.containsKey(remoteId) ||
+        negotiatingPeers.contains(remoteId)) {
       return;
     }
     negotiatingPeers.add(remoteId);
@@ -276,7 +281,11 @@ class MaglisPeerSession {
     }
 
     pc.onIceCandidate = (RTCIceCandidate c) {
-      if (disposed || peers[remoteId] != pc) return;
+      if (disposed ||
+          peers[remoteId] != pc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
       final str = c.candidate;
       if (!MaglisMediaHelper.isValidCandidate(str)) return;
       queueOutboundIce(remoteId, {
@@ -288,7 +297,11 @@ class MaglisPeerSession {
 
     const iceHandler = CallingIceStateHandler();
     pc.onIceConnectionState = (RTCIceConnectionState state) {
-      if (disposed || peers[remoteId] != pc) return;
+      if (disposed ||
+          peers[remoteId] != pc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
       peerStates[remoteId] = state;
       onStatesChanged(Map.unmodifiable(peerStates));
 
@@ -307,7 +320,7 @@ class MaglisPeerSession {
           checkSocketSleepState();
           if (isRestartInProgress[remoteId] == true) return;
 
-          // Bounded 15s recovery window (noscall pattern)
+          // Bounded 15s recovery window with dual retries (at 2s and 6.5s)
           final window = recoveryWindows.putIfAbsent(
             remoteId,
             () => MaglisPeerRecoveryWindow(),
@@ -324,6 +337,7 @@ class MaglisPeerSession {
                               .RTCIceConnectionStateDisconnected)) {
                 onNatFailure(remoteId);
                 lastSeenPeerMs[remoteId] = 0;
+                peerStates.remove(remoteId);
                 onPeerClosed(remoteId);
                 unawaited(cleanupPeer(remoteId));
                 checkSocketSleepState();
@@ -344,7 +358,7 @@ class MaglisPeerSession {
                   triggerIceRestart(remoteId);
                 } else {
                   sendSignal('reconnect_request',
-                      targetId: remoteId, data: const {});
+                      targetId: remoteId, data: {'iceRestart': true});
                 }
               }
             },
@@ -354,7 +368,11 @@ class MaglisPeerSession {
     };
 
     pc.onConnectionState = (RTCPeerConnectionState state) {
-      if (disposed || peers[remoteId] != pc) return;
+      if (disposed ||
+          peers[remoteId] != pc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         peerStates[remoteId] =
             RTCIceConnectionState.RTCIceConnectionStateConnected;
@@ -363,6 +381,7 @@ class MaglisPeerSession {
         }
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
         lastSeenPeerMs[remoteId] = 0;
+        peerStates.remove(remoteId);
         onPeerClosed(remoteId);
         unawaited(cleanupPeer(remoteId));
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
@@ -372,11 +391,13 @@ class MaglisPeerSession {
 
     // Route incoming audio stream to hardware speakerphone at full volume (noscall stream preservation pattern)
     pc.onTrack = (RTCTrackEvent ev) {
-      if (disposed || peers[remoteId] != pc) return;
+      if (disposed ||
+          peers[remoteId] != pc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
       if (ev.track.kind == 'audio') {
-        final shouldHear = (_currentActiveReciterId == null) ||
-            (_currentActiveReciterId == remoteId);
-        ev.track.enabled = shouldHear;
+        ev.track.enabled = true;
         if (ev.streams.isNotEmpty) {
           final streamList = remoteStreams.putIfAbsent(remoteId, () => []);
           for (final s in ev.streams) {
@@ -390,7 +411,7 @@ class MaglisPeerSession {
           list.add(ev.track);
         }
         try {
-          Helper.setVolume(shouldHear ? 1.0 : 0.0, ev.track);
+          Helper.setVolume(1.0, ev.track);
         } catch (_) {}
         if (peerStates[remoteId] !=
             RTCIceConnectionState.RTCIceConnectionStateConnected) {
@@ -405,7 +426,11 @@ class MaglisPeerSession {
     };
 
     pc.onDataChannel = (RTCDataChannel dc) {
-      if (disposed || peers[remoteId] != pc) return;
+      if (disposed ||
+          peers[remoteId] != pc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
       bindDataChannel(remoteId, dc);
     };
 
@@ -413,13 +438,14 @@ class MaglisPeerSession {
   }
 
   Future<void> triggerIceRestart(String remoteId) {
+    if (departedPeers.contains(remoteId)) return Future.value();
     return runPeerExclusive(
         remoteId, () => triggerIceRestartInternal(remoteId));
   }
 
   Future<void> triggerIceRestartInternal(String remoteId) async {
     final pc = peers[remoteId];
-    if (pc == null || disposed) return;
+    if (pc == null || disposed || departedPeers.contains(remoteId)) return;
     if (isRestartInProgress[remoteId] == true) return;
     isRestartInProgress[remoteId] = true;
     sentCandidateKeys[remoteId]?.clear();
@@ -488,12 +514,17 @@ class MaglisPeerSession {
   }
 
   Future<void> recoverDataChannel(String remoteId) {
+    if (departedPeers.contains(remoteId)) return Future.value();
     return runPeerExclusive(
         remoteId, () => recoverDataChannelInternal(remoteId));
   }
 
   Future<void> recoverDataChannelInternal(String remoteId) async {
-    if (disposed || !peers.containsKey(remoteId)) return;
+    if (disposed ||
+        departedPeers.contains(remoteId) ||
+        !peers.containsKey(remoteId)) {
+      return;
+    }
     final pc = peers[remoteId];
     if (pc == null) return;
 
@@ -609,7 +640,11 @@ class MaglisPeerSession {
     };
 
     void onChannelOpen() {
-      if (disposed || channels[remoteId] != dc) return;
+      if (disposed ||
+          channels[remoteId] != dc ||
+          departedPeers.contains(remoteId)) {
+        return;
+      }
       lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
       peerStates[remoteId] =
           RTCIceConnectionState.RTCIceConnectionStateConnected;
@@ -634,8 +669,10 @@ class MaglisPeerSession {
         }
       });
 
-      final activeOthers =
-          peers.keys.where((p) => p != remoteId && p != localPeerId).toList();
+      final activeOthers = peers.keys
+          .where((p) =>
+              p != remoteId && p != localPeerId && !departedPeers.contains(p))
+          .toList();
       if (activeOthers.isNotEmpty) {
         try {
           dc.send(RTCDataChannelMessage(jsonEncode({
@@ -677,7 +714,7 @@ class MaglisPeerSession {
 
     // Attach dc.onMessage FIRST before inspecting dc.state or triggering onChannelOpen
     dc.onMessage = (RTCDataChannelMessage msg) {
-      if (disposed) return;
+      if (disposed || departedPeers.contains(remoteId)) return;
       lastSeenPeerMs[remoteId] = DateTime.now().millisecondsSinceEpoch;
       if (peerStates[remoteId] !=
           RTCIceConnectionState.RTCIceConnectionStateConnected) {
@@ -704,7 +741,9 @@ class MaglisPeerSession {
         onChannelOpen();
       } else if (state == RTCDataChannelState.RTCDataChannelClosed) {
         channels.remove(remoteId);
-        if (!disposed && peers.containsKey(remoteId)) {
+        if (!disposed &&
+            !departedPeers.contains(remoteId) &&
+            peers.containsKey(remoteId)) {
           final peerState = peerStates[remoteId];
           final isConnected = peerState ==
                   RTCIceConnectionState.RTCIceConnectionStateConnected ||
@@ -729,6 +768,8 @@ class MaglisPeerSession {
           final m = jsonDecode(raw) as Map<String, dynamic>;
           final u = m['u'] as String?;
           if (u != null && u.isNotEmpty && u != localPeerId) {
+            departedPeers.add(u);
+            peerStates.remove(u);
             onPeerClosed(u);
             unawaited(cleanupPeer(u));
           }
@@ -741,8 +782,13 @@ class MaglisPeerSession {
           final m = jsonDecode(raw) as Map<String, dynamic>;
           final peersList = m['peers'] as List<dynamic>?;
           if (peersList != null) {
-            final list = peersList.map((e) => e.toString()).toList();
-            onPeerListDiscovered(list);
+            final list = peersList
+                .map((e) => e.toString())
+                .where((id) => !departedPeers.contains(id))
+                .toList();
+            if (list.isNotEmpty) {
+              onPeerListDiscovered(list);
+            }
           }
         } catch (_) {}
         return;
@@ -755,7 +801,8 @@ class MaglisPeerSession {
 
   void handleIncomingPacket(MaglisPacket pkt) {
     try {
-      if (pkt.senderId.isNotEmpty && pkt.senderId != localPeerId) {
+      if (pkt.senderId.isEmpty || departedPeers.contains(pkt.senderId)) return;
+      if (pkt.senderId != localPeerId) {
         lastSeenPeerMs[pkt.senderId] = DateTime.now().millisecondsSinceEpoch;
         if (peerStates[pkt.senderId] !=
             RTCIceConnectionState.RTCIceConnectionStateConnected) {
@@ -910,7 +957,9 @@ class MaglisPeerSession {
     bool isIceRestart = false,
     bool isDataChannelRecovery = false,
   }) async {
+    if (departedPeers.contains(remoteId)) return;
     return runPeerExclusive(remoteId, () async {
+      if (departedPeers.contains(remoteId)) return;
       if (!peers.containsKey(remoteId) && peers.length >= maxRemotePeers) {
         return;
       }
@@ -979,6 +1028,22 @@ class MaglisPeerSession {
         await pc.setRemoteDescription(RTCSessionDescription(sdp, 'offer'));
         remoteDescSet[remoteId] = true;
 
+        // Ensure Unified Plan audio transceiver is bidirectional (sendrecv) so both peers hear each other
+        if (localStream != null && localStream!.getAudioTracks().isNotEmpty) {
+          try {
+            final transceivers = await pc.getTransceivers();
+            for (final tr in transceivers) {
+              if (tr.receiver.track?.kind == 'audio' ||
+                  tr.sender.track?.kind == 'audio') {
+                final dir = await tr.getCurrentDirection();
+                if (dir == TransceiverDirection.RecvOnly) {
+                  await tr.setDirection(TransceiverDirection.SendRecv);
+                }
+              }
+            }
+          } catch (_) {}
+        }
+
         final answer = await pc.createAnswer(const {
           'mandatory': {
             'OfferToReceiveAudio': true,
@@ -1003,9 +1068,10 @@ class MaglisPeerSession {
   }
 
   Future<void> handleAnswer(String remoteId, String sdp) async {
+    if (departedPeers.contains(remoteId)) return;
     return runPeerExclusive(remoteId, () async {
       final pc = peers[remoteId];
-      if (pc == null || disposed) return;
+      if (pc == null || disposed || departedPeers.contains(remoteId)) return;
       if (answerInFlight[remoteId] == true) return;
 
       final curState = await pc.getSignalingState() ?? pc.signalingState;
@@ -1034,7 +1100,7 @@ class MaglisPeerSession {
   }
 
   Future<void> handleIceBatch(String remoteId, List<dynamic> list) async {
-    if (disposed) return;
+    if (disposed || departedPeers.contains(remoteId)) return;
     for (final item in list) {
       if (item is Map) {
         final candStr = item['candidate'] as String?;
@@ -1097,7 +1163,7 @@ class MaglisPeerSession {
             triggerIceRestart(entry.key);
           } else {
             sendSignal('reconnect_request',
-                targetId: entry.key, data: const {});
+                targetId: entry.key, data: {'iceRestart': true});
           }
         }
       } catch (_) {}
@@ -1122,7 +1188,7 @@ class MaglisPeerSession {
           unawaited(triggerIceRestart(entry.key));
         } else {
           unawaited(sendSignal('reconnect_request',
-              targetId: entry.key, data: const {}));
+              targetId: entry.key, data: {'iceRestart': true}));
         }
       }
     }
@@ -1249,6 +1315,7 @@ class MaglisPeerSession {
     pendingVitalPackets.clear();
     _peerVitalQueues.clear();
     renegotiatePending.clear();
+    departedPeers.clear();
     _taskQueue.clear();
 
     // 1. Immediately stop hardware mic track to terminate native audio recording and buffer
@@ -1290,7 +1357,7 @@ class MaglisPeerSession {
 
 /// A bounded recovery attempt for an individual WebRTC peer connection (noscall pattern).
 /// - Fixed grace period (15s deadline)
-/// - Paced retry timer (2s)
+/// - Paced retries (at 2s and 6.5s)
 /// - Repeated disconnect events cannot extend or delay the deadline.
 class MaglisPeerRecoveryWindow {
   static const Duration defaultGracePeriod = Duration(seconds: 15);
@@ -1301,6 +1368,7 @@ class MaglisPeerRecoveryWindow {
 
   Timer? _deadline;
   Timer? _retry;
+  Timer? _secondRetry;
 
   MaglisPeerRecoveryWindow({
     this.gracePeriod = defaultGracePeriod,
@@ -1319,13 +1387,18 @@ class MaglisPeerRecoveryWindow {
       onTimeout();
     });
     _retry = Timer(retryDelay, onRetry);
+    if (gracePeriod.inMilliseconds > 7000) {
+      _secondRetry = Timer(const Duration(milliseconds: 6500), onRetry);
+    }
   }
 
   void cancel() {
     _deadline?.cancel();
     _retry?.cancel();
+    _secondRetry?.cancel();
     _deadline = null;
     _retry = null;
+    _secondRetry = null;
   }
 }
 

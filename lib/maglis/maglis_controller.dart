@@ -253,33 +253,75 @@ class MaglisController extends ChangeNotifier {
 
     // 1. Preemption & Local-Reciter Shield:
     // Evaluate BEFORE merging words/errors so stale in-flight packets from a
-    // preempted reciter never overwrite the new reciter's cleared highlights.
+    // preempted reciter (or a passive listener's DataChannel snapshot) never
+    // overwrite the new reciter's cleared highlights or kill their active recording.
     if (s.isLocalReciting && pkt.type != MaglisPacketType.floorClaim) {
+      // Background connection snapshots must NEVER preempt the local reciter.
+      if (pkt.type == MaglisPacketType.snapshot) {
+        if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
+          final currentKeyPrefix =
+              MaglisHighlightStore.wordKey(s.remoteSurah, s.remoteAyah, 0);
+          final priorOnly = <String, int>{};
+          pkt.cumulative!.forEach((k, v) {
+            final parsed = int.tryParse(k, radix: 16);
+            if (parsed != null && parsed < currentKeyPrefix) {
+              priorOnly[k] = v;
+            }
+          });
+          if (priorOnly.isNotEmpty &&
+              s.highlightStore.mergeCumulative(priorOnly)) {
+            notifyListeners();
+          }
+        }
+        return;
+      }
+
       if (pkt.activeReciterId != null && pkt.activeReciterId != s.localPeerId) {
         final localClaimAge = now - s.localFloorClaimTs;
         if (localClaimAge >= 0 && localClaimAge < 1500) {
           // Stale in-flight packet from the previous reciter sent before our
-          // floorClaim reached them. Ignore completely.
+          // floorClaim reached them. Re-assert our floorClaim (rate-limited to
+          // once per 300ms) so their device is forced to stop immediately!
+          if ((now - s.lastPreemptionRemindTs) >= 300) {
+            s.lastPreemptionRemindTs = now;
+            final remindTs = s.lastFloorClaimRemoteOriginTs > 0
+                ? s.lastFloorClaimRemoteOriginTs
+                : now;
+            s.net.sendPacket(
+              MaglisPacket(
+                type: MaglisPacketType.floorClaim,
+                seq: ++s.seq,
+                senderId: s.localPeerId,
+                page: s.remotePage,
+                surah: s.remoteSurah,
+                ayah: s.remoteAyah,
+                activeReciterId: s.localPeerId,
+                ts: remindTs,
+              ),
+            );
+            s.net.sendSignalFast('floor_claim', data: {
+              'page': s.remotePage,
+              'surah': s.remoteSurah,
+              'ayah': s.remoteAyah,
+              'seq': s.seq,
+              'ts': remindTs,
+            });
+          }
           return;
         }
         // Fail-safe: Another peer is genuinely reciting after the grace window
         // (e.g., their floorClaim packet was dropped on a lossy link). Yield floor!
         s.recitationSyncTimer?.cancel();
         s.recitationSyncTimer = null;
+        s.floorClaimHedgeTimer1?.cancel();
+        s.floorClaimHedgeTimer1 = null;
+        s.floorClaimHedgeTimer2?.cancel();
+        s.floorClaimHedgeTimer2 = null;
         s.activeReciterId = pkt.activeReciterId;
         s.lastFloorClaimTs = now;
         s.net.updateActiveFloor(pkt.activeReciterId);
         onRemoteFloorClaimed?.call(pkt.surah, pkt.ayah);
       } else {
-        // Local reciter drives their own UI from local engine.
-        // Only merge background cumulative history from initial snapshots if present.
-        if (pkt.type == MaglisPacketType.snapshot &&
-            pkt.cumulative != null &&
-            pkt.cumulative!.isNotEmpty) {
-          if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
-            notifyListeners();
-          }
-        }
         return;
       }
     }
@@ -295,9 +337,9 @@ class MaglisController extends ChangeNotifier {
       return;
     }
 
-    // 3. Deduplicate dual-path (DataChannel + Nostr fast signal) arrival for the same floorClaim
-    // BEFORE merging words or clearing highlights so a late Nostr floor_claim copy never
-    // rolls back the verse position or wipes highlights after the reciter already advanced.
+    // 3. Deduplicate dual-path (DataChannel + Nostr + hedged re-transmits) arrival for the same floorClaim
+    // BEFORE merging words or clearing highlights so a late copy never rolls back the verse position
+    // or wipes highlights after the reciter already advanced.
     if (pkt.type == MaglisPacketType.floorClaim) {
       final bool isSameClaimByTimestamp =
           pkt.ts > 0 && pkt.ts == s.lastFloorClaimRemoteOriginTs;
@@ -306,13 +348,27 @@ class MaglisController extends ChangeNotifier {
               (isSameClaimByTimestamp ||
                   (s.remoteSurah == pkt.surah &&
                       s.remoteAyah == pkt.ayah &&
-                      (now - s.lastFloorClaimTs).abs() < 2500));
+                      (now - s.lastFloorClaimTs).abs() < 2000));
       if (isRecentDuplicateFromActiveReciter) {
         return;
       }
     }
 
-    // 4. Merge cumulative and live words into persistent room highlights with fast radix decoding
+    // 4. Ignore stale snapshots carrying an outdated activeReciterId shortly after a floor claim
+    if (pkt.type == MaglisPacketType.snapshot &&
+        s.activeReciterId != null &&
+        pkt.activeReciterId != s.activeReciterId &&
+        (now - s.lastFloorClaimTs) >= 0 &&
+        (now - s.lastFloorClaimTs) < 3500) {
+      if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
+        if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
+          notifyListeners();
+        }
+      }
+      return;
+    }
+
+    // 5. Merge cumulative and live words into persistent room highlights with fast radix decoding
     bool cumulativeChanged = false;
     if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
       if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
@@ -359,7 +415,9 @@ class MaglisController extends ChangeNotifier {
                     surah: s.remoteSurah,
                     ayah: s.remoteAyah,
                     activeReciterId: s.localPeerId,
-                    ts: now,
+                    ts: s.lastFloorClaimRemoteOriginTs > 0
+                        ? s.lastFloorClaimRemoteOriginTs
+                        : now,
                   ),
                 );
                 return;
@@ -368,6 +426,10 @@ class MaglisController extends ChangeNotifier {
             // DELIBERATE TAKEOVER or lost glare: yield floor to the remote peer
             s.recitationSyncTimer?.cancel();
             s.recitationSyncTimer = null;
+            s.floorClaimHedgeTimer1?.cancel();
+            s.floorClaimHedgeTimer1 = null;
+            s.floorClaimHedgeTimer2?.cancel();
+            s.floorClaimHedgeTimer2 = null;
           }
         }
         s.activeReciterId = pkt.senderId;
@@ -485,6 +547,7 @@ class MaglisController extends ChangeNotifier {
     s.localFloorClaimTs = now;
     s.lastFloorClaimTs = now;
     s.lastFloorClaimRemoteOriginTs = now;
+    s.lastPreemptionRemindTs = now;
     s.activeReciterId = s.localPeerId;
     s.net.updateActiveFloor(s.localPeerId);
     unawaited(setMicMuted(false));
@@ -496,6 +559,9 @@ class MaglisController extends ChangeNotifier {
     s.remoteYellowWords = const [];
     s.remoteRedWords = const [];
 
+    // Clear cumulative highlights from [surah, ayah] onwards symmetrically on the local store
+    // so stale highlights from a previous reciter are never re-broadcast by recitationSyncTimer.
+    s.highlightStore.clearHighlightsFrom(surah, ayah);
     s.lastBroadcastPage = null;
     s.lastBroadcastSurah = null;
     s.lastBroadcastAyah = null;
@@ -521,6 +587,48 @@ class MaglisController extends ChangeNotifier {
       'ayah': ayah,
       'seq': claimSeq,
       'ts': now,
+    });
+
+    // Hedged 250ms & 650ms floorClaim re-transmits over DataChannel defeat mobile packet loss
+    // and ensure a preempted reciter ALWAYS stops recording immediately.
+    // Peers that already received the first packet deduplicate these via `lastFloorClaimRemoteOriginTs == now`.
+    s.floorClaimHedgeTimer1?.cancel();
+    s.floorClaimHedgeTimer2?.cancel();
+    s.floorClaimHedgeTimer1 = Timer(const Duration(milliseconds: 250), () {
+      if (_session == s &&
+          s.isLocalReciting &&
+          s.lastFloorClaimRemoteOriginTs == now) {
+        s.net.sendPacket(
+          MaglisPacket(
+            type: MaglisPacketType.floorClaim,
+            seq: ++s.seq,
+            senderId: s.localPeerId,
+            page: s.remotePage,
+            surah: s.remoteSurah,
+            ayah: s.remoteAyah,
+            activeReciterId: s.localPeerId,
+            ts: now,
+          ),
+        );
+      }
+    });
+    s.floorClaimHedgeTimer2 = Timer(const Duration(milliseconds: 650), () {
+      if (_session == s &&
+          s.isLocalReciting &&
+          s.lastFloorClaimRemoteOriginTs == now) {
+        s.net.sendPacket(
+          MaglisPacket(
+            type: MaglisPacketType.floorClaim,
+            seq: ++s.seq,
+            senderId: s.localPeerId,
+            page: s.remotePage,
+            surah: s.remoteSurah,
+            ayah: s.remoteAyah,
+            activeReciterId: s.localPeerId,
+            ts: now,
+          ),
+        );
+      }
     });
 
     // Periodic 2.5s recitation state sync: heals any packet dropped over cellular/VPN
@@ -576,6 +684,10 @@ class MaglisController extends ChangeNotifier {
     if (s == null) return;
     s.recitationSyncTimer?.cancel();
     s.recitationSyncTimer = null;
+    s.floorClaimHedgeTimer1?.cancel();
+    s.floorClaimHedgeTimer1 = null;
+    s.floorClaimHedgeTimer2?.cancel();
+    s.floorClaimHedgeTimer2 = null;
     if (s.activeReciterId == s.localPeerId) {
       s.activeReciterId = null;
       s.localFloorClaimTs = 0;

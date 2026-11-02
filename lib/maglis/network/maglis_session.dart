@@ -21,6 +21,8 @@ class MaglisActiveSession {
   StreamSubscription<String>? natSub;
   StreamSubscription<int>? participantSub;
   Timer? recitationSyncTimer;
+  Timer? floorClaimHedgeTimer1;
+  Timer? floorClaimHedgeTimer2;
 
   int seq = 0;
   String? activeReciterId;
@@ -37,9 +39,13 @@ class MaglisActiveSession {
   int lastFloorClaimTs = 0;
 
   /// Origin packet timestamp (`pkt.ts`) of the most recently accepted floorClaim.
-  /// Deduplicates dual-path (DataChannel + Nostr) arrival even if the reciter has already
-  /// advanced to the next ayah before the slower Nostr copy arrives.
+  /// Deduplicates dual-path (DataChannel + Nostr + hedged re-transmits) arrival even if the
+  /// reciter has already advanced to the next ayah before the slower copy arrives.
   int lastFloorClaimRemoteOriginTs = 0;
+
+  /// Local timestamp (ms) of the last preemptive floorClaim re-assertion sent to silence
+  /// a previous reciter whose in-flight recitationUpdate packets are still arriving.
+  int lastPreemptionRemindTs = 0;
 
   int remotePage;
   int remoteSurah;
@@ -71,9 +77,14 @@ class MaglisActiveSession {
   Future<void> dispose() async {
     recitationSyncTimer?.cancel();
     recitationSyncTimer = null;
+    floorClaimHedgeTimer1?.cancel();
+    floorClaimHedgeTimer1 = null;
+    floorClaimHedgeTimer2?.cancel();
+    floorClaimHedgeTimer2 = null;
     localFloorClaimTs = 0;
     lastFloorClaimTs = 0;
     lastFloorClaimRemoteOriginTs = 0;
+    lastPreemptionRemindTs = 0;
     await pktSub?.cancel();
     await stateSub?.cancel();
     await natSub?.cancel();

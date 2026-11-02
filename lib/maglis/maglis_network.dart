@@ -76,6 +76,7 @@ class MaglisNetworkEngine {
 
   final ParticipantCollection remoteParticipants = ParticipantCollection();
   final Set<String> _admittedPeers = <String>{};
+  final Set<String> _departedPeers = <String>{};
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   List<ConnectivityResult> _lastConnectivity = const [];
@@ -114,12 +115,16 @@ class MaglisNetworkEngine {
       onStatesChanged: (states) {
         for (final entry in List<MapEntry<String, RTCIceConnectionState>>.from(
             states.entries)) {
-          _addOrUpdateParticipant(entry.key, iceState: entry.value);
+          if (!_departedPeers.contains(entry.key)) {
+            _addOrUpdateParticipant(entry.key, iceState: entry.value);
+          }
         }
         _statesCtrl.add(states);
       },
       onPacketReceived: (packet) {
-        if (packet.senderId.isNotEmpty && packet.senderId != localPeerId) {
+        if (packet.senderId.isNotEmpty &&
+            packet.senderId != localPeerId &&
+            !_departedPeers.contains(packet.senderId)) {
           if (packet.senderId == _knownHostPeerId) {
             _lastKnownHostHeartbeatMs = DateTime.now().millisecondsSinceEpoch;
           }
@@ -135,6 +140,7 @@ class MaglisNetworkEngine {
           final id = p.toString();
           if (id.isNotEmpty &&
               id != localPeerId &&
+              !_departedPeers.contains(id) &&
               !_peerSession.peers.containsKey(id) &&
               !_peerSession.negotiatingPeers.contains(id)) {
             if (remoteParticipants.length < maxRemotePeers) {
@@ -160,7 +166,9 @@ class MaglisNetworkEngine {
     RTCIceConnectionState? iceState,
     bool? dataChannelOpen,
   }) {
-    if (peerId.isEmpty || peerId == localPeerId) return;
+    if (peerId.isEmpty ||
+        peerId == localPeerId ||
+        _departedPeers.contains(peerId)) return;
     if (_disposed) return;
     if (iceState == RTCIceConnectionState.RTCIceConnectionStateClosed) {
       _removeParticipant(peerId);
@@ -191,10 +199,13 @@ class MaglisNetworkEngine {
     _admittedPeers.remove(peerId);
     if (_knownHostPeerId == peerId) {
       _knownHostPeerId = null;
+      _lastKnownHostHeartbeatMs = 0;
     }
     if (remoteParticipants.removeByIdentity(peerId) != null) {
       _participantCountCtrl.add(participantCount);
       onParticipantLeft?.call(peerId);
+      _checkHostMigration();
+    } else {
       _checkHostMigration();
     }
   }
@@ -216,6 +227,7 @@ class MaglisNetworkEngine {
   int get _activeRemoteParticipantCount {
     final now = DateTime.now().millisecondsSinceEpoch;
     return remoteParticipants.where((p) {
+      if (_departedPeers.contains(p.identity)) return false;
       final state = _peerSession.peerStates[p.identity];
       final isAlive =
           state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
@@ -364,7 +376,8 @@ class MaglisNetworkEngine {
 
       // Periodic Mesh Self-Healing Audit
       for (final p in remoteParticipants.identities) {
-        if (!_peerSession.peers.containsKey(p) &&
+        if (!_departedPeers.contains(p) &&
+            !_peerSession.peers.containsKey(p) &&
             !_peerSession.negotiatingPeers.contains(p)) {
           final isInitiator = localPeerId.compareTo(p) < 0;
           if (isInitiator) {
@@ -376,6 +389,7 @@ class MaglisNetworkEngine {
         }
       }
       _pruneStalePeers();
+      _checkHostMigration();
     });
 
     // 3-minute Epoch Refresh Timer: guarantees relay subscriptions stay active across 15-min epoch boundaries
@@ -392,6 +406,25 @@ class MaglisNetworkEngine {
 
   Future<void> _onSignalReceived(MaglisSignal sig) async {
     final remoteId = sig.senderId;
+    if (remoteId.isEmpty || remoteId == localPeerId) return;
+
+    // 1. Handle explicit 'leave' FIRST before any participant addition or host heartbeat update!
+    // Otherwise a 'leave' signal over Nostr re-adds a peer that already left via DataChannel,
+    // and sets _lastKnownHostHeartbeatMs = now which blocks _checkHostMigration()!
+    if (sig.type == 'leave') {
+      _departedPeers.add(remoteId);
+      _peerSession.departedPeers.add(remoteId);
+      _peerSession.peerStates.remove(remoteId);
+      _removeParticipant(remoteId);
+      await _peerSession.cleanupPeer(remoteId);
+      _relayFleet.checkSocketSleepState();
+      return;
+    }
+
+    // 2. Ignore any late in-flight Nostr signals from a peer session that already departed
+    if (_departedPeers.contains(remoteId)) {
+      return;
+    }
 
     final bool isProbe = sig.type == 'presence_probe' ||
         sig.type == 'presence_pong' ||
@@ -429,6 +462,7 @@ class MaglisNetworkEngine {
     switch (sig.type) {
       case 'join_probe':
         _pruneStalePeers();
+        _checkHostMigration();
         if (_isHost) {
           if ((remoteParticipants.length >= maxRemotePeers ||
                   _activeRemoteParticipantCount >= maxRemotePeers) &&
@@ -441,10 +475,19 @@ class MaglisNetworkEngine {
                 targetId: remoteId,
                 data: {'count': _activeRemoteParticipantCount + 1});
           }
-        } else if (_peerSession.peers.isNotEmpty) {
-          await _relayFleet.sendSignal('join_ack',
-              targetId: remoteId,
-              data: {'count': _activeRemoteParticipantCount + 1});
+        } else {
+          // Any active participant in the room can acknowledge a join_probe so
+          // a room remains joinable even while host migration is in progress.
+          final activeCount = _activeRemoteParticipantCount + 1;
+          if (activeCount >= 4 &&
+              !_admittedPeers.contains(remoteId) &&
+              !remoteParticipants.containsIdentity(remoteId)) {
+            await _relayFleet.sendSignal('join_reject',
+                targetId: remoteId, data: {'reason': 'full'});
+          } else {
+            await _relayFleet.sendSignal('join_ack',
+                targetId: remoteId, data: {'count': activeCount});
+          }
         }
         break;
 
@@ -458,17 +501,23 @@ class MaglisNetworkEngine {
         if (isInitiator && !_peerSession.negotiatingPeers.contains(remoteId)) {
           final pc = _peerSession.peers[remoteId];
           if (pc != null) {
+            final iceState = _peerSession.peerStates[remoteId];
+            final isIceHealthy = iceState ==
+                    RTCIceConnectionState.RTCIceConnectionStateConnected ||
+                iceState ==
+                    RTCIceConnectionState.RTCIceConnectionStateCompleted;
             final dc = _peerSession.channels[remoteId];
-            if (sig.data['reason'] == 'dc_recovery' ||
-                dc == null ||
-                dc.state != RTCDataChannelState.RTCDataChannelOpen) {
+            if (sig.data['reason'] == 'dc_recovery' &&
+                sig.data['iceRestart'] != true &&
+                isIceHealthy &&
+                (dc == null ||
+                    dc.state != RTCDataChannelState.RTCDataChannelOpen)) {
               unawaited(_peerSession.recoverDataChannel(remoteId));
             } else {
               unawaited(_peerSession.triggerIceRestart(remoteId));
             }
           } else {
-            unawaited(_relayFleet.sendSignal('beacon',
-                targetId: remoteId, data: const {}));
+            unawaited(_peerSession.initiatePeerConnection(remoteId));
           }
         }
         break;
@@ -546,12 +595,6 @@ class MaglisNetworkEngine {
           await _peerSession.handleIceBatch(remoteId, candidates);
         }
         break;
-
-      case 'leave':
-        _removeParticipant(remoteId);
-        await _peerSession.cleanupPeer(remoteId);
-        _relayFleet.checkSocketSleepState();
-        break;
     }
   }
 
@@ -560,6 +603,7 @@ class MaglisNetworkEngine {
       final now = DateTime.now().millisecondsSinceEpoch;
       // Do not usurp host if the known host is still an active participant in the room
       if (_knownHostPeerId != null &&
+          !_departedPeers.contains(_knownHostPeerId) &&
           remoteParticipants.containsIdentity(_knownHostPeerId!)) {
         final hostLastSeen = _peerSession.lastSeenPeerMs[_knownHostPeerId!] ??
             remoteParticipants.get(_knownHostPeerId!)?.lastSeenMs ??
@@ -569,7 +613,9 @@ class MaglisNetworkEngine {
         }
       }
       // Host lease grace period: do not usurp host if last host signal was within 6s
-      if (_lastKnownHostHeartbeatMs > 0 &&
+      if (_knownHostPeerId != null &&
+          !_departedPeers.contains(_knownHostPeerId) &&
+          _lastKnownHostHeartbeatMs > 0 &&
           (now - _lastKnownHostHeartbeatMs) < 6000 &&
           remoteParticipants.isNotEmpty) {
         return;
@@ -612,7 +658,7 @@ class MaglisNetworkEngine {
           unawaited(_peerSession.triggerIceRestart(remoteId));
         } else {
           unawaited(_relayFleet.sendSignal('reconnect_request',
-              targetId: remoteId, data: const {}));
+              targetId: remoteId, data: {'iceRestart': true}));
         }
       }
     });
@@ -669,6 +715,7 @@ class MaglisNetworkEngine {
     }
 
     for (final p in stalePeers) {
+      _peerSession.peerStates.remove(p);
       _removeParticipant(p);
       _peerSession.lastSeenPeerMs.remove(p);
       unawaited(_peerSession.cleanupPeer(p));
@@ -722,6 +769,7 @@ class MaglisNetworkEngine {
     _relayFleet.dispose();
     remoteParticipants.clear();
     _admittedPeers.clear();
+    _departedPeers.clear();
 
     await _packetCtrl.close();
     await _statesCtrl.close();

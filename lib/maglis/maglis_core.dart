@@ -647,6 +647,7 @@ class MaglisPlatform {
   static StreamSubscription? _deviceChangeSub;
   static StreamSubscription? _becomingNoisySub;
   static StreamSubscription? _interruptionSub;
+  static bool _webrtcInitialized = false;
   static bool _audioInitialized = false;
   static void Function(bool interrupted)? onAudioInterrupted;
 
@@ -666,11 +667,6 @@ class MaglisPlatform {
 
   static Future<void> initAudio() async {
     if (kIsWeb) return;
-    if (_audioInitialized) {
-      await setSpeaker(true);
-      return;
-    }
-    _audioInitialized = true;
 
     try {
       final androidConfig = AndroidAudioConfiguration(
@@ -685,19 +681,25 @@ class MaglisPlatform {
         forceHandleAudioRouting: true,
       );
 
-      // 1. Initialize WebRTC audio pipeline cleanly with music media attributes
-      try {
-        await WebRTC.initialize(options: {
-          'audioSampleRate': 48000,
-          'audioOutputSampleRate': 48000,
-          'androidUseHardwareAudioProcessing':
-              false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
-          if (defaultTargetPlatform == TargetPlatform.android)
-            'androidAudioConfiguration': androidConfig.toMap(),
-        });
-      } catch (_) {}
+      // 1. Initialize WebRTC native audio pipeline once per app process
+      if (!_webrtcInitialized) {
+        _webrtcInitialized = true;
+        try {
+          await WebRTC.initialize(options: {
+            'audioSampleRate': 48000,
+            'audioOutputSampleRate': 48000,
+            'androidUseHardwareAudioProcessing':
+                false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
+            if (defaultTargetPlatform == TargetPlatform.android)
+              'androidAudioConfiguration': androidConfig.toMap(),
+          });
+        } catch (_) {}
+      }
 
-      // 2. Set silent microphone mute mode (prevents OS beep on iOS/macOS)
+      // 2. Always enforce communication audio routing & playAndRecord session on room entry
+      // (even if a previous session exited with resetHardwareAudio: false or media playback changed the audio category)
+      _audioInitialized = true;
+
       try {
         if (defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS) {
@@ -705,7 +707,6 @@ class MaglisPlatform {
         }
       } catch (_) {}
 
-      // 3. Configure platform audio routing for high-fidelity media loudspeaker playout
       if (defaultTargetPlatform == TargetPlatform.android) {
         await Helper.setAndroidAudioConfiguration(androidConfig);
         await Helper.setSpeakerphoneOn(true);
@@ -729,7 +730,7 @@ class MaglisPlatform {
         await Helper.setSpeakerphoneOn(true);
       }
 
-      // 4. Configure system audio_session for loud media playout & hardware speakerphone
+      // 3. Configure system audio_session for loud media playout & hardware speakerphone
       if (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS) {
         try {
@@ -757,18 +758,19 @@ class MaglisPlatform {
           // Auto-switch to bluetooth or speakerphone when devices are plugged or unplugged
           _deviceChangeSub?.cancel();
           _deviceChangeSub = session.devicesChangedEventStream.listen((_) {
-            setSpeaker(true);
+            if (_audioInitialized) setSpeaker(true);
           });
 
           // Headset disconnect protection: prevents sudden audio blast or buffer crash when unplugged
           _becomingNoisySub?.cancel();
           _becomingNoisySub = session.becomingNoisyEventStream.listen((_) {
-            setSpeaker(true);
+            if (_audioInitialized) setSpeaker(true);
           });
 
           // Recover audio route if interrupted by incoming phone call or system alarm
           _interruptionSub?.cancel();
           _interruptionSub = session.interruptionEventStream.listen((event) {
+            if (!_audioInitialized) return;
             if (event.begin) {
               onAudioInterrupted?.call(true);
             } else {

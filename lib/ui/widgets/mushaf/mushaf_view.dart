@@ -269,11 +269,17 @@ class _MushafViewState extends State<MushafView> {
     if (mounted) setState(() {});
   }
 
+  static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};
+
   bool _isSurahFinished(HighlightingController ctrl, int surah) {
     if (surah < 1 || surah > 114) return false;
-    final surahWords = ctrl.repository.getSurahWords(surah);
-    if (surahWords.isEmpty) return false;
-    final lastWord = surahWords.last;
+    final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
+      final surahWords = ctrl.repository.getSurahWords(surah);
+      if (surahWords.isEmpty) return (ayah: -1, wordInAyah: -1);
+      final last = surahWords.last;
+      return (ayah: last.ayah, wordInAyah: last.wordInAyah);
+    });
+    if (lastWord.ayah < 0) return false;
     return ctrl.completedAyahsFor(surah).contains(lastWord.ayah) ||
         ctrl.isWordGreen(lastWord.ayah, lastWord.wordInAyah, surah: surah) ||
         ctrl.isWordYellow(lastWord.ayah, lastWord.wordInAyah, surah: surah) ||
