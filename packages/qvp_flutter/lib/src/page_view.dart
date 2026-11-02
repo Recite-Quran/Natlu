@@ -206,8 +206,8 @@ class QvpPageView extends StatefulWidget {
 
   /// Pre-records base ink into the global picture cache so page turns are instant.
   static void prepare(QvpPage page,
-      {double scale = 1.0, double dpr = 1.0, Color? inkColor}) {
-    _InkCache.prepare(page, inkColor: inkColor);
+      {double scale = 1.0, double dpr = 1.0, Color? inkColor, bool surahFrames = true}) {
+    _InkCache.prepare(page, inkColor: inkColor, surahFrames: surahFrames);
   }
 
   @override
@@ -385,6 +385,7 @@ class QvpPageViewState extends State<QvpPageView>
     try {
       page.layout(_spec(size));
       _cache._drawList = null;
+      _cache._dropPicture();
       _laidOut = widget.layout;
       _size = size;
       _ctl.viewport = size;
@@ -616,6 +617,7 @@ class QvpPageViewState extends State<QvpPageView>
                   dpr: dpr,
                   paper: widget.paper,
                   paperShadow: widget.paperShadow,
+                  surahFrames: widget.layout.surahFrames,
                 ),
               ),
             ),
@@ -705,13 +707,14 @@ class _InkCache {
     return ((argb & 0x00FFFFFF) << 8) | ((argb >> 24) & 0xFF);
   }
 
-  static void prepare(QvpPage page, {Color? inkColor}) {
+  static void prepare(QvpPage page,
+      {Color? inkColor, bool surahFrames = true}) {
     if (page.isDisposed) return;
     final l = page.currentLayout;
     if (l == null) return;
     final ink = inkColor != null ? _colorToRgba(inkColor) : page.defaultInk;
     final key =
-        '${page.page}|$ink|${l.scale}|${l.offsetX}|${l.offsetY}|0.0|${math.max(l.contentH, 1.0).toInt()}|1';
+        '${page.page}|$ink|${l.scale}|${l.offsetX}|${l.offsetY}|0.0|${math.max(l.contentH, 1.0).toInt()}|1|${surahFrames ? 1 : 0}';
     if (getGlobalInk(key) != null) return;
 
     final rec = ui.PictureRecorder();
@@ -881,6 +884,7 @@ class _QvpPainter extends CustomPainter {
     required this.dpr,
     required this.paper,
     required this.paperShadow,
+    this.surahFrames = true,
   }) : super(repaint: Listenable.merge([page, view, frame]));
 
   final QvpPage page;
@@ -889,6 +893,7 @@ class _QvpPainter extends CustomPainter {
   final double dpr;
   final Color? paper;
   final bool paperShadow;
+  final bool surahFrames;
 
   final ui.Paint _boxPaint = ui.Paint()..isAntiAlias = true;
   final ui.Path _boxPath = ui.Path();
@@ -1067,7 +1072,7 @@ class _QvpPainter extends CustomPainter {
     }
     final q = cache.getDrawList(page, l, top, bandH, contentH);
     final key =
-        '${page.page}|$ink|${l?.scale}|${l?.offsetX}|${l?.offsetY}|$top|${bandH.toInt()}|$styledKey';
+        '${page.page}|$ink|${l?.scale}|${l?.offsetX}|${l?.offsetY}|$top|${bandH.toInt()}|$styledKey|${surahFrames ? 1 : 0}';
     final kept = _InkCache.getGlobalInk(key);
     if (kept != null) {
       cache.picture = kept.picture;
@@ -1170,7 +1175,8 @@ class _QvpPainter extends CustomPainter {
       old.dpr != dpr ||
       old.paper != paper ||
       old.paperShadow != paperShadow ||
-      old.cache != cache;
+      old.cache != cache ||
+      old.surahFrames != surahFrames;
 }
 
 /// Render statistics of a [QvpPageView] (base / overlay timings of the last frame).
