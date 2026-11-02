@@ -1197,19 +1197,12 @@ class _WaveformPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final double t = progress * 2.0 * math.pi;
-    final List<double> heights = [
-      6.0 + 3.0 * math.sin(t),
-      10.0 + 4.5 * math.sin(t + 1.4),
-      9.5 + 4.0 * math.sin(t + 2.8),
-      6.5 + 3.0 * math.sin(t + 4.2),
-    ];
-
     const double barW = 2.6;
     const double gap = 2.6;
     double x = (size.width - (4 * barW + 3 * gap)) / 2.0;
     final double cy = size.height / 2.0;
 
-    for (final double h in heights) {
+    void drawBar(double h) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(x, cy - h / 2.0, barW, h),
@@ -1219,6 +1212,11 @@ class _WaveformPainter extends CustomPainter {
       );
       x += barW + gap;
     }
+
+    drawBar(6.0 + 3.0 * math.sin(t));
+    drawBar(10.0 + 4.5 * math.sin(t + 1.4));
+    drawBar(9.5 + 4.0 * math.sin(t + 2.8));
+    drawBar(6.5 + 3.0 * math.sin(t + 4.2));
   }
 
   @override

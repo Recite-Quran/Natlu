@@ -459,7 +459,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                               app.modeNotifier,
                               app.currentMushafPage,
                               _surahNotifier,
-                              widget.controller.activeAyah,
                               MaglisController.instance.sessionListenable,
                             ]),
                             builder: (context, _) {

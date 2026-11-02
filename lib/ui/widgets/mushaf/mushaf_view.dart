@@ -608,10 +608,8 @@ class _MushafViewState extends State<MushafView> {
         ? (safeBottom + 27.0)
         : (safeBottom + 60.0);
 
-    // Content bottom padding keeps ayahs clear of the bar:
-    final double bottomPadding = isSessionActive
-        ? (safeBottom + 62.0)
-        : (safeBottom + 74.0);
+    // Content bottom padding keeps ayahs clear of the bar in all states without resizing the vector PageView
+    final double bottomPadding = safeBottom + 74.0;
 
 
 
@@ -643,9 +641,7 @@ class _MushafViewState extends State<MushafView> {
               onPointerSignal: _onPointerSignal,
               child: Stack(
                 children: [
-                  AnimatedPadding(
-                    duration: const Duration(milliseconds: 320),
-                    curve: Curves.easeInOutCubic,
+                  Padding(
                     padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
                     child: Center(
                       child: SizedBox(

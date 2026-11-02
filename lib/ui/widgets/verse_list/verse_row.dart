@@ -400,8 +400,6 @@ class _VerseRowState extends State<VerseRow> {
       app: app,
     );
     if (isAudioActive) {
-      _invalidate();
-      _onStateChanged();
       _scheduleWordPositionCheck();
     }
   }
@@ -465,6 +463,8 @@ class _VerseRowState extends State<VerseRow> {
           _scheduleWordPositionCheck();
         }
       }
+    } else {
+      _scheduleWordPositionCheck();
     }
   }
 
@@ -626,8 +626,6 @@ class _VerseRowState extends State<VerseRow> {
     hash = hash * 31 + (isAudioActive ? 1 : 0);
     hash = hash * 31 + (isCompleted ? 1 : 0);
     hash = hash * 31 + (widget.isRecording ? 1 : 0);
-    hash = hash * 31 + (app.activeAudioWordIndex.value ?? -1);
-    hash = hash * 31 + _getActiveTargetIndex();
 
     final int currentRevision = ctrl.globalRevision.value;
     // Bug fix: also include globalRevision > 0 so partially-recited ayahs (words colored
@@ -852,7 +850,10 @@ class _VerseRowState extends State<VerseRow> {
                           isRecording: widget.isRecording,
                           controller: widget.controller,
                           onTapVerse: widget.onTap,
-                          explicitIsPlaying: widget.isAudioPlaying,
+                          explicitIsPlaying: widget.isAudioPlaying ??
+                              (isAudioActive && app.isAudioPlaying.value),
+                          explicitIsBuffering:
+                              isAudioActive && app.isAudioBuffering.value,
                           onExplicitToggle: widget.onAudioPlayToggle,
                         ),
                       ],
@@ -916,6 +917,7 @@ class _VerseAudioButton extends StatefulWidget {
   final HighlightingController controller;
   final VoidCallback? onTapVerse;
   final bool? explicitIsPlaying;
+  final bool? explicitIsBuffering;
   final VoidCallback? onExplicitToggle;
 
   const _VerseAudioButton({
@@ -928,6 +930,7 @@ class _VerseAudioButton extends StatefulWidget {
     required this.controller,
     this.onTapVerse,
     this.explicitIsPlaying,
+    this.explicitIsBuffering,
     this.onExplicitToggle,
   });
 
@@ -947,7 +950,8 @@ class _VerseAudioButtonState extends State<_VerseAudioButton> {
         oldWidget.isDark != widget.isDark ||
         oldWidget.isActiveVerse != widget.isActiveVerse ||
         oldWidget.isRecording != widget.isRecording ||
-        oldWidget.explicitIsPlaying != widget.explicitIsPlaying) {
+        oldWidget.explicitIsPlaying != widget.explicitIsPlaying ||
+        oldWidget.explicitIsBuffering != widget.explicitIsBuffering) {
       _cachedWidget = null;
     }
   }
@@ -955,7 +959,11 @@ class _VerseAudioButtonState extends State<_VerseAudioButton> {
   @override
   Widget build(BuildContext context) {
     if (widget.explicitIsPlaying != null) {
-      return _buildButton(context, widget.explicitIsPlaying!);
+      return _buildButton(
+        context,
+        widget.explicitIsPlaying!,
+        isBuffering: widget.explicitIsBuffering ?? false,
+      );
     }
 
     final app = AppState.instance;
