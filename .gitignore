@@ -100,6 +100,12 @@ ios/ExportOptionsCI.plist.local
 fastlane/report.xml
 fastlane/Preview.html
 fastlane/test_output/
+ios/secrets/
+ios/.bundle/
+ios/vendor/
+ios/fastlane/report.xml
+ios/fastlane/Preview.html
+ios/fastlane/test_output/
 
 # Windows native binaries
 windows/runner/*.dll

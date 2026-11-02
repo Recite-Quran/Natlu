@@ -1,0 +1,4 @@
+What's new in this version:
+• Collaborative Recitation Circles (Maglis): Group recitation and teacher-student revision for up to 4 participants with synchronized Mus'haf pages, word-by-word tracking, and high-quality voice calls using simple 5-digit room codes.
+• Zero accounts, no logins, and serverless peer-to-peer connection.
+• Performance improvements and bug fixes.
