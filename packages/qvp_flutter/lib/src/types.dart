@@ -1,3 +1,4 @@
+// Data types, records, and constants for the QVP Flutter package.
 import 'dart:ui' show Color, Path, Rect;
 import 'package:flutter/foundation.dart';
 

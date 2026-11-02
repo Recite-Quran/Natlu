@@ -1,3 +1,4 @@
+// Loaded Quran page: geometry, layout, highlights, and styles.
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -416,11 +417,7 @@ class QvpPage extends ChangeNotifier {
 
   // ── Clock & Display list ──
 
-  bool tick(double nowMs) {
-    final more = _backend.tick(handle, nowMs);
-    if (more) revision++;
-    return more;
-  }
+  bool tick(double nowMs) => _backend.tick(handle, nowMs);
   Uint32List colors() => _backend.colors(handle, nPaths);
   List<QvpStyledPath> styledPaths() => _backend.styledPaths(handle);
   int colorOf(int path) => _backend.colorOf(handle, path);

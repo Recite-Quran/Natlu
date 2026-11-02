@@ -205,6 +205,8 @@ class QvpPageView extends StatefulWidget {
   final double maxZoom;
 
   /// Pre-records base ink into the global picture cache so page turns are instant.
+  ///
+  /// [scale] and [dpr] are unused and kept for source compatibility.
   static void prepare(QvpPage page,
       {double scale = 1.0, double dpr = 1.0, Color? inkColor, bool surahFrames = true}) {
     _InkCache.prepare(page, inkColor: inkColor, surahFrames: surahFrames);
@@ -428,18 +430,11 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   void _onTapUp(TapUpDetails d) {
-    final v = _ctl.toView(d.localPosition);
-    final exact = page.hitTestExactView(v.dx, v.dy);
-    if (exact != null && exact.decoration >= 0) {
-      widget.onDecorationTap?.call(page.decorations[exact.decoration]);
-      return;
-    }
-
     final h = _hitAt(d.localPosition, maxDistance: widget.hitMaxDistance);
-    if (h != null && h.decoration >= 0) {
-      widget.onDecorationTap?.call(page.decorations[h.decoration]);
-    } else if (h != null && h.word >= 0) {
+    if (h != null && h.word >= 0) {
       widget.onWordTap?.call(h.word, h);
+    } else if (h != null && h.decoration >= 0) {
+      widget.onDecorationTap?.call(page.decorations[h.decoration]);
     } else {
       widget.onEmptyTap?.call();
     }
@@ -641,7 +636,7 @@ class _PictureCacheEntry {
 }
 
 class _LruCache {
-  static const int maxEntries = 64;
+  static const int maxEntries = 32;
   final LinkedHashMap<String, _PictureCacheEntry> _entries = LinkedHashMap();
 
   _PictureCacheEntry? get(String key) {
@@ -690,29 +685,18 @@ class _DrawList {
 /// Per-page render cache: base ink picture and layout draws.
 class _InkCache {
   static final _LruCache _globalInkCache = _LruCache();
-  static final _LruCache _globalOrnamentCache = _LruCache();
 
   static _PictureCacheEntry? getGlobalInk(String key) =>
       _globalInkCache.get(key);
   static void keepGlobalInk(String key, ui.Picture pic) =>
       _globalInkCache.put(key, pic);
 
-  static _PictureCacheEntry? getGlobalOrnament(String key) =>
-      _globalOrnamentCache.get(key);
-  static void keepGlobalOrnament(String key, ui.Picture pic) =>
-      _globalOrnamentCache.put(key, pic);
-
-  static int _colorToRgba(Color c) {
-    final argb = c.toARGB32();
-    return ((argb & 0x00FFFFFF) << 8) | ((argb >> 24) & 0xFF);
-  }
-
   static void prepare(QvpPage page,
       {Color? inkColor, bool surahFrames = true}) {
     if (page.isDisposed) return;
     final l = page.currentLayout;
     if (l == null) return;
-    final ink = inkColor != null ? _colorToRgba(inkColor) : page.defaultInk;
+    final ink = inkColor != null ? rgba(inkColor) : page.defaultInk;
     final key =
         '${page.page}|$ink|${l.scale}|${l.offsetX}|${l.offsetY}|0.0|${math.max(l.contentH, 1.0).toInt()}|1|${surahFrames ? 1 : 0}';
     if (getGlobalInk(key) != null) return;
@@ -818,11 +802,9 @@ class _InkCache {
 
   void dropOrnaments() {
     if (ornaments != null) {
-      if (!_globalOrnamentCache.containsPicture(ornaments!)) {
-        try {
-          ornaments!.dispose();
-        } on Object catch (_) {}
-      }
+      try {
+        ornaments!.dispose();
+      } on Object catch (_) {}
       ornaments = null;
       ornamentKey = '';
     }
@@ -934,13 +916,8 @@ class _QvpPainter extends CustomPainter {
       if (cache.ornaments != null) cache.dropOrnaments();
       return;
     }
-    final key =
-        '${page.page}|${info.ayahMark}|${info.surahHeader}|${info.pageFrame}|${page.dressSpec?.style}|${l?.scale}|${l?.offsetX}|${l?.offsetY}';
-    final kept = _InkCache.getGlobalOrnament(key);
-    if (kept != null) {
-      cache.ornaments = kept.picture;
-      cache.ornamentKey = key;
-    } else {
+    final key = '${info.revision}|${l?.scale}|${l?.offsetX}|${l?.offsetY}';
+    if (cache.ornaments == null || cache.ornamentKey != key) {
       cache.dropOrnaments();
       final rec = ui.PictureRecorder();
       final c = ui.Canvas(rec);
@@ -972,10 +949,8 @@ class _QvpPainter extends CustomPainter {
         }
       }
       if (open) c.restore();
-      final pic = rec.endRecording();
-      cache.ornaments = pic;
+      cache.ornaments = rec.endRecording();
       cache.ornamentKey = key;
-      _InkCache.keepGlobalOrnament(key, pic);
     }
     if (cache.ornaments != null) {
       canvas.save();
@@ -1065,7 +1040,7 @@ class _QvpPainter extends CustomPainter {
       bandH = tall;
     }
 
-    // base ink cache: recorded in layout px with _placeInLayout so offset/scale don't invalidate it
+    // base ink cache: recorded in layout px with _placeInLayout so view pan / zoom transform does not invalidate it
     int styledKey = 1;
     for (var i = 0; i < styled.length; i++) {
       styledKey = 31 * styledKey + styled[i].path;

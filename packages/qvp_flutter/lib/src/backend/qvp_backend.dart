@@ -1,3 +1,4 @@
+// Platform-agnostic backend interface for QVP engine operations.
 import 'dart:typed_data';
 
 import '../types.dart';
