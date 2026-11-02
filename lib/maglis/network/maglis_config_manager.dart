@@ -33,7 +33,8 @@ class MaglisConfigManager {
   static List<String> _relays = List.from(defaultRelays);
   static List<String> get relays => List.unmodifiable(_relays);
 
-  static const int currentBundledVersion = 5;
+  static int _currentVersion = 5;
+  static int get currentVersion => _currentVersion;
 
   static const Map<String, dynamic> defaultRtcConfig = {
     'iceServers': [
@@ -145,6 +146,11 @@ class MaglisConfigManager {
           }
         }
       }
+      final cachedVer = prefs.getInt('maglis_config_version') ?? 0;
+      if (cachedVer > _currentVersion) {
+        _currentVersion = cachedVer;
+      }
+
       final cachedRtcJson = prefs.getString('maglis_cached_rtc');
       if (cachedRtcJson != null) {
         final Map<String, dynamic> rtc = jsonDecode(cachedRtcJson);
@@ -161,14 +167,14 @@ class MaglisConfigManager {
             }
             return false;
           });
-          final int cachedVersion = (rtc['version'] as int?) ?? 0;
-          if (cachedVersion >= currentBundledVersion && !containsDeadTurn) {
+          final int rtcVer = (rtc['version'] as int?) ?? cachedVer;
+          if (rtcVer >= _currentVersion && !containsDeadTurn) {
             final mergedRtc = Map<String, dynamic>.from(defaultRtcConfig);
             mergedRtc.addAll(rtc);
             mergedRtc['iceServers'] = List.from(ice);
             _rtcConfig = mergedRtc;
           } else {
-            // Invalidate stale, dead, or obsolete cache so built-in defaults take effect
+            // Invalidate outdated cache (< currentVersion) or dead servers
             await prefs.remove('maglis_cached_rtc');
             _rtcConfig = Map.from(defaultRtcConfig);
           }
@@ -183,57 +189,38 @@ class MaglisConfigManager {
       const primaryUrl =
           'https://raw.githubusercontent.com/Recite-Quran/Natlu/Natlu-%D8%A7%D9%84%D8%AD%D9%85%D8%AF%D9%84%D9%84%D9%87/maglis_relay/maglis_config.json';
 
-      // Helper to verify a remote response is fresh (rejects outdated deployments < currentBundledVersion)
-      bool isConfigFresh(http.Response r) {
-        if (r.statusCode != 200) return false;
-        try {
-          final d = jsonDecode(r.body);
-          if (d is Map) {
-            final v = (d['version'] as int?) ?? 0;
-            return v >= currentBundledVersion;
-          }
-        } catch (_) {}
-        return false;
-      }
+      http.Response? bestRes;
+      int highestFoundVersion = _currentVersion;
 
-      http.Response? res;
-      // Try Tier 1: Cloudflare Edge
-      try {
-        final r = await http
-            .get(Uri.parse(edgeUrl))
-            .timeout(const Duration(milliseconds: 2500));
-        if (isConfigFresh(r)) {
-          res = r;
-        }
-      } catch (_) {}
-
-      // Try Tier 2: jsDelivr CDN
-      if (res == null) {
+      // Query multi-tier fallbacks and pick the one with the highest version
+      for (final url in [edgeUrl, cdnUrl, primaryUrl]) {
         try {
-          final r = await http
-              .get(Uri.parse(cdnUrl))
+          final res = await http
+              .get(Uri.parse(url))
               .timeout(const Duration(milliseconds: 2500));
-          if (isConfigFresh(r)) {
-            res = r;
+          if (res.statusCode == 200) {
+            final data = jsonDecode(res.body);
+            if (data is Map<String, dynamic>) {
+              final v = (data['version'] as int?) ?? 0;
+              // Monotonic upgrade: accept any remote tier >= our current version
+              if (v >= highestFoundVersion) {
+                bestRes = res;
+                highestFoundVersion = v;
+                // If this tier is strictly newer than our current version, we found our update!
+                if (v > _currentVersion) break;
+              }
+            }
           }
         } catch (_) {}
       }
 
-      // Try Tier 3: GitHub Raw
-      if (res == null) {
-        try {
-          final r = await http
-              .get(Uri.parse(primaryUrl))
-              .timeout(const Duration(milliseconds: 2500));
-          if (isConfigFresh(r)) {
-            res = r;
-          }
-        } catch (_) {}
-      }
-
-      if (res != null && res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+      if (bestRes != null && bestRes.statusCode == 200) {
+        final data = jsonDecode(bestRes.body);
         if (data is Map<String, dynamic>) {
+          final v = (data['version'] as int?) ?? highestFoundVersion;
+          _currentVersion = v;
+          await prefs.setInt('maglis_config_version', v);
+
           if (data['relays'] is List) {
             final List<String> fetchedRelays = (data['relays'] as List)
                 .map((e) => e.toString().trim())
@@ -256,7 +243,7 @@ class MaglisConfigManager {
             final List<dynamic> fetchedIce =
                 List.from(data['iceServers'] as List);
             updatedRtc['iceServers'] = fetchedIce;
-            updatedRtc['version'] = (data['version'] as int?) ?? 5;
+            updatedRtc['version'] = v;
             _rtcConfig = updatedRtc;
             await prefs.setString('maglis_cached_rtc', jsonEncode(updatedRtc));
           }
