@@ -373,6 +373,34 @@ lane :release_ios do
   n = latest_testflight_build_number(api_key: key, app_identifier: BUNDLE_ID, initial_build_number: 0)
   UI.user_error!("No processed build on TestFlight yet — run ship_ios first") if n.to_i.zero?
 
+  # Ensure whatsNew (release notes) is patched directly on App Store Connect via the API before submission
+  asc_token!
+  app = Spaceship::ConnectAPI::App.find(BUNDLE_ID)
+  edit_version = app&.get_edit_app_store_version(includes: "appStoreVersionLocalizations")
+  if edit_version
+    localizations = edit_version.app_store_version_localizations || []
+    localizations.each do |loc|
+      notes_file = "#{METADATA_DIR}/#{loc.locale}/release_notes.txt"
+      if File.exist?(notes_file)
+        notes = File.read(notes_file).strip
+        unless notes.empty?
+          UI.message("Patching whatsNew for #{loc.locale} via App Store Connect API...")
+          begin
+            Spaceship::ConnectAPI.patch_app_store_version_localization(
+              app_store_version_localization_id: loc.id,
+              attributes: { whatsNew: notes }
+            )
+          rescue => e
+            UI.important("Could not patch #{loc.locale} whatsNew via API: #{e.message}")
+          end
+        end
+      end
+    end
+  end
+
+  release_notes_ar = File.exist?("#{METADATA_DIR}/ar-SA/release_notes.txt") ? File.read("#{METADATA_DIR}/ar-SA/release_notes.txt").strip : ""
+  release_notes_en = File.exist?("#{METADATA_DIR}/en-US/release_notes.txt") ? File.read("#{METADATA_DIR}/en-US/release_notes.txt").strip : ""
+
   # Screenshots are deliberately not managed from here: Apple requires them for
   # submission, but they are easier to curate in App Store Connect than to keep
   # in the repo. Add them there before submitting.
@@ -383,6 +411,11 @@ lane :release_ios do
     build_number: n.to_s,
     platform: "ios",
     metadata_path: METADATA_DIR,
+    release_notes: {
+      "ar-SA" => release_notes_ar,
+      "en-US" => release_notes_en,
+      "default" => release_notes_ar
+    },
     skip_binary_upload: true,
     skip_screenshots: true,
     overwrite_screenshots: false,
