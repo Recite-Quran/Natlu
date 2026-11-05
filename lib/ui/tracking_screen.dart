@@ -74,11 +74,29 @@ class _TrackingScreenState extends State<TrackingScreen>
   int? _lastAyah;
   int? _lastSurah;
   bool _wasAudioPlaying = false;
+  bool _isWakelockEnabled = false;
+  bool _audioAyahPostFrameScheduled = false;
+  late final Listenable _screenThemeLanguageListenable;
+  late final Listenable _bottomBarListenable;
 
   @override
   void initState() {
     super.initState();
+    final app = AppState.instance;
     _surahNotifier = ValueNotifier<int>(_effectiveSurah);
+    _screenThemeLanguageListenable = Listenable.merge([
+      app.themeNotifier,
+      app.languageNotifier,
+      app.mushafModeNotifier,
+    ]);
+    _bottomBarListenable = Listenable.merge([
+      app.themeNotifier,
+      app.languageNotifier,
+      app.blurModeNotifier,
+      app.modeNotifier,
+      _surahNotifier,
+      MaglisController.instance.sessionListenable,
+    ]);
     if (!kIsWeb) {
       WidgetsBinding.instance.addObserver(this);
       try {
@@ -113,9 +131,10 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _syncScreenWakeLock() {
-    if (kIsWeb) return;
+    if (kIsWeb || _isWakelockEnabled) return;
     try {
       WakelockPlus.enable().catchError((_) {});
+      _isWakelockEnabled = true;
     } catch (_) {}
   }
 
@@ -134,18 +153,24 @@ class _TrackingScreenState extends State<TrackingScreen>
       _wasAudioPlaying = true;
       final int targetSurah = audioSurah ?? widget.controller.targetSurah;
       AppState.instance.saveLastPosition(targetSurah, ayah);
+      if (_audioAyahPostFrameScheduled) return;
+      _audioAyahPostFrameScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (mounted) {
-          if (widget.controller.targetSurah != targetSurah) {
-            await widget.controller.setTargetSurah(
-              targetSurah,
-              preserveOtherSurahStates: true,
-              clearTargetSurah: false,
-            );
-          }
-          widget.controller.setManualAyah(targetSurah, ayah);
-          _lastAyah = ayah;
+        _audioAyahPostFrameScheduled = false;
+        if (!mounted) return;
+        final currentAyah = AppState.instance.activeAudioAyah.value;
+        final currentSurah =
+            AppState.instance.activeAudioSurah.value ?? widget.controller.targetSurah;
+        if (currentAyah == null) return;
+        if (widget.controller.targetSurah != currentSurah) {
+          await widget.controller.setTargetSurah(
+            currentSurah,
+            preserveOtherSurahStates: true,
+            clearTargetSurah: false,
+          );
         }
+        widget.controller.setManualAyah(currentSurah, currentAyah);
+        _lastAyah = currentAyah;
       });
     } else if (!isPlaying &&
         _wasAudioPlaying &&
@@ -444,7 +469,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     final app = AppState.instance;
 
     return ListenableBuilder(
-      listenable: Listenable.merge([app.themeNotifier, app.languageNotifier, app.mushafModeNotifier]),
+      listenable: _screenThemeLanguageListenable,
       builder: (context, child) {
         final c = app.colors;
 
@@ -477,14 +502,7 @@ class _TrackingScreenState extends State<TrackingScreen>
                         child: IgnorePointer(
                           ignoring: !app.isMushafMode && isAutoScrolling,
                           child: AnimatedBuilder(
-                            animation: Listenable.merge([
-                              app.themeNotifier,
-                              app.languageNotifier,
-                              app.blurModeNotifier,
-                              app.modeNotifier,
-                              _surahNotifier,
-                              MaglisController.instance.sessionListenable,
-                            ]),
+                            animation: _bottomBarListenable,
                             builder: (context, _) {
                               final effectiveSurah = _effectiveSurah;
                               final surahName =

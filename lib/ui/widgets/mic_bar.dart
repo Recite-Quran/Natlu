@@ -1104,13 +1104,13 @@ class _EmptyMushafPainter extends CustomPainter {
   final Color color;
   _EmptyMushafPainter(this.color);
 
-  static final Paint _paint = Paint()
+  final Paint _paint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round
     ..strokeJoin = StrokeJoin.round
     ..isAntiAlias = true;
 
-  static final Path _path = Path();
+  final Path _path = Path();
 
   @override
   void paint(Canvas canvas, Size size) {

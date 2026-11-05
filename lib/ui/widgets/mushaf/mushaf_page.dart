@@ -37,6 +37,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   bool _isLoading = true;
   bool _hasError = false;
   late final AnimationController _spinnerController;
+  late final Listenable _ayahMarkRepaintListenable;
+  late final Listenable _tajweedVisibilityListenable;
+  late Listenable _tajweedTooltipRepaintListenable;
 
   // Native highlight handles (zero cache invalidation, drawn in GPU band batches)
   int _ayahHighlightHandle = 0;
@@ -77,10 +80,28 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   @override
   void initState() {
     super.initState();
+    final app = AppState.instance;
     _spinnerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
+    _ayahMarkRepaintListenable = Listenable.merge([
+      _spinnerController,
+      app.activeAudioAyah,
+      app.activeAudioSurah,
+      app.isAudioBuffering,
+      app.isAudioPlaying,
+    ]);
+    _tajweedVisibilityListenable = Listenable.merge([
+      app.modeNotifier,
+      app,
+    ]);
+    _tajweedTooltipRepaintListenable = Listenable.merge([
+      app,
+      app.modeNotifier,
+      widget.controller.globalRevision,
+      MaglisController.instance,
+    ]);
     _attachListeners();
 
     final cached = MushafProvider.instance.getCachedPage(widget.pageNumber);
@@ -155,6 +176,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       widget.controller.addListener(_requestSyncVisuals);
       widget.controller.activeAyah.addListener(_requestSyncVisuals);
       widget.controller.globalRevision.addListener(_requestSyncVisuals);
+      final app = AppState.instance;
+      _tajweedTooltipRepaintListenable = Listenable.merge([
+        app,
+        app.modeNotifier,
+        widget.controller.globalRevision,
+        MaglisController.instance,
+      ]);
     }
     _checkSpinnerAnimation();
     _syncVisuals();
@@ -835,13 +863,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         children: [
           if (hasSurahHeaders)
             IgnorePointer(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: SurahHeaderPainter(
-                    page: page,
-                    isDark: isDark,
-                    colors: c,
-                  ),
+              child: CustomPaint(
+                painter: SurahHeaderPainter(
+                  page: page,
+                  isDark: isDark,
+                  colors: c,
                 ),
               ),
             ),
@@ -866,37 +892,35 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onDecorationTap: _onDecorationTap,
           ),
           IgnorePointer(
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: AyahMarkPainter(
-                  page: page,
-                  app: app,
-                  spinnerAnimation: _spinnerController,
-                  surfaceColor: c.surface,
-                  goldColor: c.gold,
-                  neutralRingColor: neutralRingColor,
-                  ayahHighlightColor: isDark
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : const Color(0xFF64748B).withValues(alpha: 0.09),
-                ),
+            child: CustomPaint(
+              painter: AyahMarkPainter(
+                page: page,
+                app: app,
+                spinnerAnimation: _spinnerController,
+                repaintListenable: _ayahMarkRepaintListenable,
+                surfaceColor: c.surface,
+                goldColor: c.gold,
+                neutralRingColor: neutralRingColor,
+                ayahHighlightColor: isDark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : const Color(0xFF64748B).withValues(alpha: 0.09),
               ),
             ),
           ),
           ListenableBuilder(
-            listenable: Listenable.merge([app.modeNotifier, app]),
+            listenable: _tajweedVisibilityListenable,
             builder: (context, _) {
               if (app.hasClickedTajweedWord || app.currentMode != AppMode.tajweed) {
                 return const SizedBox.shrink();
               }
               return IgnorePointer(
-                child: RepaintBoundary(
-                  child: CustomPaint(
-                    painter: MushafTajweedTooltipPainter(
-                      page: page,
-                      controller: widget.controller,
-                      app: app,
-                      goldColor: c.gold,
-                    ),
+                child: CustomPaint(
+                  painter: MushafTajweedTooltipPainter(
+                    page: page,
+                    controller: widget.controller,
+                    app: app,
+                    goldColor: c.gold,
+                    repaintListenable: _tajweedTooltipRepaintListenable,
                   ),
                 ),
               );

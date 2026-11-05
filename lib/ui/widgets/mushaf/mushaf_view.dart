@@ -265,8 +265,14 @@ class _MushafViewState extends State<MushafView> {
     super.dispose();
   }
 
+  bool _lastMaglisInSession = false;
+
   void _onMaglisSessionChanged() {
-    if (mounted) setState(() {});
+    final inSession = MaglisController.instance.inSession;
+    if (_lastMaglisInSession != inSession) {
+      _lastMaglisInSession = inSession;
+      if (mounted) setState(() {});
+    }
   }
 
   static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};

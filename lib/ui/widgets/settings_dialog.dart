@@ -10,13 +10,19 @@ import 'settings/font_slider_tile.dart';
 class SettingsDialog extends StatelessWidget {
   const SettingsDialog({super.key});
 
+  static final Listenable _settingsListenable = Listenable.merge([
+    AppState.instance.themeNotifier,
+    AppState.instance.languageNotifier,
+    AppState.instance.mushafModeNotifier,
+  ]);
+
   @override
   Widget build(BuildContext context) {
     final app = AppState.instance;
 
     return RepaintBoundary(
       child: ListenableBuilder(
-        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier, app.mushafModeNotifier]),
+        listenable: _settingsListenable,
         builder: (context, _) {
           final c = app.colors;
           final isAr = app.isArabic;

@@ -116,14 +116,16 @@ class AyahMarkPainter extends CustomPainter {
     required this.goldColor,
     required this.neutralRingColor,
     required this.ayahHighlightColor,
+    Listenable? repaintListenable,
   }) : super(
-          repaint: Listenable.merge([
-            spinnerAnimation,
-            app.activeAudioAyah,
-            app.activeAudioSurah,
-            app.isAudioBuffering,
-            app.isAudioPlaying,
-          ]),
+          repaint: repaintListenable ??
+              Listenable.merge([
+                spinnerAnimation,
+                app.activeAudioAyah,
+                app.activeAudioSurah,
+                app.isAudioBuffering,
+                app.isAudioPlaying,
+              ]),
         );
 
   static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
@@ -288,14 +290,16 @@ class MushafTajweedTooltipPainter extends CustomPainter {
     required this.controller,
     required this.app,
     required this.goldColor,
+    Listenable? repaintListenable,
   }) : super(
-          repaint: Listenable.merge([
-            page,
-            app,
-            app.modeNotifier,
-            controller.globalRevision,
-            MaglisController.instance,
-          ]),
+          repaint: repaintListenable ??
+              Listenable.merge([
+                page,
+                app,
+                app.modeNotifier,
+                controller.globalRevision,
+                MaglisController.instance,
+              ]),
         );
 
   static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;

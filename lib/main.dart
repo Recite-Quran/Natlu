@@ -410,16 +410,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   /// Does not block the splash screen for the heavy model extraction.
   Future<void> _init() async {
     try {
-      if (mounted) setState(() => _initStatus = 'Preparing ASR engine…');
-      if (kIsWeb) {
-        // On Web, warm up silently only if model is already cached in IndexedDB.
-        _engine.isModelCached().then((isCached) {
-          if (isCached) _engine.initialize();
-        });
-      } else {
-        _engine.initialize(); // Fire-and-forget in background Isolate
-      }
-
+      // ASR engine initialization is lazily deferred until the user initiates recitation
+      // or voice search via _ensureEngineReady(), keeping silent reading cool, lean, and jank-free.
       if (mounted) setState(() => _initStatus = 'Loading Quran database…');
       final service = QuranMetadataService();
       _repo = QuranRepository(service);

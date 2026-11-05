@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
-import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -11,7 +10,8 @@ import 'package:recite_quran/recite_quran.dart';
 
 import '../../../state/app_state.dart';
 import 'web/mushaf_web_storage.dart'
-    if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart' as web_storage;
+    if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart'
+    as web_storage;
 
 /// Typed word reference within a Mushaf page for tracking and playback.
 class MushafWordRef {
@@ -51,7 +51,7 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
-  static const int _maxCachedPages = 10;
+  static const int _maxCachedPages = 32;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
@@ -61,17 +61,17 @@ class MushafProvider {
     }
 
     final neighbors = [pageNumber - 1, pageNumber + 1];
-    final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
-        ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
-        : 1.0;
-    final inkColor = AppState.instance.colors.text;
 
     for (final p in neighbors) {
       if (p < 1 || p > 604) continue;
       if (getCachedPage(p) != null) continue;
       unawaited(() async {
         final page = await getPage(p);
-        if (page != null && !page.isDisposed && size != null && size.width > 0 && size.height > 0) {
+        if (page != null &&
+            !page.isDisposed &&
+            size != null &&
+            size.width > 0 &&
+            size.height > 0) {
           page.layout(const QvpViewLayout(
             padTop: 0,
             padBottom: 0,
@@ -80,7 +80,6 @@ class MushafProvider {
             fillHeight: true,
             surahFrames: false,
           ).toSpec(size.width, size.height));
-          QvpPageView.prepare(page, scale: 1.0, dpr: dpr, inkColor: inkColor);
         }
       }());
     }
@@ -178,13 +177,15 @@ class MushafProvider {
           if (atlasBytes == null || atlasBytes.isEmpty) {
             atlasBytes = await web_storage.fetchPageFromCdn('atlas.qva');
             if (atlasBytes != null && atlasBytes.isNotEmpty) {
-              unawaited(web_storage.savePageToIndexedDb('atlas.qva', atlasBytes));
+              unawaited(
+                  web_storage.savePageToIndexedDb('atlas.qva', atlasBytes));
             }
           }
           if (atlasBytes != null && atlasBytes.isNotEmpty) {
             _atlas = _engine!.loadAtlas(atlasBytes);
           } else {
-            throw StateError('Mushaf atlas.qva could not be loaded from CDN or Cache');
+            throw StateError(
+                'Mushaf atlas.qva could not be loaded from CDN or Cache');
           }
         }
       } else {
@@ -198,14 +199,16 @@ class MushafProvider {
             final atlasBytes = await localAtlas.readAsBytes();
             _atlas = _engine!.loadAtlas(atlasBytes);
           } else {
-            throw StateError('Mushaf atlas.qva not found at ${localAtlas?.path}');
+            throw StateError(
+                'Mushaf atlas.qva not found at ${localAtlas?.path}');
           }
         }
       }
       _isReady = true;
 
       if (kIsWeb) {
-        final initialPage = AppState.instance.currentMushafPage.value.clamp(1, 604);
+        final initialPage =
+            AppState.instance.currentMushafPage.value.clamp(1, 604);
         unawaited(getPage(initialPage));
         startBackgroundMushafCaching();
       }
@@ -262,13 +265,17 @@ class MushafProvider {
         var localPage = _extractedPagesPath != null
             ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
             : null;
-        if (localPage == null || !localPage.existsSync() || localPage.lengthSync() == 0) {
+        if (localPage == null ||
+            !localPage.existsSync() ||
+            localPage.lengthSync() == 0) {
           await _ensureExtracted(force: true);
           localPage = _extractedPagesPath != null
               ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
               : null;
         }
-        if (localPage != null && localPage.existsSync() && localPage.lengthSync() > 0) {
+        if (localPage != null &&
+            localPage.existsSync() &&
+            localPage.lengthSync() > 0) {
           pageBytes = await localPage.readAsBytes();
         }
       }
@@ -280,14 +287,32 @@ class MushafProvider {
         if (_pageCache.length >= _maxCachedPages) {
           final currentPage = AppState.instance.currentMushafPage.value;
           int? evictKey;
+          int maxDistance = -1;
           for (final k in _pageCache.keys) {
-            if (currentPage > 0 && (k - currentPage).abs() <= 2) continue;
-            evictKey = k;
-            break;
+            final distance = (k - currentPage).abs();
+            // Protect pages within the active reading window (±8 pages)
+            if (currentPage > 0 && distance <= 8) continue;
+            if (distance > maxDistance) {
+              maxDistance = distance;
+              evictKey = k;
+            }
           }
-          evictKey ??= _pageCache.keys.first;
-          final oldestPage = _pageCache.remove(evictKey);
-          oldestPage?.dispose();
+          // If all cached pages are inside the reading window, fallback to furthest key that isn't current page
+          if (evictKey == null) {
+            for (final k in _pageCache.keys) {
+              if (k != currentPage) {
+                final distance = (k - currentPage).abs();
+                if (distance > maxDistance) {
+                  maxDistance = distance;
+                  evictKey = k;
+                }
+              }
+            }
+          }
+          if (evictKey != null) {
+            final oldestPage = _pageCache.remove(evictKey);
+            oldestPage?.dispose();
+          }
         }
         _pageCache[pageNumber] = page;
         return page;
