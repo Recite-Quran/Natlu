@@ -92,12 +92,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       app.isAudioBuffering,
       app.isAudioPlaying,
     ]);
-    _tajweedVisibilityListenable = Listenable.merge([
-      app.modeNotifier,
-      app,
-    ]);
+    _tajweedVisibilityListenable = app.modeNotifier;
     _tajweedTooltipRepaintListenable = Listenable.merge([
-      app,
       app.modeNotifier,
       widget.controller.globalRevision,
       MaglisController.instance,
@@ -178,7 +174,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       widget.controller.globalRevision.addListener(_requestSyncVisuals);
       final app = AppState.instance;
       _tajweedTooltipRepaintListenable = Listenable.merge([
-        app,
         app.modeNotifier,
         widget.controller.globalRevision,
         MaglisController.instance,
@@ -827,8 +822,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     if (_isLoading || _page == null || _page!.isDisposed) {
       if (!_isLoading && !_hasError) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && (_page == null || _page!.isDisposed) && !_isLoading) {
-            _loadPage();
+          if (!mounted || _isLoading) return;
+          final current = AppState.instance.currentMushafPage.value;
+          // Guard: Only reload if this page is in the active reading viewport window
+          if ((widget.pageNumber - current).abs() <= 1) {
+            if (_page == null || _page!.isDisposed) {
+              _loadPage();
+            }
           }
         });
       }
@@ -868,14 +868,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         fit: StackFit.expand,
         children: [
           if (hasSurahHeaders)
-            RepaintBoundary(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: SurahHeaderPainter(
-                    page: page,
-                    isDark: isDark,
-                    colors: c,
-                  ),
+            IgnorePointer(
+              child: CustomPaint(
+                painter: SurahHeaderPainter(
+                  page: page,
+                  isDark: isDark,
+                  colors: c,
                 ),
               ),
             ),
@@ -899,21 +897,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onWordTap: (word, _) => _onWordTap(context, page, word.index),
             onDecorationTap: (dec, _) => _onDecorationTap(dec),
           ),
-          RepaintBoundary(
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: AyahMarkPainter(
-                  page: page,
-                  app: app,
-                  spinnerAnimation: _spinnerController,
-                  repaintListenable: _ayahMarkRepaintListenable,
-                  surfaceColor: c.surface,
-                  goldColor: c.gold,
-                  neutralRingColor: neutralRingColor,
-                  ayahHighlightColor: isDark
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : const Color(0xFF64748B).withValues(alpha: 0.09),
-                ),
+          IgnorePointer(
+            child: CustomPaint(
+              painter: AyahMarkPainter(
+                page: page,
+                app: app,
+                spinnerAnimation: _spinnerController,
+                repaintListenable: _ayahMarkRepaintListenable,
+                surfaceColor: c.surface,
+                goldColor: c.gold,
+                neutralRingColor: neutralRingColor,
+                ayahHighlightColor: isDark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : const Color(0xFF64748B).withValues(alpha: 0.09),
               ),
             ),
           ),
@@ -923,16 +919,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               if (app.hasClickedTajweedWord || app.currentMode != AppMode.tajweed) {
                 return const SizedBox.shrink();
               }
-              return RepaintBoundary(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: MushafTajweedTooltipPainter(
-                      page: page,
-                      controller: widget.controller,
-                      app: app,
-                      goldColor: c.gold,
-                      repaintListenable: _tajweedTooltipRepaintListenable,
-                    ),
+              return IgnorePointer(
+                child: CustomPaint(
+                  painter: MushafTajweedTooltipPainter(
+                    page: page,
+                    controller: widget.controller,
+                    app: app,
+                    goldColor: c.gold,
+                    repaintListenable: _tajweedTooltipRepaintListenable,
                   ),
                 ),
               );

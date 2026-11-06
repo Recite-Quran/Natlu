@@ -729,8 +729,6 @@ class QvpPageViewState extends State<QvpPageView>
               child: RepaintBoundary(
                 child: CustomPaint(
                   size: size,
-                  isComplex: true,
-                  willChange: false,
                   painter: _QvpPainter(
                     page: page,
                     view: _ctl,
@@ -1516,9 +1514,7 @@ class _QvpPainter extends CustomPainter {
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
         cache.entry = _InkCache.keepGlobalInk(key, pic, n);
-        if (styled.isEmpty) {
-          page.clearPaths();
-        }
+        page.clearPaths();
       }
     }
 

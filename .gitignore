@@ -115,4 +115,3 @@ windows/runner/*.lib
 pubspec.lock
 
 test
-packages/qvp_flutter_backup/

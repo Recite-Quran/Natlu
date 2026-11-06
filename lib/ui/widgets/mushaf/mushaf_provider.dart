@@ -51,7 +51,7 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
-  static const int _maxCachedPages = 8;
+  static const int _maxCachedPages = 16;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
@@ -291,8 +291,8 @@ class MushafProvider {
           int maxDistance = -1;
           for (final k in _pageCache.keys) {
             final distance = (k - currentPage).abs();
-            // Protect pages within the active reading window (±2 pages)
-            if (currentPage > 0 && distance <= 2) continue;
+            // Protect pages within the active reading window (±3 pages)
+            if (currentPage > 0 && distance <= 3) continue;
             if (distance > maxDistance) {
               maxDistance = distance;
               evictKey = k;
