@@ -53,6 +53,8 @@ class MushafProvider {
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   static const int _maxCachedPages = 16;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
+  Timer? _preloadDebounce;
+  int? _preloadingTargetPage;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
@@ -60,30 +62,65 @@ class MushafProvider {
       lastViewportSize = size;
     }
 
-    final neighbors = [pageNumber - 1, pageNumber + 1];
+    _preloadingTargetPage = pageNumber;
+    _preloadDebounce?.cancel();
+    _preloadDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (_preloadingTargetPage != pageNumber) return;
+      final targetSize = size ?? lastViewportSize;
+      if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
 
-    for (final p in neighbors) {
-      if (p < 1 || p > 604) continue;
-      if (getCachedPage(p) != null) continue;
-      unawaited(() async {
-        final page = await getPage(p);
-        if (page != null &&
-            !page.isDisposed &&
-            size != null &&
-            size.width > 0 &&
-            size.height > 0) {
-          page.layout(const QvpViewLayout(
-            padTop: 0,
-            padBottom: 0,
-            padSide: 4,
-            lineSpacing: 1.0,
-            fillHeight: true,
+      final neighbors = [pageNumber - 1, pageNumber + 1];
+      final currentInkColor = AppState.instance.colors.text;
+
+      for (final p in neighbors) {
+        if (p < 1 || p > 604) continue;
+        final cached = getCachedPage(p);
+        if (cached != null && !cached.isDisposed) {
+          if (cached.currentLayout == null ||
+              (cached.currentLayout!.contentW - targetSize.width).abs() > 1) {
+            cached.layout(const QvpViewLayout(
+              padTop: 0,
+              padBottom: 0,
+              padSide: 4,
+              lineSpacing: 1.0,
+              fillHeight: true,
+              surahFrames: false,
+            ).toSpec(targetSize.width, targetSize.height));
+          }
+          QvpPageView.prepare(
+            cached,
+            inkColor: currentInkColor,
             surahFrames: false,
-          ).toSpec(size.width, size.height));
-          QvpPageView.prepare(page, surahFrames: false);
+          );
+          continue;
         }
-      }());
-    }
+
+        unawaited(() async {
+          if (_preloadingTargetPage != pageNumber) return;
+          final page = await getPage(p);
+          if (page != null &&
+              !page.isDisposed &&
+              _preloadingTargetPage == pageNumber) {
+            if (page.currentLayout == null ||
+                (page.currentLayout!.contentW - targetSize.width).abs() > 1) {
+              page.layout(const QvpViewLayout(
+                padTop: 0,
+                padBottom: 0,
+                padSide: 4,
+                lineSpacing: 1.0,
+                fillHeight: true,
+                surahFrames: false,
+              ).toSpec(targetSize.width, targetSize.height));
+            }
+            QvpPageView.prepare(
+              page,
+              inkColor: currentInkColor,
+              surahFrames: false,
+            );
+          }
+        }());
+      }
+    });
   }
 
   void preloadData({bool force = false}) {
@@ -331,6 +368,10 @@ class MushafProvider {
     if (page != null && page.isDisposed) {
       _pageCache.remove(pageNumber);
       return null;
+    }
+    if (page != null) {
+      _pageCache.remove(pageNumber);
+      _pageCache[pageNumber] = page;
     }
     return page;
   }

@@ -374,6 +374,8 @@ class _TrackingScreenState extends State<TrackingScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.54),
+      elevation: 0,
       enableDrag: false,
       builder: (_) => SurahPickerSheet(
         current: _effectiveSurah,
@@ -421,6 +423,8 @@ class _TrackingScreenState extends State<TrackingScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.54),
+      elevation: 0,
       builder: (_) => const SettingsDialog(),
     );
   }
@@ -730,22 +734,28 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   Widget _buildVerseContent(ThemeColors c, AppState app) {
     if (app.isMushafMode) {
-      return MushafView(
-        key: const ValueKey('mushaf_view_main'),
-        controller: widget.controller,
-        isRecording: widget.isRecording,
-        showBottomPageNumber: true,
+      return RepaintBoundary(
+        key: const ValueKey('mushaf_view_boundary'),
+        child: MushafView(
+          key: const ValueKey('mushaf_view_main'),
+          controller: widget.controller,
+          isRecording: widget.isRecording,
+          showBottomPageNumber: true,
+        ),
       );
     }
 
-    return VerseListView(
-      key: _verseListKey,
-      controller: widget.controller,
-      isRecording: widget.isRecording,
-      onToggleRecord: widget.onToggleRecord,
-      onAutoScrollChanged: (scrolling) {
-        _isAutoScrolling.value = scrolling;
-      },
+    return RepaintBoundary(
+      key: const ValueKey('verse_list_boundary'),
+      child: VerseListView(
+        key: _verseListKey,
+        controller: widget.controller,
+        isRecording: widget.isRecording,
+        onToggleRecord: widget.onToggleRecord,
+        onAutoScrollChanged: (scrolling) {
+          _isAutoScrolling.value = scrolling;
+        },
+      ),
     );
   }
 }

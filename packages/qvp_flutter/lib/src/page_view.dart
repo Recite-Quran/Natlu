@@ -842,9 +842,9 @@ class _PictureCacheEntry {
 }
 
 class _LruCache {
-  /// How many page pictures to keep. Lowered to 12 to match native Android/iOS budgets
-  /// (48MB budget on Android, capacity: 12 on iOS) and prevent Skia VRAM bloat.
-  static const int maxEntries = 12;
+  /// How many page pictures to keep. Aligned to 16 to match MushafProvider._maxCachedPages
+  /// and prevent premature picture eviction while pages remain in active memory.
+  static const int maxEntries = 16;
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
 
   void evictPage(int pageNumber) {
@@ -863,11 +863,16 @@ class _LruCache {
       return _entries.keys.any((k) => k.page == key);
     }
     if (key is String) {
-      final prefix = key.split('|').first;
-      final pageNum = int.tryParse(prefix);
-      if (pageNum != null) {
-        return _entries.keys.any((k) => k.page == pageNum);
+      final parts = key.split('|');
+      final pageNum = int.tryParse(parts.first);
+      if (pageNum == null) return false;
+      if (parts.length >= 2) {
+        final inkVal = int.tryParse(parts[1]);
+        if (inkVal != null) {
+          return _entries.keys.any((k) => k.page == pageNum && k.ink == inkVal);
+        }
       }
+      return _entries.keys.any((k) => k.page == pageNum);
     }
     return false;
   }

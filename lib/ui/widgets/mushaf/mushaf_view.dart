@@ -29,7 +29,7 @@ class MushafScrollBehavior extends MaterialScrollBehavior {
 
   @override
   ScrollPhysics getScrollPhysics(BuildContext context) =>
-      const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+      const PageScrollPhysics();
 }
 
 
@@ -663,7 +663,7 @@ class _MushafViewState extends State<MushafView> {
                               itemCount: 604,
                               padEnds: false,
                               allowImplicitScrolling: false,
-                              physics: const BouncingScrollPhysics(),
+                              physics: const PageScrollPhysics(),
                               onPageChanged: _onPageChanged,
                               itemBuilder: (context, index) {
                                 final pageNumber = 604 - index;

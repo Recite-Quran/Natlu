@@ -6,12 +6,36 @@ import 'package:recite_quran/recite_quran.dart';
 import '../../../state/app_state.dart';
 import '../../../maglis/maglis_controller.dart';
 
+class _HeaderGeometry {
+  final Rect rect;
+  final Offset p1Top;
+  final Offset p2Top;
+  final Offset p1Bottom;
+  final Offset p2Bottom;
+  const _HeaderGeometry({
+    required this.rect,
+    required this.p1Top,
+    required this.p2Top,
+    required this.p1Bottom,
+    required this.p2Bottom,
+  });
+}
+
+class _PageHeaderGeometries {
+  final Object layout;
+  final List<_HeaderGeometry> headers;
+  const _PageHeaderGeometries(this.layout, this.headers);
+}
+
 /// Modern flat card behind the Surah title calligraphy.
 /// Uses exact viewport coordinates from [page.surahHeadersView()].
 class SurahHeaderPainter extends CustomPainter {
   final QvpPage page;
   final bool isDark;
   final ThemeColors colors;
+
+  static final Expando<_PageHeaderGeometries> _headerCache =
+      Expando<_PageHeaderGeometries>();
 
   SurahHeaderPainter({
     required this.page,
@@ -33,10 +57,38 @@ class SurahHeaderPainter extends CustomPainter {
     final layout = page.readLayout() ?? page.currentLayout;
     if (layout == null) return;
 
-    final double fitScale = layout.fitScale;
-    final double fitX = layout.fitX;
-    final double fitY = layout.fitY;
-    final double contentW = layout.contentW;
+    final cached = _headerCache[page];
+    final List<_HeaderGeometry> list;
+    if (cached != null && identical(cached.layout, layout)) {
+      list = cached.headers;
+    } else {
+      final double fitScale = layout.fitScale;
+      final double fitX = layout.fitX;
+      final double fitY = layout.fitY;
+      final double contentW = layout.contentW;
+
+      final computed = <_HeaderGeometry>[];
+      for (final h in headers) {
+        final double rawTop = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
+        final double rawBottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
+        final double top = fitY + fitScale * rawTop;
+        final double bottom = fitY + fitScale * rawBottom;
+        if (bottom <= top) continue;
+
+        final double left = fitX + fitScale * (h.x1 > h.x0 ? h.x0 : 0.0);
+        final double right = fitX + fitScale * (h.x1 > h.x0 ? h.x1 : contentW);
+
+        computed.add(_HeaderGeometry(
+          rect: Rect.fromLTRB(left, top, right, bottom),
+          p1Top: Offset(left, top),
+          p2Top: Offset(right, top),
+          p1Bottom: Offset(left, bottom),
+          p2Bottom: Offset(right, bottom),
+        ));
+      }
+      list = computed;
+      _headerCache[page] = _PageHeaderGeometries(layout, list);
+    }
 
     final boxFillColor = isDark
         ? const Color(0xFF1E252D).withValues(alpha: 0.75)
@@ -49,20 +101,10 @@ class SurahHeaderPainter extends CustomPainter {
     _fillPaint.color = boxFillColor;
     _borderPaint.color = borderLineColor;
 
-    for (final h in headers) {
-      final double rawTop = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
-      final double rawBottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
-      final double top = fitY + fitScale * rawTop;
-      final double bottom = fitY + fitScale * rawBottom;
-      if (bottom <= top) continue;
-
-      final double left = fitX + fitScale * (h.x1 > h.x0 ? h.x0 : 0.0);
-      final double right = fitX + fitScale * (h.x1 > h.x0 ? h.x1 : contentW);
-
-      final rect = Rect.fromLTRB(left, top, right, bottom);
-      canvas.drawRect(rect, _fillPaint);
-      canvas.drawLine(Offset(left, top), Offset(right, top), _borderPaint);
-      canvas.drawLine(Offset(left, bottom), Offset(right, bottom), _borderPaint);
+    for (final g in list) {
+      canvas.drawRect(g.rect, _fillPaint);
+      canvas.drawLine(g.p1Top, g.p2Top, _borderPaint);
+      canvas.drawLine(g.p1Bottom, g.p2Bottom, _borderPaint);
     }
   }
 
@@ -91,6 +133,12 @@ class _CachedMarkGeometry {
   });
 }
 
+class _PageMarkGeometries {
+  final Object layout;
+  final List<_CachedMarkGeometry> marks;
+  const _PageMarkGeometries(this.layout, this.marks);
+}
+
 /// Minimalist vector circle around the Ayah numeral:
 /// - Idle: Subtle neutral ring with generous clearance from adjacent words.
 /// - Buffering: Gold spinning vector loader arc over a highlight-matched mask.
@@ -105,8 +153,8 @@ class AyahMarkPainter extends CustomPainter {
   final Color neutralRingColor;
   final Color ayahHighlightColor;
 
-  Object? _lastLayout;
-  List<_CachedMarkGeometry>? _cachedMarks;
+  static final Expando<_PageMarkGeometries> _marksCache =
+      Expando<_PageMarkGeometries>();
 
   AyahMarkPainter({
     required this.page,
@@ -193,15 +241,17 @@ class AyahMarkPainter extends CustomPainter {
     final layout = page.currentLayout;
     if (layout == null) return;
 
-    if (!identical(_lastLayout, layout) || _cachedMarks == null) {
+    final cached = _marksCache[page];
+    final List<_CachedMarkGeometry> cachedMarks;
+    if (cached != null && identical(cached.layout, layout)) {
+      cachedMarks = cached.marks;
+    } else {
       final marks = page.ayahMarks();
       if (marks.isEmpty) return;
-      _lastLayout = layout;
-      _cachedMarks = _computeGeometries(layout, marks);
+      cachedMarks = _computeGeometries(layout, marks);
+      _marksCache[page] = _PageMarkGeometries(layout, cachedMarks);
     }
-
-    final cachedMarks = _cachedMarks;
-    if (cachedMarks == null || cachedMarks.isEmpty) return;
+    if (cachedMarks.isEmpty) return;
 
     final int? audioSurah = app.activeAudioSurah.value;
     final int? audioAyah = app.activeAudioAyah.value;

@@ -57,7 +57,7 @@ class SettingsDialog extends StatelessWidget {
                 child: SafeArea(
                   top: false,
                   child: SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
+                    physics: const ClampingScrollPhysics(),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [

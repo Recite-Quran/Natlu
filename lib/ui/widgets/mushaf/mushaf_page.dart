@@ -65,6 +65,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   Map<int, int> _pageWordMap = {};
   int _lastIndexedPage = -1;
+  bool _reloadScheduled = false;
 
   void _ensurePageWordsIndexed(QvpPage page) {
     if (_lastIndexedPage == widget.pageNumber && _pageWordMap.isNotEmpty)
@@ -114,6 +115,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   Future<void> _loadPage() async {
     _isLoading = true;
     _hasError = false;
+    _reloadScheduled = false;
     final page = await MushafProvider.instance.getPage(widget.pageNumber);
     if (!mounted) return;
     setState(() {
@@ -219,7 +221,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     if (widget.pageNumber == curr ||
         (widget.pageNumber - curr).abs() <= 1 ||
         _lastActiveAyah != null) {
-      _requestSyncVisuals();
+      if (_page == null || _page!.isDisposed) {
+        _loadPage();
+      } else {
+        _requestSyncVisuals();
+      }
     }
   }
 
@@ -583,26 +589,39 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             });
           }
         } else {
-          // Standard full-page evaluation for local recitation / blur mode / theme changes
-          for (final w in page.words) {
-            final w0 = w.word - 1;
-            final color = MushafActions.resolveWordDisplayColor(
-              ayah: w.ayah,
-              wordIndex: w0,
-              controller: ctrl,
-              app: app,
-              colors: c,
-              surah: w.surah,
-              isBlurEffective: isBlurEffective,
-            );
-            if (color == Colors.transparent) {
-              hidden.add(w.index);
-            } else if (color == c.green) {
-              green.add(w.index);
-            } else if (color == c.warning) {
-              yellow.add(w.index);
-            } else if (color == c.red) {
-              red.add(w.index);
+          // Fast-path bypass for idle reading: if no recitation session is active or has occurred,
+          // and blur concealing is off, all words are guaranteed to be neutral text ink.
+          final bool hasAnyRecitationOrBlur = widget.isRecording ||
+              isBlurEffective ||
+              ctrl.globalRevision.value > 0 ||
+              _hasMasks ||
+              _lastGreenWords.isNotEmpty ||
+              _lastYellowWords.isNotEmpty ||
+              _lastRedWords.isNotEmpty ||
+              _lastHiddenWords.isNotEmpty;
+
+          if (hasAnyRecitationOrBlur) {
+            // Standard full-page evaluation for local recitation / blur mode / theme changes
+            for (final w in page.words) {
+              final w0 = w.word - 1;
+              final color = MushafActions.resolveWordDisplayColor(
+                ayah: w.ayah,
+                wordIndex: w0,
+                controller: ctrl,
+                app: app,
+                colors: c,
+                surah: w.surah,
+                isBlurEffective: isBlurEffective,
+              );
+              if (color == Colors.transparent) {
+                hidden.add(w.index);
+              } else if (color == c.green) {
+                green.add(w.index);
+              } else if (color == c.warning) {
+                yellow.add(w.index);
+              } else if (color == c.red) {
+                red.add(w.index);
+              }
             }
           }
         }
@@ -820,17 +839,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {
-      if (!_isLoading && !_hasError) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || _isLoading) return;
-          final current = AppState.instance.currentMushafPage.value;
-          // Guard: Only reload if this page is in the active reading viewport window
-          if ((widget.pageNumber - current).abs() <= 1) {
+      if (!_isLoading && !_hasError && !_reloadScheduled) {
+        final current = AppState.instance.currentMushafPage.value;
+        // Guard: Only schedule reload if this page is in the active reading viewport window
+        if ((widget.pageNumber - current).abs() <= 1) {
+          _reloadScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _reloadScheduled = false;
+            if (!mounted || _isLoading) return;
             if (_page == null || _page!.isDisposed) {
               _loadPage();
             }
-          }
-        });
+          });
+        }
       }
       return ColoredBox(
         color: c.surface,
@@ -869,11 +890,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         children: [
           if (hasSurahHeaders)
             IgnorePointer(
-              child: CustomPaint(
-                painter: SurahHeaderPainter(
-                  page: page,
-                  isDark: isDark,
-                  colors: c,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: SurahHeaderPainter(
+                    page: page,
+                    isDark: isDark,
+                    colors: c,
+                  ),
                 ),
               ),
             ),
@@ -898,18 +921,20 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onDecorationTap: (dec, _) => _onDecorationTap(dec),
           ),
           IgnorePointer(
-            child: CustomPaint(
-              painter: AyahMarkPainter(
-                page: page,
-                app: app,
-                spinnerAnimation: _spinnerController,
-                repaintListenable: _ayahMarkRepaintListenable,
-                surfaceColor: c.surface,
-                goldColor: c.gold,
-                neutralRingColor: neutralRingColor,
-                ayahHighlightColor: isDark
-                    ? Colors.white.withValues(alpha: 0.10)
-                    : const Color(0xFF64748B).withValues(alpha: 0.09),
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: AyahMarkPainter(
+                  page: page,
+                  app: app,
+                  spinnerAnimation: _spinnerController,
+                  repaintListenable: _ayahMarkRepaintListenable,
+                  surfaceColor: c.surface,
+                  goldColor: c.gold,
+                  neutralRingColor: neutralRingColor,
+                  ayahHighlightColor: isDark
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : const Color(0xFF64748B).withValues(alpha: 0.09),
+                ),
               ),
             ),
           ),
@@ -920,13 +945,15 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
                 return const SizedBox.shrink();
               }
               return IgnorePointer(
-                child: CustomPaint(
-                  painter: MushafTajweedTooltipPainter(
-                    page: page,
-                    controller: widget.controller,
-                    app: app,
-                    goldColor: c.gold,
-                    repaintListenable: _tajweedTooltipRepaintListenable,
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: MushafTajweedTooltipPainter(
+                      page: page,
+                      controller: widget.controller,
+                      app: app,
+                      goldColor: c.gold,
+                      repaintListenable: _tajweedTooltipRepaintListenable,
+                    ),
                   ),
                 ),
               );

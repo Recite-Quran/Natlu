@@ -484,14 +484,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       await _repo!.loadSurahAsync(initialSurah);
       _voiceSearchCtrl.repository = _repo;
 
-      if (!kIsWeb) {
-        _voiceSearchCtrl.preloadIndex(); // Fire-and-forget in background Isolate
-      } else {
-        // On Web, defer index load until after the initial UI has painted
-        Future.delayed(const Duration(seconds: 4), () {
-          _voiceSearchCtrl.preloadIndex();
-        });
-      }
+      // Voice search phonetic index is lazily loaded on first voice search tap,
+      // saving ~20MB RAM and preventing background isolate CPU churn during startup and silent reading.
       MushafView.preloadData(); // Fire-and-forget in background Isolate
 
       _ctrl = HighlightingController(

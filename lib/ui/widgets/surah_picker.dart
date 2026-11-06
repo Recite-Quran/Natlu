@@ -364,7 +364,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                       )
                     : ListView.builder(
                         controller: _scrollCtrl,
-                        physics: const BouncingScrollPhysics(
+                        physics: const ClampingScrollPhysics(
                           parent: AlwaysScrollableScrollPhysics(),
                         ),
                         padding: const EdgeInsets.only(bottom: 24, top: 4),
