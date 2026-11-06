@@ -253,7 +253,6 @@ class MaglisNetworkEngine {
 
     unawaited(MaglisConfigManager.syncRemoteConfig());
     await MaglisPlatform.initAudio();
-    await MaglisPlatform.setWakeLock(true);
 
     final hasAudioInput =
         await MaglisMediaHelper.preflightDesktopMediaDevices();
@@ -775,7 +774,5 @@ class MaglisNetworkEngine {
     await _statesCtrl.close();
     await _natFailCtrl.close();
     await _participantCountCtrl.close();
-
-    await MaglisPlatform.setWakeLock(false);
   }
 }

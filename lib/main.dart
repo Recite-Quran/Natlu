@@ -25,7 +25,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
 import 'package:recite_quran/recite_quran.dart';
@@ -167,40 +166,43 @@ class QuranApp extends StatelessWidget {
             fontFamily: 'cairo',
           ),
           builder: (context, child) {
-            if (!kIsWeb) return child!;
-            final media = MediaQuery.of(context);
-            final isWide = media.size.width > 480;
-            final constrainedWidth = isWide ? 480.0 : media.size.width;
+            Widget appWidget = child ?? const SizedBox.shrink();
+            if (kIsWeb) {
+              final media = MediaQuery.of(context);
+              final isWide = media.size.width > 480;
+              final constrainedWidth = isWide ? 480.0 : media.size.width;
 
-            return Scaffold(
-              backgroundColor: isDark ? Colors.black : const Color(0xFFE5E7EB),
-              body: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 480),
-                  child: Container(
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      color: c.bg,
-                      boxShadow: isWide
-                          ? [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.18),
-                                blurRadius: 25,
-                                spreadRadius: 5,
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: MediaQuery(
-                      data: media.copyWith(
-                        size: Size(constrainedWidth, media.size.height),
+              appWidget = Scaffold(
+                backgroundColor: isDark ? Colors.black : const Color(0xFFE5E7EB),
+                body: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: Container(
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: c.bg,
+                        boxShadow: isWide
+                            ? [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.18),
+                                  blurRadius: 25,
+                                  spreadRadius: 5,
+                                ),
+                              ]
+                            : null,
                       ),
-                      child: child ?? const SizedBox.shrink(),
+                      child: MediaQuery(
+                        data: media.copyWith(
+                          size: Size(constrainedWidth, media.size.height),
+                        ),
+                        child: appWidget,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            );
+              );
+            }
+            return appWidget;
           },
           home: const _Orchestrator(),
         );
@@ -351,7 +353,6 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   @override
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
       AppState.instance.stopVerseAudio();
@@ -455,11 +456,6 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       _ctrl!.activeAyah.addListener(_throttledBroadcastMaglisProgress);
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
-      if (!kIsWeb) {
-        try {
-          WakelockPlus.enable().catchError((_) {});
-        } catch (_) {}
-      }
 
       if (mounted) setState(() => _isInit = false);
 
@@ -592,7 +588,6 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         }
       }
     }
-    try { WakelockPlus.enable().catchError((_) {}); } catch (_) {}
   }
 
   /// Toggles recording on/off with hardware-safe locking.
@@ -633,7 +628,6 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           return;
         }
 
-        try { await WakelockPlus.enable().catchError((_) {}); } catch (_) {}
         AppState.instance.stopVerseAudio();
         _engine.resetBuffer();
 
@@ -930,7 +924,6 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       _voiceSearchAsrNotifier.value = '';
 
       await _voiceSearchCtrl.startSearch();
-      try { await WakelockPlus.enable().catchError((_) {}); } catch (_) {}
 
       _isVoiceSearchPaused = false;
       _audio

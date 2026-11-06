@@ -9,7 +9,6 @@ import 'package:cryptography/cryptography.dart' hide Hmac;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 enum MaglisPacketType {
   snapshot,
@@ -862,16 +861,6 @@ class MaglisPlatform {
           androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
         ),
       );
-    } catch (_) {}
-  }
-
-  static Future<void> setWakeLock(bool on) async {
-    try {
-      if (on) {
-        await WakelockPlus.enable().catchError((_) {});
-      } else {
-        await WakelockPlus.disable().catchError((_) {});
-      }
     } catch (_) {}
   }
 }

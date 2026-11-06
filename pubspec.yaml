@@ -23,7 +23,6 @@ dependencies:
   record: ^7.1.1
   shared_preferences: ^2.2.0
   super_sliver_list: ^0.4.1
-  wakelock_plus: ^1.6.1
   archive: ^4.0.0
   just_audio: ^0.10.6
   just_audio_media_kit: ^2.1.0

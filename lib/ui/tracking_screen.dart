@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'package:recite_quran/recite_quran.dart';
 import '../services/quran_timing_service.dart';
@@ -74,7 +73,6 @@ class _TrackingScreenState extends State<TrackingScreen>
   int? _lastAyah;
   int? _lastSurah;
   bool _wasAudioPlaying = false;
-  bool _isWakelockEnabled = false;
   bool _audioAyahPostFrameScheduled = false;
   late final Listenable _screenThemeLanguageListenable;
   late final Listenable _bottomBarListenable;
@@ -99,9 +97,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     ]);
     if (!kIsWeb) {
       WidgetsBinding.instance.addObserver(this);
-      try {
-        WakelockPlus.enable().catchError((_) {});
-      } catch (_) {}
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
     widget.controller.addListener(_onControllerUpdate);
@@ -130,16 +125,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
   }
 
-  void _syncScreenWakeLock() {
-    if (kIsWeb || _isWakelockEnabled) return;
-    try {
-      WakelockPlus.enable().catchError((_) {});
-      _isWakelockEnabled = true;
-    } catch (_) {}
-  }
-
   void _onActiveAudioAyahChanged() {
-    _syncScreenWakeLock();
     final isPlaying = AppState.instance.isAudioPlaying.value;
     final ayah = AppState.instance.activeAudioAyah.value;
     final int? audioSurah = AppState.instance.activeAudioSurah.value;
@@ -239,9 +225,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.stopVerseAudio();
     if (!kIsWeb) {
       WidgetsBinding.instance.removeObserver(this);
-      try {
-        WakelockPlus.disable().catchError((_) {});
-      } catch (_) {}
     }
     widget.controller.removeListener(_onControllerUpdate);
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
@@ -261,10 +244,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     super.didUpdateWidget(oldWidget);
     if (widget.controller != oldWidget.controller) {
       _surahNotifier.value = widget.controller.targetSurah;
-    }
-    if (widget.isRecording != oldWidget.isRecording ||
-        widget.isVoiceSearching != oldWidget.isVoiceSearching) {
-      _syncScreenWakeLock();
     }
     if (widget.isRecording && !oldWidget.isRecording) {
       AppState.instance.dismissBanner();
