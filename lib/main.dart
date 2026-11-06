@@ -220,6 +220,9 @@ class _Orchestrator extends StatefulWidget {
 }
 
 class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserver {
+  static const MethodChannel _lifecycleChannel =
+      MethodChannel('com.recitequran.app/audio_lifecycle');
+
   final SherpaEngine _engine = SherpaEngine();
   final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
@@ -238,6 +241,9 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   final ValueNotifier<String> _voiceSearchAsrNotifier = ValueNotifier('');
   String get _voiceSearchAsrText => _voiceSearchAsrNotifier.value;
   StreamSubscription? _transcriptionSub;
+  bool _isBackgrounded = false;
+  Timer? _maglisIdleTimer;
+  DateTime? _maglisSoloSince;
 
   // Timer logic removed, we now rely on Sherpa's VAD endpoint with 4s silence
 
@@ -248,6 +254,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
+    MaglisController.instance.sessionListenable
+        .addListener(_onMaglisSessionChangedForIdleTimer);
 
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
@@ -356,10 +364,28 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
       AppState.instance.stopVerseAudio();
+      _maglisIdleTimer?.cancel();
+      _maglisIdleTimer = null;
+      _maglisSoloSince = null;
       if (MaglisController.instance.inSession) {
         unawaited(MaglisController.instance.leaveSession());
       }
       return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      _isBackgrounded = false;
+      _maglisIdleTimer?.cancel();
+      _maglisIdleTimer = null;
+      if (_maglisSoloSince != null) {
+        final elapsed = DateTime.now().difference(_maglisSoloSince!);
+        if (elapsed >= const Duration(minutes: 10) &&
+            MaglisController.instance.inSession &&
+            MaglisController.instance.participantCount <= 1) {
+          unawaited(MaglisController.instance.leaveSession());
+        }
+        _maglisSoloSince = null;
+      }
     }
 
     // On Desktop (Windows, macOS, Linux) and Web, alt-tab, tab switching, and loss of focus
@@ -370,10 +396,12 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         defaultTargetPlatform == TargetPlatform.linux;
 
     if (!isDesktopOrWeb) {
-      // On mobile (Android / iOS), automatically leave room when the app is minimized into background
+      // Leave session when phone locks (screen timeout or power button), NOT when switching apps.
       if (state == AppLifecycleState.paused) {
+        _isBackgrounded = true;
         if (MaglisController.instance.inSession) {
-          unawaited(MaglisController.instance.leaveSession());
+          _leaveSessionIfLocked();
+          _onMaglisSessionChangedForIdleTimer();
         }
       }
     }
@@ -384,8 +412,43 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     }
   }
 
+  void _onMaglisSessionChangedForIdleTimer() {
+    if (!_isBackgrounded) return;
+    if (MaglisController.instance.participantCount > 1) {
+      // Someone joined while we are in background: cancel idle countdown!
+      _maglisIdleTimer?.cancel();
+      _maglisIdleTimer = null;
+      _maglisSoloSince = null;
+    } else if (MaglisController.instance.inSession && _maglisIdleTimer == null) {
+      // Alone in room while backgrounded: start fresh 10-minute countdown
+      _maglisSoloSince = DateTime.now();
+      _maglisIdleTimer = Timer(const Duration(minutes: 10), () {
+        if (_isBackgrounded &&
+            MaglisController.instance.inSession &&
+            MaglisController.instance.participantCount <= 1) {
+          unawaited(MaglisController.instance.leaveSession());
+        }
+      });
+    }
+  }
+
+  Future<void> _leaveSessionIfLocked() async {
+    try {
+      final isLocked =
+          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ?? false;
+      if (isLocked && MaglisController.instance.inSession) {
+        await MaglisController.instance.leaveSession();
+      }
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
+    MaglisController.instance.sessionListenable
+        .removeListener(_onMaglisSessionChangedForIdleTimer);
+    _maglisIdleTimer?.cancel();
+    _maglisIdleTimer = null;
+    _maglisSoloSince = null;
     if (MaglisController.instance.inSession) {
       unawaited(MaglisController.instance.leaveSession());
     }
