@@ -1,4 +1,4 @@
-// Main QVP engine loader and factory.
+// QvpEngine — the entry point: holds the backend, opens pages, atlases and ornament sets.
 import 'dart:typed_data';
 
 import 'atlas.dart';
@@ -10,7 +10,7 @@ import 'types.dart';
 export 'atlas.dart';
 export 'backend/qvp_backend.dart';
 export 'ornaments.dart';
-export 'page.dart';
+export 'page.dart' hide pageClock;
 export 'passage.dart';
 export 'types.dart';
 
@@ -20,7 +20,8 @@ export 'types.dart';
 /// Creates and manages pages, atlases, ornaments, and provides text tools.
 class QvpEngine {
   /// Opens with an existing backend or default native library.
-  QvpEngine([dynamic library]) : backend = createDefaultBackend(library: library) {
+  QvpEngine([dynamic library])
+    : backend = createDefaultBackend(library: library) {
     _initNames();
   }
 
@@ -79,7 +80,8 @@ class QvpEngine {
   int nameCount(int table) => backend.nameCount(table);
   String name(int table, int id) => backend.name(table, id);
   int nameId(int table, String s) => backend.nameId(table, s);
-  List<String> names(int table) => List.generate(nameCount(table), (i) => name(table, i), growable: false);
+  List<String> names(int table) =>
+      List.generate(nameCount(table), (i) => name(table, i), growable: false);
 
   String markName(int m) => backend.markName(m);
   String familyName(int f) => backend.familyName(f);
@@ -117,11 +119,39 @@ class QvpEngine {
     return QvpOrnaments.fromHandle(this, backend, handle, list);
   }
 
-  /// Scales [view] by [factor] about a focal point in viewport px.
-  QvpView viewZoomAbout(QvpView view, double focalX, double focalY, double factor, {double min = 0, double max = 0}) =>
-      backend.viewZoomAbout(view, focalX, focalY, factor, min: min, max: max);
+  /// [view] zoomed by [factor] about a point of the viewport, with the scale held between [min]
+  /// and [max]: the point under the fingers stays under them. A limit of 0 is the engine's own,
+  /// and a ceiling under the floor is the floor. A host hands this the view and the focal point
+  /// the pinch began on and the factor of the whole gesture.
+  QvpView viewZoomAbout(
+    QvpView view,
+    double focalX,
+    double focalY,
+    double factor, {
+    double min = 0,
+    double max = 0,
+  }) => backend.viewZoomAbout(view, focalX, focalY, factor, min: min, max: max);
+
+  /// [view] moved by a drag, in viewport px.
+  QvpView viewPan(QvpView view, double dx, double dy) =>
+      backend.viewPan(view, dx, dy);
+
+  /// [view] held against the viewport: an axis the content does not fill is centred, and on an
+  /// axis it overflows the content keeps the viewport covered. [QvpPage.dressClamp] is the same
+  /// over the content plus a dress's border.
+  QvpView viewClamp(
+    QvpView view,
+    double contentW,
+    double contentH,
+    double viewportW,
+    double viewportH,
+  ) => backend.viewClamp(view, contentW, contentH, viewportW, viewportH);
 
   /// Releases backend resources. Free pages and atlases first.
+  ///
+  /// The engine is closed after this. On a native build, any later call on the engine or on
+  /// a page, atlas, passage or ornament set it made throws `StateError('QvpEngine was
+  /// disposed')`, and freeing an object still works. A second `dispose` does nothing.
   void dispose() {
     if (_disposed) return;
     _disposed = true;

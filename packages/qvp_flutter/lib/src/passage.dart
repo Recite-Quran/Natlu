@@ -1,8 +1,15 @@
+// QvpPassage — the layout of a contiguous ayah range across pages.
 import 'engine.dart';
 
 /// A contiguous range of complete ayahs, or a surah's basmalah, ready to lay out at any width.
 class QvpPassage {
-  QvpPassage._(this.engine, this._backend, this._handle, this.ayahs, this.lineSpacing);
+  QvpPassage._(
+    this.engine,
+    this._backend,
+    this._handle,
+    this.ayahs,
+    this.lineSpacing,
+  );
 
   /// Loads ayahs [from] to [to] of [surah] from the pages that print them.
   factory QvpPassage.load(List<QvpPage> pages, int surah, int from, {int? to}) {
@@ -12,7 +19,12 @@ class QvpPassage {
     _checkU16(last, 'to');
     final engine = _engineOf(pages);
     final handles = [for (final p in pages) p.handle];
-    final (handle, ayahs, lineSpacing) = engine.backend.passageLoad(handles, surah, from, last);
+    final (handle, ayahs, lineSpacing) = engine.backend.passageLoad(
+      handles,
+      surah,
+      from,
+      last,
+    );
     return QvpPassage._(engine, engine.backend, handle, ayahs, lineSpacing);
   }
 
@@ -21,7 +33,10 @@ class QvpPassage {
     _checkU16(surah, 'surah');
     final engine = _engineOf(pages);
     final handles = [for (final p in pages) p.handle];
-    final (handle, ayahs, lineSpacing) = engine.backend.passageLoadBasmalah(handles, surah);
+    final (handle, ayahs, lineSpacing) = engine.backend.passageLoadBasmalah(
+      handles,
+      surah,
+    );
     return QvpPassage._(engine, engine.backend, handle, ayahs, lineSpacing);
   }
 
@@ -30,7 +45,13 @@ class QvpPassage {
   }
 
   static QvpEngine _engineOf(List<QvpPage> pages) {
-    if (pages.isEmpty) throw ArgumentError.value(pages, 'pages', 'a passage needs at least one page');
+    if (pages.isEmpty) {
+      throw ArgumentError.value(
+        pages,
+        'pages',
+        'a passage needs at least one page',
+      );
+    }
     for (final p in pages) {
       if (p.isDisposed) throw StateError('QvpPassage: a page was disposed');
     }
@@ -50,18 +71,18 @@ class QvpPassage {
   /// The last layout, if any.
   QvpPassageLayout? currentLayout;
 
-  PassageHandle get handle {
-    assert(_handle != null, 'QvpPassage used after close()');
-    return _handle!;
-  }
+  /// Throws a [StateError] once the passage is closed or disposed, in every build mode.
+  PassageHandle get handle =>
+      _handle ?? (throw StateError('QvpPassage is disposed'));
 
   bool get isDisposed => _handle == null;
 
-  /// Frees backend passage memory.
+  /// Frees backend passage memory. A second call does nothing.
   void close() {
-    if (_handle != null) {
-      _backend.passageFree(_handle!);
+    final h = _handle;
+    if (h != null) {
       _handle = null;
+      _backend.passageFree(h);
     }
   }
 

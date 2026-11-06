@@ -1,4 +1,4 @@
-// Loaded Quran page: geometry, layout, highlights, and styles.
+// QvpPage — one decoded page: geometry copied out once, everything else asked of the engine.
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -12,32 +12,30 @@ import 'engine.dart';
 /// live in the engine backend. Listeners are notified after every mutating call.
 class QvpPage extends ChangeNotifier {
   QvpPage.fromHandle(this.engine, this._backend, this._handle, QvpPageData data)
-      : width = data.width,
-        height = data.height,
-        lineSpacing = data.lineSpacing,
-        page = data.page,
-        nLines = data.nLines,
-        nAyahs = data.nAyahs,
-        nWords = data.nWords,
-        nPaths = data.nPaths,
-        nDecorations = data.nDecorations,
-        ops = data.ops,
-        pts = data.pts,
-        table = data.table,
-        words = data.words,
-        ayahs = data.ayahs,
-        lines = data.lines,
-        decorations = data.decorations;
+    : width = data.width,
+      height = data.height,
+      lineSpacing = data.lineSpacing,
+      page = data.page,
+      nLines = data.nLines,
+      nAyahs = data.nAyahs,
+      nWords = data.nWords,
+      nPaths = data.nPaths,
+      nDecorations = data.nDecorations,
+      ops = data.ops,
+      pts = data.pts,
+      table = data.table,
+      words = data.words,
+      ayahs = data.ayahs,
+      lines = data.lines,
+      decorations = data.decorations;
 
   final QvpEngine engine;
   final QvpBackend _backend;
   PageHandle? _handle;
 
-  /// Internal handle for passage / ornament dressing calls.
-  PageHandle get handle {
-    assert(_handle != null, 'QvpPage used after dispose()');
-    return _handle!;
-  }
+  /// Internal handle for passage / ornament dressing calls. Throws a [StateError] once the
+  /// page is disposed, in every build mode, so no call hands the engine a null handle.
+  PageHandle get handle => _handle ?? (throw StateError('QvpPage is disposed'));
 
   final double width;
   final double height;
@@ -79,7 +77,8 @@ class QvpPage extends ChangeNotifier {
   int _batchDepth = 0;
   bool _needsNotify = false;
 
-  /// Runs [fn] with notifications suppressed until complete, firing a single notification at the end.
+  /// Runs [fn] and notifies listeners once at the end, however many mutations it makes.
+  /// Nested calls notify when the outermost one returns.
   void batch(void Function() fn) {
     _batchDepth++;
     try {
@@ -95,6 +94,8 @@ class QvpPage extends ChangeNotifier {
 
   void _touch() {
     _cachedAyahMarks = null;
+    _cachedSurahHeaders = null;
+    _cachedSurahHeadersView = null;
     if (_batchDepth > 0) {
       _needsNotify = true;
       return;
@@ -112,7 +113,9 @@ class QvpPage extends ChangeNotifier {
     if (kept != null) return kept;
 
     final p = ui.Path();
-    p.fillType = pathEvenOdd(i) ? ui.PathFillType.evenOdd : ui.PathFillType.nonZero;
+    p.fillType = pathEvenOdd(i)
+        ? ui.PathFillType.evenOdd
+        : ui.PathFillType.nonZero;
     final t = table;
     decodeQvpPath(p, ops, t[i * 8], t[i * 8 + 1], pts, t[i * 8 + 2]);
     return all[i] = p;
@@ -120,21 +123,35 @@ class QvpPage extends ChangeNotifier {
 
   /// One [ui.Path] per engine path, in page units, with the fill rule the page records. Built
   /// from the copied geometry, so it works on a disposed page too.
-  List<ui.Path> buildPaths() => List<ui.Path>.generate(nPaths, path, growable: false);
+  List<ui.Path> buildPaths() =>
+      List<ui.Path>.generate(nPaths, path, growable: false);
 
-  /// Frees backend page memory. Geometry and info lists stay usable.
+  /// Clears lazy-decoded paths to free native SkPath memory once a picture is recorded.
+  void clearPaths() {
+    _lazyPaths = null;
+  }
+
+  /// Frees backend page memory. Geometry and info lists stay usable. A second call does
+  /// nothing.
   void free() {
     _cachedAyahMarks = null;
+    _cachedSurahHeaders = null;
+    _cachedSurahHeadersView = null;
     _lazyPaths = null;
-    if (_handle != null) {
-      _backend.pageFree(_handle!);
+    final h = _handle;
+    if (h != null) {
       _handle = null;
+      _backend.pageFree(h);
     }
   }
 
+  bool _disposed = false;
+
+  /// Frees the page and drops its listeners. A second call does nothing.
   @override
   void dispose() {
-    _lazyPaths = null;
+    if (_disposed) return;
+    _disposed = true;
     free();
     super.dispose();
   }
@@ -154,6 +171,7 @@ class QvpPage extends ChangeNotifier {
     final w = table[i * 8 + 5];
     return w == qvpNone ? -1 : w;
   }
+
   int pathLine(int i) => table[i * 8 + 6];
   int pathCategory(int i) => table[i * 8 + 7] & 0xff;
   int pathNthInWord(int i) => (table[i * 8 + 7] >> 8) & 0xff;
@@ -185,19 +203,27 @@ class QvpPage extends ChangeNotifier {
   /// Divisions (juz / hizb / nisf / rubuAlHizb) that start on this page.
   List<QvpDivision> divisions() => _backend.divisions(handle);
 
+  List<QvpSurahHeader>? _cachedSurahHeaders;
+  List<QvpSurahHeader>? _cachedSurahHeadersView;
+
   /// The surah headings, in page units.
-  List<QvpSurahHeader> surahHeaders() => _backend.surahHeaders(handle, view: false);
+  List<QvpSurahHeader> surahHeaders() {
+    if (_cachedSurahHeaders != null) return _cachedSurahHeaders!;
+    return _cachedSurahHeaders = _backend.surahHeaders(handle, view: false);
+  }
 
   /// The surah headings in viewport px through current layout.
-  List<QvpSurahHeader> surahHeadersView() => _backend.surahHeaders(handle, view: true);
+  List<QvpSurahHeader> surahHeadersView() {
+    if (_cachedSurahHeadersView != null) return _cachedSurahHeadersView!;
+    return _cachedSurahHeadersView = _backend.surahHeaders(handle, view: true);
+  }
 
   List<QvpAyahMark>? _cachedAyahMarks;
 
-  /// Ayah medallions on the page.
-  List<QvpAyahMark> ayahMarks() {
-    if (_cachedAyahMarks != null) return _cachedAyahMarks!;
-    return _cachedAyahMarks = _backend.ayahMarks(handle);
-  }
+  /// Ayah medallions on the page. Held until the next mutation, because a dressed page asks
+  /// for them on every frame.
+  List<QvpAyahMark> ayahMarks() =>
+      _cachedAyahMarks ??= _backend.ayahMarks(handle);
 
   /// Drawn hizb rosettes.
   List<QvpRosette> rosettes() => _backend.rosettes(handle);
@@ -225,12 +251,37 @@ class QvpPage extends ChangeNotifier {
   // ── Text & Search ──
 
   /// Text of a target (default: the page).
-  String text([Object target = 'page', Object form = 'rasmUthmani', String wordSep = ' ', String lineSep = '\n']) =>
-      _backend.text(handle, QvpTarget.of(target), QvpForm.of(form), wordSep, lineSep);
+  String text([
+    Object target = 'page',
+    Object form = 'rasmUthmani',
+    String wordSep = ' ',
+    String lineSep = '\n',
+  ]) => _backend.text(
+    handle,
+    QvpTarget.of(target),
+    QvpForm.of(form),
+    wordSep,
+    lineSep,
+  );
 
   /// Search this page. [mode]: 'includes' | 'exact' | 'prefix'.
-  List<QvpMatch> search(String query, {Object form = 'search', String mode = 'includes', bool normalize = true, bool looseMatch = true, int limit = 0}) {
-    final matches = _backend.search(handle, query, form: QvpForm.of(form), mode: mode, normalize: normalize, looseMatch: looseMatch, limit: limit);
+  List<QvpMatch> search(
+    String query, {
+    Object form = 'search',
+    String mode = 'includes',
+    bool normalize = true,
+    bool looseMatch = true,
+    int limit = 0,
+  }) {
+    final matches = _backend.search(
+      handle,
+      query,
+      form: QvpForm.of(form),
+      mode: mode,
+      normalize: normalize,
+      looseMatch: looseMatch,
+      limit: limit,
+    );
     return [
       for (final m in matches)
         QvpMatch(
@@ -239,7 +290,7 @@ class QvpPage extends ChangeNotifier {
           isLooseMatch: m.isLooseMatch,
           wordKey: wordKey(m.word),
           text: words[m.word].text,
-        )
+        ),
     ];
   }
 
@@ -264,19 +315,28 @@ class QvpPage extends ChangeNotifier {
 
   // ── Hit Testing ──
 
-  /// Exact outline hit, page units.
-  QvpHit? hitTestExact(double x, double y) => _enrichHit(_backend.hitTestExact(handle, x, y));
+  /// Exact hit, page units: the outline under the point, else the box of a word
+  /// or a decoration.
+  QvpHit? hitTestExact(double x, double y) =>
+      _enrichHit(_backend.hitTestExact(handle, x, y));
 
-  /// Exact outline hit, viewport px through current layout.
-  QvpHit? hitTestExactView(double viewX, double viewY) => _enrichHit(_backend.hitTestExactView(handle, viewX, viewY));
+  /// Exact hit, viewport px through current layout.
+  QvpHit? hitTestExactView(double viewX, double viewY) =>
+      _enrichHit(_backend.hitTestExactView(handle, viewX, viewY));
 
   /// Gap-aware hit test, page units.
-  QvpHit? hitTest(double x, double y, [QvpHitOptions opt = const QvpHitOptions()]) =>
-      _enrichHit(_backend.hitTest(handle, x, y, opt));
+  QvpHit? hitTest(
+    double x,
+    double y, [
+    QvpHitOptions opt = const QvpHitOptions(),
+  ]) => _enrichHit(_backend.hitTest(handle, x, y, opt));
 
   /// Gap-aware hit test, viewport px through current layout.
-  QvpHit? hitTestView(double viewX, double viewY, [QvpHitOptions opt = const QvpHitOptions()]) =>
-      _enrichHit(_backend.hitTestView(handle, viewX, viewY, opt));
+  QvpHit? hitTestView(
+    double viewX,
+    double viewY, [
+    QvpHitOptions opt = const QvpHitOptions(),
+  ]) => _enrichHit(_backend.hitTestView(handle, viewX, viewY, opt));
 
   QvpHit? _enrichHit(QvpHit? h) {
     if (h == null) return null;
@@ -294,7 +354,8 @@ class QvpPage extends ChangeNotifier {
   }
 
   List<QvpLineBand> lineBands() => _backend.lineBands(handle);
-  List<QvpHitArea> hitAreas([double gapBias = QvpDefaults.gapBias]) => _backend.hitAreas(handle, gapBias);
+  List<QvpHitArea> hitAreas([double gapBias = QvpDefaults.gapBias]) =>
+      _backend.hitAreas(handle, gapBias);
 
   // ── Layout ──
 
@@ -302,77 +363,158 @@ class QvpPage extends ChangeNotifier {
   QvpLayout layout(QvpLayoutSpec spec) {
     final l = _backend.layout(handle, spec);
     currentLayout = l;
+    _cachedSurahHeadersView = null;
     _touch();
     return l;
   }
 
   // ── The reader's zoom control ──
 
-  QvpZoomChange zoomPinch(QvpLayoutSpec spec, QvpZoom zoom, QvpView view, double factor, double focalX, double focalY) =>
-      _backend.zoomPinch(handle, spec, zoom, view, factor, focalX, focalY);
+  /// One frame of a pinch. [factor] is the distance between the fingers against the distance
+  /// when they went down — the whole gesture, not the step since the last frame — and [focal] is
+  /// the point between them, in viewport px. Pass the [QvpZoom] the gesture began on every
+  /// frame: measured against that, a slow pinch walks the steps one at a time.
+  QvpZoomChange zoomPinch(
+    QvpLayoutSpec spec,
+    QvpZoom zoom,
+    QvpView view,
+    double factor,
+    double focalX,
+    double focalY,
+  ) => _backend.zoomPinch(handle, spec, zoom, view, factor, focalX, focalY);
 
-  QvpZoomChange zoomToStep(QvpLayoutSpec spec, QvpZoom zoom, int step, QvpView view) =>
-      _backend.zoomToStep(handle, spec, zoom, step, view);
+  /// The control moved to a step directly: a size button, a double tap, a reset. Step 0 is the
+  /// printed page.
+  QvpZoomChange zoomToStep(
+    QvpLayoutSpec spec,
+    QvpZoom zoom,
+    int step,
+    QvpView view,
+  ) => _backend.zoomToStep(handle, spec, zoom, step, view);
 
+  /// The same control under another policy, keeping the size the reader is already at.
   QvpZoom zoomMode(QvpLayoutSpec spec, QvpZoom zoom, QvpZoomMode mode) =>
       _backend.zoomMode(handle, spec, zoom, mode);
 
+  /// The spec this control asks for: what to lay out, draw and hit-test with. The host's other
+  /// reflow knobs come back as it set them, on the printed page too, where the zoom is 0 and
+  /// they wait for the next pinch.
   QvpLayoutSpec zoomSpec(QvpLayoutSpec spec, QvpZoom zoom) =>
       _backend.zoomSpec(handle, spec, zoom);
 
+  /// The same control on this page: what a page turn keeps. A step carries as a step, because
+  /// every page's steps are its own; a free zoom carries as a size, held inside what this page
+  /// can reach.
   QvpZoom zoomCarried(QvpLayoutSpec spec, QvpZoom zoom) =>
       _backend.zoomCarried(handle, spec, zoom);
 
+  /// The reflow zoom one step of this page's control means. Step 0 is the printed page.
   double zoomAtStep(QvpLayoutSpec spec, int step) =>
       _backend.zoomAtStep(handle, spec, step);
 
-  Float32List zoomSteps(QvpLayoutSpec spec) =>
-      _backend.zoomSteps(handle, spec);
+  /// The zoom steps this page ships with, above the printed page.
+  Float32List zoomSteps(QvpLayoutSpec spec) => _backend.zoomSteps(handle, spec);
 
+  /// The largest reflow zoom whose rows still hold every word of this page.
   double reflowMaxZoom(QvpLayoutSpec spec) =>
       _backend.reflowMaxZoom(handle, spec);
 
+  /// Has the reader zoomed in, by either road: a magnified view or a reflowed page.
+  /// [fitScale] is [QvpLayout.fitScale]; 0 means the page is at its fitted size.
   bool isZoomed(QvpZoom zoom, QvpView view, [double fitScale = 0]) =>
       _backend.isZoomed(zoom, view, fitScale);
 
+  /// What a sideways drag means on the page in hand: pan it, or turn it.
   QvpSideways sidewaysDrag(QvpZoom zoom, QvpView view, [double fitScale = 0]) =>
       _backend.sidewaysDrag(handle, zoom, view, fitScale);
 
+  /// Everything the current layout draws, in drawing order. Each [QvpDraw] names a path and the
+  /// index of the placement to draw it under, from [layoutPlacements]. Omitted paths never
+  /// appear and a repeated one appears twice, so one loop draws any page, reflowed or not.
+  ///
+  /// [bandTop] and [bandBottom] cut it to a band of the page, in viewport px; leave them out for
+  /// the whole page.
   List<QvpDraw> layoutDrawList({double bandTop = 0, double bandBottom = 0}) =>
       _backend.layoutDrawList(handle, bandTop: bandTop, bandBottom: bandBottom);
 
-  List<QvpPlacement> layoutPlacements() =>
-      _backend.layoutPlacements(handle);
+  /// What a draw list's `placement` indexes: the groups, then the repeats.
+  List<QvpPlacement> layoutPlacements() => _backend.layoutPlacements(handle);
 
+  /// The layout the page already has, without computing one, or null when it has none. A zoom
+  /// call lays the page out again, so this is how a host reads what it must now draw.
   QvpLayout? readLayout() {
     final l = _backend.readLayout(handle);
-    if (l != null) currentLayout = l;
+    if (l != null) {
+      if (currentLayout != l) {
+        _cachedSurahHeadersView = null;
+      }
+      currentLayout = l;
+    }
     return l;
   }
 
+  /// The row a word landed on when the page reflowed, or null when it did not.
   int? layoutWordRow(int word) => _backend.layoutWordRow(handle, word);
+
+  /// The words of one reflowed row, in drawing order.
   Uint32List layoutRowWords(int row) => _backend.layoutRowWords(handle, row);
 
   ({int lines, double lineSpacing}) get grid => _backend.pageGrid(handle);
-  double layoutWastedFraction(QvpLayoutSpec spec) => _backend.layoutWastedFraction(handle, spec);
-  double layoutPrintedHeight(QvpLayoutSpec spec) => _backend.layoutPrintedHeight(handle, spec);
-  double layoutLineSpacingToFill(QvpLayoutSpec spec, [double max = 0]) => _backend.layoutLineSpacingToFill(handle, spec, max);
-  ({double x0, double y0, double x1, double y1}) wordBoundsView(int i) => _backend.wordBoundsView(handle, i);
+
+  /// The share of the padded viewport of [spec] left empty when the page is fitted to width.
+  double layoutWastedFraction(QvpLayoutSpec spec) =>
+      _backend.layoutWastedFraction(handle, spec);
+
+  /// The page's height laid out for [spec] at the printed pitch, in viewport px: `contentH`
+  /// before fill-height adds any leading, padding included. What a host asks before it sizes
+  /// the canvas.
+  double layoutPrintedHeight(QvpLayoutSpec spec) =>
+      _backend.layoutPrintedHeight(handle, spec);
+  double layoutLineSpacingToFill(QvpLayoutSpec spec, [double max = 0]) =>
+      _backend.layoutLineSpacingToFill(handle, spec, max);
+  ({double x0, double y0, double x1, double y1}) wordBoundsView(int i) =>
+      _backend.wordBoundsView(handle, i);
+
+  /// Where a point of the viewport lands in the laid-out page: how a host turns a touch into a
+  /// [hitTestView]. The inverse of `offset + scale·p`.
+  ({double x, double y}) viewToLayout(
+    QvpView view,
+    double viewX,
+    double viewY,
+  ) => _backend.viewToLayout(handle, view, viewX, viewY);
 
   // ── Styles ──
 
-  int style(QvpSelector sel, Object color, {int ms = 0, int layer = QvpLayer.base}) {
+  /// Adds a style rule → handle (0 = bad selector).
+  int style(
+    QvpSelector sel,
+    Object color, {
+    int ms = 0,
+    int layer = QvpLayer.base,
+  }) {
     final h = _backend.style(handle, sel, rgba(color), ms: ms, layer: layer);
     _touch();
     return h;
   }
 
-  int styleTarget(Object target, Object color, {int ms = 0, int layer = QvpLayer.base}) {
-    final h = _backend.styleTarget(handle, QvpTarget.of(target), rgba(color), ms: ms, layer: layer);
+  int styleTarget(
+    Object target,
+    Object color, {
+    int ms = 0,
+    int layer = QvpLayer.base,
+  }) {
+    final h = _backend.styleTarget(
+      handle,
+      QvpTarget.of(target),
+      rgba(color),
+      ms: ms,
+      layer: layer,
+    );
     _touch();
     return h;
   }
 
+  /// Removes a rule / theme / hide by handle → rules removed.
   int removeStyle(int styleHandle) {
     final n = _backend.removeStyle(handle, styleHandle);
     _touch();
@@ -385,6 +527,7 @@ class QvpPage extends ChangeNotifier {
     return n;
   }
 
+  /// Alpha-0 rule on the top layer → handle.
   int hide(QvpSelector sel) {
     final h = _backend.hide(handle, sel);
     _touch();
@@ -407,6 +550,7 @@ class QvpPage extends ChangeNotifier {
     _touch();
   }
 
+  /// Applies a whole theme under one handle.
   int theme(QvpTheme t) {
     final h = _backend.theme(handle, t);
     _touch();
@@ -417,21 +561,46 @@ class QvpPage extends ChangeNotifier {
 
   // ── Clock & Display list ──
 
-  bool tick(double nowMs) => _backend.tick(handle, nowMs);
+  /// Advances animations; true while something is still moving (keep drawing frames).
+  bool tick(double nowMs) {
+    final moving = _backend.tick(handle, nowMs);
+    // the tick that ends an animation puts the colours and bands at their end, so it counts too
+    if (moving || _clockMoving) _clock++;
+    _clockMoving = moving;
+    return moving;
+  }
+
+  /// Counts the ticks that moved a colour or a band, and the tick after them that settles the
+  /// last of it. Read through [pageClock].
+  int _clock = 0;
+  bool _clockMoving = false;
+
+  /// Full display list: one 0xRRGGBBAA per path (copy).
   Uint32List colors() => _backend.colors(handle, nPaths);
+
+  /// Paths whose colour differs from the default ink (mid-transition values included).
   List<QvpStyledPath> styledPaths() => _backend.styledPaths(handle);
   int colorOf(int path) => _backend.colorOf(handle, path);
 
   // ── Highlights ──
 
-  int highlight(Object target, [QvpHighlightStyle style = const QvpHighlightStyle()]) {
+  /// Highlights a target → handle.
+  int highlight(
+    Object target, [
+    QvpHighlightStyle style = const QvpHighlightStyle(),
+  ]) {
     final h = _backend.highlight(handle, QvpTarget.of(target), style);
     _touch();
     return h;
   }
 
+  /// Moves a highlight: the band slides, the ink fades.
   bool moveHighlight(int highlightHandle, Object target) {
-    final ok = _backend.moveHighlight(handle, highlightHandle, QvpTarget.of(target));
+    final ok = _backend.moveHighlight(
+      handle,
+      highlightHandle,
+      QvpTarget.of(target),
+    );
     _touch();
     return ok;
   }
@@ -442,6 +611,7 @@ class QvpPage extends ChangeNotifier {
     return ok;
   }
 
+  /// Fades out over the highlight's transition.
   bool removeHighlight(int highlightHandle) {
     final ok = _backend.removeHighlight(handle, highlightHandle);
     _touch();
@@ -454,10 +624,25 @@ class QvpPage extends ChangeNotifier {
   }
 
   List<int> highlightHandles() => _backend.highlightHandles(handle);
-  List<int> highlightWords(int highlightHandle) => _backend.highlightWords(handle, highlightHandle);
+  List<int> highlightWords(int highlightHandle) =>
+      _backend.highlightWords(handle, highlightHandle);
+
+  /// Animated band boxes in layout viewport px; draw each id as one nonzero path behind the ink.
   List<QvpBox> highlightBoxesView() => _backend.highlightBoxesView(handle);
-  List<QvpBox> wordBands(List<int> ws, {String height = 'lineSpacing', double padX = QvpDefaults.highlightPadX, double padY = QvpDefaults.highlightPadY}) =>
-      _backend.wordBands(handle, ws, inkHeight: height == 'ink', padX: padX, padY: padY);
+
+  /// Static band boxes for a word list (no highlight state involved).
+  List<QvpBox> wordBands(
+    List<int> ws, {
+    String height = 'lineSpacing',
+    double padX = QvpDefaults.highlightPadX,
+    double padY = QvpDefaults.highlightPadY,
+  }) => _backend.wordBands(
+    handle,
+    ws,
+    inkHeight: height == 'ink',
+    padX: padX,
+    padY: padY,
+  );
 
   // ── Selection ──
 
@@ -468,13 +653,17 @@ class QvpPage extends ChangeNotifier {
 
   void clearSelection() => select(-1, -1);
   List<int> selection() => _backend.selection(handle);
-  String selectionText([Object form = 'rasmUthmani', bool includeCitation = false]) =>
-      _backend.selectionText(handle, QvpForm.of(form), includeCitation);
+  String selectionText([
+    Object form = 'rasmUthmani',
+    bool includeCitation = false,
+  ]) => _backend.selectionText(handle, QvpForm.of(form), includeCitation);
 
   // ── Masks & memorisation ──
 
-  static int _maskMode(String m) => const {'hide': 0, 'block': 1, 'blur': 2}[m] ?? 0;
+  static int _maskMode(String m) =>
+      const {'hide': 0, 'block': 1, 'blur': 2}[m] ?? 0;
 
+  /// Masks a target. [mode]: 'hide' | 'block' | 'blur'.
   void mask(Object target, [String mode = 'hide']) {
     _backend.mask(handle, QvpTarget.of(target), _maskMode(mode));
     _touch();
@@ -485,7 +674,13 @@ class QvpPage extends ChangeNotifier {
     _touch();
   }
 
-  void maskOptions({Object blockColor = QvpDefaults.maskBlock, double padX = QvpDefaults.maskPad, double padY = QvpDefaults.maskPad, double radius = QvpDefaults.maskRadius, bool reverse = false}) {
+  void maskOptions({
+    Object blockColor = QvpDefaults.maskBlock,
+    double padX = QvpDefaults.maskPad,
+    double padY = QvpDefaults.maskPad,
+    double radius = QvpDefaults.maskRadius,
+    bool reverse = false,
+  }) {
     _backend.maskOptions(handle, rgba(blockColor), padX, padY, radius, reverse);
     _touch();
   }
@@ -531,22 +726,42 @@ class QvpPage extends ChangeNotifier {
 
   List<int> maskHidden() => _backend.maskHidden(handle);
   List<int> maskWords() => _backend.maskWords(handle);
+
+  /// Block / blur boxes in layout viewport px (drawn last).
   List<QvpBox> maskBoxesView() => _backend.maskBoxesView(handle);
 
   // ── Reveal ──
 
-  int revealStart({int lit = QvpDefaults.revealLit, bool byAyah = false, Object grey = QvpDefaults.revealGrey, Object ink = QvpDefaults.ink, bool ayahMarks = true, int ms = 0}) {
-    final n = _backend.revealStart(handle, lit: lit, byAyah: byAyah, grey: rgba(grey), ink: rgba(ink), ayahMarks: ayahMarks, ms: ms);
+  /// Greyed page with a lit window → steps.
+  int revealStart({
+    int lit = QvpDefaults.revealLit,
+    bool byAyah = false,
+    Object grey = QvpDefaults.revealGrey,
+    Object ink = QvpDefaults.ink,
+    bool ayahMarks = true,
+    int ms = 0,
+  }) {
+    final n = _backend.revealStart(
+      handle,
+      lit: lit,
+      byAyah: byAyah,
+      grey: rgba(grey),
+      ink: rgba(ink),
+      ayahMarks: ayahMarks,
+      ms: ms,
+    );
     _touch();
     return n;
   }
 
+  /// Lights the window at step [at] (-1 = nothing lit yet).
   bool revealGoto(int at) {
     final ok = _backend.revealGoto(handle, at);
     _touch();
     return ok;
   }
 
+  /// Current step, or null when no reveal is running.
   int? revealPosition() => _backend.revealPosition(handle);
   int revealStepCount() => _backend.revealStepCount(handle);
   int revealStepOf(int wordIndex) => _backend.revealStepOf(handle, wordIndex);
@@ -566,7 +781,14 @@ class QvpPage extends ChangeNotifier {
   List<QvpDressDraw>? _dressDraws;
   int _dressDrawsRevision = -1;
 
-  QvpDressInfo? dress(QvpOrnaments set, [QvpDressSpec spec = const QvpDressSpec()]) {
+  /// Puts other ornaments on the page, up to one per kind, and returns the readout. Returns
+  /// null when the engine refuses the spec: an index out of range, an ornament of another
+  /// kind, or nothing to dress. Replaces any previous dress. The printed rings and bands under
+  /// the new ornaments are hidden.
+  QvpDressInfo? dress(
+    QvpOrnaments set, [
+    QvpDressSpec spec = const QvpDressSpec(),
+  ]) {
     _dressDraws = null;
     final ok = _backend.dress(handle, set.handle, spec);
     _dressSpec = ok ? spec : null;
@@ -574,6 +796,7 @@ class QvpPage extends ChangeNotifier {
     return ok ? dressInfo() : null;
   }
 
+  /// Takes the ornaments off. The printed rings and bands come back.
   void undress() {
     _backend.undress(handle);
     _dressSpec = null;
@@ -581,15 +804,28 @@ class QvpPage extends ChangeNotifier {
     _touch();
   }
 
+  /// Holds [view] so a drag reaches the border of a dressed page and never goes past it. An
+  /// undressed page gets the plain clamp. The viewport is in the same px as the layout's.
   QvpView dressClamp(QvpView view, double viewportW, double viewportH) =>
       _backend.dressClamp(handle, view, viewportW, viewportH);
 
+  /// For a host that scrolls the page itself: the view that shows the dressed box at [scale],
+  /// centred across [viewportW] (at x = 0 when wider) with its top at 0, and the box's size at
+  /// that scale, which is the size to give the canvas. An undressed page gets its content
+  /// centred at the top and the content's size.
   QvpDressView dressView(double scale, double viewportW) =>
       _backend.dressView(handle, scale, viewportW);
 
+  /// The readout, or null when the page is not dressed.
   QvpDressInfo? dressInfo() => _backend.dressInfo(handle);
+
+  /// Counts up whenever the ornament layer is rebuilt: a new dress, or a layout. 0 when the
+  /// page is not dressed.
   int dressRevision() => dressInfo()?.revision ?? 0;
 
+  /// The ornament display list in page units. Paint it behind the page ink, each draw under
+  /// its [QvpDressDraw.placement] the way a page draw is placed. Kept until the revision
+  /// changes.
   List<QvpDressDraw> dressGeometry() {
     final rev = dressRevision();
     final kept = _dressDraws;
@@ -601,9 +837,33 @@ class QvpPage extends ChangeNotifier {
 
   // ── Crop ──
 
-  QvpCropBounds? cropBounds(Object target, {double pad = QvpDefaults.cropPad, bool keepAyahMarks = true}) =>
-      _backend.cropBounds(handle, QvpTarget.of(target), pad: pad, keepAyahMarks: keepAyahMarks);
+  QvpCropBounds? cropBounds(
+    Object target, {
+    double pad = QvpDefaults.cropPad,
+    bool keepAyahMarks = true,
+  }) => _backend.cropBounds(
+    handle,
+    QvpTarget.of(target),
+    pad: pad,
+    keepAyahMarks: keepAyahMarks,
+  );
 
-  String? cropSvg(Object target, {double pad = QvpDefaults.cropPad, bool keepAyahMarks = true, Object? background}) =>
-      _backend.cropSvg(handle, QvpTarget.of(target), pad: pad, keepAyahMarks: keepAyahMarks, background: background == null ? null : rgba(background));
+  /// Standalone SVG of a target (current colours), or null.
+  String? cropSvg(
+    Object target, {
+    double pad = QvpDefaults.cropPad,
+    bool keepAyahMarks = true,
+    Object? background,
+  }) => _backend.cropSvg(
+    handle,
+    QvpTarget.of(target),
+    pad: pad,
+    keepAyahMarks: keepAyahMarks,
+    background: background == null ? null : rgba(background),
+  );
 }
+
+/// How many ticks of [page] moved a colour or a band, the tick that settles them included.
+/// The page view keys what it read from the engine on it, so a tick from any caller reaches
+/// every view. The package does not export it.
+int pageClock(QvpPage page) => page._clock;

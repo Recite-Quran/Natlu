@@ -825,7 +825,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {
-      if (!_isLoading && !_hasError) _loadPage();
+      if (!_isLoading && !_hasError) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && (_page == null || _page!.isDisposed) && !_isLoading) {
+            _loadPage();
+          }
+        });
+      }
       return ColoredBox(
         color: c.surface,
         child: _hasError
@@ -862,12 +868,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         fit: StackFit.expand,
         children: [
           if (hasSurahHeaders)
-            IgnorePointer(
-              child: CustomPaint(
-                painter: SurahHeaderPainter(
-                  page: page,
-                  isDark: isDark,
-                  colors: c,
+            RepaintBoundary(
+              child: IgnorePointer(
+                child: CustomPaint(
+                  painter: SurahHeaderPainter(
+                    page: page,
+                    isDark: isDark,
+                    colors: c,
+                  ),
                 ),
               ),
             ),
@@ -888,22 +896,24 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             paper: null,
             paperShadow: false,
             defaultInk: c.text,
-            onWordTap: (wordIndex, _) => _onWordTap(context, page, wordIndex),
-            onDecorationTap: _onDecorationTap,
+            onWordTap: (word, _) => _onWordTap(context, page, word.index),
+            onDecorationTap: (dec, _) => _onDecorationTap(dec),
           ),
-          IgnorePointer(
-            child: CustomPaint(
-              painter: AyahMarkPainter(
-                page: page,
-                app: app,
-                spinnerAnimation: _spinnerController,
-                repaintListenable: _ayahMarkRepaintListenable,
-                surfaceColor: c.surface,
-                goldColor: c.gold,
-                neutralRingColor: neutralRingColor,
-                ayahHighlightColor: isDark
-                    ? Colors.white.withValues(alpha: 0.10)
-                    : const Color(0xFF64748B).withValues(alpha: 0.09),
+          RepaintBoundary(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: AyahMarkPainter(
+                  page: page,
+                  app: app,
+                  spinnerAnimation: _spinnerController,
+                  repaintListenable: _ayahMarkRepaintListenable,
+                  surfaceColor: c.surface,
+                  goldColor: c.gold,
+                  neutralRingColor: neutralRingColor,
+                  ayahHighlightColor: isDark
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : const Color(0xFF64748B).withValues(alpha: 0.09),
+                ),
               ),
             ),
           ),
@@ -913,14 +923,16 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               if (app.hasClickedTajweedWord || app.currentMode != AppMode.tajweed) {
                 return const SizedBox.shrink();
               }
-              return IgnorePointer(
-                child: CustomPaint(
-                  painter: MushafTajweedTooltipPainter(
-                    page: page,
-                    controller: widget.controller,
-                    app: app,
-                    goldColor: c.gold,
-                    repaintListenable: _tajweedTooltipRepaintListenable,
+              return RepaintBoundary(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: MushafTajweedTooltipPainter(
+                      page: page,
+                      controller: widget.controller,
+                      app: app,
+                      goldColor: c.gold,
+                      repaintListenable: _tajweedTooltipRepaintListenable,
+                    ),
                   ),
                 ),
               );

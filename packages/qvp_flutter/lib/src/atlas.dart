@@ -1,3 +1,4 @@
+// QvpAtlas — the cross-page index: surahs, divisions and the lookups over them.
 import 'engine.dart';
 
 /// Cross-page lookup (`atlas.qva`).
@@ -11,17 +12,18 @@ class QvpAtlas {
   /// Total number of pages indexed.
   final int pages;
 
-  AtlasHandle get handle {
-    assert(_handle != null, 'QvpAtlas used after dispose()');
-    return _handle!;
-  }
+  /// Throws a [StateError] once the atlas is disposed, in every build mode.
+  AtlasHandle get handle =>
+      _handle ?? (throw StateError('QvpAtlas is disposed'));
 
   bool get isDisposed => _handle == null;
 
+  /// Frees backend atlas memory. A second call does nothing.
   void free() {
-    if (_handle != null) {
-      _backend.atlasFree(_handle!);
+    final h = _handle;
+    if (h != null) {
       _handle = null;
+      _backend.atlasFree(h);
     }
   }
 
@@ -63,7 +65,9 @@ class QvpAtlas {
   /// Surahs matching a (partial, any-script) name.
   List<QvpAtlasSurah> searchSurahs(String text) {
     final ids = _backend.atlasSearchSurahs(handle, text);
-    return [for (final k in ids) surah(k)].whereType<QvpAtlasSurah>().toList(growable: false);
+    return [for (final k in ids) surah(k)]
+        .whereType<QvpAtlasSurah>()
+        .toList(growable: false);
   }
 
   /// Full atlas in JSON format.

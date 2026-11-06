@@ -1,5 +1,6 @@
-// Data types, records, and constants for the QVP Flutter package.
+// Plain data types of the Dart API: the structs the engine reads back, and the specs it takes.
 import 'dart:ui' show Color, Path, Rect;
+
 import 'package:flutter/foundation.dart';
 
 /// `QVP_NONE`: absent index.
@@ -9,60 +10,126 @@ const int qvpNone = 0xffffffff;
 
 /// `QVP_KIND_*`
 abstract final class QvpKind {
-  static const int body = 0, mark = 1, ayahNumber = 2, ayahMarkOrnament = 3, headerInk = 4, other = 255;
+  static const int body = 0,
+      mark = 1,
+      ayahNumber = 2,
+      ayahMarkOrnament = 3,
+      headerInk = 4,
+      other = 255;
 }
 
 /// `QVP_FAMILY_*`
 abstract final class QvpFamily {
-  static const int none = 0, diacritic = 1, tanwin = 2, dots = 3, waqf = 4, sifr = 5, sajdah = 6, readingSign = 7;
+  static const int none = 0,
+      diacritic = 1,
+      tanwin = 2,
+      dots = 3,
+      waqf = 4,
+      sifr = 5,
+      sajdah = 6,
+      readingSign = 7;
 }
 
 /// `QVP_CATEGORY_*`
 abstract final class QvpCategory {
-  static const int none = 0, harakah = 1, tanwin = 2, letterDot = 3, orthographic = 4, dabt = 5, waqf = 6, readingSign = 7, standalone = 8;
+  static const int none = 0,
+      harakah = 1,
+      tanwin = 2,
+      letterDot = 3,
+      orthographic = 4,
+      dabt = 5,
+      waqf = 6,
+      readingSign = 7,
+      standalone = 8;
 }
 
 /// `QVP_DECORATION_*`
 abstract final class QvpDecorationKind {
-  static const int ayahMark = 0, surahName = 1, basmalah = 2, divisionMark = 3, sajdahMark = 4;
+  static const int ayahMark = 0,
+      surahName = 1,
+      basmalah = 2,
+      divisionMark = 3,
+      sajdahMark = 4;
 }
 
 /// `QVP_FORM_*` — text forms. Strings 'rasmUthmani' | 'rasmImlai' | 'qpc' | 'rasm' | 'search' are accepted everywhere a form is.
 abstract final class QvpForm {
-  static const int rasmUthmani = 0, rasmImlai = 1, qpc = 2, rasm = 3, search = 4;
+  static const int rasmUthmani = 0,
+      rasmImlai = 1,
+      qpc = 2,
+      rasm = 3,
+      search = 4;
+
   /// Both the Dart spelling and the engine's own `rasm_uthmani` / `rasm_imlai` resolve.
   static const Map<String, int> byName = {
-    'rasmUthmani': 0, 'rasm_uthmani': 0,
-    'rasmImlai': 1, 'rasm_imlai': 1,
-    'qpc': 2, 'rasm': 3, 'search': 4,
+    'rasmUthmani': 0,
+    'rasm_uthmani': 0,
+    'rasmImlai': 1,
+    'rasm_imlai': 1,
+    'qpc': 2,
+    'rasm': 3,
+    'search': 4,
   };
   static int of(Object f) => f is int ? f : (byName[f as String] ?? 0);
 }
 
 /// `QVP_LAYER_*` — style layers (higher wins).
 abstract final class QvpLayer {
-  static const int base = 0, theme = 10, highlight = 50, selection = 60, top = 100;
+  static const int base = 0,
+      theme = 10,
+      highlight = 50,
+      selection = 60,
+      top = 100;
 }
 
 /// The defaults every wrapper shares (`QVP_DEFAULT_*` in qvp.h; the parity check compares them).
 /// Colours are 0xRRGGBBAA, lengths page units.
 abstract final class QvpDefaults {
-  static const int ink = 0x231f20ff, highlightInk = 0x1a73e8ff, highlightBand = 0xd6a3264d, selectionBand = 0x2d6fd640, maskBlock = 0xd9d4c8ff, revealGrey = 0xc9c4b8ff;
-  static const double highlightPadX = 1.2, highlightPadY = 0, highlightSeam = 0.25, gapBias = 0.6, tapDistance = 6, aspectSlack = 1.15, maskPad = 0.6, maskRadius = 0.8, cropPad = 2, ayahMarkScaleScan = 1.5;
+  static const int ink = 0x231f20ff,
+      highlightInk = 0x1a73e8ff,
+      highlightBand = 0xd6a3264d,
+      selectionBand = 0x2d6fd640,
+      maskBlock = 0xd9d4c8ff,
+      revealGrey = 0xc9c4b8ff;
+  static const double highlightPadX = 1.2,
+      highlightPadY = 0,
+      highlightSeam = 0.25,
+      selectionPadX = 0.6,
+      gapBias = 0.6,
+      tapDistance = 6,
+      aspectSlack = 1.15,
+      maskPad = 0.6,
+      maskRadius = 0.8,
+      cropPad = 2,
+      ayahMarkScaleScan = 1.5;
   static const int gridLines = 15, revealLit = 1;
+
   /// The reader's pinch and swipe: the engine's own limits, which every platform holds to.
   static const double minZoom = 0.5, maxZoom = 12, zoomedThreshold = 1.02;
-  static const double swipeAxisRatio = 1.5, swipeDistance = 40, swipeVelocity = 500;
+  static const double swipeAxisRatio = 1.5,
+      swipeDistance = 40,
+      swipeVelocity = 500;
   static const double zoomSnapHysteresis = 0.03, zoomQuantum = 0.01;
+
   /// How far a justified row's gaps may open, as a multiple of the usual air between two
   /// words: what a reflowed page and a passage stretch to unless the host says otherwise.
   static const double reflowMaxStretch = 2;
+
+  /// How far a reflowed row much shorter than its neighbours opens towards them, as a share
+  /// of the difference.
+  static const double reflowRelax = 0.5;
 }
 
 /// The engine's name tables (`QVP_NAMES_*`), loaded from the engine when a [QvpEngine] opens.
 /// No table lives in this package.
 abstract final class QvpNames {
-  static const int mark = 0, kind = 1, family = 2, category = 3, decoration = 4, division = 5, place = 6;
+  static const int mark = 0,
+      kind = 1,
+      family = 2,
+      category = 3,
+      decoration = 4,
+      division = 5,
+      place = 6;
   static final Map<int, List<String>> _tables = {};
 
   /// Every name of a table, index = id. Empty until a [QvpEngine] has opened.
@@ -82,7 +149,12 @@ abstract final class QvpNames {
 abstract final class QvpDiv {
   static const int juz = 0, hizb = 1, nisf = 2, rubuAlHizb = 3;
   static List<String> get names => QvpNames.of(QvpNames.division);
-  static int of(Object k) => k is int ? k : QvpNames.idOf(QvpNames.division, k == 'rubuAlHizb' ? 'rubu_al_hizb' : k);
+  static int of(Object k) => k is int
+      ? k
+      : QvpNames.idOf(
+          QvpNames.division,
+          k == 'rubuAlHizb' ? 'rubu_al_hizb' : k,
+        );
 }
 
 /// Mark ids ↔ names, from the engine. Index = id; 255 = unknown.
@@ -104,6 +176,10 @@ abstract final class QvpOp {
 
 // ───────────── colours ─────────────
 
+/// An alpha of 0..1 as 0..255, rounded to the nearest step; NaN and out-of-range values clamp first.
+int _alpha8(double alpha) =>
+    ((alpha.isNaN ? 0.0 : alpha.clamp(0.0, 1.0)) * 255).round();
+
 /// 0xRRGGBBAA from an int (passed through), a `#rgb` / `#rrggbb` / `#rrggbbaa` string, or a Flutter [Color].
 /// [alpha] (0..1) replaces the alpha of 6-digit strings and Colors.
 int rgba(Object c, [double? alpha]) {
@@ -112,21 +188,35 @@ int rgba(Object c, [double? alpha]) {
   var h = (c as String).trim();
   if (h.startsWith('#')) h = h.substring(1);
   if (h.length == 3 || h.length == 4) h = h.split('').map((x) => x + x).join();
-  if (h.length == 6) h += alpha != null ? (alpha * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0') : 'ff';
+  if (h.length == 6) {
+    h += alpha != null
+        ? _alpha8(alpha).toRadixString(16).padLeft(2, '0')
+        : 'ff';
+  }
   return int.parse(h, radix: 16) & 0xffffffff;
 }
 
 /// 0xRRGGBBAA ↔ Flutter [Color].
 abstract final class QvpColor {
-  static Color toColor(int rgba) => Color.fromARGB(rgba & 0xff, (rgba >> 24) & 0xff, (rgba >> 16) & 0xff, (rgba >> 8) & 0xff);
+  static Color toColor(int rgba) => Color.fromARGB(
+    rgba & 0xff,
+    (rgba >> 24) & 0xff,
+    (rgba >> 16) & 0xff,
+    (rgba >> 8) & 0xff,
+  );
   static int fromColor(Color c, [double? alpha]) {
-    final a = alpha != null ? (alpha * 255).round().clamp(0, 255) : (c.a * 255).round();
-    return (((c.r * 255).round() << 24) | ((c.g * 255).round() << 16) | ((c.b * 255).round() << 8) | a) & 0xffffffff;
+    final a = alpha != null ? _alpha8(alpha) : (c.a * 255).round();
+    return (((c.r * 255).round() << 24) |
+            ((c.g * 255).round() << 16) |
+            ((c.b * 255).round() << 8) |
+            a) &
+        0xffffffff;
   }
 
   /// CSS-style string `#rrggbbaa`.
   static String hex(int rgba) => '#${rgba.toRadixString(16).padLeft(8, '0')}';
-  static int withAlpha(int rgba, double alpha) => (rgba & 0xffffff00) | (alpha * 255).round().clamp(0, 255);
+  static int withAlpha(int rgba, double alpha) =>
+      (rgba & 0xffffff00) | _alpha8(alpha);
 }
 
 // ───────────── selectors & targets ─────────────
@@ -154,7 +244,8 @@ abstract final class Sel {
 
   /// nth mark of the word (0-based)
   static QvpSelector wordMark(int w, int n) => QvpSelector(3, w, n);
-  static QvpSelector wordMarkNamed(int w, Object mark, [int n = 0]) => QvpSelector(4, w, QvpMark.id(mark), n);
+  static QvpSelector wordMarkNamed(int w, Object mark, [int n = 0]) =>
+      QvpSelector(4, w, QvpMark.id(mark), n);
   static QvpSelector wordBody(int w) => QvpSelector(5, w);
   static QvpSelector wordMarks(int w) => QvpSelector(6, w);
   static QvpSelector word(int w) => QvpSelector(7, w);
@@ -173,7 +264,14 @@ abstract final class Sel {
 /// '2:255-257', 'line:7', 'surah:2'. A `List<int>` of word indices is a target too.
 @immutable
 final class QvpTarget {
-  const QvpTarget(this.target, {this.a = 0, this.b = 0, this.c = 0, this.words, this.wordKey});
+  const QvpTarget(
+    this.target, {
+    this.a = 0,
+    this.b = 0,
+    this.c = 0,
+    this.words,
+    this.wordKey,
+  });
   final int target, a, b, c;
   final List<int>? words;
 
@@ -189,15 +287,32 @@ final class QvpTarget {
   static QvpTarget parse(String s) {
     if (s == 'page') return T.page();
     RegExpMatch? m;
-    if ((m = RegExp(r'^line:(\d+)$').firstMatch(s)) != null) return T.line(int.parse(m!.group(1)!));
-    if ((m = RegExp(r'^surah:(\d+)$').firstMatch(s)) != null) return T.surah(int.parse(m!.group(1)!));
+    if ((m = RegExp(r'^line:(\d+)$').firstMatch(s)) != null) {
+      return T.line(int.parse(m!.group(1)!));
+    }
+    if ((m = RegExp(r'^surah:(\d+)$').firstMatch(s)) != null) {
+      return T.surah(int.parse(m!.group(1)!));
+    }
     if ((m = RegExp(r'^(\d+):(\d+)-(\d+)$').firstMatch(s)) != null) {
-      return T.ayahRange(int.parse(m!.group(1)!), int.parse(m.group(2)!), int.parse(m.group(3)!));
+      return T.ayahRange(
+        int.parse(m!.group(1)!),
+        int.parse(m.group(2)!),
+        int.parse(m.group(3)!),
+      );
     }
     if ((m = RegExp(r'^(\d+):(\d+):(\d+)$').firstMatch(s)) != null) {
-      return QvpTarget(1, wordKey: [int.parse(m!.group(1)!), int.parse(m.group(2)!), int.parse(m.group(3)!)]);
+      return QvpTarget(
+        1,
+        wordKey: [
+          int.parse(m!.group(1)!),
+          int.parse(m.group(2)!),
+          int.parse(m.group(3)!),
+        ],
+      );
     }
-    if ((m = RegExp(r'^(\d+):(\d+)$').firstMatch(s)) != null) return T.ayah(int.parse(m!.group(1)!), int.parse(m.group(2)!));
+    if ((m = RegExp(r'^(\d+):(\d+)$').firstMatch(s)) != null) {
+      return T.ayah(int.parse(m!.group(1)!), int.parse(m.group(2)!));
+    }
     throw ArgumentError('bad target $s');
   }
 
@@ -216,7 +331,8 @@ abstract final class T {
   static QvpTarget word(int i) => QvpTarget(1, a: i);
   static QvpTarget words(List<int> ws) => QvpTarget(2, words: ws);
   static QvpTarget ayah(int s, int a) => QvpTarget(3, a: s, b: a);
-  static QvpTarget ayahRange(int s, int a, int b) => QvpTarget(4, a: s, b: a, c: b);
+  static QvpTarget ayahRange(int s, int a, int b) =>
+      QvpTarget(4, a: s, b: a, c: b);
   static QvpTarget line(int n) => QvpTarget(5, a: n);
   static QvpTarget surah(int s) => QvpTarget(6, a: s);
   static QvpTarget range(int a, int b) => QvpTarget(7, a: a, b: b);
@@ -242,7 +358,15 @@ final class QvpWordInfo {
     required this.firstPath,
     required this.nPaths,
   });
-  final int index, surah, ayah, word, line, ayahIndex, lineIndex, firstPath, nPaths;
+  final int index,
+      surah,
+      ayah,
+      word,
+      line,
+      ayahIndex,
+      lineIndex,
+      firstPath,
+      nPaths;
   final double x0, y0, x1, y1;
 
   /// `rasm_uthmani`, the text of record (inline in the QVP file).
@@ -273,7 +397,15 @@ final class QvpAyahInfo {
     required this.x1,
     required this.y1,
   });
-  final int index, surah, ayah, fragment, fragments, flags, rubuAlHizb, firstWord, nWords;
+  final int index,
+      surah,
+      ayah,
+      fragment,
+      fragments,
+      flags,
+      rubuAlHizb,
+      firstWord,
+      nWords;
 
   /// Deco index of the ayah mark or [qvpNone].
   final int ayahMarkDecoration;
@@ -322,23 +454,37 @@ final class QvpDecorationInfo {
   final String text;
 }
 
-/// The one hit shape for every hit test (`QvpHit`); the exact variants report distance 0 and
-/// `isExact`. Indices are -1 when absent.
+/// The one hit shape for every hit test (`QvpHit`); the exact variants report distance 0.
+/// `isExact` is true only when the point is inside an outline. Indices are -1 when absent.
 @immutable
 final class QvpHit {
-  const QvpHit({required this.word, required this.path, required this.decoration, required this.line, required this.distance, required this.isExact, this.wordKey, this.ayahKey});
+  const QvpHit({
+    required this.word,
+    required this.path,
+    required this.decoration,
+    required this.line,
+    required this.distance,
+    required this.isExact,
+    this.wordKey,
+    this.ayahKey,
+  });
   final int word, path, decoration, line;
   final double distance;
   final bool isExact;
   final String? wordKey, ayahKey;
   @override
-  String toString() => 'QvpHit(word: $word, path: $path, decoration: $decoration, line: $line, distance: $distance, isExact: $isExact)';
+  String toString() =>
+      'QvpHit(word: $word, path: $path, decoration: $decoration, line: $line, distance: $distance, isExact: $isExact)';
 }
 
 /// Options of the gap-aware hit test.
 @immutable
 final class QvpHitOptions {
-  const QvpHitOptions({this.maxDistance = 0, this.gapBias = QvpDefaults.gapBias, this.preferExact = true});
+  const QvpHitOptions({
+    this.maxDistance = 0,
+    this.gapBias = QvpDefaults.gapBias,
+    this.preferExact = true,
+  });
 
   /// Page units; <= 0 unlimited.
   final double maxDistance;
@@ -349,21 +495,49 @@ final class QvpHitOptions {
 /// A band / mask box in layout viewport px (`QvpBox`).
 @immutable
 final class QvpBox {
-  const QvpBox({required this.id, required this.line, required this.x0, required this.y0, required this.x1, required this.y1, required this.color, required this.radius});
+  const QvpBox({
+    required this.id,
+    required this.line,
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+    required this.color,
+    required this.radius,
+  });
   final int id, line, color;
   final double x0, y0, x1, y1, radius;
 }
 
 @immutable
 final class QvpHitArea {
-  const QvpHitArea({required this.word, required this.line, required this.x0, required this.y0, required this.x1, required this.y1, required this.inkX0, required this.inkY0, required this.inkX1, required this.inkY1});
+  const QvpHitArea({
+    required this.word,
+    required this.line,
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+    required this.inkX0,
+    required this.inkY0,
+    required this.inkX1,
+    required this.inkY1,
+  });
   final int word, line;
   final double x0, y0, x1, y1, inkX0, inkY0, inkX1, inkY1;
 }
 
 @immutable
 final class QvpLineBand {
-  const QvpLineBand({required this.line, required this.lineNumber, required this.y0, required this.y1, required this.mid, required this.inkY0, required this.inkY1});
+  const QvpLineBand({
+    required this.line,
+    required this.lineNumber,
+    required this.y0,
+    required this.y1,
+    required this.mid,
+    required this.inkY0,
+    required this.inkY1,
+  });
   final int line, lineNumber;
   final double y0, y1, mid, inkY0, inkY1;
 }
@@ -383,30 +557,31 @@ final class QvpReflowSpec {
     this.gaps = 'uniform',
     this.wordGap = 1,
     this.maxStretch = QvpDefaults.reflowMaxStretch,
-    this.relax = 0.5,
+    this.relax = QvpDefaults.reflowRelax,
   });
 
   /// 1 or less is the printed page; [QvpPage.zoomSpec] hands back 0 there, as the C header
   /// does. The largest this page can reach is [QvpPage.reflowMaxZoom].
   final double zoom;
+
   /// `ragged` | `justified` | `centred`; `greedy` | `even` | `fitted` | `printed`; `printed` | `uniform`.
   final String fill, breaks, gaps;
   final double wordGap, maxStretch, relax;
 
   int get fillCode => switch (fill) {
-        'ragged' => 0,
-        'justified' => 1,
-        'centred' || 'centered' => 2,
-        _ => 255,
-      };
+    'ragged' => 0,
+    'justified' => 1,
+    'centred' || 'centered' => 2,
+    _ => 255,
+  };
 
   int get breaksCode => switch (breaks) {
-        'greedy' => 0,
-        'even' => 1,
-        'fitted' => 2,
-        'printed' => 3,
-        _ => 255,
-      };
+    'greedy' => 0,
+    'even' => 1,
+    'fitted' => 2,
+    'printed' => 3,
+    _ => 255,
+  };
 
   int get gapsCode => gaps == 'printed' ? 0 : 1;
 
@@ -418,16 +593,15 @@ final class QvpReflowSpec {
     double? wordGap,
     double? maxStretch,
     double? relax,
-  }) =>
-      QvpReflowSpec(
-        zoom: zoom ?? this.zoom,
-        fill: fill ?? this.fill,
-        breaks: breaks ?? this.breaks,
-        gaps: gaps ?? this.gaps,
-        wordGap: wordGap ?? this.wordGap,
-        maxStretch: maxStretch ?? this.maxStretch,
-        relax: relax ?? this.relax,
-      );
+  }) => QvpReflowSpec(
+    zoom: zoom ?? this.zoom,
+    fill: fill ?? this.fill,
+    breaks: breaks ?? this.breaks,
+    gaps: gaps ?? this.gaps,
+    wordGap: wordGap ?? this.wordGap,
+    maxStretch: maxStretch ?? this.maxStretch,
+    relax: relax ?? this.relax,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -441,7 +615,8 @@ final class QvpReflowSpec {
       other.relax == relax;
 
   @override
-  int get hashCode => Object.hash(zoom, fill, breaks, gaps, wordGap, maxStretch, relax);
+  int get hashCode =>
+      Object.hash(zoom, fill, breaks, gaps, wordGap, maxStretch, relax);
 }
 
 /// What a pinch does to the page.
@@ -461,7 +636,11 @@ enum QvpZoomMode {
 /// the default control, stepped and on the printed page.
 @immutable
 final class QvpZoom {
-  const QvpZoom({this.mode = QvpZoomMode.stepped, this.step = 0, this.zoom = 1});
+  const QvpZoom({
+    this.mode = QvpZoomMode.stepped,
+    this.step = 0,
+    this.zoom = 1,
+  });
 
   final QvpZoomMode mode;
 
@@ -472,7 +651,11 @@ final class QvpZoom {
   final double zoom;
 
   @override
-  bool operator ==(Object other) => other is QvpZoom && other.mode == mode && other.step == step && other.zoom == zoom;
+  bool operator ==(Object other) =>
+      other is QvpZoom &&
+      other.mode == mode &&
+      other.step == step &&
+      other.zoom == zoom;
 
   @override
   int get hashCode => Object.hash(mode, step, zoom);
@@ -486,7 +669,10 @@ final class QvpView {
 
   @override
   bool operator ==(Object other) =>
-      other is QvpView && other.scale == scale && other.offsetX == offsetX && other.offsetY == offsetY;
+      other is QvpView &&
+      other.scale == scale &&
+      other.offsetX == offsetX &&
+      other.offsetY == offsetY;
 
   @override
   int get hashCode => Object.hash(scale, offsetX, offsetY);
@@ -496,7 +682,11 @@ final class QvpView {
 /// laid out again under it.
 @immutable
 final class QvpZoomChange {
-  const QvpZoomChange({required this.zoom, required this.view, required this.relaid});
+  const QvpZoomChange({
+    required this.zoom,
+    required this.view,
+    required this.relaid,
+  });
   final QvpZoom zoom;
   final QvpView view;
   final bool relaid;
@@ -538,7 +728,13 @@ final class QvpLayoutSpec {
     this.bannerZoom = 0,
     this.surahFrames = true,
   });
-  final double viewportW, viewportH, padTop, padBottom, padLeft, padRight, lineSpacing;
+  final double viewportW,
+      viewportH,
+      padTop,
+      padBottom,
+      padLeft,
+      padRight,
+      lineSpacing;
 
   /// Reflow the page onto rows of the viewport's own width, or null for the printed page.
   /// The reader's zoom control writes this: see [QvpPage.zoomSpec].
@@ -588,24 +784,23 @@ final class QvpLayoutSpec {
     QvpReflowSpec? reflow,
     double? bannerZoom,
     bool? surahFrames,
-  }) =>
-      QvpLayoutSpec(
-        viewportW: viewportW ?? this.viewportW,
-        viewportH: viewportH ?? this.viewportH,
-        padTop: padTop ?? this.padTop,
-        padBottom: padBottom ?? this.padBottom,
-        padLeft: padLeft ?? this.padLeft,
-        padRight: padRight ?? this.padRight,
-        lineSpacing: lineSpacing ?? this.lineSpacing,
-        fillHeight: fillHeight ?? this.fillHeight,
-        gridLines: gridLines ?? this.gridLines,
-        cropLeft: cropLeft ?? this.cropLeft,
-        cropRight: cropRight ?? this.cropRight,
-        maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
-        reflow: reflow ?? this.reflow,
-        bannerZoom: bannerZoom ?? this.bannerZoom,
-        surahFrames: surahFrames ?? this.surahFrames,
-      );
+  }) => QvpLayoutSpec(
+    viewportW: viewportW ?? this.viewportW,
+    viewportH: viewportH ?? this.viewportH,
+    padTop: padTop ?? this.padTop,
+    padBottom: padBottom ?? this.padBottom,
+    padLeft: padLeft ?? this.padLeft,
+    padRight: padRight ?? this.padRight,
+    lineSpacing: lineSpacing ?? this.lineSpacing,
+    fillHeight: fillHeight ?? this.fillHeight,
+    gridLines: gridLines ?? this.gridLines,
+    cropLeft: cropLeft ?? this.cropLeft,
+    cropRight: cropRight ?? this.cropRight,
+    maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
+    reflow: reflow ?? this.reflow,
+    bannerZoom: bannerZoom ?? this.bannerZoom,
+    surahFrames: surahFrames ?? this.surahFrames,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -627,14 +822,43 @@ final class QvpLayoutSpec {
       other.surahFrames == surahFrames;
 
   @override
-  int get hashCode => Object.hash(viewportW, viewportH, padTop, padBottom, padLeft, padRight, lineSpacing, fillHeight, gridLines, cropLeft,
-      cropRight, maxAspectSlack, reflow, bannerZoom, surahFrames);
+  int get hashCode => Object.hash(
+    viewportW,
+    viewportH,
+    padTop,
+    padBottom,
+    padLeft,
+    padRight,
+    lineSpacing,
+    fillHeight,
+    gridLines,
+    cropLeft,
+    cropRight,
+    maxAspectSlack,
+    reflow,
+    bannerZoom,
+    surahFrames,
+  );
 }
 
 /// Output of [QvpPage.layout]. Page → viewport: `viewX = offsetX + x*scale`, `viewY = offsetY + (y + lineDy[line])*scale`.
 @immutable
 final class QvpLayout {
-  const QvpLayout({required this.scale, required this.offsetX, required this.offsetY, required this.contentW, required this.contentH, required this.lineSpacing, required this.lineDy, required this.slots, this.fitScale = 1, this.fitX = 0, this.fitY = 0, this.reflowed = false, this.rows = 0});
+  const QvpLayout({
+    required this.scale,
+    required this.offsetX,
+    required this.offsetY,
+    required this.contentW,
+    required this.contentH,
+    required this.lineSpacing,
+    required this.lineDy,
+    required this.slots,
+    this.fitScale = 1,
+    this.fitX = 0,
+    this.fitY = 0,
+    this.reflowed = false,
+    this.rows = 0,
+  });
   final double scale, offsetX, offsetY, contentW, contentH, lineSpacing;
 
   /// Whether the page was reflowed onto rows of the viewport's width, and how many rows it made.
@@ -679,10 +903,10 @@ final class QvpHighlightStyle {
   final int ms, layer;
 
   int get modeCode => switch (mode) {
-        'ink' => 0,
-        'both' => 2,
-        _ => 1,
-      };
+    'ink' => 0,
+    'both' => 2,
+    _ => 1,
+  };
 
   int get heightCode => height == 'ink' ? 1 : 0;
   int get inkRgba => rgba(ink);
@@ -692,7 +916,18 @@ final class QvpHighlightStyle {
 /// A theme: every colour is optional (0 / null = leave alone); `marks` maps mark name or id → colour.
 @immutable
 final class QvpTheme {
-  const QvpTheme({this.ink, this.diacritics, this.dots, this.waqf, this.sifr, this.ayahMark, this.numeral, this.headers, this.marks = const {}, this.ms = 0});
+  const QvpTheme({
+    this.ink,
+    this.diacritics,
+    this.dots,
+    this.waqf,
+    this.sifr,
+    this.ayahMark,
+    this.numeral,
+    this.headers,
+    this.marks = const {},
+    this.ms = 0,
+  });
   final Object? ink, diacritics, dots, waqf, sifr, ayahMark, numeral, headers;
   final Map<Object, Object> marks;
   final int ms;
@@ -700,7 +935,17 @@ final class QvpTheme {
 
 @immutable
 final class QvpSurah {
-  const QvpSurah({required this.number, required this.ayahCount, required this.hasBanner, required this.hasBasmalah, required this.place, required this.bannerDecoration, required this.arabic, required this.latin, required this.english});
+  const QvpSurah({
+    required this.number,
+    required this.ayahCount,
+    required this.hasBanner,
+    required this.hasBasmalah,
+    required this.place,
+    required this.bannerDecoration,
+    required this.arabic,
+    required this.latin,
+    required this.english,
+  });
   final int number, ayahCount, bannerDecoration;
   final bool hasBanner, hasBasmalah;
 
@@ -710,7 +955,14 @@ final class QvpSurah {
 
 @immutable
 final class QvpDivision {
-  const QvpDivision({required this.division, required this.line, required this.number, required this.surah, required this.ayah, required this.ayahIndex});
+  const QvpDivision({
+    required this.division,
+    required this.line,
+    required this.number,
+    required this.surah,
+    required this.ayah,
+    required this.ayahIndex,
+  });
 
   /// 'juz' | 'hizb' | 'nisf' | 'rubuAlHizb'
   final String division;
@@ -719,7 +971,19 @@ final class QvpDivision {
 
 @immutable
 final class QvpSurahHeader {
-  const QvpSurahHeader({required this.decoration, required this.surah, required this.line, required this.x0, required this.y0, required this.x1, required this.y1, required this.titleX0, required this.titleY0, required this.titleX1, required this.titleY1});
+  const QvpSurahHeader({
+    required this.decoration,
+    required this.surah,
+    required this.line,
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+    required this.titleX0,
+    required this.titleY0,
+    required this.titleX1,
+    required this.titleY1,
+  });
   final int decoration, surah, line;
 
   /// The box a frame fills: the page's text block wide, the heading's row tall.
@@ -731,20 +995,51 @@ final class QvpSurahHeader {
 
 @immutable
 final class QvpAyahMark {
-  const QvpAyahMark({required this.decoration, required this.surah, required this.ayah, required this.line, required this.cx, required this.cy, required this.r, required this.ornamentPath, required this.numeralPath});
+  const QvpAyahMark({
+    required this.decoration,
+    required this.surah,
+    required this.ayah,
+    required this.line,
+    required this.cx,
+    required this.cy,
+    required this.r,
+    required this.ornamentPath,
+    required this.numeralPath,
+  });
   final int decoration, surah, ayah, line, ornamentPath, numeralPath;
   final double cx, cy, r;
 }
 
 @immutable
 final class QvpRosette {
-  const QvpRosette({required this.decoration, required this.surah, required this.ayah, required this.juz, required this.hizb, required this.nisf, required this.rubuAlHizb, required this.rubuAlHizbInHizb});
-  final int decoration, surah, ayah, juz, hizb, nisf, rubuAlHizb, rubuAlHizbInHizb;
+  const QvpRosette({
+    required this.decoration,
+    required this.surah,
+    required this.ayah,
+    required this.juz,
+    required this.hizb,
+    required this.nisf,
+    required this.rubuAlHizb,
+    required this.rubuAlHizbInHizb,
+  });
+  final int decoration,
+      surah,
+      ayah,
+      juz,
+      hizb,
+      nisf,
+      rubuAlHizb,
+      rubuAlHizbInHizb;
 }
 
 @immutable
 final class QvpSajdah {
-  const QvpSajdah({required this.decoration, required this.surah, required this.ayah, required this.signPath});
+  const QvpSajdah({
+    required this.decoration,
+    required this.surah,
+    required this.ayah,
+    required this.signPath,
+  });
   final int decoration, surah, ayah, signPath;
 }
 
@@ -764,21 +1059,41 @@ final class QvpMatch {
 
 @immutable
 final class QvpCropBounds {
-  const QvpCropBounds({required this.x0, required this.y0, required this.x1, required this.y1, required this.nWords, required this.ayahMarkDecoration});
+  const QvpCropBounds({
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+    required this.nWords,
+    required this.ayahMarkDecoration,
+  });
   final double x0, y0, x1, y1;
   final int nWords, ayahMarkDecoration;
 }
 
 @immutable
 final class QvpAtlasSurah {
-  const QvpAtlasSurah({required this.number, required this.page, required this.ayahCount, required this.place, required this.arabic, required this.latin, required this.english});
+  const QvpAtlasSurah({
+    required this.number,
+    required this.page,
+    required this.ayahCount,
+    required this.place,
+    required this.arabic,
+    required this.latin,
+    required this.english,
+  });
   final int number, page, ayahCount;
   final String place, arabic, latin, english;
 }
 
 @immutable
 final class QvpAtlasRubuAlHizb {
-  const QvpAtlasRubuAlHizb({required this.rubuAlHizb, required this.surah, required this.ayah, required this.page});
+  const QvpAtlasRubuAlHizb({
+    required this.rubuAlHizb,
+    required this.surah,
+    required this.ayah,
+    required this.page,
+  });
   final int rubuAlHizb, surah, ayah, page;
   String get ayahKey => '$surah:$ayah';
 }
@@ -812,7 +1127,12 @@ enum QvpLineage {
 /// What an ornament may be redistributed under. Read it before you publish a page wearing it.
 @immutable
 final class QvpOrnamentLicence {
-  const QvpOrnamentLicence({required this.id, required this.status, required this.redistributable, required this.attribution});
+  const QvpOrnamentLicence({
+    required this.id,
+    required this.status,
+    required this.redistributable,
+    required this.attribution,
+  });
 
   /// An SPDX id, or empty when the source does not state one.
   final String id;
@@ -827,7 +1147,12 @@ final class QvpOrnamentLicence {
 /// leaves open (its slot).
 @immutable
 final class QvpOrnamentPart {
-  const QvpOrnamentPart({required this.index, required this.color, required this.stroke, required this.name});
+  const QvpOrnamentPart({
+    required this.index,
+    required this.color,
+    required this.stroke,
+    required this.name,
+  });
   final int index;
 
   /// 0xRRGGBBAA.
@@ -873,20 +1198,28 @@ final class QvpOrnament {
 /// A style of a [QvpOrnaments] set, with the ornament it has of each kind or null.
 @immutable
 final class QvpOrnamentStyle {
-  const QvpOrnamentStyle({required this.style, required this.riwayah, required this.lineage, this.ayahMark, this.surahHeader, this.pageFrame});
+  const QvpOrnamentStyle({
+    required this.style,
+    required this.riwayah,
+    required this.lineage,
+    this.ayahMark,
+    this.surahHeader,
+    this.pageFrame,
+  });
   final String style, riwayah;
   final QvpLineage lineage;
   final QvpOrnament? ayahMark, surahHeader, pageFrame;
 
   /// The ornament of [kind], or null.
   QvpOrnament? of(QvpOrnamentKind kind) => switch (kind) {
-        QvpOrnamentKind.ayahMark => ayahMark,
-        QvpOrnamentKind.surahHeader => surahHeader,
-        QvpOrnamentKind.pageFrame => pageFrame,
-      };
+    QvpOrnamentKind.ayahMark => ayahMark,
+    QvpOrnamentKind.surahHeader => surahHeader,
+    QvpOrnamentKind.pageFrame => pageFrame,
+  };
 
   /// True when the style has all three kinds, so it can dress a page on its own.
-  bool get isComplete => ayahMark != null && surahHeader != null && pageFrame != null;
+  bool get isComplete =>
+      ayahMark != null && surahHeader != null && pageFrame != null;
 }
 
 /// What [QvpPage.dress] puts on the page. [style] names a mushaf and takes its medallion,
@@ -946,19 +1279,18 @@ final class QvpDressSpec {
     double? pageFrameScale,
     Set<QvpOrnamentKind>? lineArt,
     List<(Object, int, Object)>? colors,
-  }) =>
-      QvpDressSpec(
-        style: style,
-        ayahMark: identical(ayahMark, _keep) ? this.ayahMark : ayahMark,
-        surahHeader: identical(surahHeader, _keep) ? this.surahHeader : surahHeader,
-        pageFrame: identical(pageFrame, _keep) ? this.pageFrame : pageFrame,
-        gap: gap ?? this.gap,
-        bandGap: bandGap ?? this.bandGap,
-        ayahMarkScale: ayahMarkScale ?? this.ayahMarkScale,
-        pageFrameScale: pageFrameScale ?? this.pageFrameScale,
-        lineArt: lineArt ?? this.lineArt,
-        colors: colors ?? this.colors,
-      );
+  }) => QvpDressSpec(
+    style: style,
+    ayahMark: identical(ayahMark, _keep) ? this.ayahMark : ayahMark,
+    surahHeader: identical(surahHeader, _keep) ? this.surahHeader : surahHeader,
+    pageFrame: identical(pageFrame, _keep) ? this.pageFrame : pageFrame,
+    gap: gap ?? this.gap,
+    bandGap: bandGap ?? this.bandGap,
+    ayahMarkScale: ayahMarkScale ?? this.ayahMarkScale,
+    pageFrameScale: pageFrameScale ?? this.pageFrameScale,
+    lineArt: lineArt ?? this.lineArt,
+    colors: colors ?? this.colors,
+  );
 
   int get lineArtBits => lineArt.fold(0, (acc, k) => acc | (1 << k.index));
 
@@ -1011,7 +1343,11 @@ final class QvpDressInfo {
 /// [QvpPage.dressView]: the view for a host that scrolls the page, and the dressed box's size.
 @immutable
 final class QvpDressView {
-  const QvpDressView({required this.view, required this.width, required this.height});
+  const QvpDressView({
+    required this.view,
+    required this.width,
+    required this.height,
+  });
 
   /// Shows the dressed box with its top at 0, centred across the viewport.
   final QvpView view;
@@ -1023,7 +1359,16 @@ final class QvpDressView {
 /// One entry of the ornament display list, in page units. Paint it behind the page ink.
 @immutable
 final class QvpDressDraw {
-  const QvpDressDraw({required this.path, required this.color, required this.kind, required this.evenOdd, required this.stroke, required this.strokeWidth, required this.part, required this.placement});
+  const QvpDressDraw({
+    required this.path,
+    required this.color,
+    required this.kind,
+    required this.evenOdd,
+    required this.stroke,
+    required this.strokeWidth,
+    required this.part,
+    required this.placement,
+  });
 
   /// The outline, with the fill rule already set.
   final Path path;
@@ -1103,13 +1448,27 @@ final class QvpPassageSpec {
       other.maxStretch == maxStretch;
 
   @override
-  int get hashCode => Object.hash(width, scale, lineSpacing, padding, align, maxRows, keepAyahMark, ellipsisWidth, maxStretch);
+  int get hashCode => Object.hash(
+    width,
+    scale,
+    lineSpacing,
+    padding,
+    align,
+    maxRows,
+    keepAyahMark,
+    ellipsisWidth,
+    maxStretch,
+  );
 }
 
 /// One ayah of a passage, with its text from the page's own word records.
 @immutable
 final class QvpPassageText {
-  const QvpPassageText({required this.surah, required this.ayah, required this.text});
+  const QvpPassageText({
+    required this.surah,
+    required this.ayah,
+    required this.text,
+  });
   final int surah, ayah;
   final String text;
 
@@ -1121,7 +1480,13 @@ final class QvpPassageText {
 /// words sit on.
 @immutable
 final class QvpPassageRow {
-  const QvpPassageRow({required this.x0, required this.y0, required this.x1, required this.y1, required this.baseline});
+  const QvpPassageRow({
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+    required this.baseline,
+  });
   final double x0, y0, x1, y1, baseline;
 }
 
@@ -1154,7 +1519,14 @@ final class QvpPassageWord {
 /// The bounds of one ayah that a layout shows, in layout px.
 @immutable
 final class QvpPassageAyah {
-  const QvpPassageAyah({required this.surah, required this.ayah, required this.x0, required this.y0, required this.x1, required this.y1});
+  const QvpPassageAyah({
+    required this.surah,
+    required this.ayah,
+    required this.x0,
+    required this.y0,
+    required this.x1,
+    required this.y1,
+  });
   final int surah, ayah;
   final double x0, y0, x1, y1;
 }
@@ -1195,7 +1567,14 @@ final class QvpPassageLayout {
 }
 
 /// Decodes QVP curve opcodes into [path]. Shared by page path caching and dress geometry.
-void decodeQvpPath(Path path, Uint8List ops, int opStart, int opCount, Float32List pts, int ptStart) {
+void decodeQvpPath(
+  Path path,
+  Uint8List ops,
+  int opStart,
+  int opCount,
+  Float32List pts,
+  int ptStart,
+) {
   var o = opStart;
   final oe = opStart + opCount;
   var k = ptStart;
@@ -1211,12 +1590,17 @@ void decodeQvpPath(Path path, Uint8List ops, int opStart, int opCount, Float32Li
         path.quadraticBezierTo(pts[k], pts[k + 1], pts[k + 2], pts[k + 3]);
         k += 4;
       case QvpOp.cubicTo:
-        path.cubicTo(pts[k], pts[k + 1], pts[k + 2], pts[k + 3], pts[k + 4], pts[k + 5]);
+        path.cubicTo(
+          pts[k],
+          pts[k + 1],
+          pts[k + 2],
+          pts[k + 3],
+          pts[k + 4],
+          pts[k + 5],
+        );
         k += 6;
       case QvpOp.close:
         path.close();
     }
   }
 }
-
-

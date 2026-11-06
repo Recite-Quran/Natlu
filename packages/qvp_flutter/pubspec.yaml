@@ -1,6 +1,6 @@
 name: qvp_flutter
 description: "Flutter wrapper for the QVP vector mushaf engine (dart:ffi over libqvp_ffi)."
-version: 0.7.0
+version: 0.8.0
 homepage: https://quran.ws/blocks/quran-engine
 repository: https://github.com/quran-ws/quran-engine/tree/main/packages/flutter/qvp_flutter
 issue_tracker: https://github.com/quran-ws/quran-engine/issues
@@ -20,6 +20,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Exact: a newer ffigen may write a different file, and the bindings check would fail.
+  ffigen: 23.0.0
 
 flutter:
   plugin:
@@ -37,6 +39,8 @@ flutter:
       web:
         pluginClass: QvpFlutterWeb
         fileName: src/web/qvp_flutter_web.dart
+  # Directories, not files: Flutter accepts a declared directory whose files are absent, so
+  # a native build of a git or path dependency succeeds without the web engine.
   assets:
-    - assets/wasm/qvp_ffi.wasm
-    - assets/js/qvp.js
+    - assets/wasm/
+    - assets/js/

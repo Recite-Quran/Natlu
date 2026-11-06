@@ -1,9 +1,10 @@
+// QvpOrnaments — a loaded ornament set, and the dress it puts on a page.
 import 'engine.dart';
 
 /// The ornaments of other mushafs and fonts, from `ornaments.qvo`.
 class QvpOrnaments {
   QvpOrnaments.fromHandle(this.engine, this._backend, this._handle, this.list)
-      : count = list.length;
+    : count = list.length;
 
   final QvpEngine engine;
   final QvpBackend _backend;
@@ -15,17 +16,19 @@ class QvpOrnaments {
   /// Every ornament of the set, in order.
   final List<QvpOrnament> list;
 
-  OrnamentsHandle get handle {
-    assert(_handle != null, 'QvpOrnaments used after dispose()');
-    return _handle!;
-  }
+  /// Throws a [StateError] once the set is disposed, in every build mode.
+  OrnamentsHandle get handle =>
+      _handle ?? (throw StateError('QvpOrnaments is disposed'));
 
   bool get isDisposed => _handle == null;
 
+  /// Frees backend set memory. A second call does nothing. A page dressed from the set
+  /// keeps its dress.
   void free() {
-    if (_handle != null) {
-      _backend.ornamentsFree(_handle!);
+    final h = _handle;
+    if (h != null) {
       _handle = null;
+      _backend.ornamentsFree(h);
     }
   }
 
@@ -38,8 +41,10 @@ class QvpOrnaments {
   }
 
   /// The ornaments of one kind.
-  List<QvpOrnament> ofKind(QvpOrnamentKind kind) =>
-      [for (final o in list) if (o.kind == kind) o];
+  List<QvpOrnament> ofKind(QvpOrnamentKind kind) => [
+    for (final o in list)
+      if (o.kind == kind) o,
+  ];
 
   /// Every style in the set, with the ornament it has of each kind.
   List<QvpOrnamentStyle> styles() {

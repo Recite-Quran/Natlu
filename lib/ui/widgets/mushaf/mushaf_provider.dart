@@ -51,7 +51,7 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
-  static const int _maxCachedPages = 32;
+  static const int _maxCachedPages = 8;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
@@ -80,6 +80,7 @@ class MushafProvider {
             fillHeight: true,
             surahFrames: false,
           ).toSpec(size.width, size.height));
+          QvpPageView.prepare(page, surahFrames: false);
         }
       }());
     }
@@ -290,8 +291,8 @@ class MushafProvider {
           int maxDistance = -1;
           for (final k in _pageCache.keys) {
             final distance = (k - currentPage).abs();
-            // Protect pages within the active reading window (±8 pages)
-            if (currentPage > 0 && distance <= 8) continue;
+            // Protect pages within the active reading window (±2 pages)
+            if (currentPage > 0 && distance <= 2) continue;
             if (distance > maxDistance) {
               maxDistance = distance;
               evictKey = k;
@@ -312,6 +313,7 @@ class MushafProvider {
           if (evictKey != null) {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
+            QvpPageView.evictPage(evictKey);
           }
         }
         _pageCache[pageNumber] = page;

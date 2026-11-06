@@ -13,7 +13,7 @@ export 'src/atlas.dart';
 export 'src/backend/qvp_backend.dart';
 export 'src/engine.dart';
 export 'src/ornaments.dart';
-export 'src/page.dart';
+export 'src/page.dart' hide pageClock;
 export 'src/page_view.dart';
 export 'src/passage.dart';
 export 'src/types.dart';
