@@ -10,7 +10,8 @@ import '../dialogs/error_detail_dialog.dart';
 
 /// Core interactive actions for the Mushaf vector layout.
 abstract final class MushafActions {
-  static final List<String> _arabicDigitsCache = List<String>.generate(650, (i) {
+  static final List<String> _arabicDigitsCache =
+      List<String>.generate(650, (i) {
     const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
     return i.toString().split('').map((e) => digits[int.parse(e)]).join('');
   });
@@ -21,7 +22,11 @@ abstract final class MushafActions {
       return _arabicDigitsCache[number];
     }
     const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return number.toString().split('').map((e) => digits[int.parse(e)]).join('');
+    return number
+        .toString()
+        .split('')
+        .map((e) => digits[int.parse(e)])
+        .join('');
   }
 
   /// Handles selecting/tapping an Ayah: haptic feedback, manual selection, and persisting last position.
@@ -60,7 +65,6 @@ abstract final class MushafActions {
     bool playWordDirectly = false,
     List<ReciterError>? overrideErrors,
   }) {
-
     final bool isAlreadySelected =
         controller.targetSurah == surah && controller.activeAyah.value == ayah;
 
@@ -136,43 +140,7 @@ abstract final class MushafActions {
     }
   }
 
-  /// Resolves the foreground color for word at index [wordIndex].
-  static Color resolveWordColor({
-    required int ayah,
-    required int wordIndex,
-    required HighlightingController controller,
-    required ThemeColors colors,
-    int? surah,
-  }) {
-    if (wordIndex < 0) return colors.text;
-    final int s = surah ??
-        (controller.targetSurah != 0
-            ? controller.targetSurah
-            : AppState.instance.lastSurah);
-
-    // HighlightingController is the single canonical authority for local recitation highlights
-    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
-      return colors.red;
-    }
-    if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
-      return colors.warning;
-    }
-    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
-      return colors.green;
-    }
-
-    // In a Maglis session, check shared/saved highlights seamlessly
-    if (MaglisController.instance.inSession) {
-      final h = MaglisController.instance.getWordHighlight(s, ayah, wordIndex);
-      if (h == 1) return colors.green;
-      if (h == 2) return colors.warning;
-      if (h == 3) return colors.red;
-    }
-
-    return colors.text;
-  }
-
-  /// Resolves the word display color, handling zero-GPU blur hiding for unrecited words.
+  /// Resolves the word display color, handling zero-GPU blur hiding for unrecited words in a single clean pass.
   /// Concealing unrecited words only occurs when [isBlurEffective] is true (i.e. recording or Maglis session active).
   static Color resolveWordDisplayColor({
     required int ayah,
@@ -189,22 +157,53 @@ abstract final class MushafActions {
             ? controller.targetSurah
             : AppState.instance.lastSurah);
 
-    if (isBlurEffective) {
-      final isRead = controller.isWordGreen(ayah, wordIndex, surah: s) ||
-          controller.isWordRed(ayah, wordIndex, surah: s) ||
-          controller.isWordYellow(ayah, wordIndex, surah: s) ||
-          controller.isWordNeutral(ayah, wordIndex, surah: s) ||
-          (MaglisController.instance.inSession &&
-              MaglisController.instance.getWordHighlight(s, ayah, wordIndex) != null);
-      if (!isRead) return Colors.transparent;
+    // 1. Check local recitation status in exact priority order (Red -> Yellow -> Green)
+    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
+      return colors.red;
+    }
+    if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
+      return colors.warning;
+    }
+    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
+      return colors.green;
     }
 
-    return resolveWordColor(
-      ayah: ayah,
-      wordIndex: wordIndex,
-      controller: controller,
-      colors: colors,
-      surah: s,
-    );
+    // 2. Check neutral (spoken/passed word without tint)
+    final bool isNeutral = controller.isWordNeutral(ayah, wordIndex, surah: s);
+
+    // 3. In a Maglis session, check shared/saved highlights seamlessly
+    if (MaglisController.instance.inSession) {
+      final h = MaglisController.instance.getWordHighlight(s, ayah, wordIndex);
+      if (h == 1) return colors.green;
+      if (h == 2) return colors.warning;
+      if (h == 3) return colors.red;
+      if (isBlurEffective && (h != null || isNeutral)) return colors.text;
+    }
+
+    // 4. Blur concealing: hide unrecited words (zero-GPU masking)
+    if (isBlurEffective) {
+      if (isNeutral) return colors.text;
+      return Colors.transparent;
+    }
+
+    return colors.text;
   }
+
+  /// Resolves the foreground color for word at index [wordIndex].
+  static Color resolveWordColor({
+    required int ayah,
+    required int wordIndex,
+    required HighlightingController controller,
+    required ThemeColors colors,
+    int? surah,
+  }) =>
+      resolveWordDisplayColor(
+        ayah: ayah,
+        wordIndex: wordIndex,
+        controller: controller,
+        app: AppState.instance,
+        colors: colors,
+        surah: surah,
+        isBlurEffective: false,
+      );
 }

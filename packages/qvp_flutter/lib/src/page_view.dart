@@ -386,6 +386,15 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null && route.isCurrent && !_ticker.isActive) {
+      _ensureTicking();
+    }
+  }
+
+  @override
   void dispose() {
     widget.page.removeListener(_onPageChanged);
     _ticker.dispose();
@@ -438,6 +447,8 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _ensureTicking() {
     if (!_ticker.isActive && mounted && !page.isDisposed) {
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
       final more = page.tick(nowMs);
       if (more) _ticker.start();
     }
@@ -447,6 +458,11 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _onTick(Duration _) {
     if (page.isDisposed) {
+      _ticker.stop();
+      return;
+    }
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
       _ticker.stop();
       return;
     }
@@ -1064,6 +1080,7 @@ class _InkCache {
     if (open) c.restore();
     final pic = rec.endRecording();
     keepGlobalInk(key, pic, draws.length);
+    page.clearPaths();
   }
 
   QvpPage? page;
@@ -1143,13 +1160,15 @@ class _InkCache {
         !identical(l, _readLayout);
     final clock = pageClock(page);
     if (changed || clock != _readClock) {
-      styled = page.styledPaths();
-      var key = 1;
-      for (var i = 0; i < styled.length; i++) {
-        key = 31 * key + styled[i].path;
+      if (changed) {
+        styled = page.styledPaths();
+        var key = 1;
+        for (var i = 0; i < styled.length; i++) {
+          key = 31 * key + styled[i].path;
+        }
+        styledKey = key;
+        styledColors = [for (final s in styled) QvpColor.toColor(s.color)];
       }
-      styledKey = key;
-      styledColors = [for (final s in styled) QvpColor.toColor(s.color)];
       bands.set(page.highlightBoxesView());
     }
     if (changed) {
@@ -1517,6 +1536,7 @@ class _QvpPainter extends CustomPainter {
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
         cache.entry = _InkCache.keepGlobalInk(key, pic, n);
+        page.clearPaths();
       }
     }
 

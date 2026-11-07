@@ -131,6 +131,18 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_needsSyncAfterModal) {
+      final route = ModalRoute.of(context);
+      if (route != null && route.isCurrent) {
+        _needsSyncAfterModal = false;
+        _requestSyncVisuals();
+      }
+    }
+  }
+
+  @override
   void didUpdateWidget(MushafPageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageNumber != widget.pageNumber ||
@@ -198,6 +210,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   bool _syncScheduled = false;
+  bool _needsSyncAfterModal = false;
 
   void _requestSyncVisuals() {
     if (!mounted) return;
@@ -208,6 +221,33 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         _lastActiveWord == null) {
       return;
     }
+
+    // Fast-path bypass for adjacent pre-cached pages during active recitation:
+    // If the active reciting/matched ayah is not on this page and has no stale highlight, skip microtask!
+    if (curr > 0 && widget.pageNumber != curr) {
+      final ctrl = widget.controller;
+      final activeAyah = ctrl.activeAyah.value;
+      final targetSurah = ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
+      final activeMatch = ctrl.currentMatchedVerse;
+      final provider = MushafProvider.instance;
+
+      final bool hasRecitingAyah = activeAyah != null &&
+          provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: targetSurah, ayah: activeAyah);
+      final bool hasMatchedAyah = activeMatch != null &&
+          provider.isAyahOnPage(pageNumber: widget.pageNumber, surah: activeMatch.verse.surah, ayah: activeMatch.verse.ayah);
+
+      if (!hasRecitingAyah && !hasMatchedAyah && _lastActiveAyah == null && _lastActiveWord == null) {
+        return;
+      }
+    }
+
+    // Defer visual sync if a modal dialog, bottom sheet, or route transition is active above this route
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      _needsSyncAfterModal = true;
+      return;
+    }
+
     if (_syncScheduled) return;
     _syncScheduled = true;
     scheduleMicrotask(() {
@@ -432,13 +472,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             layer: QvpLayer.highlight - 2,
           );
           if (_ayahHighlightHandle != 0) {
-            page.removeHighlight(_ayahHighlightHandle);
-            _ayahHighlightHandle = 0;
+            if (themeChanged) {
+              page.restyleHighlight(_ayahHighlightHandle, style);
+            }
+            page.moveHighlight(
+              _ayahHighlightHandle,
+              T.ayah(targetAyah.$1, targetAyah.$2),
+            );
+          } else {
+            _ayahHighlightHandle = page.highlight(
+              T.ayah(targetAyah.$1, targetAyah.$2),
+              style,
+            );
           }
-          _ayahHighlightHandle = page.highlight(
-            T.ayah(targetAyah.$1, targetAyah.$2),
-            style,
-          );
         } else if (_ayahHighlightHandle != 0) {
           page.removeHighlight(_ayahHighlightHandle);
           _ayahHighlightHandle = 0;
@@ -508,7 +554,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           );
 
           if (_wordHighlightHandle != 0) {
-            page.restyleHighlight(_wordHighlightHandle, style);
+            if (themeChanged) {
+              page.restyleHighlight(_wordHighlightHandle, style);
+            }
             page.moveHighlight(_wordHighlightHandle, T.word(activeWord));
           } else {
             _wordHighlightHandle = page.highlight(
@@ -657,6 +705,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             ref: _recitationGreenHandle,
             inkColor: c.green,
             onHandleChanged: (h) => _recitationGreenHandle = h,
+            themeChanged: themeChanged,
           );
         }
 
@@ -668,6 +717,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             ref: _recitationYellowHandle,
             inkColor: c.warning,
             onHandleChanged: (h) => _recitationYellowHandle = h,
+            themeChanged: themeChanged,
           );
         }
 
@@ -679,6 +729,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             ref: _recitationRedHandle,
             inkColor: c.red,
             onHandleChanged: (h) => _recitationRedHandle = h,
+            themeChanged: themeChanged,
           );
         }
 
@@ -709,6 +760,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     required int ref,
     required Color inkColor,
     required ValueChanged<int> onHandleChanged,
+    bool themeChanged = false,
   }) {
     if (words.isNotEmpty) {
       final style = QvpHighlightStyle(
@@ -718,13 +770,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         layer: QvpLayer.highlight,
       );
       if (ref != 0) {
-        page.removeHighlight(ref);
+        if (themeChanged) {
+          page.restyleHighlight(ref, style);
+        }
+        page.moveHighlight(ref, T.words(words));
+      } else {
+        final h = page.highlight(
+          T.words(words),
+          style,
+        );
+        onHandleChanged(h);
       }
-      final h = page.highlight(
-        T.words(words),
-        style,
-      );
-      onHandleChanged(h);
     } else if (ref != 0) {
       page.removeHighlight(ref);
       onHandleChanged(0);
