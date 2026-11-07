@@ -39,7 +39,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   late final AnimationController _spinnerController;
   late final Listenable _ayahMarkRepaintListenable;
   late final Listenable _tajweedVisibilityListenable;
-  late Listenable _tajweedTooltipRepaintListenable;
+  final ValueNotifier<List<int>> _yellowWordsNotifier =
+      ValueNotifier<List<int>>(const []);
 
   // Native highlight handles (zero cache invalidation, drawn in GPU band batches)
   int _ayahHighlightHandle = 0;
@@ -94,11 +95,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       app.isAudioPlaying,
     ]);
     _tajweedVisibilityListenable = app.modeNotifier;
-    _tajweedTooltipRepaintListenable = Listenable.merge([
-      app.modeNotifier,
-      widget.controller.globalRevision,
-      MaglisController.instance,
-    ]);
     _attachListeners();
 
     final cached = MushafProvider.instance.getCachedPage(widget.pageNumber);
@@ -133,12 +129,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_needsSyncAfterModal) {
-      final route = ModalRoute.of(context);
-      if (route != null && route.isCurrent) {
-        _needsSyncAfterModal = false;
-        _requestSyncVisuals();
-      }
+    final route = ModalRoute.of(context);
+    final wasCurrent = _isCurrentRoute;
+    _isCurrentRoute = route?.isCurrent ?? true;
+    if (!wasCurrent && _isCurrentRoute && _needsSyncAfterModal) {
+      _needsSyncAfterModal = false;
+      _requestSyncVisuals();
     }
   }
 
@@ -186,12 +182,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       widget.controller.addListener(_requestSyncVisuals);
       widget.controller.activeAyah.addListener(_requestSyncVisuals);
       widget.controller.globalRevision.addListener(_requestSyncVisuals);
-      final app = AppState.instance;
-      _tajweedTooltipRepaintListenable = Listenable.merge([
-        app.modeNotifier,
-        widget.controller.globalRevision,
-        MaglisController.instance,
-      ]);
     }
     _checkSpinnerAnimation();
     _syncVisuals();
@@ -201,6 +191,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   void dispose() {
     _detachListeners();
     _spinnerController.dispose();
+    _yellowWordsNotifier.dispose();
     final page = _page;
     if (page != null && !page.isDisposed) {
       page.clearHighlights();
@@ -211,6 +202,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   bool _syncScheduled = false;
   bool _needsSyncAfterModal = false;
+  bool _isCurrentRoute = true;
+  bool _attachedToMaglis = false;
+
+  final List<int> _evalGreen = [];
+  final List<int> _evalYellow = [];
+  final List<int> _evalRed = [];
+  final List<int> _evalHidden = [];
 
   void _requestSyncVisuals() {
     if (!mounted) return;
@@ -242,8 +240,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
 
     // Defer visual sync if a modal dialog, bottom sheet, or route transition is active above this route
-    final route = ModalRoute.of(context);
-    if (route != null && !route.isCurrent) {
+    if (!_isCurrentRoute) {
       _needsSyncAfterModal = true;
       return;
     }
@@ -292,6 +289,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     _requestSyncVisuals();
   }
 
+  void _onMaglisSessionListenableChanged() {
+    final inSession = MaglisController.instance.inSession;
+    if (inSession && !_attachedToMaglis) {
+      _attachedToMaglis = true;
+      MaglisController.instance.addListener(_requestSyncVisuals);
+      _requestSyncVisuals();
+    } else if (!inSession && _attachedToMaglis) {
+      _attachedToMaglis = false;
+      MaglisController.instance.removeListener(_requestSyncVisuals);
+      _requestSyncVisuals();
+    }
+  }
+
   void _attachListeners() {
     final app = AppState.instance;
     app.currentMushafPage.addListener(_onCurrentMushafPageChanged);
@@ -306,7 +316,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     widget.controller.addListener(_requestSyncVisuals);
     widget.controller.activeAyah.addListener(_requestSyncVisuals);
     widget.controller.globalRevision.addListener(_requestSyncVisuals);
-    MaglisController.instance.addListener(_requestSyncVisuals);
+    MaglisController.instance.sessionListenable.addListener(_onMaglisSessionListenableChanged);
+    if (MaglisController.instance.inSession) {
+      _attachedToMaglis = true;
+      MaglisController.instance.addListener(_requestSyncVisuals);
+    }
   }
 
   void _detachListeners() {
@@ -323,7 +337,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     widget.controller.removeListener(_requestSyncVisuals);
     widget.controller.activeAyah.removeListener(_requestSyncVisuals);
     widget.controller.globalRevision.removeListener(_requestSyncVisuals);
-    MaglisController.instance.removeListener(_requestSyncVisuals);
+    MaglisController.instance.sessionListenable.removeListener(_onMaglisSessionListenableChanged);
+    if (_attachedToMaglis) {
+      _attachedToMaglis = false;
+      MaglisController.instance.removeListener(_requestSyncVisuals);
+    }
   }
 
   void _checkSpinnerAnimation() {
@@ -587,6 +605,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       final bool hasLocalReciterOnPage =
           widget.isRecording && (hasRecitingAyah || hasMatchedAyah);
 
+      final bool revisionAffectsThisPage = revisionChanged &&
+          (widget.pageNumber == currentPage || hasLocalReciterOnPage || inMaglis);
+
       final bool needsWordEvaluation =
           hasLocalReciterOnPage ||
           hasRemoteReciterOnPage ||
@@ -595,15 +616,15 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           blurChanged ||
           recordingChanged ||
           themeChanged ||
-          revisionChanged ||
+          revisionAffectsThisPage ||
           !_hasEvaluatedWords ||
           _lastIndexedPage != widget.pageNumber;
 
       if (needsWordEvaluation) {
-        final green = <int>[];
-        final yellow = <int>[];
-        final red = <int>[];
-        final hidden = <int>[];
+        _evalGreen.clear();
+        _evalYellow.clear();
+        _evalRed.clear();
+        _evalHidden.clear();
 
         _ensurePageWordsIndexed(page);
 
@@ -616,7 +637,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               final idx = _pageWordMap[
                   MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
               if (idx != null) {
-                green.add(idx);
+                _evalGreen.add(idx);
                 liveWordIndices.add(idx);
               }
             }
@@ -624,7 +645,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               final idx = _pageWordMap[
                   MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
               if (idx != null) {
-                yellow.add(idx);
+                _evalYellow.add(idx);
                 liveWordIndices.add(idx);
               }
             }
@@ -632,7 +653,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               final idx = _pageWordMap[
                   MaglisController.wordKey(maglisSurah, maglisAyah, w0)];
               if (idx != null) {
-                red.add(idx);
+                _evalRed.add(idx);
                 liveWordIndices.add(idx);
               }
             }
@@ -644,11 +665,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               if (liveWordIndices.contains(wordIdx)) return;
               final int? h = maglis.getCumulativeHighlightByKey(key);
               if (h == 1) {
-                green.add(wordIdx);
+                _evalGreen.add(wordIdx);
               } else if (h == 2) {
-                yellow.add(wordIdx);
+                _evalYellow.add(wordIdx);
               } else if (h == 3) {
-                red.add(wordIdx);
+                _evalRed.add(wordIdx);
               }
             });
           }
@@ -678,13 +699,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
                 isBlurEffective: isBlurEffective,
               );
               if (color == Colors.transparent) {
-                hidden.add(w.index);
+                _evalHidden.add(w.index);
               } else if (color == c.green) {
-                green.add(w.index);
+                _evalGreen.add(w.index);
               } else if (color == c.warning) {
-                yellow.add(w.index);
+                _evalYellow.add(w.index);
               } else if (color == c.red) {
-                red.add(w.index);
+                _evalRed.add(w.index);
               }
             }
           }
@@ -697,11 +718,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           return !listEquals(a, b);
         }
 
-        if (themeChanged || listsDiffer(green, _lastGreenWords)) {
-          _lastGreenWords = green;
+        if (themeChanged || listsDiffer(_evalGreen, _lastGreenWords)) {
+          _lastGreenWords = List<int>.from(_evalGreen);
           _updateHighlightGroup(
             page,
-            green,
+            _lastGreenWords,
             ref: _recitationGreenHandle,
             inkColor: c.green,
             onHandleChanged: (h) => _recitationGreenHandle = h,
@@ -709,11 +730,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           );
         }
 
-        if (themeChanged || listsDiffer(yellow, _lastYellowWords)) {
-          _lastYellowWords = yellow;
+        if (themeChanged || listsDiffer(_evalYellow, _lastYellowWords)) {
+          _lastYellowWords = List<int>.from(_evalYellow);
+          _yellowWordsNotifier.value = _lastYellowWords;
           _updateHighlightGroup(
             page,
-            yellow,
+            _lastYellowWords,
             ref: _recitationYellowHandle,
             inkColor: c.warning,
             onHandleChanged: (h) => _recitationYellowHandle = h,
@@ -721,11 +743,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           );
         }
 
-        if (themeChanged || listsDiffer(red, _lastRedWords)) {
-          _lastRedWords = red;
+        if (themeChanged || listsDiffer(_evalRed, _lastRedWords)) {
+          _lastRedWords = List<int>.from(_evalRed);
           _updateHighlightGroup(
             page,
-            red,
+            _lastRedWords,
             ref: _recitationRedHandle,
             inkColor: c.red,
             onHandleChanged: (h) => _recitationRedHandle = h,
@@ -733,10 +755,10 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           );
         }
 
-        if (!listEquals(hidden, _lastHiddenWords)) {
-          _lastHiddenWords = hidden;
-          if (hidden.isNotEmpty) {
-            page.mask(T.words(hidden), 'hide');
+        if (!listEquals(_evalHidden, _lastHiddenWords)) {
+          _lastHiddenWords = List<int>.from(_evalHidden);
+          if (_lastHiddenWords.isNotEmpty) {
+            page.mask(T.words(_lastHiddenWords), 'hide');
             _hasMasks = true;
           } else if (_hasMasks) {
             page.unmaskAll();
@@ -1016,18 +1038,27 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               if (app.hasClickedTajweedWord || app.currentMode != AppMode.tajweed) {
                 return const SizedBox.shrink();
               }
-              return IgnorePointer(
-                child: RepaintBoundary(
-                  child: CustomPaint(
-                    painter: MushafTajweedTooltipPainter(
-                      page: page,
-                      controller: widget.controller,
-                      app: app,
-                      goldColor: c.gold,
-                      repaintListenable: _tajweedTooltipRepaintListenable,
+              return ValueListenableBuilder<List<int>>(
+                valueListenable: _yellowWordsNotifier,
+                builder: (context, yellowWords, _) {
+                  if (yellowWords.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return IgnorePointer(
+                    child: RepaintBoundary(
+                      child: CustomPaint(
+                        painter: MushafTajweedTooltipPainter(
+                          page: page,
+                          controller: widget.controller,
+                          app: app,
+                          goldColor: c.gold,
+                          explicitYellowWords: yellowWords,
+                          repaintListenable: _yellowWordsNotifier,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
           ),

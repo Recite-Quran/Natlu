@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
@@ -41,7 +42,8 @@ class SurahHeaderPainter extends CustomPainter {
     required this.page,
     required this.isDark,
     required this.colors,
-  }) : super(repaint: page);
+    Listenable? repaintListenable,
+  }) : super(repaint: repaintListenable);
 
   static final Paint _fillPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _borderPaint = Paint()
@@ -334,12 +336,14 @@ class MushafTajweedTooltipPainter extends CustomPainter {
   final HighlightingController controller;
   final AppState app;
   final Color goldColor;
+  final List<int>? explicitYellowWords;
 
   MushafTajweedTooltipPainter({
     required this.page,
     required this.controller,
     required this.app,
     required this.goldColor,
+    this.explicitYellowWords,
     Listenable? repaintListenable,
   }) : super(
           repaint: repaintListenable ??
@@ -348,7 +352,6 @@ class MushafTajweedTooltipPainter extends CustomPainter {
                 app,
                 app.modeNotifier,
                 controller.globalRevision,
-                MaglisController.instance,
               ]),
         );
 
@@ -398,29 +401,35 @@ class MushafTajweedTooltipPainter extends CustomPainter {
       return;
     }
 
-    final maglis = MaglisController.instance;
+    final List<int> yellowWords;
+    if (explicitYellowWords != null) {
+      if (explicitYellowWords!.isEmpty) return;
+      yellowWords = explicitYellowWords!;
+    } else {
+      final maglis = MaglisController.instance;
 
-    bool isWordYellow(int a, int w0, int s) =>
-        controller.isWordYellow(a, w0, surah: s) ||
-        (maglis.inSession &&
-            (maglis.remoteYellowWords.contains(w0) ||
-                maglis.getWordHighlight(s, a, w0) == 2 ||
-                maglis.getWordErrors(s, a, w0) != null));
+      bool isWordYellow(int a, int w0, int s) =>
+          controller.isWordYellow(a, w0, surah: s) ||
+          (maglis.inSession &&
+              (maglis.remoteYellowWords.contains(w0) ||
+                  maglis.getWordHighlight(s, a, w0) == 2 ||
+                  maglis.getWordErrors(s, a, w0) != null));
 
-    final yellowWords = <int>[];
-    final seenAyahs = <int>{};
-    for (int i = 0; i < page.words.length; i++) {
-      final w = page.words[i];
-      final ayahKey = (w.surah << 16) | w.ayah;
-      if (seenAyahs.contains(ayahKey)) continue;
-      final w0 = w.word - 1;
-      if (isWordYellow(w.ayah, w0, w.surah)) {
-        yellowWords.add(i);
-        seenAyahs.add(ayahKey);
+      final collected = <int>[];
+      final seenAyahs = <int>{};
+      for (int i = 0; i < page.words.length; i++) {
+        final w = page.words[i];
+        final ayahKey = (w.surah << 16) | w.ayah;
+        if (seenAyahs.contains(ayahKey)) continue;
+        final w0 = w.word - 1;
+        if (isWordYellow(w.ayah, w0, w.surah)) {
+          collected.add(i);
+          seenAyahs.add(ayahKey);
+        }
       }
+      if (collected.isEmpty) return;
+      yellowWords = collected;
     }
-
-    if (yellowWords.isEmpty) return;
 
     final layout = page.readLayout() ?? page.currentLayout;
     if (layout == null) return;
@@ -539,7 +548,8 @@ class MushafTajweedTooltipPainter extends CustomPainter {
       oldDelegate.goldColor != goldColor ||
       oldDelegate.app.isArabic != app.isArabic ||
       oldDelegate.app.hasClickedTajweedWord != app.hasClickedTajweedWord ||
-      oldDelegate.app.currentMode != app.currentMode;
+      oldDelegate.app.currentMode != app.currentMode ||
+      !listEquals(oldDelegate.explicitYellowWords, explicitYellowWords);
 }
 
 class _MushafBadgeItem {

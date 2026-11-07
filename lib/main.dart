@@ -244,6 +244,23 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   bool _isBackgrounded = false;
   Timer? _maglisIdleTimer;
   DateTime? _maglisSoloSince;
+  bool _hasAttachedMaglisBroadcast = false;
+
+  void _syncMaglisBroadcastListeners() {
+    final inSession = MaglisController.instance.inSession;
+    if (inSession && !_hasAttachedMaglisBroadcast) {
+      _hasAttachedMaglisBroadcast = true;
+      _ctrl?.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.globalRevision.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.activeAyah.addListener(_throttledBroadcastMaglisProgress);
+    } else if (!inSession && _hasAttachedMaglisBroadcast) {
+      _hasAttachedMaglisBroadcast = false;
+      _maglisBroadcastThrottle?.cancel();
+      _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
+    }
+  }
 
   // Timer logic removed, we now rely on Sherpa's VAD endpoint with 4s silence
 
@@ -256,6 +273,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChangedForIdleTimer);
+    MaglisController.instance.sessionListenable
+        .addListener(_syncMaglisBroadcastListeners);
 
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
@@ -446,6 +465,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   void dispose() {
     MaglisController.instance.sessionListenable
         .removeListener(_onMaglisSessionChangedForIdleTimer);
+    MaglisController.instance.sessionListenable
+        .removeListener(_syncMaglisBroadcastListeners);
     _maglisIdleTimer?.cancel();
     _maglisIdleTimer = null;
     _maglisSoloSince = null;
@@ -454,10 +475,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     }
     MaglisController.instance.onRemoteFloorClaimed = null;
     MaglisController.instance.onSessionEnded = null;
-    _maglisBroadcastThrottle?.cancel();
-    _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
-    _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
-    _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
+    if (_hasAttachedMaglisBroadcast) {
+      _hasAttachedMaglisBroadcast = false;
+      _maglisBroadcastThrottle?.cancel();
+      _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
+    }
     if (!kIsWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
@@ -508,9 +532,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           // silently discarding the final word's right-context tail every ayah.
         },
       );
-      _ctrl!.addListener(_throttledBroadcastMaglisProgress);
-      _ctrl!.globalRevision.addListener(_throttledBroadcastMaglisProgress);
-      _ctrl!.activeAyah.addListener(_throttledBroadcastMaglisProgress);
+      _syncMaglisBroadcastListeners();
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
 

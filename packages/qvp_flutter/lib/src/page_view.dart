@@ -385,11 +385,13 @@ class QvpPageViewState extends State<QvpPageView>
     if (oldWidget.layout != widget.layout) _ctl._fitRequested = true;
   }
 
+  bool _isCurrentRoute = true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    if (route != null && route.isCurrent && !_ticker.isActive) {
+    _isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
+    if (_isCurrentRoute && !_ticker.isActive) {
       _ensureTicking();
     }
   }
@@ -447,8 +449,7 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _ensureTicking() {
     if (!_ticker.isActive && mounted && !page.isDisposed) {
-      final route = ModalRoute.of(context);
-      if (route != null && !route.isCurrent) return;
+      if (!_isCurrentRoute) return;
       final more = page.tick(nowMs);
       if (more) _ticker.start();
     }
@@ -461,8 +462,7 @@ class QvpPageViewState extends State<QvpPageView>
       _ticker.stop();
       return;
     }
-    final route = ModalRoute.of(context);
-    if (route != null && !route.isCurrent) {
+    if (!_isCurrentRoute) {
       _ticker.stop();
       return;
     }
@@ -1193,6 +1193,7 @@ class _InkCache {
 
   void attach(QvpPage p) {
     if (page == p) return;
+    page?.clearPaths();
     page = p;
     _dropPicture();
     dropOrnaments();
@@ -1244,6 +1245,7 @@ class _InkCache {
     _dropPicture();
     dropOrnaments();
     dropStyledPicture();
+    page?.clearPaths();
     page = null;
     _drawList = null;
     _readPage = null;
@@ -1564,6 +1566,7 @@ class _QvpPainter extends CustomPainter {
     final styledKey = cache.styledKey;
     if (styled.isEmpty) {
       cache.dropStyledPicture();
+      page.clearPaths();
     } else {
       if (cache.styledPicture != null &&
           cache.styledPictureKey == styledKey &&
