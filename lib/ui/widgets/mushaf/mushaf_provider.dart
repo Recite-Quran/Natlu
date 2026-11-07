@@ -45,6 +45,7 @@ class MushafProvider {
   String? _extractedPagesPath;
 
   bool isSyncingSurah = false;
+  final ValueNotifier<bool> isPageScrolling = ValueNotifier<bool>(false);
   bool get isReady => _isReady;
   QvpEngine get engine => _engine!;
   QvpAtlas get atlas => _atlas!;

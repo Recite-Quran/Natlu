@@ -386,23 +386,49 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   bool _isCurrentRoute = true;
+  Animation<double>? _secondaryAnimation;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
-    if (_isCurrentRoute != isCurrent) {
-      _isCurrentRoute = isCurrent;
+  void _onSecondaryStatus(AnimationStatus status) {
+    if (!mounted) return;
+    if (status == AnimationStatus.dismissed) {
       if (_isCurrentRoute && !_ticker.isActive) {
         _ensureTicking();
-      } else if (!_isCurrentRoute && _ticker.isActive) {
+      }
+    } else {
+      if (_ticker.isActive) {
         _ticker.stop();
       }
     }
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    final isCurrent = route?.isCurrent ?? true;
+    _isCurrentRoute = isCurrent;
+
+    final newSecondary = route?.secondaryAnimation;
+    if (newSecondary != _secondaryAnimation) {
+      _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
+      _secondaryAnimation = newSecondary;
+      _secondaryAnimation?.addStatusListener(_onSecondaryStatus);
+    }
+
+    final isCoveredOrTransitioning = !_isCurrentRoute ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+
+    if (isCoveredOrTransitioning && _ticker.isActive) {
+      _ticker.stop();
+    } else if (!isCoveredOrTransitioning && !_ticker.isActive) {
+      _ensureTicking();
+    }
+  }
+
+  @override
   void dispose() {
+    _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
+    _secondaryAnimation = null;
     widget.page.removeListener(_onPageChanged);
     _ticker.dispose();
     _cache.dispose();
@@ -1171,7 +1197,7 @@ class _InkCache {
         styled = page.styledPaths();
         var key = 1;
         for (var i = 0; i < styled.length; i++) {
-          key = 31 * key + styled[i].path;
+          key = 31 * (31 * key + styled[i].path) + styled[i].color;
         }
         styledKey = key;
         styledColors = [for (final s in styled) QvpColor.toColor(s.color)];

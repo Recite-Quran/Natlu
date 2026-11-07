@@ -473,7 +473,7 @@ class _MushafViewState extends State<MushafView> {
     final active = widget.controller.activeAyah.value;
     if (active != null) {
       final surah = widget.controller.targetSurah;
-      AppState.instance.saveLastPosition(surah, active);
+      _debouncedSavePosition(_currentPage, surah, active);
 
       if (provider.isAyahOnPage(
         pageNumber: _currentPage,
@@ -657,28 +657,38 @@ class _MushafViewState extends State<MushafView> {
                           behavior: const MushafScrollBehavior(),
                           child: Directionality(
                             textDirection: TextDirection.ltr,
-                            child: PageView.builder(
-                              key: const ValueKey('mushaf_single_page_view'),
-                              controller: _pageController,
-                              reverse: false,
-                              itemCount: 604,
-                              padEnds: false,
-                              allowImplicitScrolling: false,
-                              physics: const PageScrollPhysics(),
-                              onPageChanged: _onPageChanged,
-                              itemBuilder: (context, index) {
-                                final pageNumber = 604 - index;
-                                return RepaintBoundary(
-                                  key: ValueKey('mushaf_page_boundary_$pageNumber'),
-                                  child: MushafPageWidget(
-                                    key: ValueKey('mushaf_page_$pageNumber'),
-                                    pageNumber: pageNumber,
-                                    controller: widget.controller,
-                                    isRecording: widget.isRecording,
-                                    onStateChangeRequested: () {},
-                                  ),
-                                );
+                            child: NotificationListener<ScrollNotification>(
+                              onNotification: (notification) {
+                                if (notification is ScrollStartNotification) {
+                                  MushafProvider.instance.isPageScrolling.value = true;
+                                } else if (notification is ScrollEndNotification) {
+                                  MushafProvider.instance.isPageScrolling.value = false;
+                                }
+                                return false;
                               },
+                              child: PageView.builder(
+                                key: const ValueKey('mushaf_single_page_view'),
+                                controller: _pageController,
+                                reverse: false,
+                                itemCount: 604,
+                                padEnds: false,
+                                allowImplicitScrolling: false,
+                                physics: const PageScrollPhysics(),
+                                onPageChanged: _onPageChanged,
+                                itemBuilder: (context, index) {
+                                  final pageNumber = 604 - index;
+                                  return RepaintBoundary(
+                                    key: ValueKey('mushaf_page_boundary_$pageNumber'),
+                                    child: MushafPageWidget(
+                                      key: ValueKey('mushaf_page_$pageNumber'),
+                                      pageNumber: pageNumber,
+                                      controller: widget.controller,
+                                      isRecording: widget.isRecording,
+                                      onStateChangeRequested: () {},
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ),

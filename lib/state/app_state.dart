@@ -370,17 +370,21 @@ class AppState extends ChangeNotifier {
 
   int lastSurah = 1;
   int lastAyah = 1;
+  Timer? _savePositionDebounce;
 
   Future<void> saveLastPosition(int surah, int ayah) async {
     if (surah < 1 || surah > 114 || ayah < 1 || ayah > 286) return;
     if (lastSurah == surah && lastAyah == ayah) return;
     lastSurah = surah;
     lastAyah = ayah;
-    try {
-      final prefs = await _getPrefs();
-      await prefs.setInt('last_surah', surah);
-      await prefs.setInt('last_ayah', ayah);
-    } catch (_) {}
+    _savePositionDebounce?.cancel();
+    _savePositionDebounce = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        final prefs = await _getPrefs();
+        await prefs.setInt('last_surah', surah);
+        await prefs.setInt('last_ayah', ayah);
+      } catch (_) {}
+    });
   }
 
   // ── Tracker Configuration ──────────────────────────────────────────────────

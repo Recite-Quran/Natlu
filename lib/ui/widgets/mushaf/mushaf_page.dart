@@ -127,13 +127,42 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
   }
 
+  Animation<double>? _secondaryAnimation;
+
+  void _onSecondaryAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed) {
+      if (_needsSyncAfterModal && mounted) {
+        _needsSyncAfterModal = false;
+        _requestSyncVisuals();
+      }
+    }
+  }
+
+  void _onPageScrollingChanged() {
+    if (!MushafProvider.instance.isPageScrolling.value && _needsSyncAfterScroll && mounted) {
+      _needsSyncAfterScroll = false;
+      _requestSyncVisuals();
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     final wasCurrent = _isCurrentRoute;
     _isCurrentRoute = route?.isCurrent ?? true;
-    if (!wasCurrent && _isCurrentRoute && _needsSyncAfterModal) {
+
+    final newSecondary = route?.secondaryAnimation;
+    if (newSecondary != _secondaryAnimation) {
+      _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
+      _secondaryAnimation = newSecondary;
+      _secondaryAnimation?.addStatusListener(_onSecondaryAnimationStatus);
+    }
+
+    final isCoveredOrTransitioning = !_isCurrentRoute ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+
+    if (!wasCurrent && !isCoveredOrTransitioning && _needsSyncAfterModal) {
       _needsSyncAfterModal = false;
       _requestSyncVisuals();
     }
@@ -191,6 +220,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   @override
   void dispose() {
+    _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
+    _secondaryAnimation = null;
     _detachListeners();
     _spinnerController.dispose();
     _yellowWordsNotifier.dispose();
@@ -204,6 +235,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   bool _syncScheduled = false;
   bool _needsSyncAfterModal = false;
+  bool _needsSyncAfterScroll = false;
   bool _isCurrentRoute = true;
   bool _attachedToMaglis = false;
 
@@ -241,8 +273,16 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       }
     }
 
+    // Fast check for active user page swiping: defer sync until gesture settles
+    if (MushafProvider.instance.isPageScrolling.value) {
+      _needsSyncAfterScroll = true;
+      return;
+    }
+
     // Defer visual sync if a modal dialog, bottom sheet, or route transition is active above this route
-    if (!_isCurrentRoute) {
+    final bool isTransitioning = _secondaryAnimation != null &&
+        !_secondaryAnimation!.isDismissed;
+    if (!_isCurrentRoute || isTransitioning) {
       _needsSyncAfterModal = true;
       return;
     }
@@ -252,7 +292,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     SchedulerBinding.instance.scheduleFrameCallback((_) {
       _syncScheduled = false;
       if (!mounted) return;
-      if (!_isCurrentRoute) {
+      if (MushafProvider.instance.isPageScrolling.value) {
+        _needsSyncAfterScroll = true;
+        return;
+      }
+      final bool isTransitioningNow = _secondaryAnimation != null &&
+          !_secondaryAnimation!.isDismissed;
+      if (!_isCurrentRoute || isTransitioningNow) {
         _needsSyncAfterModal = true;
         return;
       }
@@ -323,6 +369,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     widget.controller.addListener(_requestSyncVisuals);
     widget.controller.activeAyah.addListener(_requestSyncVisuals);
     widget.controller.globalRevision.addListener(_requestSyncVisuals);
+    MushafProvider.instance.isPageScrolling.addListener(_onPageScrollingChanged);
     MaglisController.instance.sessionListenable.addListener(_onMaglisSessionListenableChanged);
     if (MaglisController.instance.inSession) {
       _attachedToMaglis = true;
@@ -344,6 +391,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     widget.controller.removeListener(_requestSyncVisuals);
     widget.controller.activeAyah.removeListener(_requestSyncVisuals);
     widget.controller.globalRevision.removeListener(_requestSyncVisuals);
+    MushafProvider.instance.isPageScrolling.removeListener(_onPageScrollingChanged);
     MaglisController.instance.sessionListenable.removeListener(_onMaglisSessionListenableChanged);
     if (_attachedToMaglis) {
       _attachedToMaglis = false;
@@ -1016,13 +1064,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         children: [
           if (hasSurahHeaders)
             IgnorePointer(
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  painter: SurahHeaderPainter(
-                    page: page,
-                    isDark: isDark,
-                    colors: c,
-                  ),
+              child: CustomPaint(
+                painter: SurahHeaderPainter(
+                  page: page,
+                  isDark: isDark,
+                  colors: c,
                 ),
               ),
             ),
@@ -1047,20 +1093,18 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onDecorationTap: (dec, _) => _onDecorationTap(dec),
           ),
           IgnorePointer(
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: AyahMarkPainter(
-                  page: page,
-                  app: app,
-                  spinnerAnimation: _spinnerController,
-                  repaintListenable: _ayahMarkRepaintListenable,
-                  surfaceColor: c.surface,
-                  goldColor: c.gold,
-                  neutralRingColor: neutralRingColor,
-                  ayahHighlightColor: isDark
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : const Color(0xFF64748B).withValues(alpha: 0.09),
-                ),
+            child: CustomPaint(
+              painter: AyahMarkPainter(
+                page: page,
+                app: app,
+                spinnerAnimation: _spinnerController,
+                repaintListenable: _ayahMarkRepaintListenable,
+                surfaceColor: c.surface,
+                goldColor: c.gold,
+                neutralRingColor: neutralRingColor,
+                ayahHighlightColor: isDark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : const Color(0xFF64748B).withValues(alpha: 0.09),
               ),
             ),
           ),
@@ -1077,16 +1121,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
                     return const SizedBox.shrink();
                   }
                   return IgnorePointer(
-                    child: RepaintBoundary(
-                      child: CustomPaint(
-                        painter: MushafTajweedTooltipPainter(
-                          page: page,
-                          controller: widget.controller,
-                          app: app,
-                          goldColor: c.gold,
-                          explicitYellowWords: yellowWords,
-                          repaintListenable: _yellowWordsNotifier,
-                        ),
+                    child: CustomPaint(
+                      painter: MushafTajweedTooltipPainter(
+                        page: page,
+                        controller: widget.controller,
+                        app: app,
+                        goldColor: c.gold,
+                        explicitYellowWords: yellowWords,
+                        repaintListenable: _yellowWordsNotifier,
                       ),
                     ),
                   );

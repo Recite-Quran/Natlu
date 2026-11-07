@@ -1157,6 +1157,7 @@ class _AudioWaveformState extends State<_AudioWaveform>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
   bool _isCurrentRoute = true;
+  Animation<double>? _secondaryAnimation;
 
   @override
   void initState() {
@@ -1167,22 +1168,47 @@ class _AudioWaveformState extends State<_AudioWaveform>
     )..repeat();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
-    if (_isCurrentRoute != isCurrent) {
-      _isCurrentRoute = isCurrent;
-      if (_isCurrentRoute) {
-        if (!_ctrl.isAnimating) _ctrl.repeat();
-      } else {
-        if (_ctrl.isAnimating) _ctrl.stop();
+  void _onSecondaryStatus(AnimationStatus status) {
+    if (!mounted) return;
+    if (status == AnimationStatus.dismissed) {
+      if (_isCurrentRoute && !_ctrl.isAnimating) {
+        _ctrl.repeat();
+      }
+    } else {
+      if (_ctrl.isAnimating) {
+        _ctrl.stop();
       }
     }
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    final isCurrent = route?.isCurrent ?? true;
+    _isCurrentRoute = isCurrent;
+
+    final newSecondary = route?.secondaryAnimation;
+    if (newSecondary != _secondaryAnimation) {
+      _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
+      _secondaryAnimation = newSecondary;
+      _secondaryAnimation?.addStatusListener(_onSecondaryStatus);
+    }
+
+    final isCoveredOrTransitioning = !isCurrent ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+
+    if (isCoveredOrTransitioning) {
+      if (_ctrl.isAnimating) _ctrl.stop();
+    } else {
+      if (!_ctrl.isAnimating) _ctrl.repeat();
+    }
+  }
+
+  @override
   void dispose() {
+    _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
+    _secondaryAnimation = null;
     _ctrl.dispose();
     super.dispose();
   }
