@@ -18,8 +18,10 @@ class AppAudioProcessor {
   static const int chunkMs = 480;
   static const int recordChunkBytes =
       (recordSampleRate * numChannels * bytesPerSample * chunkMs) ~/ 1000;
+  static const int _bufferCapacity = recordChunkBytes * 4;
 
-  Uint8List _frameBuffer = Uint8List(0);
+  Uint8List _fixedBuffer = Uint8List(_bufferCapacity);
+  int _bufferedBytes = 0;
   final AudioRecorder _recorder = AudioRecorder();
   StreamSubscription<Uint8List>? _subscription;
   bool _isRecording = false;
@@ -81,24 +83,29 @@ class AppAudioProcessor {
 
       _subscription = recordStream.listen(
         (Uint8List rawData) {
-          if (rawData.offsetInBytes % 2 != 0) {
-            rawData = Uint8List.fromList(rawData);
-          }
+          final int validBytes = rawData.length - (rawData.length % 2);
+          if (validBytes == 0) return;
 
-          Uint8List allBytes;
-          if (_frameBuffer.isEmpty) {
-            allBytes = rawData;
-          } else {
-            allBytes = Uint8List(_frameBuffer.length + rawData.length);
-            allBytes.setAll(0, _frameBuffer);
-            allBytes.setAll(_frameBuffer.length, rawData);
+          // Zero-allocation ring buffer ingestion
+          if (_bufferedBytes + validBytes > _fixedBuffer.length) {
+            final newCap = (_bufferedBytes + validBytes) * 2;
+            final newBuf = Uint8List(newCap);
+            newBuf.setRange(0, _bufferedBytes, _fixedBuffer);
+            _fixedBuffer = newBuf;
           }
+          _fixedBuffer.setRange(
+            _bufferedBytes,
+            _bufferedBytes + validBytes,
+            rawData,
+            0,
+          );
+          _bufferedBytes += validBytes;
 
           int offset = 0;
-          while (allBytes.length - offset >= recordChunkBytes) {
+          while (_bufferedBytes - offset >= recordChunkBytes) {
             final byteView = Uint8List.view(
-              allBytes.buffer,
-              allBytes.offsetInBytes + offset,
+              _fixedBuffer.buffer,
+              _fixedBuffer.offsetInBytes + offset,
               recordChunkBytes,
             );
             offset += recordChunkBytes;
@@ -117,12 +124,12 @@ class AppAudioProcessor {
             onChunk(float32Samples, false);
           }
 
-          if (offset < allBytes.length) {
-            _frameBuffer = Uint8List.fromList(
-              Uint8List.view(allBytes.buffer, allBytes.offsetInBytes + offset),
-            );
-          } else {
-            _frameBuffer = Uint8List(0);
+          if (offset > 0) {
+            final remaining = _bufferedBytes - offset;
+            if (remaining > 0) {
+              _fixedBuffer.setRange(0, remaining, _fixedBuffer, offset);
+            }
+            _bufferedBytes = remaining;
           }
         },
         onError: (err) {
@@ -140,7 +147,7 @@ class AppAudioProcessor {
   }
 
   void clearBuffer() {
-    _frameBuffer = Uint8List(0);
+    _bufferedBytes = 0;
   }
 
   Future<void> stop() async {
@@ -175,7 +182,7 @@ class AppAudioProcessor {
       } catch (_) {}
     }
 
-    _frameBuffer = Uint8List(0);
+    _bufferedBytes = 0;
 
     // If still in Maglis room session, preserve WebRTC voice communication mode & loud speakerphone
     if (MaglisController.instance.inSession) {

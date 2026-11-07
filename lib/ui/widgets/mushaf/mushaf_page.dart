@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Page;
+import 'package:flutter/scheduler.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
 
@@ -157,6 +158,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _pageWordMap.clear();
       _lastGreenWords = const [];
       _lastYellowWords = const [];
+      _yellowWordsNotifier.value = const [];
       _lastRedWords = const [];
       _lastHiddenWords = const [];
       _ayahHighlightHandle = 0;
@@ -247,9 +249,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     if (_syncScheduled) return;
     _syncScheduled = true;
-    scheduleMicrotask(() {
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
       _syncScheduled = false;
-      if (mounted) _syncVisuals();
+      if (!mounted) return;
+      if (!_isCurrentRoute) {
+        _needsSyncAfterModal = true;
+        return;
+      }
+      _syncVisuals();
     });
   }
 
@@ -686,8 +693,33 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               _lastHiddenWords.isNotEmpty;
 
           if (hasAnyRecitationOrBlur) {
-            // Standard full-page evaluation for local recitation / blur mode / theme changes
+            // Standard full-page evaluation with smart ayah-level future skipping:
+            // Ayahs after the active recitation point that have no completed status cannot have
+            // any highlights, so we skip querying them in normal reading mode.
+            int lastEvaluatedSurah = -1;
+            int lastEvaluatedAyah = -1;
+            bool lastAyahIsFuture = false;
+            final int activeAyahVal = activeMatch?.verse.ayah ?? activeAyah ?? 0;
+            final Set<int> completedAyahs = ctrl.completedAyahsFor(targetSurah);
+
             for (final w in page.words) {
+              if (w.surah != lastEvaluatedSurah || w.ayah != lastEvaluatedAyah) {
+                lastEvaluatedSurah = w.surah;
+                lastEvaluatedAyah = w.ayah;
+                lastAyahIsFuture = (w.surah > targetSurah) ||
+                    (w.surah == targetSurah &&
+                        w.ayah > activeAyahVal &&
+                        !completedAyahs.contains(w.ayah));
+              }
+
+              if (lastAyahIsFuture) {
+                if (isBlurEffective) {
+                  _evalHidden.add(w.index);
+                }
+                // Unrecited words in normal mode are default text ink (zero allocations/queries)
+                continue;
+              }
+
               final w0 = w.word - 1;
               final color = MushafActions.resolveWordDisplayColor(
                 ayah: w.ayah,

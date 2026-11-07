@@ -332,6 +332,7 @@ class _MushafViewState extends State<MushafView> {
   void _onControllerProgress() {
     final provider = MushafProvider.instance;
     if (!mounted ||
+        !(ModalRoute.of(context)?.isCurrent ?? true) ||
         _isAutoAdvancingPage ||
         _isAdvancingSurah ||
         !provider.isReady ||

@@ -390,9 +390,14 @@ class QvpPageViewState extends State<QvpPageView>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _isCurrentRoute = ModalRoute.of(context)?.isCurrent ?? true;
-    if (_isCurrentRoute && !_ticker.isActive) {
-      _ensureTicking();
+    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (_isCurrentRoute != isCurrent) {
+      _isCurrentRoute = isCurrent;
+      if (_isCurrentRoute && !_ticker.isActive) {
+        _ensureTicking();
+      } else if (!_isCurrentRoute && _ticker.isActive) {
+        _ticker.stop();
+      }
     }
   }
 
@@ -466,8 +471,11 @@ class QvpPageViewState extends State<QvpPageView>
       _ticker.stop();
       return;
     }
+    final oldClock = pageClock(page);
     final more = page.tick(nowMs);
-    _frame.value++;
+    if (pageClock(page) != oldClock) {
+      _frame.value++;
+    }
     if (!more) _ticker.stop();
   }
 
@@ -1080,7 +1088,6 @@ class _InkCache {
     if (open) c.restore();
     final pic = rec.endRecording();
     keepGlobalInk(key, pic, draws.length);
-    page.clearPaths();
   }
 
   QvpPage? page;
@@ -1538,7 +1545,6 @@ class _QvpPainter extends CustomPainter {
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
         cache.entry = _InkCache.keepGlobalInk(key, pic, n);
-        page.clearPaths();
       }
     }
 
@@ -1566,7 +1572,6 @@ class _QvpPainter extends CustomPainter {
     final styledKey = cache.styledKey;
     if (styled.isEmpty) {
       cache.dropStyledPicture();
-      page.clearPaths();
     } else {
       if (cache.styledPicture != null &&
           cache.styledPictureKey == styledKey &&

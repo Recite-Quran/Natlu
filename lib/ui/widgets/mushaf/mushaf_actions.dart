@@ -157,15 +157,15 @@ abstract final class MushafActions {
             ? controller.targetSurah
             : AppState.instance.lastSurah);
 
-    // 1. Check local recitation status in exact priority order (Red -> Yellow -> Green)
-    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
-      return colors.red;
+    // 1. Check local recitation status in most-likely order (Green is ~95% of recited words)
+    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
+      return colors.green;
     }
     if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
       return colors.warning;
     }
-    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
-      return colors.green;
+    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
+      return colors.red;
     }
 
     // 2. Check neutral (spoken/passed word without tint)

@@ -1156,6 +1156,7 @@ class _AudioWaveform extends StatefulWidget {
 class _AudioWaveformState extends State<_AudioWaveform>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctrl;
+  bool _isCurrentRoute = true;
 
   @override
   void initState() {
@@ -1164,6 +1165,20 @@ class _AudioWaveformState extends State<_AudioWaveform>
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (_isCurrentRoute != isCurrent) {
+      _isCurrentRoute = isCurrent;
+      if (_isCurrentRoute) {
+        if (!_ctrl.isAnimating) _ctrl.repeat();
+      } else {
+        if (_ctrl.isAnimating) _ctrl.stop();
+      }
+    }
   }
 
   @override
