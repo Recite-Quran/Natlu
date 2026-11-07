@@ -762,11 +762,10 @@ class _InkKey {
     this.offsetY,
     this.top,
     this.bandH,
-    this.styled,
     this.surahFrames,
   );
 
-  final int page, ink, bandH, styled;
+  final int page, ink, bandH;
   final double? scale, offsetX, offsetY;
   final double top;
   final bool surahFrames;
@@ -779,7 +778,6 @@ class _InkKey {
     double? offsetY,
     double top,
     int bandH,
-    int styled,
     bool surahFrames,
   ) =>
       page == this.page &&
@@ -789,7 +787,6 @@ class _InkKey {
       offsetY == this.offsetY &&
       top == this.top &&
       bandH == this.bandH &&
-      styled == this.styled &&
       surahFrames == this.surahFrames;
 
   @override
@@ -803,7 +800,6 @@ class _InkKey {
         offsetY,
         top,
         bandH,
-        styled,
         surahFrames,
       );
 
@@ -816,7 +812,6 @@ class _InkKey {
     offsetY,
     top,
     bandH,
-    styled,
     surahFrames,
   );
 }
@@ -842,9 +837,9 @@ class _PictureCacheEntry {
 }
 
 class _LruCache {
-  /// How many page pictures to keep. Aligned to 16 to match MushafProvider._maxCachedPages
-  /// and prevent premature picture eviction while pages remain in active memory.
-  static const int maxEntries = 16;
+  /// How many page pictures to keep in cache. 6 provides ample headroom across
+  /// current + adjacent preloaded pages while keeping VRAM lean.
+  static const int maxEntries = 6;
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
 
   void evictPage(int pageNumber) {
@@ -1038,7 +1033,6 @@ class _InkCache {
       l.offsetY,
       0.0,
       math.max(l.contentH, 1.0).toInt(),
-      1,
       surahFrames,
     );
     if (getGlobalInk(key) != null) return;
@@ -1070,7 +1064,6 @@ class _InkCache {
     if (open) c.restore();
     final pic = rec.endRecording();
     keepGlobalInk(key, pic, draws.length);
-    page.clearPaths();
   }
 
   QvpPage? page;
@@ -1084,6 +1077,11 @@ class _InkCache {
   ui.Picture? ornaments;
   int ornamentRevision = -1;
   double? ornamentScale, ornamentOffsetX, ornamentOffsetY;
+
+  /// Cached picture of styled paths (recitation green/yellow/red text ink).
+  ui.Picture? styledPicture;
+  int styledPictureKey = 0;
+  double? styledScale, styledOffsetX, styledOffsetY, styledTop;
 
   _DrawList? _drawList;
 
@@ -1179,6 +1177,7 @@ class _InkCache {
     page = p;
     _dropPicture();
     dropOrnaments();
+    dropStyledPicture();
     _drawList = null;
     _readPage = null;
   }
@@ -1207,9 +1206,25 @@ class _InkCache {
     }
   }
 
+  /// Drops the styled picture (colored text ink).
+  void dropStyledPicture() {
+    if (styledPicture != null) {
+      try {
+        styledPicture!.dispose();
+      } on Object catch (_) {}
+      styledPicture = null;
+      styledPictureKey = 0;
+      styledScale = null;
+      styledOffsetX = null;
+      styledOffsetY = null;
+      styledTop = null;
+    }
+  }
+
   void dispose() {
     _dropPicture();
     dropOrnaments();
+    dropStyledPicture();
     page = null;
     _drawList = null;
     _readPage = null;
@@ -1289,19 +1304,6 @@ class _QvpPainter extends CustomPainter {
     ..style = ui.PaintingStyle.stroke
     ..strokeCap = ui.StrokeCap.round
     ..strokeJoin = ui.StrokeJoin.round;
-
-  /// Put the canvas under one placement of the draw list: page units in, logical px out. A
-  /// reflowed page moves words between rows, so a path is placed by the group the engine put it
-  /// in and not by the line it was printed on.
-  void _placeAt(ui.Canvas c, QvpLayout? l, QvpPlacement q) {
-    final ls = l?.scale ?? 1;
-    final s = view.scale * ls;
-    c.translate(
-      view.offsetX + view.scale * ((l?.offsetX ?? 0) + q.dx * ls),
-      view.offsetY + view.scale * ((l?.offsetY ?? 0) + q.dy * ls),
-    );
-    c.scale(s * q.kx, s * q.ky);
-  }
 
   /// Put the canvas under one placement in layout px, with no pan or zoom: page units in.
   static void _placeInLayout(ui.Canvas c, QvpLayout? l, QvpPlacement q) {
@@ -1443,7 +1445,10 @@ class _QvpPainter extends CustomPainter {
     // reader's pan and zoom never invalidate it. The engine layout's own offsets do, and they
     // are in the key: a relayout moves them and must redraw. A frame whose key matches the
     // picture in hand keeps it without asking the global cache.
-    final styledKey = cache.styledKey;
+    //
+    // Base ink represents the full static text in default ink; recitation highlights (colored words)
+    // are painted directly on top in Step 3. Decoupling base ink from styledKey prevents
+    // re-recording 1,000+ vector paths on every uttered word.
     final q = cache.getDrawList(page, l, top, bandH, contentH);
     final held = cache.entry;
     if (held != null &&
@@ -1456,7 +1461,6 @@ class _QvpPainter extends CustomPainter {
           l?.offsetY,
           top,
           bandH.toInt(),
-          styledKey,
           surahFrames,
         )) {
       cache.basePaths = held.paths;
@@ -1469,7 +1473,6 @@ class _QvpPainter extends CustomPainter {
         l?.offsetY,
         top,
         bandH.toInt(),
-        styledKey,
         surahFrames,
       );
       final kept = _InkCache.getGlobalInk(key);
@@ -1489,13 +1492,8 @@ class _QvpPainter extends CustomPainter {
           ..color = QvpColor.toColor(ink)
           ..isAntiAlias = true;
 
-        final omitted = styled.isEmpty
-            ? null
-            : {for (var i = 0; i < styled.length; i++) styled[i].path};
-
         var cur = -1, n = 0, open = false;
         for (final d in q.draws) {
-          if (omitted != null && omitted.contains(d.path)) continue;
           if (d.placement != cur) {
             if (open) c.restore();
             c.save();
@@ -1519,7 +1517,6 @@ class _QvpPainter extends CustomPainter {
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
         cache.entry = _InkCache.keepGlobalInk(key, pic, n);
-        page.clearPaths();
       }
     }
 
@@ -1542,31 +1539,64 @@ class _QvpPainter extends CustomPainter {
       canvas.restore();
     }
 
-    // 3. styled paths, placed the same way the ink under them was: by the group the engine put
-    // the path in, which is the only answer that holds once a page has reflowed.
-    if (styled.isNotEmpty) {
-      final colors = cache.styledColors;
-      var cur = -1, open = false;
-      for (var i = 0; i < styled.length; i++) {
-        final s = styled[i];
-        if ((s.color & 0xff) == 0) continue;
-        final pi = q.ofPath[s.path];
-        if (pi == null || pi < 0) continue;
-        if (pi != cur) {
-          if (open) canvas.restore();
-          canvas.save();
-          _placeAt(
-            canvas,
-            l,
-            pi < q.places.length ? q.places[pi] : QvpPlacement.identity,
-          );
-          open = true;
-          cur = pi;
+    // 3. styled paths: cached as a recorded picture in layout px (matching base ink)
+    // so continuous animation frames, scrolling, and modal transitions replay in 0.02ms.
+    final styledKey = cache.styledKey;
+    if (styled.isEmpty) {
+      cache.dropStyledPicture();
+    } else {
+      if (cache.styledPicture != null &&
+          cache.styledPictureKey == styledKey &&
+          cache.styledScale == l?.scale &&
+          cache.styledOffsetX == l?.offsetX &&
+          cache.styledOffsetY == l?.offsetY &&
+          cache.styledTop == top) {
+        // Cached styled picture is still valid for this frame and layout
+      } else {
+        cache.dropStyledPicture();
+        final rec = ui.PictureRecorder();
+        final c = ui.Canvas(rec);
+        if (top != 0.0) {
+          c.translate(0, -top);
         }
-        _styledPaint.color = colors[i];
-        canvas.drawPath(page.path(s.path), _styledPaint);
+        final colors = cache.styledColors;
+        var cur = -1, open = false;
+        for (var i = 0; i < styled.length; i++) {
+          final s = styled[i];
+          if ((s.color & 0xff) == 0) continue;
+          final pi = q.ofPath[s.path];
+          if (pi == null || pi < 0) continue;
+          if (pi != cur) {
+            if (open) c.restore();
+            c.save();
+            _placeInLayout(
+              c,
+              l,
+              pi < q.places.length ? q.places[pi] : QvpPlacement.identity,
+            );
+            open = true;
+            cur = pi;
+          }
+          _styledPaint.color = colors[i];
+          c.drawPath(page.path(s.path), _styledPaint);
+        }
+        if (open) c.restore();
+        cache.styledPicture = rec.endRecording();
+        cache.styledPictureKey = styledKey;
+        cache.styledScale = l?.scale;
+        cache.styledOffsetX = l?.offsetX;
+        cache.styledOffsetY = l?.offsetY;
+        cache.styledTop = top;
       }
-      if (open) canvas.restore();
+
+      if (cache.styledPicture != null) {
+        canvas.save();
+        canvas.translate(view.offsetX, view.offsetY);
+        canvas.scale(view.scale);
+        if (top != 0.0) canvas.translate(0, top);
+        canvas.drawPicture(cache.styledPicture!);
+        canvas.restore();
+      }
     }
 
     // 4. mask boxes (block / blur) on top

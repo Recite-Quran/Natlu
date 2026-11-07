@@ -361,6 +361,35 @@ class MushafTajweedTooltipPainter extends CustomPainter {
     fontFamily: 'sans-serif',
   );
 
+  static TextPainter? _cachedPainterAr;
+  static TextPainter? _cachedPainterEn;
+
+  static TextPainter _getTextPainter(bool isArabic) {
+    if (isArabic) {
+      if (_cachedPainterAr == null) {
+        _cachedPainterAr = TextPainter(
+          text: const TextSpan(text: 'اضغط هنا', style: _textStyle),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.rtl,
+        )..layout();
+        final w = (_cachedPainterAr!.width + 8).roundToDouble();
+        _cachedPainterAr!.layout(minWidth: w, maxWidth: w);
+      }
+      return _cachedPainterAr!;
+    } else {
+      if (_cachedPainterEn == null) {
+        _cachedPainterEn = TextPainter(
+          text: const TextSpan(text: 'Tap here', style: _textStyle),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final w = (_cachedPainterEn!.width + 8).roundToDouble();
+        _cachedPainterEn!.layout(minWidth: w, maxWidth: w);
+      }
+      return _cachedPainterEn!;
+    }
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (app.hasClickedTajweedWord ||
@@ -396,16 +425,9 @@ class MushafTajweedTooltipPainter extends CustomPainter {
     final layout = page.readLayout() ?? page.currentLayout;
     if (layout == null) return;
 
-    final String text = app.isArabic ? 'اضغط هنا' : 'Tap here';
-    final textPainter = TextPainter(
-      text: TextSpan(text: text, style: _textStyle),
-      textAlign: TextAlign.center,
-      textDirection: app.isArabic ? TextDirection.rtl : TextDirection.ltr,
-    )..layout();
-
-    final tooltipWidth = (textPainter.width + 8).roundToDouble();
+    final textPainter = _getTextPainter(app.isArabic);
+    final tooltipWidth = textPainter.width;
     final tooltipHeight = (textPainter.height + 2).roundToDouble();
-    textPainter.layout(minWidth: tooltipWidth, maxWidth: tooltipWidth);
 
     _bgPaint.color = goldColor;
 
@@ -509,8 +531,6 @@ class MushafTajweedTooltipPainter extends CustomPainter {
         textPainter.paint(canvas, Offset(bx, by + 1.0));
       }
     }
-
-    textPainter.dispose();
   }
 
   @override

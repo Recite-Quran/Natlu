@@ -321,7 +321,23 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     final app = AppState.instance;
     final int currentPage = app.currentMushafPage.value;
-    if (currentPage > 0 && (widget.pageNumber - currentPage).abs() > 1) return;
+    if (currentPage > 0 && (widget.pageNumber - currentPage).abs() > 1) {
+      if (_lastActiveAyah != null || _lastActiveWord != null) {
+        page.batch(() {
+          if (_ayahHighlightHandle != 0) {
+            page.removeHighlight(_ayahHighlightHandle);
+            _ayahHighlightHandle = 0;
+          }
+          if (_wordHighlightHandle != 0) {
+            page.removeHighlight(_wordHighlightHandle);
+            _wordHighlightHandle = 0;
+          }
+          _lastActiveAyah = null;
+          _lastActiveWord = null;
+        });
+      }
+      return;
+    }
 
     final ctrl = widget.controller;
     final activeAyah = ctrl.activeAyah.value;
