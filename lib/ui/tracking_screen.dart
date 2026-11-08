@@ -713,14 +713,11 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   Widget _buildVerseContent(ThemeColors c, AppState app) {
     if (app.isMushafMode) {
-      return RepaintBoundary(
-        key: const ValueKey('mushaf_view_boundary'),
-        child: MushafView(
-          key: const ValueKey('mushaf_view_main'),
-          controller: widget.controller,
-          isRecording: widget.isRecording,
-          showBottomPageNumber: true,
-        ),
+      return MushafView(
+        key: const ValueKey('mushaf_view_main'),
+        controller: widget.controller,
+        isRecording: widget.isRecording,
+        showBottomPageNumber: true,
       );
     }
 

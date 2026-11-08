@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -73,6 +74,9 @@ class MushafProvider {
       // Forward adjacent page has highest priority for recitation and reading continuity
       final neighbors = [pageNumber + 1, pageNumber - 1];
       final currentInkColor = AppState.instance.colors.text;
+      final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
+          ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
+          : 1.0;
 
       for (final p in neighbors) {
         if (p < 1 || p > 604) continue;
@@ -93,6 +97,7 @@ class MushafProvider {
             cached,
             inkColor: currentInkColor,
             surahFrames: false,
+            dpr: dpr,
           );
           continue;
         }
@@ -118,6 +123,7 @@ class MushafProvider {
               page,
               inkColor: currentInkColor,
               surahFrames: false,
+              dpr: dpr,
             );
           }
         }());

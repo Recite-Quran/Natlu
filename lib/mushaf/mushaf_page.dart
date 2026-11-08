@@ -30,7 +30,13 @@ class MushafPageWidget extends StatefulWidget {
 }
 
 class _MushafPageWidgetState extends State<MushafPageWidget>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive {
+    final curr = AppState.instance.currentMushafPage.value;
+    if (curr <= 0) return true;
+    return (widget.pageNumber - curr).abs() <= 1;
+  }
   QvpPage? _page;
   bool _isLoading = true;
   bool _hasError = false;
@@ -72,6 +78,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     _cachedCompletedRedWords.clear();
     _cachedCompletedHiddenWords.clear();
     _lastVisualFingerprint = -1;
+    _lastSyncRevision = -1;
   }
 
   int _lastIndexedPage = -1;
@@ -114,6 +121,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       app.activeAudioSurah,
       app.isAudioBuffering,
       app.isAudioPlaying,
+      widget.controller.activeAyah,
     ]);
     _tajweedVisibilityListenable = Listenable.merge([
       app.modeNotifier,
@@ -208,6 +216,15 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       oldWidget.controller.removeListener(_requestSyncVisuals);
       widget.controller.addListener(_requestSyncVisuals);
       _clearCompletedAyahCache();
+      _lastSyncRevision = -1;
+      _ayahMarkRepaintListenable = Listenable.merge([
+        _spinnerController,
+        AppState.instance.activeAudioAyah,
+        AppState.instance.activeAudioSurah,
+        AppState.instance.isAudioBuffering,
+        AppState.instance.isAudioPlaying,
+        widget.controller.activeAyah,
+      ]);
     }
     _checkSpinnerAnimation();
     _syncVisuals();
@@ -233,6 +250,13 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   bool _needsSyncAfterModal = false;
   bool _needsSyncAfterScroll = false;
   int _lastVisualFingerprint = -1;
+  int _lastSyncRevision = -1;
+  int? _lastSyncActiveAyah;
+  int? _lastSyncActiveWord;
+  int _lastSyncTargetSurah = -1;
+  bool _lastSyncDarkMode = false;
+  bool _lastSyncBlur = false;
+  bool _lastSyncRecording = false;
 
   final List<int> _evalGreen = [];
   final List<int> _evalYellow = [];
@@ -365,6 +389,32 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       return;
     }
 
+    // Fast O(1) controller & app state check: if revision, cursor, and modes didn't change,
+    // skip the full fingerprint word-loop computation entirely!
+    final ctrl = widget.controller;
+    final app = AppState.instance;
+    final int rev = ctrl.globalRevision.value;
+    final int? activeAyah = ctrl.activeAyah.value;
+    final int? activeWord = ctrl.activeWordIndex;
+    final int targetSurah =
+        ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
+    final bool isDark = app.isDarkMode;
+    final bool isBlur =
+        app.isBlurEffective(isRecording: widget.isRecording);
+    final bool isRec = widget.isRecording;
+
+    if (_lastVisualFingerprint != -1 &&
+        rev == _lastSyncRevision &&
+        activeAyah == _lastSyncActiveAyah &&
+        activeWord == _lastSyncActiveWord &&
+        targetSurah == _lastSyncTargetSurah &&
+        isDark == _lastSyncDarkMode &&
+        isBlur == _lastSyncBlur &&
+        isRec == _lastSyncRecording &&
+        !ctrl.isAudioActive) {
+      return;
+    }
+
     // Fast fingerprint check: if nothing visual on this page changed, skip scheduling frame callback entirely!
     final int fp = _computeVisualFingerprint();
     if (fp == _lastVisualFingerprint && _lastVisualFingerprint != -1) {
@@ -393,6 +443,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   }
 
   void _onCurrentMushafPageChanged() {
+    updateKeepAlive();
     final curr = AppState.instance.currentMushafPage.value;
     if (widget.pageNumber == curr ||
         (widget.pageNumber - curr).abs() <= 1 ||
@@ -898,6 +949,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
       _lastIsDark = isDark;
       _lastVisualFingerprint = _computeVisualFingerprint();
+      _lastSyncRevision = ctrl.globalRevision.value;
+      _lastSyncActiveAyah = ctrl.activeAyah.value;
+      _lastSyncActiveWord = ctrl.activeWordIndex;
+      _lastSyncTargetSurah =
+          ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
+      _lastSyncDarkMode = isDark;
+      _lastSyncBlur = isBlurEffective;
+      _lastSyncRecording = widget.isRecording;
     });
   }
 
@@ -1173,6 +1232,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final c = AppState.instance.colors;
 
     if (_isLoading || _page == null || _page!.isDisposed) {

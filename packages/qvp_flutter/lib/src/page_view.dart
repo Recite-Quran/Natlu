@@ -273,7 +273,12 @@ class QvpPageView extends StatefulWidget {
     Color? inkColor,
     bool surahFrames = true,
   }) {
-    _InkCache.prepare(page, inkColor: inkColor, surahFrames: surahFrames);
+    _InkCache.prepare(
+      page,
+      inkColor: inkColor,
+      surahFrames: surahFrames,
+      dpr: dpr,
+    );
   }
 
   /// Evicts any cached base ink pictures for [pageNumber] from the global cache.
@@ -470,9 +475,16 @@ class QvpPageViewState extends State<QvpPageView>
     if (page.isDisposed) return;
     _isRelayouting = true;
     try {
-      page.layout(_spec(size));
-      _cache._drawList = null;
-      _cache._dropPicture();
+      final spec = _spec(size);
+      final l = page.currentLayout;
+      final bool alreadyLaidOut = l != null &&
+          (l.contentW - spec.viewportW).abs() <= 1.0 &&
+          (l.scale > 0);
+      if (!alreadyLaidOut) {
+        page.layout(spec);
+        _cache._drawList = null;
+        _cache._dropPicture();
+      }
       _laidOut = widget.layout;
       _size = size;
       _ctl.viewport = size;
@@ -729,16 +741,18 @@ class QvpPageViewState extends State<QvpPageView>
               onLongPressEnd: widget.selectionEnabled ? _onLongPressEnd : null,
               child: CustomPaint(
                 size: size,
+                isComplex: false,
+                willChange: true,
                 painter: _QvpPainter(
-                  page: page,
-                  view: _ctl,
-                  frame: _frame,
-                  cache: _cache,
-                  dpr: dpr,
-                  paper: widget.paper,
-                  paperShadow: widget.paperShadow,
-                  surahFrames: widget.layout.surahFrames,
-                ),
+                    page: page,
+                    view: _ctl,
+                    frame: _frame,
+                    cache: _cache,
+                    dpr: dpr,
+                    paper: widget.paper,
+                    paperShadow: widget.paperShadow,
+                    surahFrames: widget.layout.surahFrames,
+                  ),
               ),
             ),
           ),
@@ -761,13 +775,21 @@ class _InkKey {
     this.offsetY,
     this.top,
     this.bandH,
-    this.surahFrames,
-  );
+    this.surahFrames, [
+    this.dpr = 1.0,
+  ]);
 
   final int page, ink, bandH;
   final double? scale, offsetX, offsetY;
   final double top;
   final bool surahFrames;
+  final double dpr;
+
+  int? get _scaleKey => scale != null ? (scale! * 1000).round() : null;
+  int? get _offsetXKey => offsetX != null ? (offsetX! * 2).round() : null;
+  int? get _offsetYKey => offsetY != null ? (offsetY! * 2).round() : null;
+  int get _topKey => (top * 2).round();
+  int get _dprKey => (dpr * 10).round();
 
   bool matches(
     int page,
@@ -777,26 +799,28 @@ class _InkKey {
     double? offsetY,
     double top,
     int bandH,
-    bool surahFrames,
-  ) {
+    bool surahFrames, [
+    double dpr = 1.0,
+  ]) {
     if (page != this.page || ink != this.ink || surahFrames != this.surahFrames) {
       return false;
     }
-    if ((top - this.top).abs() > 0.5) return false;
+    if (((dpr * 10).round() - _dprKey).abs() > 0) return false;
+    if (((top * 2).round() - _topKey).abs() > 1) return false;
     if ((bandH - this.bandH).abs() > 1) return false;
-    if (scale != null && this.scale != null) {
-      if ((scale - this.scale!).abs() > 0.001) return false;
-    } else if (scale != this.scale) {
+    if (scale != null && _scaleKey != null) {
+      if (((scale * 1000).round() - _scaleKey!).abs() > 1) return false;
+    } else if ((scale == null) != (_scaleKey == null)) {
       return false;
     }
-    if (offsetX != null && this.offsetX != null) {
-      if ((offsetX - this.offsetX!).abs() > 0.5) return false;
-    } else if (offsetX != this.offsetX) {
+    if (offsetX != null && _offsetXKey != null) {
+      if (((offsetX * 2).round() - _offsetXKey!).abs() > 1) return false;
+    } else if ((offsetX == null) != (_offsetXKey == null)) {
       return false;
     }
-    if (offsetY != null && this.offsetY != null) {
-      if ((offsetY - this.offsetY!).abs() > 0.5) return false;
-    } else if (offsetY != this.offsetY) {
+    if (offsetY != null && _offsetYKey != null) {
+      if (((offsetY * 2).round() - _offsetYKey!).abs() > 1) return false;
+    } else if ((offsetY == null) != (_offsetYKey == null)) {
       return false;
     }
     return true;
@@ -804,35 +828,37 @@ class _InkKey {
 
   @override
   bool operator ==(Object other) =>
+      identical(this, other) ||
       other is _InkKey &&
-      other.matches(
-        page,
-        ink,
-        scale,
-        offsetX,
-        offsetY,
-        top,
-        bandH,
-        surahFrames,
-      );
+          page == other.page &&
+          ink == other.ink &&
+          _scaleKey == other._scaleKey &&
+          _offsetXKey == other._offsetXKey &&
+          _offsetYKey == other._offsetYKey &&
+          _topKey == other._topKey &&
+          bandH == other.bandH &&
+          surahFrames == other.surahFrames &&
+          _dprKey == other._dprKey;
 
   @override
   int get hashCode => Object.hash(
         page,
         ink,
-        scale != null ? (scale! * 1000).round() : null,
-        offsetX != null ? (offsetX! * 2).round() : null,
-        offsetY != null ? (offsetY! * 2).round() : null,
-        (top * 2).round(),
+        _scaleKey,
+        _offsetXKey,
+        _offsetYKey,
+        _topKey,
         bandH,
         surahFrames,
+        _dprKey,
       );
 }
 
 class _PictureCacheEntry {
   final _InkKey key;
-  final ui.Picture picture;
-  _PictureCacheEntry(this.key, this.picture, this.paths);
+  final ui.Image? image;
+  final ui.Picture? picture;
+  _PictureCacheEntry(this.key, this.image, this.picture, this.paths);
 
   /// How many engine paths the recording draws. A replay draws all of them, so the stats of
   /// the last frame need this on a cache hit as much as on a fresh recording.
@@ -844,15 +870,19 @@ class _PictureCacheEntry {
   void dispose() {
     disposed = true;
     try {
-      picture.dispose();
+      image?.dispose();
+    } on Object catch (_) {}
+    try {
+      picture?.dispose();
     } on Object catch (_) {}
   }
 }
 
 class _LruCache {
-  /// How many page pictures to keep in cache. 24 provides ample headroom across
-  /// current + adjacent preloaded pages while keeping VRAM lean.
-  static const int maxEntries = 24;
+  /// How many page images to keep in cache. 8 provides ample headroom across
+  /// current + adjacent preloaded pages while keeping VRAM strictly capped at ~48MB,
+  /// perfectly matching native Android's 48MB inkCacheBudget.
+  static const int maxEntries = 8;
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
 
   void evictPage(int pageNumber) {
@@ -875,6 +905,7 @@ class _LruCache {
             key.top,
             key.bandH,
             key.surahFrames,
+            key.dpr,
           ));
     }
     if (key is int) {
@@ -902,7 +933,7 @@ class _LruCache {
       return entry;
     }
     // Subpixel tolerance search across existing entries
-    for (final existingKey in _entries.keys.toList()) {
+    for (final existingKey in _entries.keys) {
       if (existingKey.matches(
         key.page,
         key.ink,
@@ -912,23 +943,30 @@ class _LruCache {
         key.top,
         key.bandH,
         key.surahFrames,
+        key.dpr,
       )) {
         final fuzzyEntry = _entries.remove(existingKey);
         if (fuzzyEntry != null) {
-          _entries[existingKey] = fuzzyEntry;
+          _entries[key] = fuzzyEntry;
           return fuzzyEntry;
         }
+        break;
       }
     }
     return null;
   }
 
-  _PictureCacheEntry put(_InkKey key, ui.Picture pic, int paths) {
+  _PictureCacheEntry put(
+    _InkKey key,
+    ui.Image? image,
+    ui.Picture? pic,
+    int paths,
+  ) {
     final old = _entries.remove(key);
-    if (old != null && old.picture != pic) {
+    if (old != null && (old.image != image || old.picture != pic)) {
       old.dispose();
     }
-    final entry = _entries[key] = _PictureCacheEntry(key, pic, paths);
+    final entry = _entries[key] = _PictureCacheEntry(key, image, pic, paths);
     while (_entries.length > maxEntries) {
       final firstKey = _entries.keys.first;
       _entries.remove(firstKey)?.dispose();
@@ -939,6 +977,13 @@ class _LruCache {
   bool containsPicture(ui.Picture p) {
     for (final e in _entries.values) {
       if (e.picture == p) return true;
+    }
+    return false;
+  }
+
+  bool containsImage(ui.Image img) {
+    for (final e in _entries.values) {
+      if (e.image == img) return true;
     }
     return false;
   }
@@ -1157,20 +1202,24 @@ class _InkCache {
   static bool hasCachedInk(Object key) => _globalInkCache.hasCachedInk(key);
   static _PictureCacheEntry keepGlobalInk(
     _InkKey key,
-    ui.Picture pic,
+    ui.Image? img,
+    ui.Picture? pic,
     int paths,
   ) =>
-      _globalInkCache.put(key, pic, paths);
+      _globalInkCache.put(key, img, pic, paths);
 
   static void prepare(
     QvpPage page, {
     Color? inkColor,
     bool surahFrames = true,
+    double dpr = 1.0,
   }) {
     if (page.isDisposed) return;
     final l = page.currentLayout;
     if (l == null) return;
     final ink = inkColor != null ? rgba(inkColor) : page.defaultInk;
+    final contentW = l.contentW;
+    final bandH = math.max(l.contentH, 1.0);
     final key = _InkKey(
       page.page,
       ink,
@@ -1178,13 +1227,17 @@ class _InkCache {
       l.offsetX,
       l.offsetY,
       0.0,
-      math.max(l.contentH, 1.0).toInt(),
+      bandH.toInt(),
       surahFrames,
+      dpr,
     );
     if (getGlobalInk(key) != null) return;
 
     final rec = ui.PictureRecorder();
     final c = ui.Canvas(rec);
+    if (dpr != 1.0) {
+      c.scale(dpr, dpr);
+    }
     final paint = ui.Paint()
       ..color = QvpColor.toColor(ink)
       ..isAntiAlias = true;
@@ -1215,10 +1268,21 @@ class _InkCache {
     }
     if (open) c.restore();
     final pic = rec.endRecording();
-    keepGlobalInk(key, pic, n);
+
+    final pixelW = math.max(1, (contentW * dpr).ceil());
+    final pixelH = math.max(1, (bandH * dpr).ceil());
+    ui.Image? img;
+    try {
+      img = pic.toImageSync(pixelW, pixelH);
+    } catch (_) {
+      img = null;
+    }
+
+    keepGlobalInk(key, img, pic, n);
   }
 
   QvpPage? page;
+  ui.Image? image;
   ui.Picture? picture;
 
   /// The global cache's entry for [picture], or null when this cache recorded nothing yet.
@@ -1343,6 +1407,7 @@ class _InkCache {
 
   void _dropPicture() {
     entry = null;
+    image = null;
     if (picture != null) {
       if (!_globalInkCache.containsPicture(picture!)) {
         try {
@@ -1455,6 +1520,9 @@ class _QvpPainter extends CustomPainter {
   final bool surahFrames;
 
   final ui.Paint _boxPaint = ui.Paint()..isAntiAlias = true;
+  final ui.Paint _imagePaint = ui.Paint()
+    ..isAntiAlias = true
+    ..filterQuality = ui.FilterQuality.low;
   final ui.Path _boxPath = ui.Path();
   final ui.Paint _styledPaint = ui.Paint()
     ..isAntiAlias = true
@@ -1623,8 +1691,15 @@ class _QvpPainter extends CustomPainter {
           top,
           bandH.toInt(),
           surahFrames,
+          dpr,
         )) {
       cache.basePaths = held.paths;
+      if (cache.image == null && held.image != null) {
+        cache.image = held.image;
+      }
+      if (cache.picture == null && held.picture != null) {
+        cache.picture = held.picture;
+      }
     } else {
       final key = _InkKey(
         page.page,
@@ -1635,9 +1710,11 @@ class _QvpPainter extends CustomPainter {
         top,
         bandH.toInt(),
         surahFrames,
+        dpr,
       );
       final kept = _InkCache.getGlobalInk(key);
       if (kept != null) {
+        cache.image = kept.image;
         cache.picture = kept.picture;
         cache.entry = kept;
         // the replay draws every path the recording holds, so the HUD reads the real number
@@ -1646,6 +1723,9 @@ class _QvpPainter extends CustomPainter {
         final sw = Stopwatch()..start();
         final rec = ui.PictureRecorder();
         final c = ui.Canvas(rec);
+        if (dpr != 1.0) {
+          c.scale(dpr, dpr);
+        }
         if (top != 0.0) {
           c.translate(0, -top);
         }
@@ -1680,10 +1760,21 @@ class _QvpPainter extends CustomPainter {
         if (open) c.restore();
         cache._dropPicture();
         final pic = rec.endRecording();
+
+        final pixelW = math.max(1, ((l?.contentW ?? page.width) * dpr).ceil());
+        final pixelH = math.max(1, (bandH * dpr).ceil());
+        ui.Image? img;
+        try {
+          img = pic.toImageSync(pixelW, pixelH);
+        } catch (_) {
+          img = null;
+        }
+
+        cache.image = img;
         cache.picture = pic;
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
-        cache.entry = _InkCache.keepGlobalInk(key, pic, n);
+        cache.entry = _InkCache.keepGlobalInk(key, img, pic, n);
       }
     }
 
@@ -1696,8 +1787,18 @@ class _QvpPainter extends CustomPainter {
     // 1. highlight bands (behind the ink)
     cache.bands.draw(canvas, _boxPaint, view);
 
-    // 2. base ink: direct vector picture playback
-    if (cache.picture != null) {
+    // 2. base ink: direct hardware raster blit (0.15ms) or fallback vector playback
+    if (cache.image != null) {
+      final img = cache.image!;
+      canvas.save();
+      canvas.translate(view.offsetX, view.offsetY);
+      canvas.scale(view.scale);
+      if (top != 0.0) canvas.translate(0, top);
+      final src = Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
+      final dst = Rect.fromLTWH(0, 0, (l?.contentW ?? page.width), bandH);
+      canvas.drawImageRect(img, src, dst, _imagePaint);
+      canvas.restore();
+    } else if (cache.picture != null) {
       canvas.save();
       canvas.translate(view.offsetX, view.offsetY);
       canvas.scale(view.scale);
@@ -1709,7 +1810,8 @@ class _QvpPainter extends CustomPainter {
     // 3. styled paths: cached as a recorded picture in layout px (matching base ink)
     // so continuous animation frames, scrolling, and modal transitions replay in 0.02ms.
     final styledKey = cache.styledKey;
-    if (styled.isEmpty) {
+    final bool hasVisibleStyled = styled.any((s) => (s.color & 0xff) != 0);
+    if (!hasVisibleStyled) {
       cache.dropStyledPicture();
     } else {
       if (cache.styledPicture != null &&

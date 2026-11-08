@@ -96,6 +96,10 @@ class _MushafViewState extends State<MushafView> {
   bool _isAutoAdvancingPage = false;
   int? _lastAdvancedSurah;
   bool _isAdvancingSurah = false;
+  int? _lastProgressSurah;
+  int? _lastProgressAyah;
+  int? _lastProgressWord;
+  int? _lastProgressRev;
 
   KeyEventResult _controlRLByKeyboard(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -359,6 +363,22 @@ class _MushafViewState extends State<MushafView> {
     final ctrl = widget.controller;
     final int activeSurah =
         ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
+    final int? activeAyah = ctrl.activeAyah.value;
+    final int? activeWord = ctrl.activeWordIndex;
+    final int rev = ctrl.globalRevision.value;
+
+    // Fast O(1) bypass: If mic audio stream emits a chunk but recitation position
+    // (surah, ayah, wordIndex, revision) has not changed, auto-advance cannot happen!
+    if (activeSurah == _lastProgressSurah &&
+        activeAyah == _lastProgressAyah &&
+        activeWord == _lastProgressWord &&
+        rev == _lastProgressRev) {
+      return;
+    }
+    _lastProgressSurah = activeSurah;
+    _lastProgressAyah = activeAyah;
+    _lastProgressWord = activeWord;
+    _lastProgressRev = rev;
 
     // 1. Hands-free recitation flow across Surahs (same page or next page)
     if (_isSurahFinished(ctrl, activeSurah)) {
@@ -374,8 +394,6 @@ class _MushafViewState extends State<MushafView> {
 
     final lastWord = provider.getLastWordOnPage(_currentPage);
     if (lastWord == null) return;
-
-    final int? activeAyah = ctrl.activeAyah.value;
 
     // Fast-path bypass: If active recitation is on the current page and before
     // the final verse of the page and final verse of the surah, auto-advance is impossible.
