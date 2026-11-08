@@ -8,7 +8,6 @@ import '../core/highlighting_controller.dart';
 import '../core/app_state.dart';
 import '../core/platform_utils.dart';
 import '../maglis/maglis_controller.dart';
-import 'mushaf_actions.dart';
 import 'mushaf_page.dart';
 import 'mushaf_provider.dart';
 
@@ -806,7 +805,7 @@ class _MushafViewState extends State<MushafView> {
                         builder: (context, currentPage, _) {
                           final int page = currentPage > 0 ? currentPage : _currentPage;
                           return Text(
-                            MushafActions.toArabicDigits(page),
+                            QuranTypography.toArabicDigits(page),
                             textDirection: TextDirection.rtl,
                             textScaler: TextScaler.noScaling,
                             style: TextStyle(

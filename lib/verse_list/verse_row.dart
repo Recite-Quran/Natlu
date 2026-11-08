@@ -6,7 +6,6 @@ import 'package:flutter/scheduler.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 import 'verse_span_builder.dart';
-import 'tajweed_tutorial_word.dart';
 
 /// Displays a single Quranic verse (Ayah) with word-by-word highlighting.
 ///

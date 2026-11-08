@@ -7,7 +7,6 @@ import '../core/platform_utils.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 import '../maglis/maglis_controller.dart';
-import 'mushaf_actions.dart';
 import 'mushaf_overlays.dart';
 import 'mushaf_provider.dart';
 
@@ -864,7 +863,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
             for (final w in words) {
               final w0 = w.word - 1;
-              final color = MushafActions.resolveWordDisplayColor(
+              final color = QuranInteractionService.resolveWordDisplayColor(
                 ayah: w.ayah,
                 wordIndex: w0,
                 controller: ctrl,
@@ -1129,12 +1128,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
     final maglis = MaglisController.instance;
 
-    bool isWordYellow(int a, int w0, int s) => MushafActions.isWordYellow(
-          surah: s,
-          ayah: a,
-          wordIndex: w0,
-          controller: widget.controller,
-        );
+    bool isWordYellow(int a, int w0, int s) =>
+        widget.controller.isWordYellow(a, w0, surah: s);
 
     // Smart yellow word magnetism:
     // If the hit word is not yellow, check if an immediately adjacent neighbor on the same line is yellow.
@@ -1168,7 +1163,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
 
     if (isWordYellow(ayah, wordIndex0, surah)) {
-      MushafActions.handleWordTap(
+      QuranInteractionService.handleWordTap(
         context: context,
         surah: surah,
         ayah: ayah,
@@ -1195,7 +1190,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final isAlreadyActive = (activeSurah == surah && activeAyah == ayah);
 
     if (isAlreadyActive) {
-      MushafActions.handleWordTap(
+      QuranInteractionService.handleWordTap(
         context: context,
         surah: surah,
         ayah: ayah,
@@ -1207,7 +1202,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       );
     } else {
       AppHaptics.lightImpact();
-      MushafActions.selectAyah(
+      QuranInteractionService.selectAyah(
         surah: surah,
         ayah: ayah,
         controller: widget.controller,
@@ -1224,7 +1219,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     if (dec.surah > 0 && dec.ayah > 0) {
       AppHaptics.selectionClick();
       AppState.instance.markMushafAudioAyahClicked();
-      MushafActions.toggleAyahAudio(
+      QuranInteractionService.toggleAyahAudio(
         surah: dec.surah,
         ayah: dec.ayah,
         controller: widget.controller,

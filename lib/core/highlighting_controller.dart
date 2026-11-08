@@ -724,5 +724,40 @@ abstract final class QuranInteractionService {
       );
     }
   }
+
+  /// Resolves the word display color, handling zero-GPU blur hiding for unrecited words.
+  static Color resolveWordDisplayColor({
+    required int ayah,
+    required int wordIndex,
+    required HighlightingController controller,
+    required AppState app,
+    required ThemeColors colors,
+    int? surah,
+    bool isBlurEffective = false,
+  }) {
+    if (wordIndex < 0) return colors.text;
+    final int s = surah ??
+        (controller.targetSurah != 0
+            ? controller.targetSurah
+            : AppState.instance.lastSurah);
+
+    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
+      return colors.green;
+    }
+    if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
+      return colors.warning;
+    }
+    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
+      return colors.red;
+    }
+
+    final bool isNeutral = controller.isWordNeutral(ayah, wordIndex, surah: s);
+    if (isBlurEffective) {
+      if (isNeutral) return colors.text;
+      return Colors.transparent;
+    }
+
+    return colors.text;
+  }
 }
 

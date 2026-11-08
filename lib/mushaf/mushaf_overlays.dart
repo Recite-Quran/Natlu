@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import '../core/highlighting_controller.dart';
 import '../core/app_state.dart';
-import 'mushaf_actions.dart';
 
 class _HeaderGeometry {
   final Rect rect;
@@ -416,12 +415,8 @@ class MushafTajweedTooltipPainter extends CustomPainter {
       if (explicitYellowWords!.isEmpty) return;
       yellowWords = explicitYellowWords!;
     } else {
-      bool isWordYellow(int a, int w0, int s) => MushafActions.isWordYellow(
-            surah: s,
-            ayah: a,
-            wordIndex: w0,
-            controller: controller,
-          );
+      bool isWordYellow(int a, int w0, int s) =>
+          controller.isWordYellow(a, w0, surah: s);
 
       final collected = <int>[];
       final seenAyahs = <int>{};
