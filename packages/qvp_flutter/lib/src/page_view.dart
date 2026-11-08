@@ -385,50 +385,8 @@ class QvpPageViewState extends State<QvpPageView>
     if (oldWidget.layout != widget.layout) _ctl._fitRequested = true;
   }
 
-  bool _isCurrentRoute = true;
-  Animation<double>? _secondaryAnimation;
-
-  void _onSecondaryStatus(AnimationStatus status) {
-    if (!mounted) return;
-    if (status == AnimationStatus.dismissed) {
-      if (_isCurrentRoute && !_ticker.isActive) {
-        _ensureTicking();
-      }
-    } else {
-      if (_ticker.isActive) {
-        _ticker.stop();
-      }
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    final isCurrent = route?.isCurrent ?? true;
-    _isCurrentRoute = isCurrent;
-
-    final newSecondary = route?.secondaryAnimation;
-    if (newSecondary != _secondaryAnimation) {
-      _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
-      _secondaryAnimation = newSecondary;
-      _secondaryAnimation?.addStatusListener(_onSecondaryStatus);
-    }
-
-    final isCoveredOrTransitioning = !_isCurrentRoute ||
-        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
-
-    if (isCoveredOrTransitioning && _ticker.isActive) {
-      _ticker.stop();
-    } else if (!isCoveredOrTransitioning && !_ticker.isActive) {
-      _ensureTicking();
-    }
-  }
-
   @override
   void dispose() {
-    _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
-    _secondaryAnimation = null;
     widget.page.removeListener(_onPageChanged);
     _ticker.dispose();
     _cache.dispose();
@@ -480,7 +438,6 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _ensureTicking() {
     if (!_ticker.isActive && mounted && !page.isDisposed) {
-      if (!_isCurrentRoute) return;
       final more = page.tick(nowMs);
       if (more) _ticker.start();
     }
@@ -490,10 +447,6 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _onTick(Duration _) {
     if (page.isDisposed) {
-      _ticker.stop();
-      return;
-    }
-    if (!_isCurrentRoute) {
       _ticker.stop();
       return;
     }
@@ -774,19 +727,17 @@ class QvpPageViewState extends State<QvpPageView>
               onLongPressMoveUpdate:
                   widget.selectionEnabled ? _onLongPressMove : null,
               onLongPressEnd: widget.selectionEnabled ? _onLongPressEnd : null,
-              child: RepaintBoundary(
-                child: CustomPaint(
-                  size: size,
-                  painter: _QvpPainter(
-                    page: page,
-                    view: _ctl,
-                    frame: _frame,
-                    cache: _cache,
-                    dpr: dpr,
-                    paper: widget.paper,
-                    paperShadow: widget.paperShadow,
-                    surahFrames: widget.layout.surahFrames,
-                  ),
+              child: CustomPaint(
+                size: size,
+                painter: _QvpPainter(
+                  page: page,
+                  view: _ctl,
+                  frame: _frame,
+                  cache: _cache,
+                  dpr: dpr,
+                  paper: widget.paper,
+                  paperShadow: widget.paperShadow,
+                  surahFrames: widget.layout.surahFrames,
                 ),
               ),
             ),
@@ -827,15 +778,29 @@ class _InkKey {
     double top,
     int bandH,
     bool surahFrames,
-  ) =>
-      page == this.page &&
-      ink == this.ink &&
-      scale == this.scale &&
-      offsetX == this.offsetX &&
-      offsetY == this.offsetY &&
-      top == this.top &&
-      bandH == this.bandH &&
-      surahFrames == this.surahFrames;
+  ) {
+    if (page != this.page || ink != this.ink || surahFrames != this.surahFrames) {
+      return false;
+    }
+    if ((top - this.top).abs() > 0.5) return false;
+    if ((bandH - this.bandH).abs() > 1) return false;
+    if (scale != null && this.scale != null) {
+      if ((scale - this.scale!).abs() > 0.001) return false;
+    } else if (scale != this.scale) {
+      return false;
+    }
+    if (offsetX != null && this.offsetX != null) {
+      if ((offsetX - this.offsetX!).abs() > 0.5) return false;
+    } else if (offsetX != this.offsetX) {
+      return false;
+    }
+    if (offsetY != null && this.offsetY != null) {
+      if ((offsetY - this.offsetY!).abs() > 0.5) return false;
+    } else if (offsetY != this.offsetY) {
+      return false;
+    }
+    return true;
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -855,10 +820,10 @@ class _InkKey {
   int get hashCode => Object.hash(
         page,
         ink,
-        scale,
-        offsetX,
-        offsetY,
-        top,
+        scale != null ? (scale! * 1000).round() : null,
+        offsetX != null ? (offsetX! * 2).round() : null,
+        offsetY != null ? (offsetY! * 2).round() : null,
+        (top * 2).round(),
         bandH,
         surahFrames,
       );
@@ -885,9 +850,9 @@ class _PictureCacheEntry {
 }
 
 class _LruCache {
-  /// How many page pictures to keep in cache. 6 provides ample headroom across
+  /// How many page pictures to keep in cache. 24 provides ample headroom across
   /// current + adjacent preloaded pages while keeping VRAM lean.
-  static const int maxEntries = 6;
+  static const int maxEntries = 24;
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
 
   void evictPage(int pageNumber) {
@@ -900,7 +865,17 @@ class _LruCache {
 
   bool hasCachedInk(Object key) {
     if (key is _InkKey) {
-      return _entries.containsKey(key);
+      if (_entries.containsKey(key)) return true;
+      return _entries.keys.any((k) => k.matches(
+            key.page,
+            key.ink,
+            key.scale,
+            key.offsetX,
+            key.offsetY,
+            key.top,
+            key.bandH,
+            key.surahFrames,
+          ));
     }
     if (key is int) {
       return _entries.keys.any((k) => k.page == key);
@@ -925,6 +900,25 @@ class _LruCache {
     if (entry != null) {
       _entries[key] = entry;
       return entry;
+    }
+    // Subpixel tolerance search across existing entries
+    for (final existingKey in _entries.keys.toList()) {
+      if (existingKey.matches(
+        key.page,
+        key.ink,
+        key.scale,
+        key.offsetX,
+        key.offsetY,
+        key.top,
+        key.bandH,
+        key.surahFrames,
+      )) {
+        final fuzzyEntry = _entries.remove(existingKey);
+        if (fuzzyEntry != null) {
+          _entries[existingKey] = fuzzyEntry;
+          return fuzzyEntry;
+        }
+      }
     }
     return null;
   }
@@ -979,14 +973,28 @@ class _DrawList {
     double bandH,
     double contentH,
     QvpLayout? l,
-  ) =>
-      page == this.page &&
-      top == this.top &&
-      bandH == this.bandH &&
-      contentH == this.contentH &&
-      l?.scale == scale &&
-      l?.offsetX == offsetX &&
-      l?.offsetY == offsetY;
+  ) {
+    if (page != this.page) return false;
+    if ((top - this.top).abs() > 0.5) return false;
+    if ((bandH - this.bandH).abs() > 1.0) return false;
+    if ((contentH - this.contentH).abs() > 1.0) return false;
+    if (l?.scale != null && scale != null) {
+      if ((l!.scale - scale!).abs() > 0.001) return false;
+    } else if (l?.scale != scale) {
+      return false;
+    }
+    if (l?.offsetX != null && offsetX != null) {
+      if ((l!.offsetX - offsetX!).abs() > 0.5) return false;
+    } else if (l?.offsetX != offsetX) {
+      return false;
+    }
+    if (l?.offsetY != null && offsetY != null) {
+      if ((l!.offsetY - offsetY!).abs() > 0.5) return false;
+    } else if (l?.offsetY != offsetY) {
+      return false;
+    }
+    return true;
+  }
 }
 
 class _BoxEntry {
@@ -1324,7 +1332,6 @@ class _InkCache {
 
   void attach(QvpPage p) {
     if (page == p) return;
-    page?.clearPaths();
     page = p;
     _dropPicture();
     dropOrnaments();
@@ -1378,7 +1385,6 @@ class _InkCache {
     _dropPicture();
     dropOrnaments();
     dropStyledPicture();
-    page?.clearPaths();
     page = null;
     _drawList = null;
     _readPage = null;

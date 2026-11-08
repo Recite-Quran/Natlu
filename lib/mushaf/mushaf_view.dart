@@ -31,7 +31,6 @@ class MushafScrollBehavior extends MaterialScrollBehavior {
       const PageScrollPhysics();
 }
 
-
 class MushafView extends StatefulWidget {
   final HighlightingController controller;
   final bool isRecording;
@@ -45,7 +44,8 @@ class MushafView extends StatefulWidget {
   });
 
   static bool get isSyncingSurah => MushafProvider.instance.isSyncingSurah;
-  static set isSyncingSurah(bool v) => MushafProvider.instance.isSyncingSurah = v;
+  static set isSyncingSurah(bool v) =>
+      MushafProvider.instance.isSyncingSurah = v;
 
   static void preloadData() => MushafProvider.instance.preloadData();
 
@@ -118,9 +118,10 @@ class _MushafViewState extends State<MushafView> {
       final now = DateTime.now().millisecondsSinceEpoch;
       if (now - _lastWheelMs < 240) return;
 
-      final double delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
-          ? event.scrollDelta.dy
-          : event.scrollDelta.dx;
+      final double delta =
+          event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+              ? event.scrollDelta.dy
+              : event.scrollDelta.dx;
 
       if (delta.abs() > 12.0) {
         _lastWheelMs = now;
@@ -212,43 +213,11 @@ class _MushafViewState extends State<MushafView> {
   }
 
   bool _needsPageSyncAfterModal = false;
-  Animation<double>? _secondaryAnimation;
 
   void _onModalStateChanged() {
     if (!mounted) return;
-    if (!AppModalRouteObserver.instance.isModalOpen && _needsPageSyncAfterModal) {
-      _needsPageSyncAfterModal = false;
-      _onActiveAyahChanged();
-    }
-  }
-
-  void _onSecondaryAnimationStatus(AnimationStatus status) {
-    if (status == AnimationStatus.dismissed) {
-      if (_needsPageSyncAfterModal && mounted && !AppModalRouteObserver.instance.isModalOpen) {
-        _needsPageSyncAfterModal = false;
-        _onActiveAyahChanged();
-      }
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    final isCurrent = route?.isCurrent ?? true;
-
-    final newSecondary = route?.secondaryAnimation;
-    if (newSecondary != _secondaryAnimation) {
-      _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
-      _secondaryAnimation = newSecondary;
-      _secondaryAnimation?.addStatusListener(_onSecondaryAnimationStatus);
-    }
-
-    final isCoveredOrTransitioning = !isCurrent ||
-        AppModalRouteObserver.instance.isModalOpen ||
-        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
-
-    if (!isCoveredOrTransitioning && _needsPageSyncAfterModal && mounted) {
+    if (!AppModalRouteObserver.instance.isModalOpen &&
+        _needsPageSyncAfterModal) {
       _needsPageSyncAfterModal = false;
       _onActiveAyahChanged();
     }
@@ -262,9 +231,11 @@ class _MushafViewState extends State<MushafView> {
     final surah = widget.controller.targetSurah != 0
         ? widget.controller.targetSurah
         : AppState.instance.lastSurah;
-    final ayah = widget.controller.activeAyah.value ?? AppState.instance.lastAyah;
+    final ayah =
+        widget.controller.activeAyah.value ?? AppState.instance.lastAyah;
     final provider = MushafProvider.instance;
-    final mapped = provider.getPageForAyah(surah, ayah) ?? provider.getPageForAyah(surah, 1);
+    final mapped = provider.getPageForAyah(surah, ayah) ??
+        provider.getPageForAyah(surah, 1);
     if (mapped != null && mapped >= 1 && mapped <= 604) {
       return mapped;
     }
@@ -299,8 +270,6 @@ class _MushafViewState extends State<MushafView> {
   void dispose() {
     AppModalRouteObserver.instance.activeModalsNotifier
         .removeListener(_onModalStateChanged);
-    _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
-    _secondaryAnimation = null;
     MaglisController.instance.removeListener(_onMaglisSessionChanged);
     MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
@@ -377,10 +346,7 @@ class _MushafViewState extends State<MushafView> {
 
   void _onControllerProgress() {
     final provider = MushafProvider.instance;
-    final route = ModalRoute.of(context);
-    final isCoveredOrTransitioning = !(route?.isCurrent ?? true) ||
-        AppModalRouteObserver.instance.isModalOpen ||
-        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+    final isCoveredOrTransitioning = AppModalRouteObserver.instance.isModalOpen;
     if (!mounted ||
         isCoveredOrTransitioning ||
         _isAutoAdvancingPage ||
@@ -391,9 +357,8 @@ class _MushafViewState extends State<MushafView> {
     }
 
     final ctrl = widget.controller;
-    final int activeSurah = ctrl.targetSurah != 0
-        ? ctrl.targetSurah
-        : AppState.instance.lastSurah;
+    final int activeSurah =
+        ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
 
     // 1. Hands-free recitation flow across Surahs (same page or next page)
     if (_isSurahFinished(ctrl, activeSurah)) {
@@ -442,7 +407,8 @@ class _MushafViewState extends State<MushafView> {
     }
 
     final bool isLastWordFinished = ctrl.isWordRead(
-            lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah) ||
+            lastWord.ayah, lastWord.wordIndex0,
+            surah: lastWord.surah) ||
         ctrl.completedAyahsFor(lastWord.surah).contains(lastWord.ayah);
 
     final int nextPage = _currentPage + 1;
@@ -455,12 +421,13 @@ class _MushafViewState extends State<MushafView> {
           ayah: activeAyah,
         );
 
-    final bool shouldAdvance =
-        (isLastWordFinished || isRecitingNextPage) &&
+    final bool shouldAdvance = (isLastWordFinished || isRecitingNextPage) &&
         _lastAutoAdvancedFromPage != _currentPage;
 
     if (!shouldAdvance) {
-      if (!isLastWordFinished && !isRecitingNextPage && _lastAutoAdvancedFromPage == _currentPage) {
+      if (!isLastWordFinished &&
+          !isRecitingNextPage &&
+          _lastAutoAdvancedFromPage == _currentPage) {
         _lastAutoAdvancedFromPage = null;
       }
       return;
@@ -533,10 +500,7 @@ class _MushafViewState extends State<MushafView> {
 
   void _onActiveAyahChanged() {
     if (MaglisController.instance.isRemoteReciting) return;
-    final route = ModalRoute.of(context);
-    final isCoveredOrTransitioning = !(route?.isCurrent ?? true) ||
-        AppModalRouteObserver.instance.isModalOpen ||
-        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+    final isCoveredOrTransitioning = AppModalRouteObserver.instance.isModalOpen;
     if (isCoveredOrTransitioning) {
       _needsPageSyncAfterModal = true;
       return;
@@ -682,16 +646,14 @@ class _MushafViewState extends State<MushafView> {
     // Bar dock: height = 46dp, bottom margin = 10dp.
     // Idle: page number sits just above the dock band (safeBottom + 60dp).
     // Recording/Maglis: page number drops into the left clearance (safeBottom + 27dp).
-    final bool isSessionActive = widget.isRecording || MaglisController.instance.inSession;
+    final bool isSessionActive =
+        widget.isRecording || MaglisController.instance.inSession;
 
-    final double pageLabelBottom = isSessionActive
-        ? (safeBottom + 27.0)
-        : (safeBottom + 60.0);
+    final double pageLabelBottom =
+        isSessionActive ? (safeBottom + 27.0) : (safeBottom + 60.0);
 
     // Content bottom padding keeps ayahs clear of the bar in all states without resizing the vector PageView
     final double bottomPadding = safeBottom + 74.0;
-
-
 
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -701,7 +663,8 @@ class _MushafViewState extends State<MushafView> {
         onKeyEvent: _controlRLByKeyboard,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final double usableHeight = math.max(0.0, constraints.maxHeight - topPadding - bottomPadding);
+            final double usableHeight = math.max(
+                0.0, constraints.maxHeight - topPadding - bottomPadding);
             final bool isWideScreen = constraints.maxWidth > 650;
             final double pageContainerWidth = isWideScreen
                 ? math.min(constraints.maxWidth, usableHeight * 0.72)
@@ -713,16 +676,18 @@ class _MushafViewState extends State<MushafView> {
             );
             MushafProvider.instance.lastViewportSize = viewportSize;
 
-            final double pageLabelLeft = isWideScreen && constraints.maxWidth > pageContainerWidth
-                ? ((constraints.maxWidth - pageContainerWidth) / 2 + 16.0)
-                : (safeLeft + 16.0);
+            final double pageLabelLeft =
+                isWideScreen && constraints.maxWidth > pageContainerWidth
+                    ? ((constraints.maxWidth - pageContainerWidth) / 2 + 16.0)
+                    : (safeLeft + 16.0);
 
             return Listener(
               onPointerSignal: _onPointerSignal,
               child: Stack(
                 children: [
                   Padding(
-                    padding: EdgeInsets.only(top: topPadding, bottom: bottomPadding),
+                    padding:
+                        EdgeInsets.only(top: topPadding, bottom: bottomPadding),
                     child: Center(
                       child: SizedBox(
                         width: pageContainerWidth,
@@ -733,9 +698,12 @@ class _MushafViewState extends State<MushafView> {
                             child: NotificationListener<ScrollNotification>(
                               onNotification: (notification) {
                                 if (notification is ScrollStartNotification) {
-                                  MushafProvider.instance.isPageScrolling.value = true;
-                                } else if (notification is ScrollEndNotification) {
-                                  MushafProvider.instance.isPageScrolling.value = false;
+                                  MushafProvider
+                                      .instance.isPageScrolling.value = true;
+                                } else if (notification
+                                    is ScrollEndNotification) {
+                                  MushafProvider
+                                      .instance.isPageScrolling.value = false;
                                 }
                                 return false;
                               },
@@ -751,7 +719,8 @@ class _MushafViewState extends State<MushafView> {
                                 itemBuilder: (context, index) {
                                   final pageNumber = 604 - index;
                                   return RepaintBoundary(
-                                    key: ValueKey('mushaf_page_boundary_$pageNumber'),
+                                    key: ValueKey(
+                                        'mushaf_page_boundary_$pageNumber'),
                                     child: MushafPageWidget(
                                       key: ValueKey('mushaf_page_$pageNumber'),
                                       pageNumber: pageNumber,
@@ -771,7 +740,10 @@ class _MushafViewState extends State<MushafView> {
                   if (isWideScreen && constraints.maxWidth > 750) ...[
                     // Left navigation button (Next page in RTL reading order)
                     Positioned(
-                      left: math.max(12.0, (constraints.maxWidth - pageContainerWidth) / 4 - 24.0),
+                      left: math.max(
+                          12.0,
+                          (constraints.maxWidth - pageContainerWidth) / 4 -
+                              24.0),
                       top: topPadding + usableHeight / 2 - 24.0,
                       child: IconButton(
                         icon: const Icon(Icons.arrow_back_ios_new_rounded),
@@ -783,7 +755,10 @@ class _MushafViewState extends State<MushafView> {
                     ),
                     // Right navigation button (Previous page in RTL reading order)
                     Positioned(
-                      right: math.max(12.0, (constraints.maxWidth - pageContainerWidth) / 4 - 24.0),
+                      right: math.max(
+                          12.0,
+                          (constraints.maxWidth - pageContainerWidth) / 4 -
+                              24.0),
                       top: topPadding + usableHeight / 2 - 24.0,
                       child: IconButton(
                         icon: const Icon(Icons.arrow_forward_ios_rounded),
@@ -803,7 +778,8 @@ class _MushafViewState extends State<MushafView> {
                       child: ValueListenableBuilder<int>(
                         valueListenable: AppState.instance.currentMushafPage,
                         builder: (context, currentPage, _) {
-                          final int page = currentPage > 0 ? currentPage : _currentPage;
+                          final int page =
+                              currentPage > 0 ? currentPage : _currentPage;
                           return Text(
                             QuranTypography.toArabicDigits(page),
                             textDirection: TextDirection.rtl,

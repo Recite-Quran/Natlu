@@ -54,7 +54,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   List<int> _lastRedWords = const [];
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
-  int _appliedGlobalRevision = -1;
   bool _hasEvaluatedWords = false;
   bool? _lastBlurEffective;
   bool? _lastIsRecording;
@@ -151,8 +150,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
   }
 
-  Animation<double>? _secondaryAnimation;
-
   void _onModalStateChanged() {
     if (!mounted) return;
     if (!AppModalRouteObserver.instance.isModalOpen && _needsSyncAfterModal) {
@@ -161,46 +158,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     }
   }
 
-  void _onSecondaryAnimationStatus(AnimationStatus status) {
-    if (status == AnimationStatus.dismissed) {
-      if (_needsSyncAfterModal &&
-          mounted &&
-          !AppModalRouteObserver.instance.isModalOpen) {
-        _needsSyncAfterModal = false;
-        _requestSyncVisuals();
-      }
-    }
-  }
-
   void _onPageScrollingChanged() {
     if (!MushafProvider.instance.isPageScrolling.value &&
         _needsSyncAfterScroll &&
         mounted) {
       _needsSyncAfterScroll = false;
-      _requestSyncVisuals();
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    final wasCurrent = _isCurrentRoute;
-    _isCurrentRoute = route?.isCurrent ?? true;
-
-    final newSecondary = route?.secondaryAnimation;
-    if (newSecondary != _secondaryAnimation) {
-      _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
-      _secondaryAnimation = newSecondary;
-      _secondaryAnimation?.addStatusListener(_onSecondaryAnimationStatus);
-    }
-
-    final isCoveredOrTransitioning = !_isCurrentRoute ||
-        AppModalRouteObserver.instance.isModalOpen ||
-        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
-
-    if (!wasCurrent && !isCoveredOrTransitioning && _needsSyncAfterModal) {
-      _needsSyncAfterModal = false;
       _requestSyncVisuals();
     }
   }
@@ -215,7 +177,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _lastActiveWord = null;
       _lastIsDark = null;
       _lastIndexedPage = -1;
-      _appliedGlobalRevision = -1;
       _hasEvaluatedWords = false;
       _lastBlurEffective = null;
       _lastIsRecording = null;
@@ -254,8 +215,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
   @override
   void dispose() {
-    _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
-    _secondaryAnimation = null;
     _detachListeners();
     _spinnerController.dispose();
     _yellowWordsNotifier.dispose();
@@ -273,7 +232,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
   bool _syncScheduled = false;
   bool _needsSyncAfterModal = false;
   bool _needsSyncAfterScroll = false;
-  bool _isCurrentRoute = true;
   int _lastVisualFingerprint = -1;
 
   final List<int> _evalGreen = [];
@@ -322,8 +280,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     final int s = activeMatch?.verse.surah ?? targetSurah;
     final int a = activeMatch?.verse.ayah ?? (activeAyah ?? 0);
     final bool isReciting = widget.isRecording || isRemote;
-
-    hash = 31 * hash + ctrl.globalRevision.value;
 
     if (ctrl.activeWordIndex != null) {
       hash = 31 * hash + ctrl.activeWordIndex!;
@@ -380,12 +336,17 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
               pageNumber: widget.pageNumber,
               surah: activeMatch.verse.surah,
               ayah: activeMatch.verse.ayah);
-      final bool hasRevisionChange =
-          _appliedGlobalRevision != ctrl.globalRevision.value;
+      final bool hasAudioAyah = ctrl.isAudioActive &&
+          ctrl.audioSurah != null &&
+          ctrl.audioAyah != null &&
+          provider.isAyahOnPage(
+              pageNumber: widget.pageNumber,
+              surah: ctrl.audioSurah!,
+              ayah: ctrl.audioAyah!);
 
       if (!hasRecitingAyah &&
           !hasMatchedAyah &&
-          !hasRevisionChange &&
+          !hasAudioAyah &&
           _lastActiveAyah == null &&
           _lastActiveWord == null) {
         return;
@@ -398,12 +359,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       return;
     }
 
-    // Defer visual sync if a modal dialog, bottom sheet, or route transition is active above this route
-    final bool isTransitioning =
-        _secondaryAnimation != null && !_secondaryAnimation!.isDismissed;
-    if (!_isCurrentRoute ||
-        AppModalRouteObserver.instance.isModalOpen ||
-        isTransitioning) {
+    // Defer visual sync if a modal dialog or bottom sheet is open
+    if (AppModalRouteObserver.instance.isModalOpen) {
       _needsSyncAfterModal = true;
       return;
     }
@@ -423,11 +380,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         _needsSyncAfterScroll = true;
         return;
       }
-      final bool isTransitioningNow =
-          _secondaryAnimation != null && !_secondaryAnimation!.isDismissed;
-      if (!_isCurrentRoute ||
-          AppModalRouteObserver.instance.isModalOpen ||
-          isTransitioningNow) {
+      if (AppModalRouteObserver.instance.isModalOpen) {
         _needsSyncAfterModal = true;
         return;
       }
@@ -607,16 +560,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         provider.isAyahOnPage(
             pageNumber: widget.pageNumber, surah: audioSurah, ayah: audioAyah);
 
-    final bool revisionChanged =
-        (_appliedGlobalRevision != ctrl.globalRevision.value);
-
     // Fast early exit: if this is an adjacent pre-cached page and not the reciter's page,
     // and has no stale cursors or highlights to clear, exit immediately with zero allocations.
     if (widget.pageNumber != currentPage &&
         !hasRecitingAyah &&
         !hasAudioAyah &&
         !hasMatchedAyah &&
-        !revisionChanged &&
         _lastActiveAyah == null &&
         _lastActiveWord == null &&
         _lastIsDark == app.isDarkMode) {
@@ -763,19 +712,14 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           app.isBlurEffective(isRecording: widget.isRecording);
       final bool blurChanged = (_lastBlurEffective != isBlurEffective);
       final bool recordingChanged = (_lastIsRecording != widget.isRecording);
-      final int currentGlobalRevision = ctrl.globalRevision.value;
 
       final bool hasReciterOnPage =
           isReciting && (hasRecitingAyah || hasMatchedAyah);
-
-      final bool revisionAffectsThisPage = revisionChanged &&
-          (widget.pageNumber == currentPage || hasReciterOnPage);
 
       final bool needsWordEvaluation = hasReciterOnPage ||
           blurChanged ||
           recordingChanged ||
           themeChanged ||
-          revisionAffectsThisPage ||
           !_hasEvaluatedWords ||
           _lastIndexedPage != widget.pageNumber;
 
@@ -801,7 +745,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           if (themeChanged ||
               blurChanged ||
               recordingChanged ||
-              revisionChanged ||
               !_hasEvaluatedWords) {
             _clearCompletedAyahCache();
           }
@@ -948,7 +891,6 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             _hasMasks = false;
           }
         }
-        _appliedGlobalRevision = currentGlobalRevision;
         _hasEvaluatedWords = true;
         _lastBlurEffective = isBlurEffective;
         _lastIsRecording = widget.isRecording;
@@ -1314,21 +1256,19 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
             onDecorationTap: (dec, _) => _onDecorationTap(dec),
           ),
           IgnorePointer(
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: AyahMarkPainter(
-                  page: page,
-                  app: app,
-                  spinnerAnimation: _spinnerController,
-                  repaintListenable: _ayahMarkRepaintListenable,
-                  surfaceColor: c.surface,
-                  goldColor: c.gold,
-                  neutralRingColor: neutralRingColor,
-                  ayahHighlightColor: isDark
-                      ? Colors.white.withValues(alpha: 0.10)
-                      : const Color(0xFF64748B).withValues(alpha: 0.09),
-                  controller: widget.controller,
-                ),
+            child: CustomPaint(
+              painter: AyahMarkPainter(
+                page: page,
+                app: app,
+                spinnerAnimation: _spinnerController,
+                repaintListenable: _ayahMarkRepaintListenable,
+                surfaceColor: c.surface,
+                goldColor: c.gold,
+                neutralRingColor: neutralRingColor,
+                ayahHighlightColor: isDark
+                    ? Colors.white.withValues(alpha: 0.10)
+                    : const Color(0xFF64748B).withValues(alpha: 0.09),
+                controller: widget.controller,
               ),
             ),
           ),

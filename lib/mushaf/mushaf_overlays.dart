@@ -175,7 +175,6 @@ class AyahMarkPainter extends CustomPainter {
                 app.activeAudioSurah,
                 app.isAudioBuffering,
                 app.isAudioPlaying,
-                if (controller != null) controller.globalRevision,
               ]),
         );
 
@@ -360,7 +359,6 @@ class MushafTajweedTooltipPainter extends CustomPainter {
                 page,
                 app,
                 app.modeNotifier,
-                controller.globalRevision,
               ]),
         );
 

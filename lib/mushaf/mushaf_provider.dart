@@ -54,7 +54,6 @@ class MushafProvider {
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   static const int _maxCachedPages = 16;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
-  Timer? _preloadDebounce;
   int? _preloadingTargetPage;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
@@ -64,11 +63,12 @@ class MushafProvider {
     }
 
     _preloadingTargetPage = pageNumber;
-    _preloadDebounce?.cancel();
-    _preloadDebounce = Timer(const Duration(milliseconds: 200), () {
+    final targetSize = size ?? lastViewportSize;
+    if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
+
+    // Immediate microtask to warm adjacent pages before any swipe gesture starts
+    scheduleMicrotask(() async {
       if (_preloadingTargetPage != pageNumber) return;
-      final targetSize = size ?? lastViewportSize;
-      if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
 
       // Forward adjacent page has highest priority for recitation and reading continuity
       final neighbors = [pageNumber + 1, pageNumber - 1];
