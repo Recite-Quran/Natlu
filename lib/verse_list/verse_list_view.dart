@@ -4,13 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
-import 'package:recite_quran/recite_quran.dart';
+import '../state/highlighting_controller.dart';
 
-import '../../../services/app_haptics.dart';
-import '../../../services/quran_audio_service.dart';
-import '../../../services/quran_timing_service.dart';
-import '../../../state/app_state.dart';
-import '../dialogs/speed_selection_dialog.dart';
+import '../services/app_haptics.dart';
+import '../audio/quran_audio_service.dart';
+import '../audio/quran_timing_service.dart';
+import '../state/app_state.dart';
+import '../ui/widgets/dialogs/speed_selection_dialog.dart';
 import '../mushaf/mushaf_provider.dart';
 import 'verse_row.dart';
 
@@ -344,7 +344,7 @@ class VerseListViewState extends State<VerseListView>
     if (_isAutoScrolling) {
       stopAutoScrolling();
     } else {
-      AppState.instance.stopVerseAudio();
+      QuranAudioService.instance.stop();
       if (!AppState.instance.hasChosenAutoScrollSpeed && mounted) {
         showDialog(
           context: context,
@@ -371,7 +371,7 @@ class VerseListViewState extends State<VerseListView>
   }
 
   void startAutoScrolling() {
-    AppState.instance.stopVerseAudio();
+    QuranAudioService.instance.stop();
     widget.controller.clearHighlights();
     widget.controller.finalize();
     setState(() => _isAutoScrolling = true);
@@ -447,7 +447,7 @@ class VerseListViewState extends State<VerseListView>
   void _navigateToSurah(int newSurah) async {
     if (newSurah < 1 || newSurah > 114) return;
     AppHaptics.mediumImpact();
-    AppState.instance.stopVerseAudio();
+    QuranAudioService.instance.stop();
 
     if (widget.isRecording) {
       widget.onToggleRecord();

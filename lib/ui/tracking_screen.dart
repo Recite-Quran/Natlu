@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
-import 'package:recite_quran/recite_quran.dart';
-import '../services/quran_timing_service.dart';
-import '../services/quran_audio_service.dart';
+import '../state/highlighting_controller.dart';
+import '../audio/quran_timing_service.dart';
+import '../audio/quran_audio_service.dart';
 import '../services/app_haptics.dart';
 import '../state/app_state.dart';
 import 'widgets/dialogs/voice_search_dialog.dart';
@@ -14,8 +14,8 @@ import 'widgets/dialogs/speed_selection_dialog.dart';
 import 'widgets/mic_bar.dart';
 import 'widgets/settings_dialog.dart';
 import 'widgets/surah_picker.dart';
-import 'widgets/mushaf/mushaf_view.dart';
-import 'widgets/verse_list/verse_list_view.dart';
+import '../mushaf/mushaf_view.dart';
+import '../verse_list/verse_list_view.dart';
 import '../maglis/maglis_controller.dart';
 import 'widgets/dialogs/maglis_entry_dialog.dart';
 import 'widgets/dialogs/maglis_explanation_dialog.dart';
@@ -174,7 +174,7 @@ class _TrackingScreenState extends State<TrackingScreen>
         defaultTargetPlatform == TargetPlatform.linux;
 
     if (state == AppLifecycleState.detached) {
-      AppState.instance.stopVerseAudio();
+      QuranAudioService.instance.stop();
       if (widget.isRecording) widget.onToggleRecord();
       if (widget.isVoiceSearching) widget.onVoiceSearchToggle();
       return;
@@ -185,11 +185,11 @@ class _TrackingScreenState extends State<TrackingScreen>
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
         if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
-          AppState.instance.stopVerseAudio();
+          QuranAudioService.instance.stop();
         } else if (defaultTargetPlatform == TargetPlatform.android) {
           _checkAndStopIfBackgrounded();
         } else if (defaultTargetPlatform != TargetPlatform.iOS) {
-          AppState.instance.stopVerseAudio();
+          QuranAudioService.instance.stop();
         }
         // On iOS, continuous verse recitation remains playing across lock screen
         // and background to satisfy UIBackgroundModes: ["audio"] (App Store Guideline 2.5.4).
@@ -213,10 +213,10 @@ class _TrackingScreenState extends State<TrackingScreen>
       final isOffOrLocked =
           await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ?? false;
       if (!isOffOrLocked) {
-        AppState.instance.stopVerseAudio();
+        QuranAudioService.instance.stop();
       }
     } catch (_) {
-      AppState.instance.stopVerseAudio();
+      QuranAudioService.instance.stop();
     }
   }
 
@@ -385,7 +385,7 @@ class _TrackingScreenState extends State<TrackingScreen>
         onToggleRecord: widget.onToggleRecord,
         onVoiceSearchToggle: widget.onVoiceSearchToggle,
         onPick: (n, {ayah}) async {
-          AppState.instance.stopVerseAudio();
+          QuranAudioService.instance.stop();
           if (widget.isRecording) {
             widget.onToggleRecord();
           }

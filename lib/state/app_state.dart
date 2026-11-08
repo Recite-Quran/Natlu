@@ -12,7 +12,7 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:recite_quran/recite_quran.dart';
-import '../services/quran_audio_service.dart';
+import '../audio/quran_audio_service.dart';
 import '../maglis/maglis_controller.dart';
 
 // Supported UI languages.
@@ -156,6 +156,7 @@ class AppState extends ChangeNotifier {
   AppMode currentMode = AppMode.wordChecker;
   int tajweedClickCount = 0;
   bool get hasClickedTajweedWord => tajweedClickCount >= 10;
+  final ValueNotifier<bool> hasClickedTajweedNotifier = ValueNotifier(false);
 
   void setMode(AppMode mode) {
     if (currentMode != mode) {
@@ -168,6 +169,9 @@ class AppState extends ChangeNotifier {
   Future<void> markTajweedWordClicked() async {
     if (tajweedClickCount < 10) {
       tajweedClickCount++;
+      if (tajweedClickCount >= 10) {
+        hasClickedTajweedNotifier.value = true;
+      }
       notifyListeners();
       final prefs = await _getPrefs();
       await prefs.setInt('tajweed_click_count', tajweedClickCount);
@@ -732,7 +736,7 @@ class AppState extends ChangeNotifier {
     green: Color(
         0xFF15803D), // Soothing Botanical Green (true green, 5.4:1 contrast on linen, zero glare)
     red: Color(
-        0xFFC02626), // Warm terracotta crimson (refined, 5.8:1 contrast, non-alarming)
+        0xFFDC2626), // Warm terracotta crimson coral (refined, 5.8:1 contrast, non-alarming)
     muted: Color(0xFF64748B), // Slate-500 neutral muted
     currentWord: Color(0xFF0D9488), // Calming teal active word highlight
     wordHighlight: Color(0xFF0D9488), // Calming teal active word highlight
@@ -743,8 +747,8 @@ class AppState extends ChangeNotifier {
     ambientGlow: Color(0x18047857), // Ambient soft emerald glow
     success: Color(0xFF15803D), // Soothing botanical green success
     warning: Color(
-        0xFFB58900), // Eye-comforting warm golden yellow (high legibility on linen, zero orange glare)
-    error: Color(0xFFC02626), // Terracotta crimson error
+        0xFFD97706), // Eye-comforting warm antique amber (high legibility on linen, zero orange glare)
+    error: Color(0xFFDC2626), // Terracotta crimson error
     info: Color(0xFF2563EB), // Calming sapphire info
     cyan: Color(0xFF0D9488), // Calm teal
     indigo: Color(0xFF4338CA), // Royal Indigo
@@ -768,21 +772,21 @@ class AppState extends ChangeNotifier {
     onPrimary: Color(0xFF000000),
     secondary: Color(0xFF06B6D4), // Cyan Spark
     gold: Color(0xFFEAB308), // Luminous Amber Gold
-    green: Color(0xFF22C55E), // Calming leaf green (soothing, zero halation)
-    red: Color(0xFFE06D63), // Gentle rose terracotta (soft, halation-free)
+    green: Color(0xFF34D399), // Luminous Mint Sage (soothing, zero halation)
+    red: Color(0xFFFB7185), // Gentle rose terracotta coral (soft, halation-free)
     muted: Color(0xFF64748B), // Slate-500 neutral muted
     currentWord:
-        Color(0xFF14B8A6), // Calming luminous teal active word highlight
+        Color(0xFF2DD4BF), // Calming luminous mint teal active word highlight
     wordHighlight:
-        Color(0xFF14B8A6), // Calming luminous teal active word highlight
+        Color(0xFF2DD4BF), // Calming luminous mint teal active word highlight
     text: Color(0xFFE2E8F0), // Moonlit pearl (halation-free)
     textSecondary: Color(0xFF94A3B8), // Slate-400
     ayahOutline: Color(0x35EAB308), // Soft amber outline
     ambientGlow: Color(0x2510B981), // Gentle emerald glow
-    success: Color(0xFF22C55E), // Calming leaf green success
+    success: Color(0xFF34D399), // Calming mint green success
     warning: Color(
-        0xFFFACC15), // Soothing luminous candlelight yellow (pure warm yellow, zero orange glare)
-    error: Color(0xFFE06D63), // Gentle rose terracotta error
+        0xFFFBBF24), // Soothing luminous candlelight amber gold (pure warm amber, zero glare)
+    error: Color(0xFFFB7185), // Gentle rose terracotta error
     info: Color(0xFF38BDF8),
     cyan: Color(0xFF06B6D4),
     indigo: Color(0xFF818CF8),
@@ -822,6 +826,7 @@ class AppState extends ChangeNotifier {
           (prefs.getBool('has_clicked_tajweed_word') ?? false)) {
         tajweedClickCount = 10;
       }
+      hasClickedTajweedNotifier.value = (tajweedClickCount >= 10);
 
       mushafAudioClickCount = prefs.getInt('mushaf_audio_click_count') ?? 0;
       maglisCommunityTapCount = prefs.getInt('maglis_community_tap_count') ?? 0;

@@ -27,23 +27,24 @@ import 'package:in_app_update/in_app_update.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
-import 'package:recite_quran/recite_quran.dart';
 import 'state/app_state.dart';
+import 'state/highlighting_controller.dart';
 import 'ui/tracking_screen.dart';
 import 'ui/widgets/dialogs/theme_selection_dialog.dart';
 import 'ui/widgets/dialogs/permission_dialog.dart';
 import 'ui/widgets/dialogs/model_download_dialog.dart';
-import 'ui/widgets/mushaf/mushaf_view.dart';
+import 'mushaf/mushaf_view.dart';
 import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
 import 'maglis/maglis_core.dart';
 import 'services/app_audio_processor.dart';
-import 'ui/widgets/mushaf/web/mushaf_web_storage.dart'
-    if (dart.library.js_interop) 'ui/widgets/mushaf/web/mushaf_web_storage_web.dart';
+import 'services/app_modal_route_observer.dart';
+import 'mushaf/web/mushaf_web_storage.dart'
+    if (dart.library.js_interop) 'mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
-import 'services/quran_audio_service.dart';
+import 'audio/quran_audio_service.dart';
 
 void main() async {
   runZonedGuarded(
@@ -129,6 +130,7 @@ class QuranApp extends StatelessWidget {
         final isDark = AppState.instance.isDarkMode;
         return MaterialApp(
           debugShowCheckedModeBanner: false,
+          navigatorObservers: [AppModalRouteObserver.instance],
           title: 'Recite Quran - اتلو القران',
           theme: ThemeData(
             useMaterial3: true,
@@ -250,15 +252,11 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final inSession = MaglisController.instance.inSession;
     if (inSession && !_hasAttachedMaglisBroadcast) {
       _hasAttachedMaglisBroadcast = true;
-      _ctrl?.addListener(_throttledBroadcastMaglisProgress);
       _ctrl?.globalRevision.addListener(_throttledBroadcastMaglisProgress);
-      _ctrl?.activeAyah.addListener(_throttledBroadcastMaglisProgress);
     } else if (!inSession && _hasAttachedMaglisBroadcast) {
       _hasAttachedMaglisBroadcast = false;
       _maglisBroadcastThrottle?.cancel();
-      _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
       _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
-      _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
     }
   }
 
@@ -270,11 +268,52 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     initModelDownloadTracker();
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
-    AppState.instance.isAudioPlaying.addListener(_onVerseAudioPlayingChanged);
+    QuranAudioService.instance.onAudioProgress = ({
+      int? surah,
+      int? ayah,
+      int? wordIndex,
+      required bool isPlaying,
+      required bool isBuffering,
+    }) {
+      _ctrl?.applyAudioProgress(
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+        isPlaying: isPlaying,
+        isBuffering: isBuffering,
+      );
+    };
+    QuranAudioService.instance.onPlayingChanged = _onVerseAudioPlayingChanged;
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChangedForIdleTimer);
     MaglisController.instance.sessionListenable
         .addListener(_syncMaglisBroadcastListeners);
+
+    MaglisController.instance.onRemoteRecitationProgress = ({
+      required int surah,
+      required int ayah,
+      int? activeWord,
+      List<int> greenWords = const [],
+      List<int> yellowWords = const [],
+      List<int> redWords = const [],
+      Map<int, List<ReciterError>>? errors,
+      Map<String, int>? cumulative,
+      bool isReciting = true,
+    }) {
+      if (mounted && _ctrl != null) {
+        _ctrl!.applyRemoteRecitation(
+          surah: surah,
+          ayah: ayah,
+          activeWord: activeWord,
+          greenWords: greenWords,
+          yellowWords: yellowWords,
+          redWords: redWords,
+          errors: errors,
+          cumulative: cumulative,
+          isReciting: isReciting,
+        );
+      }
+    };
 
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
@@ -382,7 +421,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
-      AppState.instance.stopVerseAudio();
+      QuranAudioService.instance.stop();
       _maglisIdleTimer?.cancel();
       _maglisIdleTimer = null;
       _maglisSoloSince = null;
@@ -427,7 +466,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     if (QuranAudioService.instance.isSingleWordMode &&
         state == AppLifecycleState.resumed) {
-      AppState.instance.stopVerseAudio();
+      QuranAudioService.instance.stop();
     }
   }
 
@@ -474,6 +513,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       unawaited(MaglisController.instance.leaveSession());
     }
     MaglisController.instance.onRemoteFloorClaimed = null;
+    MaglisController.instance.onRemoteRecitationProgress = null;
     MaglisController.instance.onSessionEnded = null;
     if (_hasAttachedMaglisBroadcast) {
       _hasAttachedMaglisBroadcast = false;
@@ -485,9 +525,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     if (!kIsWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
-    AppState.instance.isAudioPlaying.removeListener(_onVerseAudioPlayingChanged);
+    QuranAudioService.instance.onAudioProgress = null;
+    QuranAudioService.instance.onPlayingChanged = null;
+    QuranAudioService.instance.stop();
     _transcriptionSub?.cancel();
-    AppState.instance.stopVerseAudio();
     _audio.dispose();
     _ctrl?.dispose();
     _voiceSearchAsrNotifier.dispose();
@@ -638,7 +679,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         onChunk: (chunk, isFinal) {
           // Software mute: drop mic frames while verse audio is playing or recording is inactive
           // so the AI model never hears the phone speaker or accepts input!
-          if (AppState.instance.isAudioPlaying.value || !_isRecording) return;
+          if (QuranAudioService.instance.isPlaying || !_isRecording) return;
           _ctrl?.feed(chunk, isFinal: isFinal);
         },
       );
@@ -648,8 +689,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     }
   }
 
-  void _onVerseAudioPlayingChanged() {
-    final bool isAudio = AppState.instance.isAudioPlaying.value;
+  void _onVerseAudioPlayingChanged(bool isAudio) {
     if (_isRecording) {
       if (isAudio) {
         // While verse audio is playing on Android, release the hardware mic
@@ -707,7 +747,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           return;
         }
 
-        AppState.instance.stopVerseAudio();
+        QuranAudioService.instance.stop();
         _engine.resetBuffer();
 
         if (_ctrl != null) {
@@ -789,6 +829,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
           _ctrl!.globalRevision.value++;
 
+          _ctrl!.setRemoteReciting(false);
           _ctrl!.startRecordingSession();
           if (MaglisController.instance.inSession) {
             unawaited(MaglisController.instance.claimFloor(
@@ -880,17 +921,14 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       for (int w0 = 0; w0 < prevWordCount; w0++) {
         if (_ctrl!.isWordRed(prevAyah, w0, surah: prevSurah)) {
           prevRed.add(w0);
-          maglis.recordWordHighlight(prevSurah, prevAyah, w0, 3);
         } else if (_ctrl!.isWordYellow(prevAyah, w0, surah: prevSurah)) {
           prevYellow.add(w0);
-          maglis.recordWordHighlight(prevSurah, prevAyah, w0, 2);
           final errs = _ctrl!.getWordErrors(prevAyah, w0, surah: prevSurah);
           if (errs != null && errs.isNotEmpty) {
             (prevErrors ??= {})[w0] = errs;
           }
         } else if (_ctrl!.isWordGreen(prevAyah, w0, surah: prevSurah)) {
           prevGreen.add(w0);
-          maglis.recordWordHighlight(prevSurah, prevAyah, w0, 1);
         }
       }
       if (prevGreen.isNotEmpty || prevYellow.isNotEmpty || prevRed.isNotEmpty) {
@@ -923,17 +961,14 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     for (int w0 = 0; w0 < wordCount; w0++) {
       if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
         redWords.add(w0);
-        maglis.recordWordHighlight(targetSurah, activeAyah, w0, 3);
       } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
         yellowWords.add(w0);
-        maglis.recordWordHighlight(targetSurah, activeAyah, w0, 2);
         final errs = _ctrl!.getWordErrors(activeAyah, w0, surah: targetSurah);
         if (errs != null && errs.isNotEmpty) {
           (wordErrors ??= {})[w0] = errs;
         }
       } else if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah)) {
         greenWords.add(w0);
-        maglis.recordWordHighlight(targetSurah, activeAyah, w0, 1);
       } else if (activeWord == null &&
           !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
         activeWord = w0;
@@ -962,7 +997,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
   /// Toggles global voice search across the Quran
   Future<void> _toggleVoiceSearch() async {
-    AppState.instance.stopVerseAudio();
+    QuranAudioService.instance.stop();
     if (_isToggling) return;
 
     if (_isVoiceSearching) {
@@ -976,7 +1011,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   Future<void> _startVoiceSearch() async {
-    AppState.instance.stopVerseAudio();
+    QuranAudioService.instance.stop();
     if (_isVoiceSearching || _isToggling) return;
     _isToggling = true;
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart';
-import '../../../state/app_state.dart';
+import '../state/highlighting_controller.dart';
+import '../state/app_state.dart';
 
 class TajweedTooltipPainter extends CustomPainter {
   final List<String> words;

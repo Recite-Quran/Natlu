@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../services/app_haptics.dart';
+import '../../services/app_modal_route_observer.dart';
 import '../../state/app_state.dart';
 import '../../maglis/maglis_core.dart';
 
@@ -1165,20 +1166,35 @@ class _AudioWaveformState extends State<_AudioWaveform>
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
-    )..repeat();
+    );
+    if (!AppModalRouteObserver.instance.isModalOpen) {
+      _ctrl.repeat();
+    }
+    AppModalRouteObserver.instance.activeModalsNotifier
+        .addListener(_onModalStateChanged);
+  }
+
+  void _onModalStateChanged() {
+    if (!mounted) return;
+    _syncAnimationState();
+  }
+
+  void _syncAnimationState() {
+    final bool isModalOpen = AppModalRouteObserver.instance.isModalOpen;
+    final bool isCovered = !_isCurrentRoute ||
+        isModalOpen ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+
+    if (isCovered) {
+      if (_ctrl.isAnimating) _ctrl.stop();
+    } else {
+      if (!_ctrl.isAnimating) _ctrl.repeat();
+    }
   }
 
   void _onSecondaryStatus(AnimationStatus status) {
     if (!mounted) return;
-    if (status == AnimationStatus.dismissed) {
-      if (_isCurrentRoute && !_ctrl.isAnimating) {
-        _ctrl.repeat();
-      }
-    } else {
-      if (_ctrl.isAnimating) {
-        _ctrl.stop();
-      }
-    }
+    _syncAnimationState();
   }
 
   @override
@@ -1195,18 +1211,13 @@ class _AudioWaveformState extends State<_AudioWaveform>
       _secondaryAnimation?.addStatusListener(_onSecondaryStatus);
     }
 
-    final isCoveredOrTransitioning = !isCurrent ||
-        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
-
-    if (isCoveredOrTransitioning) {
-      if (_ctrl.isAnimating) _ctrl.stop();
-    } else {
-      if (!_ctrl.isAnimating) _ctrl.repeat();
-    }
+    _syncAnimationState();
   }
 
   @override
   void dispose() {
+    AppModalRouteObserver.instance.activeModalsNotifier
+        .removeListener(_onModalStateChanged);
     _secondaryAnimation?.removeStatusListener(_onSecondaryStatus);
     _secondaryAnimation = null;
     _ctrl.dispose();

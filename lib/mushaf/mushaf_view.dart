@@ -4,10 +4,11 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:recite_quran/recite_quran.dart';
+import '../state/highlighting_controller.dart';
 
-import '../../../state/app_state.dart';
-import '../../../maglis/maglis_controller.dart';
+import '../state/app_state.dart';
+import '../services/app_modal_route_observer.dart';
+import '../maglis/maglis_controller.dart';
 import 'mushaf_actions.dart';
 import 'mushaf_page.dart';
 import 'mushaf_provider.dart';
@@ -147,6 +148,8 @@ class _MushafViewState extends State<MushafView> {
     AppState.instance.activeAudioAyah.addListener(_onAudioAyahChanged);
     AppState.instance.activeAudioSurah.addListener(_onAudioAyahChanged);
     MaglisController.instance.addListener(_onMaglisSessionChanged);
+    AppModalRouteObserver.instance.activeModalsNotifier
+        .addListener(_onModalStateChanged);
 
     MaglisController.instance.onSyncMushafUI = (page, surah, ayah) {
       if (!mounted) return;
@@ -210,6 +213,49 @@ class _MushafViewState extends State<MushafView> {
     }
   }
 
+  bool _needsPageSyncAfterModal = false;
+  Animation<double>? _secondaryAnimation;
+
+  void _onModalStateChanged() {
+    if (!mounted) return;
+    if (!AppModalRouteObserver.instance.isModalOpen && _needsPageSyncAfterModal) {
+      _needsPageSyncAfterModal = false;
+      _onActiveAyahChanged();
+    }
+  }
+
+  void _onSecondaryAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed) {
+      if (_needsPageSyncAfterModal && mounted && !AppModalRouteObserver.instance.isModalOpen) {
+        _needsPageSyncAfterModal = false;
+        _onActiveAyahChanged();
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    final isCurrent = route?.isCurrent ?? true;
+
+    final newSecondary = route?.secondaryAnimation;
+    if (newSecondary != _secondaryAnimation) {
+      _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
+      _secondaryAnimation = newSecondary;
+      _secondaryAnimation?.addStatusListener(_onSecondaryAnimationStatus);
+    }
+
+    final isCoveredOrTransitioning = !isCurrent ||
+        AppModalRouteObserver.instance.isModalOpen ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+
+    if (!isCoveredOrTransitioning && _needsPageSyncAfterModal && mounted) {
+      _needsPageSyncAfterModal = false;
+      _onActiveAyahChanged();
+    }
+  }
+
   int _findInitialPage() {
     final cachedPage = AppState.instance.currentMushafPage.value;
     if (cachedPage > 1 && cachedPage <= 604) {
@@ -253,6 +299,10 @@ class _MushafViewState extends State<MushafView> {
 
   @override
   void dispose() {
+    AppModalRouteObserver.instance.activeModalsNotifier
+        .removeListener(_onModalStateChanged);
+    _secondaryAnimation?.removeStatusListener(_onSecondaryAnimationStatus);
+    _secondaryAnimation = null;
     MaglisController.instance.removeListener(_onMaglisSessionChanged);
     MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
@@ -331,8 +381,12 @@ class _MushafViewState extends State<MushafView> {
 
   void _onControllerProgress() {
     final provider = MushafProvider.instance;
+    final route = ModalRoute.of(context);
+    final isCoveredOrTransitioning = !(route?.isCurrent ?? true) ||
+        AppModalRouteObserver.instance.isModalOpen ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
     if (!mounted ||
-        !(ModalRoute.of(context)?.isCurrent ?? true) ||
+        isCoveredOrTransitioning ||
         _isAutoAdvancingPage ||
         _isAdvancingSurah ||
         !provider.isReady ||
@@ -361,6 +415,25 @@ class _MushafViewState extends State<MushafView> {
     if (lastWord == null) return;
 
     final int? activeAyah = ctrl.activeAyah.value;
+
+    // Fast-path bypass: If active recitation is on the current page and before
+    // the final verse of the page and final verse of the surah, auto-advance is impossible.
+    final lastWordOfSurah = _surahLastWordCache.putIfAbsent(activeSurah, () {
+      final surahWords = ctrl.repository.getSurahWords(activeSurah);
+      if (surahWords.isEmpty) return (ayah: -1, wordInAyah: -1);
+      final last = surahWords.last;
+      return (ayah: last.ayah, wordInAyah: last.wordInAyah);
+    });
+
+    if (activeAyah != null &&
+        activeSurah == lastWord.surah &&
+        activeAyah < lastWord.ayah &&
+        activeAyah < lastWordOfSurah.ayah) {
+      if (_lastAutoAdvancedFromPage == _currentPage) {
+        _lastAutoAdvancedFromPage = null;
+      }
+      return;
+    }
 
     if (activeAyah != null &&
         (activeSurah != lastWord.surah || activeAyah != lastWord.ayah) &&
@@ -468,6 +541,14 @@ class _MushafViewState extends State<MushafView> {
 
   void _onActiveAyahChanged() {
     if (MaglisController.instance.isRemoteReciting) return;
+    final route = ModalRoute.of(context);
+    final isCoveredOrTransitioning = !(route?.isCurrent ?? true) ||
+        AppModalRouteObserver.instance.isModalOpen ||
+        (_secondaryAnimation != null && !_secondaryAnimation!.isDismissed);
+    if (isCoveredOrTransitioning) {
+      _needsPageSyncAfterModal = true;
+      return;
+    }
     final provider = MushafProvider.instance;
     if (provider.isSyncingSurah || _isAutoAdvancingPage) return;
     final active = widget.controller.activeAyah.value;

@@ -2,10 +2,10 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import 'package:recite_quran/recite_quran.dart';
+import '../state/highlighting_controller.dart';
 
-import '../../../state/app_state.dart';
-import '../../../maglis/maglis_controller.dart';
+import '../state/app_state.dart';
+import 'mushaf_actions.dart';
 
 class _HeaderGeometry {
   final Rect rect;
@@ -154,6 +154,7 @@ class AyahMarkPainter extends CustomPainter {
   final Color goldColor;
   final Color neutralRingColor;
   final Color ayahHighlightColor;
+  final HighlightingController? controller;
 
   static final Expando<_PageMarkGeometries> _marksCache =
       Expando<_PageMarkGeometries>();
@@ -166,6 +167,7 @@ class AyahMarkPainter extends CustomPainter {
     required this.goldColor,
     required this.neutralRingColor,
     required this.ayahHighlightColor,
+    this.controller,
     Listenable? repaintListenable,
   }) : super(
           repaint: repaintListenable ??
@@ -175,6 +177,7 @@ class AyahMarkPainter extends CustomPainter {
                 app.activeAudioSurah,
                 app.isAudioBuffering,
                 app.isAudioPlaying,
+                if (controller != null) controller.globalRevision,
               ]),
         );
 
@@ -305,9 +308,16 @@ class AyahMarkPainter extends CustomPainter {
         // Rounded gold stop square
         canvas.drawRRect(m.stopRRect, _goldPaint);
       } else {
-        // Idle state: Subtle neutral ring, native numeral visible
-        _ringPaint.color = neutralRingColor;
-        _ringPaint.strokeWidth = 1.0;
+        // Idle state: Subtle neutral ring or elegant warm gold completed ring
+        final bool isCompleted = controller != null &&
+            controller!.completedAyahsFor(m.surah).contains(m.ayah);
+        if (isCompleted) {
+          _ringPaint.color = goldColor.withValues(alpha: 0.65);
+          _ringPaint.strokeWidth = 1.2;
+        } else {
+          _ringPaint.color = neutralRingColor;
+          _ringPaint.strokeWidth = 1.0;
+        }
         canvas.drawCircle(m.center, m.customR, _ringPaint);
       }
     }
@@ -319,7 +329,8 @@ class AyahMarkPainter extends CustomPainter {
       old.surfaceColor != surfaceColor ||
       old.goldColor != goldColor ||
       old.neutralRingColor != neutralRingColor ||
-      old.ayahHighlightColor != ayahHighlightColor;
+      old.ayahHighlightColor != ayahHighlightColor ||
+      old.controller != controller;
 }
 
 /// Minimalist Tajweed tutorial tooltip ("اضغط هنا" / "Tap here")
@@ -406,14 +417,12 @@ class MushafTajweedTooltipPainter extends CustomPainter {
       if (explicitYellowWords!.isEmpty) return;
       yellowWords = explicitYellowWords!;
     } else {
-      final maglis = MaglisController.instance;
-
-      bool isWordYellow(int a, int w0, int s) =>
-          controller.isWordYellow(a, w0, surah: s) ||
-          (maglis.inSession &&
-              (maglis.remoteYellowWords.contains(w0) ||
-                  maglis.getWordHighlight(s, a, w0) == 2 ||
-                  maglis.getWordErrors(s, a, w0) != null));
+      bool isWordYellow(int a, int w0, int s) => MushafActions.isWordYellow(
+            surah: s,
+            ayah: a,
+            wordIndex: w0,
+            controller: controller,
+          );
 
       final collected = <int>[];
       final seenAyahs = <int>{};
@@ -557,3 +566,5 @@ class _MushafBadgeItem {
   final double y;
   _MushafBadgeItem({required this.x, required this.y});
 }
+
+

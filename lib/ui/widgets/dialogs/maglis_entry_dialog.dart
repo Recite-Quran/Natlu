@@ -8,7 +8,7 @@ import '../../../state/app_state.dart';
 import '../../../maglis/maglis_controller.dart';
 import '../../../maglis/maglis_core.dart';
 import 'maglis_explanation_dialog.dart';
-import '../mushaf/mushaf_provider.dart';
+import '../../../mushaf/mushaf_provider.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
 /// Minimal labels, crystal-clear actions, and zero UI-thread blocking.

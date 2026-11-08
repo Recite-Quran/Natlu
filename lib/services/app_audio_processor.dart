@@ -18,6 +18,8 @@ class AppAudioProcessor {
   static const int chunkMs = 480;
   static const int recordChunkBytes =
       (recordSampleRate * numChannels * bytesPerSample * chunkMs) ~/ 1000;
+  static const int _samplesPerChunk = recordChunkBytes ~/ bytesPerSample;
+  static const double _inv32768 = 1.0 / 32768.0;
   static const int _bufferCapacity = recordChunkBytes * 4;
 
   Uint8List _fixedBuffer = Uint8List(_bufferCapacity);
@@ -113,12 +115,12 @@ class AppAudioProcessor {
             final int16samples = Int16List.view(
               byteView.buffer,
               byteView.offsetInBytes,
-              recordChunkBytes ~/ bytesPerSample,
+              _samplesPerChunk,
             );
 
-            final float32Samples = Float32List(int16samples.length);
-            for (int i = 0; i < int16samples.length; i++) {
-              float32Samples[i] = int16samples[i] / 32768.0;
+            final float32Samples = Float32List(_samplesPerChunk);
+            for (int i = 0; i < _samplesPerChunk; i++) {
+              float32Samples[i] = int16samples[i] * _inv32768;
             }
 
             onChunk(float32Samples, false);

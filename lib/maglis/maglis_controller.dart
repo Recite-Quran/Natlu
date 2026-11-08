@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:recite_quran/recite_quran.dart';
+import '../state/highlighting_controller.dart';
 import '../state/app_state.dart';
 import 'maglis_core.dart';
 import 'maglis_highlight_store.dart';
 import 'maglis_network.dart';
-import '../ui/widgets/mushaf/mushaf_provider.dart';
+import '../mushaf/mushaf_provider.dart';
 
 class MaglisController extends ChangeNotifier {
   MaglisController._();
@@ -16,6 +16,17 @@ class MaglisController extends ChangeNotifier {
   void Function(int page, int surah, int ayah)? onSyncMushafUI;
   void Function(int surah, int ayah)? onRemoteFloorClaimed;
   VoidCallback? onSessionEnded;
+  void Function({
+    required int surah,
+    required int ayah,
+    int? activeWord,
+    List<int> greenWords,
+    List<int> yellowWords,
+    List<int> redWords,
+    Map<int, List<ReciterError>>? errors,
+    Map<String, int>? cumulative,
+    bool isReciting,
+  })? onRemoteRecitationProgress;
 
   MaglisActiveSession? _session;
   String _fallbackPeerId = MaglisCrypto.randomHex32().substring(0, 10);
@@ -44,13 +55,14 @@ class MaglisController extends ChangeNotifier {
   int? getCumulativeHighlightByKey(int key) =>
       _session?.highlightStore.getCumulativeHighlightByKey(key);
 
-  void recordWordHighlight(int surah, int ayah, int word0, int color) {
-    _session?.highlightStore.recordWordHighlight(surah, ayah, word0, color);
-  }
+  int get cumulativeHighlightsCount =>
+      _session?.highlightStore.cumulativeHighlights.length ?? 0;
 
   bool get hasCumulativeHighlights =>
       _session?.highlightStore.hasCumulativeHighlights ?? false;
   int get cumulativeVersion => _session?.highlightStore.cumulativeVersion ?? 0;
+  int getPageCumulativeVersion(int page) =>
+      _session?.highlightStore.getPageCumulativeVersion(page) ?? 0;
 
   /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
   /// Any verse coming before [startSurah, startAyah] strictly keeps its highlights.
@@ -391,8 +403,27 @@ class MaglisController extends ChangeNotifier {
       cumulativeChanged = true;
     }
 
+    Map<int, List<ReciterError>>? parsedWordErrors;
     if (pkt.errors != null && pkt.errors!.isNotEmpty) {
       s.highlightStore.mergeErrors(pkt.surah, pkt.ayah, pkt.errors!);
+      parsedWordErrors = <int, List<ReciterError>>{};
+      pkt.errors!.forEach((k, list) {
+        int? w0;
+        final key = int.tryParse(k, radix: 16);
+        if (key != null) {
+          final sNum = (key >> 20) & 0xFF;
+          final aNum = (key >> 8) & 0xFFF;
+          if (sNum == pkt.surah && aNum == pkt.ayah) {
+            w0 = key & 0xFF;
+          }
+        } else {
+          w0 = int.tryParse(k);
+        }
+        if (w0 != null) {
+          parsedWordErrors![w0] =
+              list.map((m) => ReciterError.fromMap(m)).toList();
+        }
+      });
     }
 
     switch (pkt.type) {
@@ -458,6 +489,19 @@ class MaglisController extends ChangeNotifier {
         _notifySessionChanged();
         notifyListeners();
         onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
+        if (pkt.senderId != s.localPeerId) {
+          onRemoteRecitationProgress?.call(
+            surah: pkt.surah,
+            ayah: pkt.ayah,
+            activeWord: pkt.activeWord,
+            greenWords: pkt.greenWords,
+            yellowWords: pkt.yellowWords,
+            redWords: pkt.redWords,
+            errors: parsedWordErrors,
+            cumulative: pkt.cumulative,
+            isReciting: true,
+          );
+        }
         break;
 
       case MaglisPacketType.floorRelease:
@@ -470,6 +514,12 @@ class MaglisController extends ChangeNotifier {
           s.net.updateActiveFloor(null);
           _notifySessionChanged();
           notifyListeners();
+          onRemoteRecitationProgress?.call(
+            surah: s.remoteSurah,
+            ayah: s.remoteAyah,
+            activeWord: null,
+            isReciting: false,
+          );
         }
         break;
 
@@ -514,6 +564,19 @@ class MaglisController extends ChangeNotifier {
         if (pageChanged) {
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
         }
+        if (pkt.senderId != s.localPeerId) {
+          onRemoteRecitationProgress?.call(
+            surah: pkt.surah,
+            ayah: pkt.ayah,
+            activeWord: pkt.activeWord,
+            greenWords: pkt.greenWords,
+            yellowWords: pkt.yellowWords,
+            redWords: pkt.redWords,
+            errors: parsedWordErrors,
+            cumulative: pkt.cumulative,
+            isReciting: true,
+          );
+        }
         break;
 
       case MaglisPacketType.snapshot:
@@ -530,10 +593,31 @@ class MaglisController extends ChangeNotifier {
           _notifySessionChanged();
           notifyListeners();
           onSyncMushafUI?.call(pkt.page, pkt.surah, pkt.ayah);
+          if (pkt.activeReciterId != s.localPeerId) {
+            onRemoteRecitationProgress?.call(
+              surah: pkt.surah,
+              ayah: pkt.ayah,
+              activeWord: pkt.activeWord,
+              greenWords: pkt.greenWords,
+              yellowWords: pkt.yellowWords,
+              redWords: pkt.redWords,
+              errors: parsedWordErrors,
+              cumulative: pkt.cumulative,
+              isReciting: true,
+            );
+          }
         } else {
           if (s.isLocalReciting) break;
           if (cumulativeChanged || s.highlightStore.hasCumulativeHighlights) {
             notifyListeners();
+            if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
+              onRemoteRecitationProgress?.call(
+                surah: s.remoteSurah,
+                ayah: s.remoteAyah,
+                cumulative: pkt.cumulative,
+                isReciting: false,
+              );
+            }
           }
         }
         break;
@@ -839,6 +923,11 @@ class MaglisController extends ChangeNotifier {
     if (oldSession == null) return;
     _session = null;
     onSessionEnded?.call();
+    onRemoteRecitationProgress?.call(
+      surah: 1,
+      ayah: 1,
+      isReciting: false,
+    );
 
     try {
       await oldSession.dispose();

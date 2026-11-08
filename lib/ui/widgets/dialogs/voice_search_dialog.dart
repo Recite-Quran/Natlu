@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../../state/app_state.dart';
-import '../mushaf/mushaf_ayah_preview.dart';
-import '../mushaf/mushaf_provider.dart';
+import '../../../mushaf/mushaf_ayah_preview.dart';
+import '../../../mushaf/mushaf_provider.dart';
 
 /// Production-ready Voice Search modal dialog for reciting any Ayah across the Quran.
 ///

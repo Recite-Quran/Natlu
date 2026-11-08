@@ -7,8 +7,8 @@ import 'package:audio_session/audio_session.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../state/app_state.dart';
-import '../quran_timing_service.dart';
+import '../state/app_state.dart';
+import 'quran_timing_service.dart';
 
 /// Verse and word audio playback service directly matching the professional architecture
 /// and stability patterns of `quran_library` and `alquranalkareem`.
@@ -24,6 +24,15 @@ import '../quran_timing_service.dart';
 ///   the exact millisecond boundaries of that word in the cached Ayah file.
 /// - **Background Pre-Warming**: While Ayah $N$ is actively playing, automatically pre-downloads
 ///   Ayah $N+1$ so continuous transitions between verses are seamless.
+/// Progress callback signature emitted by [VerseAudioPlayer].
+typedef AudioProgressCallback = void Function({
+  int? surah,
+  int? ayah,
+  int? wordIndex,
+  required bool isPlaying,
+  required bool isBuffering,
+});
+
 class VerseAudioPlayer {
   static const String everyAyahHusaryBaseUrl =
       'https://everyayah.com/data/Husary_64kbps';
@@ -174,15 +183,77 @@ class VerseAudioPlayer {
   int? _pausedAyah;
   int? _pausedWordIndex;
 
+  AudioProgressCallback? onAudioProgress;
+  ValueChanged<bool>? onPlayingChanged;
+
+  int? _activeSurah;
+  int? _activeAyah;
+  int? _activeWordIndex;
+  bool _isPlaying = false;
+  bool _isBuffering = false;
+
   bool get isPaused => _isPaused;
   int? get pausedSurah => _pausedSurah;
   int? get pausedAyah => _pausedAyah;
   int? get pausedWordIndex => _pausedWordIndex;
-  bool get isPlaying => _player?.playing ?? false;
+  bool get isPlaying => _isPlaying;
+  bool get isBuffering => _isBuffering;
   bool get isSingleWordMode => _isSingleWordMode;
-  int? get activeWordIndex => _targetWordIndex;
-  int? get currentSurah => _currentSurah;
-  int? get currentAyah => _currentAyah;
+  int? get activeWordIndex => _activeWordIndex ?? _targetWordIndex;
+  int? get currentSurah => _activeSurah ?? _currentSurah;
+  int? get currentAyah => _activeAyah ?? _currentAyah;
+  int? get activeSurah => _activeSurah;
+  int? get activeAyah => _activeAyah;
+
+  void _notifyProgress() {
+    onAudioProgress?.call(
+      surah: _activeSurah,
+      ayah: _activeAyah,
+      wordIndex: _activeWordIndex,
+      isPlaying: _isPlaying,
+      isBuffering: _isBuffering,
+    );
+  }
+
+  void _setBuffering(bool buffering) {
+    if (_isBuffering != buffering) {
+      _isBuffering = buffering;
+      _notifyProgress();
+    }
+  }
+
+  void _setPlaying(bool playing) {
+    if (_isPlaying != playing) {
+      _isPlaying = playing;
+      onPlayingChanged?.call(playing);
+      _notifyProgress();
+    }
+  }
+
+  void _setVerse(int? surah, int? ayah) {
+    bool changed = false;
+    if (_activeSurah != surah) {
+      _activeSurah = surah;
+      changed = true;
+    }
+    if (_activeAyah != ayah) {
+      _activeAyah = ayah;
+      changed = true;
+    }
+    if (changed) {
+      if (surah != null && ayah != null) {
+        AppState.instance.saveLastPosition(surah, ayah);
+      }
+      _notifyProgress();
+    }
+  }
+
+  void _setWordIndex(int? wordIndex) {
+    if (_activeWordIndex != wordIndex) {
+      _activeWordIndex = wordIndex;
+      _notifyProgress();
+    }
+  }
 
   /// Returns the per-Ayah 64kbps audio URL ( Mahmoud Khalil Al-Husary).
   static String getAyahAudioUrl(int surah, int ayah) {
@@ -340,25 +411,24 @@ class VerseAudioPlayer {
     _currentIndexSub ??= p.currentIndexStream.listen(_handleIndexChanged);
 
     _playerStateSub ??= p.playerStateStream.listen((state) {
-      final app = AppState.instance;
       final isBuffering = state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
-      app.isAudioBuffering.value = isBuffering;
+      _setBuffering(isBuffering);
 
       if (state.processingState == ProcessingState.completed) {
         _handleTrackComplete();
       } else if (state.playing) {
-        app.isAudioPlaying.value = true;
+        _setPlaying(true);
         // When audio officially begins playing, activate target word or word 0
         if (_isSingleWordMode) {
           if (_targetWordIndex != null) {
-            app.activeAudioWordIndex.value = _targetWordIndex;
+            _setWordIndex(_targetWordIndex);
           }
-        } else if (app.activeAudioWordIndex.value == null) {
-          app.activeAudioWordIndex.value = 0;
+        } else if (_activeWordIndex == null) {
+          _setWordIndex(0);
         }
       } else if (!state.playing && !isBuffering && !_isAdvancingSurah) {
-        app.isAudioPlaying.value = false;
+        _setPlaying(false);
       }
     });
   }
@@ -376,15 +446,8 @@ class VerseAudioPlayer {
     if (_currentAyah != newAyah || _currentSurah != surah) {
       _currentAyah = newAyah;
       _currentSurah = surah;
-      final app = AppState.instance;
-      if (app.activeAudioSurah.value != surah) {
-        app.activeAudioSurah.value = surah;
-      }
-      if (app.activeAudioAyah.value != newAyah) {
-        app.activeAudioAyah.value = newAyah;
-      }
-      app.activeAudioWordIndex.value = 0;
-      app.saveLastPosition(surah, newAyah);
+      _setVerse(surah, newAyah);
+      _setWordIndex(0);
     }
 
     final maxAyahs = (surah >= 1 && surah <= 114)
@@ -418,13 +481,10 @@ class VerseAudioPlayer {
     _playlistSurah = surah;
     _playlistAyahs = [ayah];
 
-    final app = AppState.instance;
-    app.activeAudioSurah.value = surah;
-    app.activeAudioAyah.value = ayah;
-    app.activeAudioWordIndex.value = wordIndex;
-    app.isContinuousPlayback.value = false;
-    app.isAudioBuffering.value = true;
-    app.isAudioPlaying.value = false;
+    _setVerse(surah, ayah);
+    _setWordIndex(wordIndex);
+    _setBuffering(true);
+    _setPlaying(false);
 
     try {
       // 1. Ensure timings are loaded from Quran.com / disk cache
@@ -484,9 +544,9 @@ class VerseAudioPlayer {
       } catch (_) {}
       if (session != _sessionId) return;
 
-      app.isAudioBuffering.value = false;
-      app.isAudioPlaying.value = true;
-      app.activeAudioWordIndex.value = wordIndex;
+      _setBuffering(false);
+      _setPlaying(true);
+      _setWordIndex(wordIndex);
 
       await player.play();
     } on PlatformException catch (e, stack) {
@@ -532,7 +592,6 @@ class VerseAudioPlayer {
         _player!.processingState == ProcessingState.ready &&
         !_player!.playing) {
       _isContinuous = continuous;
-      AppState.instance.isContinuousPlayback.value = continuous;
       await resume();
       return;
     }
@@ -546,14 +605,10 @@ class VerseAudioPlayer {
     _isContinuous = continuous;
     _playlistSurah = surah;
 
-    final app = AppState.instance;
-    app.activeAudioSurah.value = surah;
-    app.activeAudioAyah.value = ayah;
-    app.saveLastPosition(surah, ayah);
-    app.activeAudioWordIndex.value = 0;
-    app.isContinuousPlayback.value = continuous;
-    app.isAudioBuffering.value = true;
-    app.isAudioPlaying.value = false;
+    _setVerse(surah, ayah);
+    _setWordIndex(0);
+    _setBuffering(true);
+    _setPlaying(false);
 
     // Pre-warm Surah timing in background
     unawaited(QuranTimingService.instance.ensureSurahLoaded(surah));
@@ -599,10 +654,9 @@ class VerseAudioPlayer {
       } catch (_) {}
       if (session != _sessionId) return;
 
-      app.isAudioBuffering.value = false;
-      app.isAudioPlaying.value = true;
-      app.activeAudioWordIndex.value =
-          0; // Highlight first word as sound starts
+      _setBuffering(false);
+      _setPlaying(true);
+      _setWordIndex(0); // Highlight first word as sound starts
 
       // Pre-cache current and next Ayah in background
       unawaited(ensureAyahDownloaded(surah, ayah));
@@ -651,20 +705,13 @@ class VerseAudioPlayer {
     if (_currentAyah != playingAyah || _currentSurah != playingSurah) {
       _currentAyah = playingAyah;
       _currentSurah = playingSurah;
-      final app = AppState.instance;
-      if (app.activeAudioSurah.value != playingSurah) {
-        app.activeAudioSurah.value = playingSurah;
-      }
-      if (app.activeAudioAyah.value != playingAyah) {
-        app.activeAudioAyah.value = playingAyah;
-      }
-      app.saveLastPosition(playingSurah, playingAyah);
+      _setVerse(playingSurah, playingAyah);
     }
 
     final int posMs = pos.inMilliseconds;
 
     // Ignore stale late position spikes during track start transition
-    if (posMs > 2500 && AppState.instance.activeAudioWordIndex.value == 0) {
+    if (posMs > 2500 && _activeWordIndex == 0) {
       final ayahTiming = QuranTimingService.instance
           .getCachedAyahTiming(playingSurah, playingAyah);
       if (ayahTiming != null &&
@@ -709,9 +756,8 @@ class VerseAudioPlayer {
       }
     }
 
-    if (activeIdx != null &&
-        AppState.instance.activeAudioWordIndex.value != activeIdx) {
-      AppState.instance.activeAudioWordIndex.value = activeIdx;
+    if (activeIdx != null && _activeWordIndex != activeIdx) {
+      _setWordIndex(activeIdx);
     }
   }
 
@@ -772,14 +818,13 @@ class VerseAudioPlayer {
       _isPaused = true;
       _pausedSurah = _currentSurah;
       _pausedAyah = _currentAyah;
-      _pausedWordIndex = AppState.instance.activeAudioWordIndex.value;
+      _pausedWordIndex = _activeWordIndex;
       await _player?.pause();
     } catch (e) {
       log('Error pausing: $e', name: 'VerseAudioPlayer');
     }
-    final app = AppState.instance;
-    app.isAudioPlaying.value = false;
-    app.isAudioBuffering.value = false;
+    _setPlaying(false);
+    _setBuffering(false);
   }
 
   /// Resumes playback from the exact paused position.
@@ -787,11 +832,10 @@ class VerseAudioPlayer {
     try {
       await ensureMediaAudioSession();
       _isPaused = false;
-      final app = AppState.instance;
-      app.isAudioBuffering.value = false;
-      app.isAudioPlaying.value = true;
+      _setBuffering(false);
+      _setPlaying(true);
       if (_pausedWordIndex != null) {
-        app.activeAudioWordIndex.value = _pausedWordIndex;
+        _setWordIndex(_pausedWordIndex);
       }
       await _audioPlayer.play();
     } catch (e, stack) {
@@ -825,15 +869,18 @@ class VerseAudioPlayer {
     _playlistAyahs = [];
     _playlistSurah = null;
 
-    final app = AppState.instance;
-    app.activeAudioWordIndex.value = null;
-    app.activeAudioAyah.value = null;
-    app.activeAudioSurah.value = null;
-    app.isAudioBuffering.value = false;
-    app.isAudioPlaying.value = false;
+    _activeWordIndex = null;
+    _activeAyah = null;
+    _activeSurah = null;
+    _isBuffering = false;
+    if (_isPlaying) {
+      _isPlaying = false;
+      onPlayingChanged?.call(false);
+    }
+    _notifyProgress();
 
     if (triggerError) {
-      app.triggerAudioError(QuranTimingService.instance.lastFailureReason);
+      AppState.instance.triggerAudioError(QuranTimingService.instance.lastFailureReason);
     }
   }
 

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
-import 'package:recite_quran/recite_quran.dart';
+import '../state/highlighting_controller.dart';
+import '../mushaf/mushaf_provider.dart';
 
 /// MaglisHighlightStore
 ///
@@ -45,6 +46,19 @@ class MaglisHighlightStore {
   final Map<int, int> cumulativeHighlights = {};
   int cumulativeVersion = 0;
 
+  // Page-scoped cumulative versions to prevent offscreen Mushaf pages from re-evaluating
+  final Map<int, int> _pageCumulativeVersions = <int, int>{};
+
+  int getPageCumulativeVersion(int page) =>
+      _pageCumulativeVersions[page] ?? 0;
+
+  void _bumpPageVersion(int surah, int ayah) {
+    final page = MushafProvider.instance.getPageForAyah(surah, ayah);
+    if (page != null) {
+      _pageCumulativeVersions[page] = (_pageCumulativeVersions[page] ?? 0) + 1;
+    }
+  }
+
   // Remote word errors received from peers: key = wordKey(surah, ayah, word0)
   final Map<int, List<ReciterError>> remoteWordErrors = {};
 
@@ -63,34 +77,36 @@ class MaglisHighlightStore {
 
   bool get hasCumulativeHighlights => cumulativeHighlights.isNotEmpty;
 
-  void recordWordHighlight(int surah, int ayah, int word0, int color) {
-    final key = wordKey(surah, ayah, word0);
-    if (cumulativeHighlights[key] != color) {
-      cumulativeHighlights[key] = color;
-      cumulativeVersion++;
-    }
-    if (color == 1) {
-      remoteWordErrors.remove(key);
-      sentErrorWords.remove(key);
-      _sentErrorSignatures.remove(key);
-    }
-  }
 
   /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
   /// Any verse coming before [startSurah, startAyah] strictly keeps its highlights.
   void clearHighlightsFrom(int startSurah, int startAyah) {
+    final affectedPages = <int>{};
     cumulativeHighlights.removeWhere((key, _) {
       final s = (key >> 20) & 0xFF;
       final a = (key >> 8) & 0xFFF;
-      return s > startSurah || (s == startSurah && a >= startAyah);
+      final matches = s > startSurah || (s == startSurah && a >= startAyah);
+      if (matches) {
+        final p = MushafProvider.instance.getPageForAyah(s, a);
+        if (p != null) affectedPages.add(p);
+      }
+      return matches;
     });
     remoteWordErrors.removeWhere((key, _) {
       final s = (key >> 20) & 0xFF;
       final a = (key >> 8) & 0xFFF;
-      return s > startSurah || (s == startSurah && a >= startAyah);
+      final matches = s > startSurah || (s == startSurah && a >= startAyah);
+      if (matches) {
+        final p = MushafProvider.instance.getPageForAyah(s, a);
+        if (p != null) affectedPages.add(p);
+      }
+      return matches;
     });
     sentErrorWords.clear();
     _sentErrorSignatures.clear();
+    for (final p in affectedPages) {
+      _pageCumulativeVersions[p] = (_pageCumulativeVersions[p] ?? 0) + 1;
+    }
     cumulativeVersion++;
   }
 
@@ -104,6 +120,9 @@ class MaglisHighlightStore {
         if (cumulativeHighlights[parsed] != v) {
           cumulativeHighlights[parsed] = v;
           changed = true;
+          final s = (parsed >> 20) & 0xFF;
+          final a = (parsed >> 8) & 0xFFF;
+          _bumpPageVersion(s, a);
         }
         if (v == 1) {
           remoteWordErrors.remove(parsed);
@@ -119,6 +138,7 @@ class MaglisHighlightStore {
             if (cumulativeHighlights[key] != v) {
               cumulativeHighlights[key] = v;
               changed = true;
+              _bumpPageVersion(s, a);
             }
             if (v == 1) {
               remoteWordErrors.remove(key);
@@ -168,6 +188,7 @@ class MaglisHighlightStore {
     }
     if (changed) {
       cumulativeVersion++;
+      _bumpPageVersion(surah, ayah);
     }
     return changed;
   }
@@ -341,6 +362,7 @@ class MaglisHighlightStore {
     }
     if (changed) {
       cumulativeVersion++;
+      _bumpPageVersion(surah, ayah);
     }
     return changed;
   }
@@ -349,6 +371,7 @@ class MaglisHighlightStore {
   void clearAll() {
     cumulativeHighlights.clear();
     cumulativeVersion = 0;
+    _pageCumulativeVersions.clear();
     remoteWordErrors.clear();
     sentErrorWords.clear();
     _sentErrorSignatures.clear();

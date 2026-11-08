@@ -72,10 +72,16 @@ class QvpPage extends ChangeNotifier {
   /// Incremented on every mutating call.
   int revision = 0;
 
+  /// Incremented strictly when text ink styling, masks, or ink highlights change.
+  /// Pure band highlight movements (e.g. active ayah/word cursor) do not bump this.
+  int styledRevision = 0;
+  final Set<int> _inkHighlightHandles = <int>{};
+
   bool get isDisposed => _handle == null;
 
   int _batchDepth = 0;
   bool _needsNotify = false;
+  bool _needsStyledNotify = false;
 
   /// Runs [fn] and notifies listeners once at the end, however many mutations it makes.
   /// Nested calls notify when the outermost one returns.
@@ -85,9 +91,15 @@ class QvpPage extends ChangeNotifier {
       fn();
     } finally {
       _batchDepth--;
-      if (_batchDepth == 0 && _needsNotify) {
-        _needsNotify = false;
-        _touch();
+      if (_batchDepth == 0) {
+        if (_needsStyledNotify) {
+          styledRevision++;
+          _needsStyledNotify = false;
+        }
+        if (_needsNotify) {
+          _needsNotify = false;
+          _touch();
+        }
       }
     }
   }
@@ -102,6 +114,15 @@ class QvpPage extends ChangeNotifier {
     }
     revision++;
     notifyListeners();
+  }
+
+  void _touchStyled() {
+    if (_batchDepth > 0) {
+      _needsStyledNotify = true;
+    } else {
+      styledRevision++;
+    }
+    _touch();
   }
 
   List<ui.Path?>? _lazyPaths;
@@ -138,6 +159,7 @@ class QvpPage extends ChangeNotifier {
     _cachedSurahHeaders = null;
     _cachedSurahHeadersView = null;
     _lazyPaths = null;
+    _inkHighlightHandles.clear();
     final h = _handle;
     if (h != null) {
       _handle = null;
@@ -493,7 +515,7 @@ class QvpPage extends ChangeNotifier {
     int layer = QvpLayer.base,
   }) {
     final h = _backend.style(handle, sel, rgba(color), ms: ms, layer: layer);
-    _touch();
+    _touchStyled();
     return h;
   }
 
@@ -510,50 +532,50 @@ class QvpPage extends ChangeNotifier {
       ms: ms,
       layer: layer,
     );
-    _touch();
+    _touchStyled();
     return h;
   }
 
   /// Removes a rule / theme / hide by handle → rules removed.
   int removeStyle(int styleHandle) {
     final n = _backend.removeStyle(handle, styleHandle);
-    _touch();
+    _touchStyled();
     return n;
   }
 
   int recolorStyle(int styleHandle, Object color, [int ms = 0]) {
     final n = _backend.recolorStyle(handle, styleHandle, rgba(color), ms);
-    _touch();
+    _touchStyled();
     return n;
   }
 
   /// Alpha-0 rule on the top layer → handle.
   int hide(QvpSelector sel) {
     final h = _backend.hide(handle, sel);
-    _touch();
+    _touchStyled();
     return h;
   }
 
   void clearStyles() {
     _backend.clearStyles(handle);
-    _touch();
+    _touchStyled();
   }
 
   void clearLayer(int layer) {
     _backend.clearLayer(handle, layer);
-    _touch();
+    _touchStyled();
   }
 
   void setDefaultColor(Object color) {
     _defaultInk = rgba(color);
     _backend.setDefaultColor(handle, _defaultInk);
-    _touch();
+    _touchStyled();
   }
 
   /// Applies a whole theme under one handle.
   int theme(QvpTheme t) {
     final h = _backend.theme(handle, t);
-    _touch();
+    _touchStyled();
     return h;
   }
 
@@ -590,7 +612,12 @@ class QvpPage extends ChangeNotifier {
     QvpHighlightStyle style = const QvpHighlightStyle(),
   ]) {
     final h = _backend.highlight(handle, QvpTarget.of(target), style);
-    _touch();
+    if (style.mode == 'ink' || style.mode == 'both') {
+      _inkHighlightHandles.add(h);
+      _touchStyled();
+    } else {
+      _touch();
+    }
     return h;
   }
 
@@ -601,26 +628,50 @@ class QvpPage extends ChangeNotifier {
       highlightHandle,
       QvpTarget.of(target),
     );
-    _touch();
+    if (_inkHighlightHandles.contains(highlightHandle)) {
+      _touchStyled();
+    } else {
+      _touch();
+    }
     return ok;
   }
 
   bool restyleHighlight(int highlightHandle, QvpHighlightStyle style) {
     final ok = _backend.restyleHighlight(handle, highlightHandle, style);
-    _touch();
+    final wasInk = _inkHighlightHandles.contains(highlightHandle);
+    final isInk = style.mode == 'ink' || style.mode == 'both';
+    if (isInk) {
+      _inkHighlightHandles.add(highlightHandle);
+    } else {
+      _inkHighlightHandles.remove(highlightHandle);
+    }
+    if (wasInk || isInk) {
+      _touchStyled();
+    } else {
+      _touch();
+    }
     return ok;
   }
 
   /// Fades out over the highlight's transition.
   bool removeHighlight(int highlightHandle) {
     final ok = _backend.removeHighlight(handle, highlightHandle);
-    _touch();
+    if (_inkHighlightHandles.remove(highlightHandle)) {
+      _touchStyled();
+    } else {
+      _touch();
+    }
     return ok;
   }
 
   void clearHighlights() {
     _backend.clearHighlights(handle);
-    _touch();
+    if (_inkHighlightHandles.isNotEmpty) {
+      _inkHighlightHandles.clear();
+      _touchStyled();
+    } else {
+      _touch();
+    }
   }
 
   List<int> highlightHandles() => _backend.highlightHandles(handle);
@@ -666,12 +717,12 @@ class QvpPage extends ChangeNotifier {
   /// Masks a target. [mode]: 'hide' | 'block' | 'blur'.
   void mask(Object target, [String mode = 'hide']) {
     _backend.mask(handle, QvpTarget.of(target), _maskMode(mode));
-    _touch();
+    _touchStyled();
   }
 
   void maskFrom(int wordIndex, [String mode = 'hide']) {
     _backend.maskFrom(handle, wordIndex, _maskMode(mode));
-    _touch();
+    _touchStyled();
   }
 
   void maskOptions({
@@ -682,46 +733,46 @@ class QvpPage extends ChangeNotifier {
     bool reverse = false,
   }) {
     _backend.maskOptions(handle, rgba(blockColor), padX, padY, radius, reverse);
-    _touch();
+    _touchStyled();
   }
 
   int unmaskNext([int n = 1]) {
     final r = _backend.unmaskNext(handle, n);
-    _touch();
+    _touchStyled();
     return r;
   }
 
   int maskBack([int n = 1]) {
     final r = _backend.maskBack(handle, n);
-    _touch();
+    _touchStyled();
     return r;
   }
 
   bool unmaskWord(int wordIndex) {
     final r = _backend.unmaskWord(handle, wordIndex);
-    _touch();
+    _touchStyled();
     return r;
   }
 
   bool maskWord(int wordIndex) {
     final r = _backend.maskWord(handle, wordIndex);
-    _touch();
+    _touchStyled();
     return r;
   }
 
   void unmaskAll() {
     _backend.unmaskAll(handle);
-    _touch();
+    _touchStyled();
   }
 
   void maskAll() {
     _backend.maskAll(handle);
-    _touch();
+    _touchStyled();
   }
 
   void unmask() {
     _backend.unmask(handle);
-    _touch();
+    _touchStyled();
   }
 
   List<int> maskHidden() => _backend.maskHidden(handle);

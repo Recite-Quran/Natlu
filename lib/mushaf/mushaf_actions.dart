@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart';
-import '../../../services/app_haptics.dart';
+import '../state/highlighting_controller.dart';
+import '../services/app_haptics.dart';
 
-import '../../../services/quran_audio_service.dart';
-import '../../../state/app_state.dart';
-import '../../../maglis/maglis_controller.dart';
-import '../dialogs/error_detail_dialog.dart';
+import '../audio/quran_audio_service.dart';
+import '../state/app_state.dart';
+import '../maglis/maglis_controller.dart';
+import '../ui/widgets/dialogs/error_detail_dialog.dart';
 
 /// Core interactive actions for the Mushaf vector layout.
 abstract final class MushafActions {
@@ -140,6 +140,17 @@ abstract final class MushafActions {
     }
   }
 
+  /// Checks whether a word is marked yellow (Tajweed error/rule),
+  /// querying the unified highlight controller directly.
+  static bool isWordYellow({
+    required int surah,
+    required int ayah,
+    required int wordIndex,
+    required HighlightingController controller,
+  }) {
+    return controller.isWordYellow(ayah, wordIndex, surah: surah);
+  }
+
   /// Resolves the word display color, handling zero-GPU blur hiding for unrecited words in a single clean pass.
   /// Concealing unrecited words only occurs when [isBlurEffective] is true (i.e. recording or Maglis session active).
   static Color resolveWordDisplayColor({
@@ -157,7 +168,7 @@ abstract final class MushafActions {
             ? controller.targetSurah
             : AppState.instance.lastSurah);
 
-    // 1. Check local recitation status in most-likely order (Green is ~95% of recited words)
+    // 1. Check recitation status in most-likely order (Green is ~95% of recited words)
     if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
       return colors.green;
     }
@@ -171,16 +182,7 @@ abstract final class MushafActions {
     // 2. Check neutral (spoken/passed word without tint)
     final bool isNeutral = controller.isWordNeutral(ayah, wordIndex, surah: s);
 
-    // 3. In a Maglis session, check shared/saved highlights seamlessly
-    if (MaglisController.instance.inSession) {
-      final h = MaglisController.instance.getWordHighlight(s, ayah, wordIndex);
-      if (h == 1) return colors.green;
-      if (h == 2) return colors.warning;
-      if (h == 3) return colors.red;
-      if (isBlurEffective && (h != null || isNeutral)) return colors.text;
-    }
-
-    // 4. Blur concealing: hide unrecited words (zero-GPU masking)
+    // 3. Blur concealing: hide unrecited words (zero-GPU masking)
     if (isBlurEffective) {
       if (isNeutral) return colors.text;
       return Colors.transparent;

@@ -1,12 +1,14 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart';
-import '../../../state/app_state.dart';
+import '../state/highlighting_controller.dart';
+import '../state/app_state.dart';
 
 /// Pure helper for generating high-performance, styled [InlineSpan] lists for Quranic verses.
 /// Handles zero-GPU blur hiding, color status resolution, and word gesture binding.
 class VerseSpanBuilder {
   /// Resolves the foreground color for word at index [wordIndex].
+  /// Kept at [colors.text] so sacred Uthmani typography remains crisp black/pearl,
+  /// while background pastel pills handle recitation status matching Mushaf mode.
   static Color resolveWordColor({
     required int ayah,
     required int wordIndex,
@@ -15,9 +17,6 @@ class VerseSpanBuilder {
     int? surah,
   }) {
     if (wordIndex < 0) return colors.text;
-    if (controller.isWordGreen(ayah, wordIndex, surah: surah)) return colors.green;
-    if (controller.isWordRed(ayah, wordIndex, surah: surah)) return colors.red;
-    if (controller.isWordYellow(ayah, wordIndex, surah: surah)) return colors.warning;
     return colors.text;
   }
 
