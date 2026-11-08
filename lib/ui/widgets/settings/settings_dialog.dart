@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../state/app_state.dart';
-import 'settings/setting_tile.dart';
-import 'settings/autoscroll_slider_tile.dart';
-import 'settings/font_slider_tile.dart';
+import '../../../core/app_state.dart';
+import 'setting_tile.dart';
 
 /// Settings modal bottom sheet with modern styling.
 class SettingsDialog extends StatelessWidget {
@@ -334,6 +332,172 @@ class SettingsDialog extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Font size slider tile with live Arabic preview markers.
+class FontSliderTile extends StatefulWidget {
+  final ThemeColors c;
+  final AppState app;
+  final bool isAr;
+
+  const FontSliderTile({
+    super.key,
+    required this.c,
+    required this.app,
+    required this.isAr,
+  });
+
+  @override
+  State<FontSliderTile> createState() => _FontSliderTileState();
+}
+
+class _FontSliderTileState extends State<FontSliderTile> {
+  late double _localSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _localSize = widget.app.fontSize;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.c;
+    final app = widget.app;
+    final isAr = widget.isAr;
+
+    return SettingTile(
+      icon: Icons.format_size_rounded,
+      title: isAr ? 'حجم الخط' : 'Font Size',
+      c: c,
+      trailing: Row(
+        children: [
+          Text(
+            'أ',
+            style: TextStyle(
+              fontFamily: 'HafsSmart',
+              color: c.muted,
+              fontSize: 12,
+            ),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderThemeData(
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 7,
+                ),
+                overlayShape: const RoundSliderOverlayShape(
+                  overlayRadius: 14,
+                ),
+                trackHeight: 4,
+                activeTrackColor: c.primary,
+                inactiveTrackColor: c.border.withValues(alpha: 0.5),
+                thumbColor: c.primary,
+                overlayColor: c.primary.withValues(alpha: 0.15),
+              ),
+              child: Slider(
+                value: _localSize,
+                min: 16.0,
+                max: 42.0,
+                onChanged: (v) {
+                  setState(() => _localSize = v);
+                  app.setFontSize(v);
+                },
+                onChangeEnd: (v) {
+                  app.setFontSize(v, persistImmediately: true);
+                },
+              ),
+            ),
+          ),
+          Text(
+            'أ',
+            style: TextStyle(
+              fontFamily: 'HafsSmart',
+              color: c.muted,
+              fontSize: 22,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// AutoScroll speed slider tile for Reading mode.
+class AutoScrollSliderTile extends StatefulWidget {
+  final ThemeColors c;
+  final AppState app;
+  final bool isAr;
+
+  const AutoScrollSliderTile({
+    super.key,
+    required this.c,
+    required this.app,
+    required this.isAr,
+  });
+
+  @override
+  State<AutoScrollSliderTile> createState() => _AutoScrollSliderTileState();
+}
+
+class _AutoScrollSliderTileState extends State<AutoScrollSliderTile> {
+  late double _localSpeed;
+
+  @override
+  void initState() {
+    super.initState();
+    _localSpeed = widget.app.autoScrollSpeed.toDouble();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.c;
+    final app = widget.app;
+    final isAr = widget.isAr;
+
+    final labels = AppState.speedLabels;
+
+    return SettingTile(
+      icon: Icons.speed_rounded,
+      title: isAr ? 'سرعة التمرير التلقائي' : 'Auto-Scroll Speed',
+      c: c,
+      trailing: Text(
+        labels[_localSpeed.toInt()],
+        style: TextStyle(
+          color: c.primary,
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      bottom: SliderTheme(
+        data: SliderThemeData(
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+          trackHeight: 4,
+          activeTrackColor: c.primary,
+          inactiveTrackColor: c.border.withValues(alpha: 0.5),
+          thumbColor: c.primary,
+          overlayColor: c.primary.withValues(alpha: 0.15),
+          tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
+          activeTickMarkColor: c.surface,
+          inactiveTickMarkColor: c.border,
+        ),
+        child: Slider(
+          value: _localSpeed,
+          min: 0,
+          max: (labels.length - 1).toDouble(),
+          divisions: labels.length - 1,
+          label: labels[_localSpeed.toInt()],
+          onChanged: (v) {
+            setState(() => _localSpeed = v);
+          },
+          onChangeEnd: (v) {
+            app.setAutoScrollSpeed(v.toInt());
+          },
+        ),
       ),
     );
   }

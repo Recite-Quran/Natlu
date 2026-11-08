@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../state/highlighting_controller.dart';
-import '../state/app_state.dart';
+import '../core/highlighting_controller.dart';
+import '../core/app_state.dart';
 
 class TajweedTooltipPainter extends CustomPainter {
   final List<String> words;

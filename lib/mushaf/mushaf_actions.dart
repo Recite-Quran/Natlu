@@ -1,33 +1,14 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import '../state/highlighting_controller.dart';
-import '../services/app_haptics.dart';
+import '../core/highlighting_controller.dart';
+import '../core/app_state.dart';
 
-import '../audio/quran_audio_service.dart';
-import '../state/app_state.dart';
-import '../maglis/maglis_controller.dart';
-import '../ui/widgets/dialogs/error_detail_dialog.dart';
+export '../core/highlighting_controller.dart' show QuranTypography, QuranInteractionService;
 
 /// Core interactive actions for the Mushaf vector layout.
 abstract final class MushafActions {
-  static final List<String> _arabicDigitsCache =
-      List<String>.generate(650, (i) {
-    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return i.toString().split('').map((e) => digits[int.parse(e)]).join('');
-  });
-
   /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
-  static String toArabicDigits(int number) {
-    if (number >= 0 && number < _arabicDigitsCache.length) {
-      return _arabicDigitsCache[number];
-    }
-    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return number
-        .toString()
-        .split('')
-        .map((e) => digits[int.parse(e)])
-        .join('');
-  }
+  static String toArabicDigits(int number) =>
+      QuranTypography.toArabicDigits(number);
 
   /// Handles selecting/tapping an Ayah: haptic feedback, manual selection, and persisting last position.
   static Future<void> selectAyah({
@@ -35,19 +16,13 @@ abstract final class MushafActions {
     required int ayah,
     required HighlightingController controller,
     VoidCallback? onTap,
-  }) async {
-    AppHaptics.lightImpact();
-    if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
+  }) =>
+      QuranInteractionService.selectAyah(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        onTap: onTap,
       );
-    }
-    controller.setManualAyah(surah, ayah);
-    AppState.instance.saveLastPosition(surah, ayah);
-    onTap?.call();
-  }
 
   /// Handles tapping a Quranic word in Mushaf:
   /// - Selects the Ayah.
@@ -64,44 +39,19 @@ abstract final class MushafActions {
     VoidCallback? onAyahTap,
     bool playWordDirectly = false,
     List<ReciterError>? overrideErrors,
-  }) {
-    final bool isAlreadySelected =
-        controller.targetSurah == surah && controller.activeAyah.value == ayah;
-
-    selectAyah(
-      surah: surah,
-      ayah: ayah,
-      controller: controller,
-      onTap: onAyahTap,
-    );
-
-    final errors = overrideErrors ??
-        (controller.isWordYellow(ayah, wordIndex, surah: surah)
-            ? controller.getWordErrors(ayah, wordIndex, surah: surah)
-            : null);
-
-    if (errors != null && errors.isNotEmpty) {
-      AppState.instance.markTajweedWordClicked();
-      ErrorDetailDialog.show(
-        context,
-        word: wordText,
-        errors: errors,
+  }) =>
+      QuranInteractionService.handleWordTap(
+        context: context,
         surah: surah,
         ayah: ayah,
         wordIndex: wordIndex,
+        wordText: wordText,
+        controller: controller,
+        onWordErrorTap: onWordErrorTap,
+        onAyahTap: onAyahTap,
+        playWordDirectly: playWordDirectly,
+        overrideErrors: overrideErrors,
       );
-      onWordErrorTap?.call();
-    } else if (isAlreadySelected || playWordDirectly) {
-      if (MaglisController.instance.inSession) {
-        return;
-      }
-      QuranAudioService.instance.playWord(
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex,
-      );
-    }
-  }
 
   /// Toggles Ayah audio playback with buffering debounce and haptic feedback.
   static Future<void> toggleAyahAudio({
@@ -111,34 +61,15 @@ abstract final class MushafActions {
     required bool isRecording,
     VoidCallback? onTap,
     VoidCallback? onExplicitToggle,
-  }) async {
-    if (MaglisController.instance.inSession) return;
-    if (AppState.instance.isAudioBuffering.value &&
-        AppState.instance.activeAudioSurah.value == surah &&
-        AppState.instance.activeAudioAyah.value == ayah) {
-      return;
-    }
-    AppHaptics.selectionClick();
-    if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
-      );
-    }
-    controller.setManualAyah(surah, ayah);
-    AppState.instance.saveLastPosition(surah, ayah);
-    onTap?.call();
-    if (onExplicitToggle != null) {
-      onExplicitToggle();
-    } else {
-      AppState.instance.toggleVerseAudio(
+  }) =>
+      QuranInteractionService.toggleAyahAudio(
         surah: surah,
         ayah: ayah,
-        continuous: !isRecording,
+        controller: controller,
+        isRecording: isRecording,
+        onTap: onTap,
+        onExplicitToggle: onExplicitToggle,
       );
-    }
-  }
 
   /// Checks whether a word is marked yellow (Tajweed error/rule),
   /// querying the unified highlight controller directly.

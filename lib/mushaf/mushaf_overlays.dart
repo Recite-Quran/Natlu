@@ -2,9 +2,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import '../state/highlighting_controller.dart';
-
-import '../state/app_state.dart';
+import '../core/highlighting_controller.dart';
+import '../core/app_state.dart';
 import 'mushaf_actions.dart';
 
 class _HeaderGeometry {

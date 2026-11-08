@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
-import '../../../services/app_haptics.dart';
-import '../../../state/app_state.dart';
+import '../../../core/platform_utils.dart';
+import '../../../core/app_state.dart';
 
 /// Ultra-lightweight, 120 FPS single interactive row tile for a Surah in the picker sheet.
 ///

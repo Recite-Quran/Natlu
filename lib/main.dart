@@ -27,24 +27,21 @@ import 'package:in_app_update/in_app_update.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
-import 'state/app_state.dart';
-import 'state/highlighting_controller.dart';
+import 'core/app_state.dart';
+import 'core/highlighting_controller.dart';
 import 'ui/tracking_screen.dart';
-import 'ui/widgets/dialogs/theme_selection_dialog.dart';
-import 'ui/widgets/dialogs/permission_dialog.dart';
-import 'ui/widgets/dialogs/model_download_dialog.dart';
 import 'mushaf/mushaf_view.dart';
-import 'ui/widgets/dialogs/whats_new_dialog.dart';
 import 'maglis/maglis_controller.dart';
 import 'maglis/maglis_core.dart';
-import 'services/app_audio_processor.dart';
-import 'services/app_modal_route_observer.dart';
+import 'core/app_audio_processor.dart';
+import 'core/platform_utils.dart';
 import 'mushaf/web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'audio/quran_audio_service.dart';
+import 'ui/widgets/dialogs/dialog_service.dart';
 
 void main() async {
   runZonedGuarded(
@@ -52,7 +49,7 @@ void main() async {
       WidgetsFlutterBinding.ensureInitialized();
 
       // Initialize Windows audio backend as in reference app (alquranalkareem / quran_library)
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      if (PlatformCapabilities.usesMediaKitAudio) {
         try {
           JustAudioMediaKit.bufferSize = 2 * 1024 * 1024;
           JustAudioMediaKit.ensureInitialized(windows: true);
@@ -60,7 +57,7 @@ void main() async {
       }
 
       // Initialize audio session for standard media/recitation playback (STREAM_MUSIC)
-      if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.android)) {
+      if (PlatformCapabilities.isMobile) {
         try {
           final session = await AudioSession.instance;
           await session.configure(
@@ -90,15 +87,15 @@ void main() async {
         };
       }
 
-      if (!kIsWeb) {
+      if (!PlatformCapabilities.isWeb) {
         // Transparent system bars for immersive experience
-      SystemChrome.setSystemUIOverlayStyle(
-        const SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          systemNavigationBarColor: Colors.transparent,
-        ),
-      );
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        SystemChrome.setSystemUIOverlayStyle(
+          const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: Colors.transparent,
+          ),
+        );
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       }
 
       await AppState.instance.load();
@@ -175,7 +172,8 @@ class QuranApp extends StatelessWidget {
               final constrainedWidth = isWide ? 480.0 : media.size.width;
 
               appWidget = Scaffold(
-                backgroundColor: isDark ? Colors.black : const Color(0xFFE5E7EB),
+                backgroundColor:
+                    isDark ? Colors.black : const Color(0xFFE5E7EB),
                 body: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 480),
@@ -221,7 +219,8 @@ class _Orchestrator extends StatefulWidget {
   State<_Orchestrator> createState() => _OrchestratorState();
 }
 
-class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserver {
+class _OrchestratorState extends State<_Orchestrator>
+    with WidgetsBindingObserver {
   static const MethodChannel _lifecycleChannel =
       MethodChannel('com.recitequran.app/audio_lifecycle');
 
@@ -275,6 +274,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       required bool isPlaying,
       required bool isBuffering,
     }) {
+      AppState.instance.updateAudioState(
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+        isPlaying: isPlaying,
+        isBuffering: isBuffering,
+      );
       _ctrl?.applyAudioProgress(
         surah: surah,
         ayah: ayah,
@@ -318,11 +324,13 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
         if (_ctrl!.targetSurah != surah) {
-          _ctrl!.setTargetSurah(
+          _ctrl!
+              .setTargetSurah(
             surah,
             preserveOtherSurahStates: true,
             clearTargetSurah: false,
-          ).then((_) {
+          )
+              .then((_) {
             if (mounted && _ctrl != null) {
               _ctrl!.setManualAyah(surah, ayah);
               _ctrl!.clearHighlightsFromAyah(ayah);
@@ -384,7 +392,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     // during the critical startup window.
     Future.delayed(const Duration(seconds: 15), _checkForUpdates);
 
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    if (PlatformCapabilities.supportsHighRefreshRate) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         try {
           await FlutterDisplayMode.setHighRefreshRate();
@@ -399,13 +407,15 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   Future<void> _checkForUpdates() async {
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (!PlatformCapabilities.isAndroid) return;
     try {
       const platform = MethodChannel('com.recitequran.app/playstore');
-      final bool hasPlayStore = await platform.invokeMethod('isPlayStoreInstalled');
-      
+      final bool hasPlayStore =
+          await platform.invokeMethod('isPlayStoreInstalled');
+
       if (!hasPlayStore) {
-        DebugLogger.logSimple('Update', 'Play Store missing (LineageOS). Bypassing Play Core API.');
+        DebugLogger.logSimple('Update',
+            'Play Store missing (LineageOS). Bypassing Play Core API.');
         return;
       }
 
@@ -414,7 +424,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         await InAppUpdate.performImmediateUpdate();
       }
     } catch (e) {
-      DebugLogger.logSimple('Update', "Play Core update check aborted safely: $e");
+      DebugLogger.logSimple(
+          'Update', "Play Core update check aborted safely: $e");
     }
   }
 
@@ -448,10 +459,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     // On Desktop (Windows, macOS, Linux) and Web, alt-tab, tab switching, and loss of focus
     // must NEVER leave the Maglis session so users can multitask while talking/listening!
-    final bool isDesktopOrWeb = kIsWeb ||
-        defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.linux;
+    final bool isDesktopOrWeb =
+        PlatformCapabilities.isWeb || PlatformCapabilities.isDesktop;
 
     if (!isDesktopOrWeb) {
       // Leave session when phone locks (screen timeout or power button), NOT when switching apps.
@@ -477,7 +486,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       _maglisIdleTimer?.cancel();
       _maglisIdleTimer = null;
       _maglisSoloSince = null;
-    } else if (MaglisController.instance.inSession && _maglisIdleTimer == null) {
+    } else if (MaglisController.instance.inSession &&
+        _maglisIdleTimer == null) {
       // Alone in room while backgrounded: start fresh 10-minute countdown
       _maglisSoloSince = DateTime.now();
       _maglisIdleTimer = Timer(const Duration(minutes: 10), () {
@@ -493,7 +503,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   Future<void> _leaveSessionIfLocked() async {
     try {
       final isLocked =
-          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ?? false;
+          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ??
+              false;
       if (isLocked && MaglisController.instance.inSession) {
         await MaglisController.instance.leaveSession();
       }
@@ -522,7 +533,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
       _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
     }
-    if (!kIsWeb) {
+    if (!PlatformCapabilities.isWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
     QuranAudioService.instance.onAudioProgress = null;
@@ -580,19 +591,17 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       if (mounted) setState(() => _isInit = false);
 
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (kIsWeb) return; // Zero intro / popup interruptions on Web
+        if (PlatformCapabilities.isWeb)
+          return; // Zero intro / popup interruptions on Web
         final prefs = await SharedPreferences.getInstance();
         final hasChosenTheme = prefs.getBool('has_chosen_theme') ?? false;
         if (!hasChosenTheme && mounted) {
-          await showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => ThemeSelectionDialog(
-              onThemeSelected: () {
-                prefs.setBool('has_chosen_theme', true);
-                Navigator.of(ctx).pop();
-              },
-            ),
+          await DialogService.showThemeSelection(
+            context,
+            onThemeSelected: () {
+              prefs.setBool('has_chosen_theme', true);
+              Navigator.of(context).pop();
+            },
           );
           if (mounted) {
             await Future<void>.delayed(const Duration(milliseconds: 250));
@@ -612,7 +621,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     final prefs = await SharedPreferences.getInstance();
     final hasSeen = prefs.getBool('has_seen_v1_2_maglis_whats_new') ?? false;
     if (!hasSeen && mounted) {
-      await WhatsNewDialog.show(context);
+      DialogService.showWhatsNew(context);
     }
   }
 
@@ -621,14 +630,10 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   Future<bool> _ensureEngineReady() async {
     if (_engine.isInitialized) return true;
 
-    if (kIsWeb) {
+    if (PlatformCapabilities.isWeb) {
       final bool isCached = await _engine.isModelCached();
       if (!isCached && mounted) {
-        final bool? proceed = await showDialog<bool>(
-          context: context,
-          barrierDismissible: true,
-          builder: (ctx) => const ModelDownloadDialog(),
-        );
+        final bool? proceed = await DialogService.showModelDownload(context);
         if (proceed != true) {
           return false;
         }
@@ -655,7 +660,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
   }
 
   Future<bool> _ensureMicPermission(PermissionReason reason) async {
-    if (kIsWeb || (defaultTargetPlatform != TargetPlatform.android && defaultTargetPlatform != TargetPlatform.iOS)) {
+    if (!PlatformCapabilities.isMobile) {
       return true;
     }
     final status = await Permission.microphone.status;
@@ -665,10 +670,7 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
     if (request.isGranted) return true;
 
     if (mounted) {
-      showDialog(
-        context: context,
-        builder: (ctx) => PermissionDialog(reason: reason),
-      );
+      DialogService.showPermission(context, reason: reason);
     }
     return false;
   }
@@ -757,7 +759,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
               ? _ctrl!.targetSurah
               : AppState.instance.lastSurah;
 
-          int selectedSurah = (activeSurah >= 1 && activeSurah <= 114) ? activeSurah : 1;
+          int selectedSurah =
+              (activeSurah >= 1 && activeSurah <= 114) ? activeSurah : 1;
           int selectedAyah = (activeAyah != null && activeAyah > 0)
               ? activeAyah
               : AppState.instance.lastAyah;
@@ -782,7 +785,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
                   surah: selectedSurah,
                   ayah: selectedAyah,
                 )) {
-              final firstOnPage = MushafProvider.instance.getFirstAyahOnPage(currentPage);
+              final firstOnPage =
+                  MushafProvider.instance.getFirstAyahOnPage(currentPage);
               if (firstOnPage != null) {
                 selectedSurah = firstOnPage.$1;
                 selectedAyah = firstOnPage.$2;
@@ -793,12 +797,15 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           } else {
             // In Verse List mode:
             // Verses are chosen manually in the active surah. Do not reset to first ayah of Mushaf page!
-            selectedSurah = (_ctrl!.targetSurah >= 1 && _ctrl!.targetSurah <= 114)
-                ? _ctrl!.targetSurah
-                : AppState.instance.lastSurah;
+            selectedSurah =
+                (_ctrl!.targetSurah >= 1 && _ctrl!.targetSurah <= 114)
+                    ? _ctrl!.targetSurah
+                    : AppState.instance.lastSurah;
             selectedAyah = (activeAyah != null && activeAyah > 0)
                 ? activeAyah
-                : (AppState.instance.lastAyah > 0 ? AppState.instance.lastAyah : 1);
+                : (AppState.instance.lastAyah > 0
+                    ? AppState.instance.lastAyah
+                    : 1);
           }
 
           if (_ctrl!.targetSurah != selectedSurah) {
@@ -810,7 +817,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           }
           _ctrl!.setManualAyah(selectedSurah, selectedAyah);
           AppState.instance.saveLastPosition(selectedSurah, selectedAyah);
-          final mappedPage = MushafProvider.instance.getPageForAyah(selectedSurah, selectedAyah);
+          final mappedPage = MushafProvider.instance
+              .getPageForAyah(selectedSurah, selectedAyah);
           if (mappedPage != null) {
             AppState.instance.saveMushafPage(mappedPage);
           }
@@ -822,7 +830,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           for (int s = selectedSurah + 1; s <= 114; s++) {
             _ctrl!.clearHighlightsForSurah(s);
           }
-          MaglisController.instance.clearHighlightsFrom(selectedSurah, selectedAyah);
+          MaglisController.instance
+              .clearHighlightsFrom(selectedSurah, selectedAyah);
 
           _lastProcessedAyah = null;
           _lastProcessedSurah = null;
@@ -909,7 +918,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
 
     // If activeAyah just advanced, ensure the previous ayah's final word is flushed preserving exact errors
     if (_lastProcessedAyah != null &&
-        (_lastProcessedAyah != activeAyah || _lastProcessedSurah != targetSurah)) {
+        (_lastProcessedAyah != activeAyah ||
+            _lastProcessedSurah != targetSurah)) {
       final prevAyah = _lastProcessedAyah!;
       final prevSurah = _lastProcessedSurah!;
       final prevVerse = _ctrl!.repository.getVerse(prevSurah, prevAyah);
@@ -932,7 +942,8 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
         }
       }
       if (prevGreen.isNotEmpty || prevYellow.isNotEmpty || prevRed.isNotEmpty) {
-        final prevPage = MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
+        final prevPage =
+            MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
         maglis.broadcastRecitation(
           page: prevPage,
           surah: prevSurah,
@@ -1040,18 +1051,16 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
       await _voiceSearchCtrl.startSearch();
 
       _isVoiceSearchPaused = false;
-      _audio
-          .start(
-            onChunk: (chunk, isFinal) {
-              if (!_isVoiceSearchPaused) {
-                _engine.transcribe(chunk, isFinal: isFinal);
-              }
-            },
-          )
-          .catchError((e) {
-            DebugLogger.logSimple('AUDIO', '❌ ERROR in Voice Search: $e');
-            if (mounted) setState(() => _isVoiceSearching = false);
-          });
+      _audio.start(
+        onChunk: (chunk, isFinal) {
+          if (!_isVoiceSearchPaused) {
+            _engine.transcribe(chunk, isFinal: isFinal);
+          }
+        },
+      ).catchError((e) {
+        DebugLogger.logSimple('AUDIO', '❌ ERROR in Voice Search: $e');
+        if (mounted) setState(() => _isVoiceSearching = false);
+      });
     } catch (e) {
       DebugLogger.logSimple('VOICE_SEARCH', '❌ START ERROR: $e');
       if (mounted) setState(() => _isVoiceSearching = false);
@@ -1088,8 +1097,6 @@ class _OrchestratorState extends State<_Orchestrator> with WidgetsBindingObserve
           clearTargetSurah: false,
         );
         _ctrl!.setManualAyah(result.surah, result.ayah);
-
-
       } else {
         // Fallback: resume previous state if no Ayah was found
         _ctrl?.resumeTracking();

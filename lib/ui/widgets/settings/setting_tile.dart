@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../services/app_haptics.dart';
-import '../../../state/app_state.dart';
+import '../../../core/platform_utils.dart';
+import '../../../core/app_state.dart';
 
 /// Thin flush separator line for grouped lists.
 class PremiumSettingDivider extends StatelessWidget {

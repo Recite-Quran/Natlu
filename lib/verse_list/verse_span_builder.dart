@@ -1,7 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import '../state/highlighting_controller.dart';
-import '../state/app_state.dart';
+import '../core/highlighting_controller.dart';
+import '../core/app_state.dart';
 
 /// Pure helper for generating high-performance, styled [InlineSpan] lists for Quranic verses.
 /// Handles zero-GPU blur hiding, color status resolution, and word gesture binding.
@@ -33,11 +33,9 @@ class VerseSpanBuilder {
   }) {
     if (wordIndex < 0) return colors.text;
     if (isBlurEffective && !isAutoScrolling) {
-      final isRead = controller.isWordGreen(ayah, wordIndex, surah: surah) ||
-          controller.isWordRed(ayah, wordIndex, surah: surah) ||
-          controller.isWordYellow(ayah, wordIndex, surah: surah) ||
-          controller.isWordNeutral(ayah, wordIndex, surah: surah);
-      if (!isRead) return Colors.transparent;
+      if (!controller.isWordRead(ayah, wordIndex, surah: surah)) {
+        return Colors.transparent;
+      }
     }
 
     return resolveWordColor(

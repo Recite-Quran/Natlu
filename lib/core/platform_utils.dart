@@ -1,4 +1,77 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+/// Centralized platform detection and hardware capability abstraction.
+/// Eliminates scattered `kIsWeb` and `defaultTargetPlatform` checks across the app.
+abstract final class PlatformCapabilities {
+  /// Whether the app is executing inside a web browser.
+  static bool get isWeb => kIsWeb;
+
+  /// Whether running on native Windows desktop.
+  static bool get isWindows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
+  /// Whether running on native Android mobile/tablet.
+  static bool get isAndroid =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  /// Whether running on native Apple iOS.
+  static bool get isIOS =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// Whether running on any native desktop operating system (Windows, macOS, Linux).
+  static bool get isDesktop =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
+
+  /// Whether running on native mobile (Android or iOS).
+  static bool get isMobile =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  /// Whether the device supports dynamic high refresh rate switching (e.g. 120Hz on Android).
+  static bool get supportsHighRefreshRate => isAndroid;
+
+  /// Whether the platform utilizes MediaKit / LibVLC for native audio streaming.
+  static bool get usesMediaKitAudio => isWindows;
+}
+
+/// Centralized, high-performance haptics manager.
+///
+/// Gates all haptic calls strictly to physical mobile devices (Android / iOS).
+/// Completely eliminates redundant platform-channel IPC roundtrips on Windows,
+/// macOS, Linux, and Web desktop targets where hardware vibration does not exist.
+abstract final class AppHaptics {
+  static bool get _supportsHaptics => PlatformCapabilities.isMobile;
+
+  static void lightImpact() {
+    if (_supportsHaptics) {
+      HapticFeedback.lightImpact();
+    }
+  }
+
+  static void mediumImpact() {
+    if (_supportsHaptics) {
+      HapticFeedback.mediumImpact();
+    }
+  }
+
+  static void heavyImpact() {
+    if (_supportsHaptics) {
+      HapticFeedback.heavyImpact();
+    }
+  }
+
+  static void selectionClick() {
+    if (_supportsHaptics) {
+      HapticFeedback.selectionClick();
+    }
+  }
+}
 
 /// AppModalRouteObserver
 ///

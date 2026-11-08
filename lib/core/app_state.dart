@@ -11,7 +11,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:recite_quran/recite_quran.dart';
+import 'highlighting_controller.dart';
 import '../audio/quran_audio_service.dart';
 import '../maglis/maglis_controller.dart';
 
@@ -79,6 +79,9 @@ class AppState extends ChangeNotifier {
     _lang = (deviceLang == 'ar') ? AppLanguage.ar : AppLanguage.en;
     languageNotifier = ValueNotifier<AppLanguage>(_lang);
     themeNotifier = ValueNotifier<AppTheme>(_theme);
+    HighlightingController.onAutoSavePosition = (surah, ayah) {
+      saveLastPosition(surah, ayah);
+    };
   }
 
   /// Singleton instance — accessed everywhere as `AppState.instance`.
@@ -377,7 +380,7 @@ class AppState extends ChangeNotifier {
   Timer? _savePositionDebounce;
 
   Future<void> saveLastPosition(int surah, int ayah) async {
-    if (surah < 1 || surah > 114 || ayah < 1 || ayah > 286) return;
+    if (!QuranMetadata.isValidAyah(surah, ayah)) return;
     if (lastSurah == surah && lastAyah == ayah) return;
     lastSurah = surah;
     lastAyah = ayah;
@@ -400,21 +403,44 @@ class AppState extends ChangeNotifier {
   );
   TrackerConfig get trackerConfig => _trackerConfig;
 
-  // ── Verse Audio Playback (UI state ready for backend audio wiring) ───────────
-  /// Currently active audio verse playback.
+  // ── Verse Audio Playback (Backward-compatible reactive bridge to QuranAudioService) ──
   final ValueNotifier<int?> activeAudioAyah = ValueNotifier<int?>(null);
   final ValueNotifier<int?> activeAudioSurah = ValueNotifier<int?>(null);
   final ValueNotifier<bool> isAudioPlaying = ValueNotifier<bool>(false);
-
-  /// Whether audio is actively connecting or buffering, providing instant feedback on tap.
   final ValueNotifier<bool> isAudioBuffering = ValueNotifier<bool>(false);
-
-  /// Active word index (0-based) inside the active audio Ayah, synchronized to audio playback.
   final ValueNotifier<int?> activeAudioWordIndex = ValueNotifier<int?>(null);
-
-  /// Determines whether playback automatically advances to next Ayah (continuous mode)
-  /// or stops after playing a single Ayah (record mode).
   final ValueNotifier<bool> isContinuousPlayback = ValueNotifier<bool>(true);
+
+  void toggleVerseAudio({
+    required int surah,
+    required int ayah,
+    bool continuous = true,
+  }) {
+    QuranAudioService.instance.play(
+      surah: surah,
+      ayah: ayah,
+      continuous: continuous,
+    );
+  }
+
+  void stopVerseAudio() {
+    isAudioBuffering.value = false;
+    QuranAudioService.instance.stop();
+  }
+
+  void updateAudioState({
+    int? surah,
+    int? ayah,
+    int? wordIndex,
+    required bool isPlaying,
+    required bool isBuffering,
+  }) {
+    activeAudioSurah.value = surah;
+    activeAudioAyah.value = ayah;
+    activeAudioWordIndex.value = wordIndex;
+    isAudioPlaying.value = isPlaying;
+    isAudioBuffering.value = isBuffering;
+  }
 
   /// Currently active modern banner (replaces old SnackBars and unifies feedback).
   AppBannerInfo? currentBanner;
@@ -627,83 +653,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Toggles play/pause state for a specific verse.
-  /// When [continuous] is true (outside record mode), playback advances to the next Ayah on finish.
-  /// When [continuous] is false (in record mode), only this single Ayah is played.
-  void toggleVerseAudio({
-    required int surah,
-    required int ayah,
-    bool continuous = true,
-  }) {
-    final bool isWord = QuranAudioService.instance.isSingleWordMode;
-    if (isWord) {
-      QuranAudioService.instance.play(
-        surah: surah,
-        ayah: ayah,
-        continuous: continuous,
-      );
-      return;
-    }
-    if (activeAudioSurah.value == surah &&
-        activeAudioAyah.value == ayah &&
-        isAudioPlaying.value) {
-      QuranAudioService.instance.pause();
-    } else if (activeAudioSurah.value == surah &&
-        activeAudioAyah.value == ayah &&
-        QuranAudioService.instance.isPaused) {
-      QuranAudioService.instance.resume();
-    } else {
-      QuranAudioService.instance.play(
-        surah: surah,
-        ayah: ayah,
-        continuous: continuous,
-      );
-    }
-  }
-
-  /// Advances playback to the next Ayah if continuous mode is active.
-  /// Stops playback if [isContinuousPlayback] is false (e.g. record mode) or if surah end is reached.
-  void onAyahAudioFinished({int? totalAyahsInSurah}) {
-    if (!isAudioPlaying.value) return;
-
-    if (!isContinuousPlayback.value) {
-      // In record mode: single ayah only per click
-      stopVerseAudio();
-      return;
-    }
-
-    // Out of record mode: advance to next ayah
-    final currentAyah = activeAudioAyah.value;
-    final currentSurah = activeAudioSurah.value;
-    if (currentAyah == null || currentSurah == null) {
-      stopVerseAudio();
-      return;
-    }
-
-    final maxAyah = totalAyahsInSurah ?? 286;
-    if (currentAyah < maxAyah) {
-      QuranAudioService.instance.play(
-        surah: currentSurah,
-        ayah: currentAyah + 1,
-        continuous: true,
-      );
-    } else if (currentSurah < 114) {
-      QuranAudioService.instance.play(
-        surah: currentSurah + 1,
-        ayah: 1,
-        continuous: true,
-      );
-    } else {
-      stopVerseAudio();
-    }
-  }
-
-  /// Pauses or stops active verse audio playback.
-  void stopVerseAudio() {
-    isAudioBuffering.value = false;
-    QuranAudioService.instance.stop();
-  }
-
   // ── Colors ─────────────────────────────────────────────────────────────────
 
   /// Returns the active color palette based on the current theme.
@@ -773,7 +722,8 @@ class AppState extends ChangeNotifier {
     secondary: Color(0xFF06B6D4), // Cyan Spark
     gold: Color(0xFFEAB308), // Luminous Amber Gold
     green: Color(0xFF34D399), // Luminous Mint Sage (soothing, zero halation)
-    red: Color(0xFFFB7185), // Gentle rose terracotta coral (soft, halation-free)
+    red:
+        Color(0xFFFB7185), // Gentle rose terracotta coral (soft, halation-free)
     muted: Color(0xFF64748B), // Slate-500 neutral muted
     currentWord:
         Color(0xFF2DD4BF), // Calming luminous mint teal active word highlight

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../services/app_haptics.dart';
-import '../../../state/app_state.dart';
+import '../../../core/platform_utils.dart';
+import '../../../core/app_state.dart';
 
 /// Brief, crystal-clear explanation dialog for the Maglis feature.
 /// Explains "What is it for" and "How to use it step-by-step" with minimal labels and maximum eye comfort.

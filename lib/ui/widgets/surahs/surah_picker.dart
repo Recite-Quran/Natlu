@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart';
-import '../../services/app_haptics.dart';
-import '../../state/app_state.dart';
-import 'surah/surah_list_tile.dart';
-import 'settings/setting_tile.dart';
-import '../../maglis/maglis_controller.dart';
+import '../../../core/platform_utils.dart';
+import '../../../core/app_state.dart';
+import '../../../core/highlighting_controller.dart';
+import 'surah_list_tile.dart';
+import '../settings/setting_tile.dart';
+import '../../../maglis/maglis_controller.dart';
 
 /// Ultra-responsive Surah Navigator Sheet with instant Arabic/English search,
 /// voice search trigger, and zero-jank 120 FPS scrolling architecture.
@@ -36,14 +36,9 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
   static final List<int> _allIndices =
       List<int>.generate(114, (i) => i, growable: false);
 
-  static final List<String> _arabicDigits = List<String>.generate(114, (i) {
-    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return (i + 1)
-        .toString()
-        .split('')
-        .map((e) => digits[int.parse(e)])
-        .join('');
-  }, growable: false);
+  static final List<String> _arabicDigits = List<String>.generate(
+      114, (i) => QuranTypography.toArabicDigits(i + 1),
+      growable: false);
 
   static List<String>? _cachedNormalizedAr;
   static List<String>? _cachedLowerEn;

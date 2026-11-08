@@ -4,13 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
-import '../state/highlighting_controller.dart';
-
-import '../services/app_haptics.dart';
+import '../core/highlighting_controller.dart';
+import '../core/platform_utils.dart';
 import '../audio/quran_audio_service.dart';
 import '../audio/quran_timing_service.dart';
-import '../state/app_state.dart';
-import '../ui/widgets/dialogs/speed_selection_dialog.dart';
+import '../core/app_state.dart';
+import '../ui/widgets/dialogs/dialog_service.dart';
 import '../mushaf/mushaf_provider.dart';
 import 'verse_row.dart';
 
@@ -164,6 +163,9 @@ class VerseListViewState extends State<VerseListView>
     if (isPlaying && ayah != null) {
       final int targetSurah = audioSurah ?? widget.controller.targetSurah;
       AppState.instance.saveLastPosition(targetSurah, ayah);
+      if (audioSurah != null && audioSurah != widget.controller.targetSurah) {
+        widget.controller.setTargetSurah(audioSurah);
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && widget.controller.targetSurah == targetSurah) {
           _ensureAyahVisibleSmart(ayah);
@@ -346,22 +348,16 @@ class VerseListViewState extends State<VerseListView>
     } else {
       QuranAudioService.instance.stop();
       if (!AppState.instance.hasChosenAutoScrollSpeed && mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: true,
-          builder: (ctx) => SpeedSelectionDialog(
-            onSpeedSelected: () {
-              AppState.instance.setHasChosenAutoScrollSpeed(true);
-              if (Navigator.of(ctx).canPop()) {
-                Navigator.of(ctx).pop();
+        DialogService.showSpeedSelection(
+          context,
+          onSpeedSelected: () {
+            AppState.instance.setHasChosenAutoScrollSpeed(true);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && !_isAutoScrolling) {
+                startAutoScrolling();
               }
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && !_isAutoScrolling) {
-                  startAutoScrolling();
-                }
-              });
-            },
-          ),
+            });
+          },
         );
         return;
       }

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../state/app_state.dart';
+import '../../../core/app_state.dart';
 
 /// Beautiful bilingual dialog asking for user consent before downloading the ~72MB AI speech model on Web.
 class ModelDownloadDialog extends StatelessWidget {

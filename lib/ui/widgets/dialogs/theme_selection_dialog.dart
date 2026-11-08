@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../state/app_state.dart';
+import '../../../core/app_state.dart';
 
 class ThemeSelectionDialog extends StatefulWidget {
   final VoidCallback onThemeSelected;

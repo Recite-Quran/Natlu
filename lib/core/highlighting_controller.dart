@@ -1,5 +1,13 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart' as rq;
 export 'package:recite_quran/recite_quran.dart' hide HighlightingController;
+
+import 'platform_utils.dart';
+import 'app_state.dart';
+import '../audio/quran_audio_service.dart';
+import '../maglis/maglis_controller.dart';
+import '../ui/widgets/dialogs/dialog_service.dart';
 
 /// Recitation & Audio playback source.
 enum RecitationSource {
@@ -218,6 +226,15 @@ class HighlightingController extends rq.HighlightingController {
     return super.targetSurah;
   }
 
+  /// Optional hook for reactive reading position persistence without circular state imports.
+  static void Function(int surah, int ayah)? onAutoSavePosition;
+
+  @override
+  void setManualAyah(int surah, int ayah) {
+    super.setManualAyah(surah, ayah);
+    onAutoSavePosition?.call(surah, ayah);
+  }
+
   @override
   rq.VerseMatch? get currentMatchedVerse {
     if (_isRemoteReciting && _remoteTargetSurah != 0 && activeAyah.value != null) {
@@ -257,6 +274,30 @@ class HighlightingController extends rq.HighlightingController {
     final s = surah ?? targetSurah;
     if (_store.isNeutral(s, ayah, wordIndex)) return true;
     return super.isWordNeutral(ayah, wordIndex, surah: s);
+  }
+
+  /// Checks whether a word has any recognized recitation status (green, yellow, red, or neutral).
+  bool isWordRead(int ayah, int wordIndex, {int? surah}) {
+    final s = surah ?? targetSurah;
+    return isWordGreen(ayah, wordIndex, surah: s) ||
+        isWordYellow(ayah, wordIndex, surah: s) ||
+        isWordRed(ayah, wordIndex, surah: s) ||
+        isWordNeutral(ayah, wordIndex, surah: s);
+  }
+
+  /// Returns numeric status representation for high-speed rendering:
+  /// 1: Green (Correct)
+  /// 2: Yellow (Tajweed Rule / Warning)
+  /// 3: Red (Mispronounced)
+  /// 4: Neutral (Spoken/Passed)
+  /// null: Unread
+  int? getWordStatus(int ayah, int wordIndex, {int? surah}) {
+    final s = surah ?? targetSurah;
+    if (isWordGreen(ayah, wordIndex, surah: s)) return 1;
+    if (isWordYellow(ayah, wordIndex, surah: s)) return 2;
+    if (isWordRed(ayah, wordIndex, surah: s)) return 3;
+    if (isWordNeutral(ayah, wordIndex, surah: s)) return 4;
+    return null;
   }
 
   @override
@@ -362,6 +403,9 @@ class HighlightingController extends rq.HighlightingController {
     }
 
     if (changed) {
+      if (_isAudioPlaying && _audioSurah != null && _audioAyah != null) {
+        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
+      }
       globalRevision.value++;
       notifyListeners();
     }
@@ -413,6 +457,9 @@ class HighlightingController extends rq.HighlightingController {
     }
 
     if (changed) {
+      if (_isAudioPlaying && _audioSurah != null && _audioAyah != null) {
+        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
+      }
       globalRevision.value++;
       notifyListeners();
     }
@@ -463,3 +510,219 @@ class HighlightingController extends rq.HighlightingController {
     notifyListeners();
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quran Domain Metadata & Arithmetic (Consolidated from quran_metadata.dart)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Canonical Quran Metadata & Navigation arithmetic.
+abstract final class QuranMetadata {
+  /// Canonical Ayah count for Surahs 1 to 114.
+  static const List<int> surahAyahCounts = [
+    7, 286, 200, 176, 120, 165, 206, 75, 129, 109,
+    123, 111, 43, 52, 99, 128, 111, 110, 98, 135,
+    112, 78, 118, 64, 77, 227, 93, 88, 69, 60,
+    34, 30, 73, 54, 45, 83, 182, 88, 75, 85,
+    54, 53, 89, 59, 37, 35, 38, 29, 18, 45,
+    60, 49, 62, 55, 78, 96, 29, 22, 24, 13,
+    14, 11, 11, 18, 12, 12, 30, 52, 52, 44,
+    28, 28, 20, 56, 40, 31, 50, 40, 46, 42,
+    29, 19, 36, 25, 22, 17, 19, 26, 30, 20,
+    15, 21, 11, 8, 8, 19, 5, 8, 8, 11,
+    11, 8, 3, 9, 5, 4, 7, 3, 6, 3,
+    5, 4, 5, 6
+  ];
+
+  /// Checks if [surah] is in the valid 1..114 range.
+  static bool isValidSurah(int surah) => surah >= 1 && surah <= 114;
+
+  /// Returns total Ayahs for [surah], or 0 if out of range.
+  static int getAyahCount(int surah) {
+    if (surah >= 1 && surah <= 114) {
+      return surahAyahCounts[surah - 1];
+    }
+    return 0;
+  }
+
+  /// Checks if [surah] and [ayah] constitute a valid Quranic coordinate.
+  static bool isValidAyah(int surah, int ayah) {
+    if (!isValidSurah(surah)) return false;
+    final max = surahAyahCounts[surah - 1];
+    return ayah >= 1 && ayah <= max;
+  }
+
+  /// Checks if [ayah] is the final Ayah in [surah].
+  static bool isLastAyahInSurah(int surah, int ayah) {
+    if (!isValidSurah(surah)) return false;
+    return ayah == surahAyahCounts[surah - 1];
+  }
+
+  /// Computes the subsequent Ayah across Surah boundaries, or null if end of Quran.
+  static (int surah, int ayah)? getNextAyah(int surah, int ayah) {
+    if (!isValidSurah(surah)) return null;
+    final max = surahAyahCounts[surah - 1];
+    if (ayah < max) {
+      return (surah, ayah + 1);
+    } else if (surah < 114) {
+      return (surah + 1, 1);
+    }
+    return null;
+  }
+
+  /// Computes the previous Ayah across Surah boundaries, or null if beginning of Quran.
+  static (int surah, int ayah)? getPreviousAyah(int surah, int ayah) {
+    if (!isValidSurah(surah)) return null;
+    if (ayah > 1) {
+      return (surah, ayah - 1);
+    } else if (surah > 1) {
+      final prevSurah = surah - 1;
+      return (prevSurah, surahAyahCounts[prevSurah - 1]);
+    }
+    return null;
+  }
+}
+
+/// Dedicated high-performance typography formatter for Eastern Arabic numbers.
+abstract final class QuranTypography {
+  static final List<String> _arabicDigitsCache =
+      List<String>.generate(650, (i) {
+    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return i.toString().split('').map((e) => digits[int.parse(e)]).join('');
+  });
+
+  /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
+  static String toArabicDigits(int number) {
+    if (number >= 0 && number < _arabicDigitsCache.length) {
+      return _arabicDigitsCache[number];
+    }
+    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return number
+        .toString()
+        .split('')
+        .map((e) => digits[int.parse(e)])
+        .join('');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quran Interaction Service (Consolidated from quran_interaction_service.dart)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Centralized Quran User Interaction Service.
+///
+/// Handles Ayah selection, word clicks (Tajweed error dialog vs word audio audition),
+/// and continuous Ayah audio playback across both Mushaf Vector and Verse List views.
+abstract final class QuranInteractionService {
+  /// Handles selecting/tapping an Ayah: haptic feedback, manual selection, and persisting last position.
+  static Future<void> selectAyah({
+    required int surah,
+    required int ayah,
+    required HighlightingController controller,
+    VoidCallback? onTap,
+  }) async {
+    AppHaptics.lightImpact();
+    if (controller.targetSurah != surah) {
+      await controller.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      );
+    }
+    controller.setManualAyah(surah, ayah);
+    AppState.instance.saveLastPosition(surah, ayah);
+    onTap?.call();
+  }
+
+  /// Handles tapping a Quranic word:
+  /// - Selects the Ayah.
+  /// - If yellow word -> opens Tajweed error dialog.
+  /// - If non-yellow word and (already selected or [playWordDirectly]) -> plays word audio.
+  static void handleWordTap({
+    required BuildContext context,
+    required int surah,
+    required int ayah,
+    required int wordIndex,
+    required String wordText,
+    required HighlightingController controller,
+    VoidCallback? onWordErrorTap,
+    VoidCallback? onAyahTap,
+    bool playWordDirectly = false,
+    List<rq.ReciterError>? overrideErrors,
+  }) {
+    final bool isAlreadySelected =
+        controller.targetSurah == surah && controller.activeAyah.value == ayah;
+
+    selectAyah(
+      surah: surah,
+      ayah: ayah,
+      controller: controller,
+      onTap: onAyahTap,
+    );
+
+    final errors = overrideErrors ??
+        (controller.isWordYellow(ayah, wordIndex, surah: surah)
+            ? controller.getWordErrors(ayah, wordIndex, surah: surah)
+            : null);
+
+    if (errors != null && errors.isNotEmpty) {
+      AppState.instance.markTajweedWordClicked();
+      DialogService.showTajweedError(
+        context,
+        word: wordText,
+        errors: errors,
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+      );
+      onWordErrorTap?.call();
+    } else if (isAlreadySelected || playWordDirectly) {
+      if (MaglisController.instance.inSession) {
+        return;
+      }
+      QuranAudioService.instance.playWord(
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+      );
+    }
+  }
+
+  /// Toggles Ayah audio playback with buffering debounce and haptic feedback.
+  static Future<void> toggleAyahAudio({
+    required int surah,
+    required int ayah,
+    required HighlightingController controller,
+    required bool isRecording,
+    VoidCallback? onTap,
+    VoidCallback? onExplicitToggle,
+  }) async {
+    if (MaglisController.instance.inSession) return;
+    if (controller.isAudioBuffering &&
+        controller.audioSurah == surah &&
+        controller.audioAyah == ayah) {
+      return;
+    }
+    AppHaptics.selectionClick();
+    if (controller.targetSurah != surah) {
+      await controller.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      );
+    }
+    controller.setManualAyah(surah, ayah);
+    AppState.instance.saveLastPosition(surah, ayah);
+    onTap?.call();
+    if (onExplicitToggle != null) {
+      onExplicitToggle();
+    } else {
+      await QuranAudioService.instance.toggleAyah(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        continuous: !isRecording,
+      );
+    }
+  }
+}
+

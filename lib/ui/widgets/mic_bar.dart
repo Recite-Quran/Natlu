@@ -1,9 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../services/app_haptics.dart';
-import '../../services/app_modal_route_observer.dart';
-import '../../state/app_state.dart';
+import '../../core/platform_utils.dart';
+import '../../core/app_state.dart';
 import '../../maglis/maglis_core.dart';
 
 enum MicBarMode { recording, maglis, normal }

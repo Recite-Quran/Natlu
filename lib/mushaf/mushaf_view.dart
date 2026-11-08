@@ -4,10 +4,9 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../state/highlighting_controller.dart';
-
-import '../state/app_state.dart';
-import '../services/app_modal_route_observer.dart';
+import '../core/highlighting_controller.dart';
+import '../core/app_state.dart';
+import '../core/platform_utils.dart';
 import '../maglis/maglis_controller.dart';
 import 'mushaf_actions.dart';
 import 'mushaf_page.dart';
@@ -328,7 +327,7 @@ class _MushafViewState extends State<MushafView> {
   static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};
 
   bool _isSurahFinished(HighlightingController ctrl, int surah) {
-    if (surah < 1 || surah > 114) return false;
+    if (!QuranMetadata.isValidSurah(surah)) return false;
     final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
       final surahWords = ctrl.repository.getSurahWords(surah);
       if (surahWords.isEmpty) return (ayah: -1, wordInAyah: -1);
@@ -337,20 +336,19 @@ class _MushafViewState extends State<MushafView> {
     });
     if (lastWord.ayah < 0) return false;
     return ctrl.completedAyahsFor(surah).contains(lastWord.ayah) ||
-        ctrl.isWordGreen(lastWord.ayah, lastWord.wordInAyah, surah: surah) ||
-        ctrl.isWordYellow(lastWord.ayah, lastWord.wordInAyah, surah: surah) ||
-        ctrl.isWordNeutral(lastWord.ayah, lastWord.wordInAyah, surah: surah);
+        ctrl.isWordRead(lastWord.ayah, lastWord.wordInAyah, surah: surah);
   }
 
   Future<void> _advanceToNextSurah(int currentSurah) async {
     if (_isAdvancingSurah || !mounted || !widget.isRecording) return;
     final int nextSurah = currentSurah + 1;
-    if (nextSurah > 114) return;
+    if (!QuranMetadata.isValidSurah(nextSurah)) return;
 
     _isAdvancingSurah = true;
     _lastAdvancedSurah = currentSurah;
 
     try {
+      AppHaptics.mediumImpact();
       final provider = MushafProvider.instance;
       final ctrl = widget.controller;
       const int nextAyah = 1;
@@ -367,7 +365,6 @@ class _MushafViewState extends State<MushafView> {
         clearTargetSurah: false,
       );
       ctrl.setManualAyah(nextSurah, nextAyah);
-      AppState.instance.saveLastPosition(nextSurah, nextAyah);
       if (widget.isRecording) {
         ctrl.startRecordingSession();
       }
@@ -445,11 +442,7 @@ class _MushafViewState extends State<MushafView> {
       _lastAutoAdvancedFromPage = null;
     }
 
-    final bool isLastWordFinished = ctrl.isWordGreen(
-            lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah) ||
-        ctrl.isWordNeutral(
-            lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah) ||
-        ctrl.isWordYellow(
+    final bool isLastWordFinished = ctrl.isWordRead(
             lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah) ||
         ctrl.completedAyahsFor(lastWord.surah).contains(lastWord.ayah);
 

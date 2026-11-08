@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../../state/app_state.dart';
+import '../../../core/app_state.dart';
 
 enum PermissionReason { tracking, voiceSearch }
 

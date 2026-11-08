@@ -3,11 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
-import '../audio/quran_audio_service.dart';
-import '../state/app_state.dart';
-import '../state/highlighting_controller.dart';
-import '../ui/widgets/dialogs/error_detail_dialog.dart';
+import '../core/app_state.dart';
+import '../core/highlighting_controller.dart';
 import 'verse_span_builder.dart';
 import 'tajweed_tutorial_word.dart';
 
@@ -43,24 +40,9 @@ class VerseRow extends StatefulWidget {
     this.onActiveWordPositioned,
   });
 
-  static final List<String> _arabicDigitsCache =
-      List<String>.generate(650, (i) {
-    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return i.toString().split('').map((e) => digits[int.parse(e)]).join('');
-  });
-
   /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
-  static String toArabicDigits(int number) {
-    if (number >= 0 && number < _arabicDigitsCache.length) {
-      return _arabicDigitsCache[number];
-    }
-    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return number
-        .toString()
-        .split('')
-        .map((e) => digits[int.parse(e)])
-        .join('');
-  }
+  static String toArabicDigits(int number) =>
+      QuranTypography.toArabicDigits(number);
 
   /// Checks if audio is currently actively playing or buffering on this Ayah.
   static bool isAyahAudioActive({
@@ -101,19 +83,13 @@ class VerseRow extends StatefulWidget {
     required int ayah,
     required HighlightingController controller,
     VoidCallback? onTap,
-  }) async {
-    HapticFeedback.lightImpact();
-    if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
+  }) =>
+      QuranInteractionService.selectAyah(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        onTap: onTap,
       );
-    }
-    controller.setManualAyah(surah, ayah);
-    AppState.instance.saveLastPosition(surah, ayah);
-    onTap?.call();
-  }
 
   /// Determines if an Ayah is active (reciting active, selected, or audio active).
   static bool isAyahActive({
@@ -153,10 +129,7 @@ class VerseRow extends StatefulWidget {
 
     if (isActive && isRecording) {
       for (int i = 0; i < words.length; i++) {
-        if (!controller.isWordGreen(ayah, i, surah: surah) &&
-            !controller.isWordRed(ayah, i, surah: surah) &&
-            !controller.isWordYellow(ayah, i, surah: surah) &&
-            !controller.isWordNeutral(ayah, i, surah: surah)) {
+        if (!controller.isWordRead(ayah, i, surah: surah)) {
           return i;
         }
       }
@@ -181,38 +154,17 @@ class VerseRow extends StatefulWidget {
     bool playWordDirectly = false,
   }) {
     if (isAutoScrolling) return;
-
-    final bool isAlreadySelected =
-        controller.targetSurah == surah && controller.activeAyah.value == ayah;
-
-    selectAyah(
+    QuranInteractionService.handleWordTap(
+      context: context,
       surah: surah,
       ayah: ayah,
+      wordIndex: wordIndex,
+      wordText: wordText,
       controller: controller,
-      onTap: onAyahTap,
+      onWordErrorTap: onWordErrorTap,
+      onAyahTap: onAyahTap,
+      playWordDirectly: playWordDirectly,
     );
-
-    if (controller.isWordYellow(ayah, wordIndex, surah: surah)) {
-      AppState.instance.markTajweedWordClicked();
-      final errors = controller.getWordErrors(ayah, wordIndex);
-      if (errors != null && errors.isNotEmpty) {
-        ErrorDetailDialog.show(
-          context,
-          word: wordText,
-          errors: errors,
-          surah: surah,
-          ayah: ayah,
-          wordIndex: wordIndex,
-        );
-        onWordErrorTap?.call();
-      }
-    } else if (isAlreadySelected || playWordDirectly) {
-      QuranAudioService.instance.playWord(
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex,
-      );
-    }
   }
 
   /// Toggles Ayah audio playback with buffering debounce and haptic feedback.
@@ -223,19 +175,15 @@ class VerseRow extends StatefulWidget {
     required bool isRecording,
     VoidCallback? onTap,
     VoidCallback? onExplicitToggle,
-  }) async {
-    if (onExplicitToggle != null) {
-      onExplicitToggle();
-      return;
-    }
-    await QuranAudioService.instance.toggleAyah(
-      surah: surah,
-      ayah: ayah,
-      controller: controller,
-      continuous: !isRecording,
-      onTap: onTap,
-    );
-  }
+  }) =>
+      QuranInteractionService.toggleAyahAudio(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        isRecording: isRecording,
+        onTap: onTap,
+        onExplicitToggle: onExplicitToggle,
+      );
 
   /// Generates the active focus background pill decoration.
   static BoxDecoration? activeHighlightDecoration({
@@ -457,10 +405,7 @@ class _VerseRowState extends State<VerseRow> {
     final words = widget.verse.uthmaniWords;
     int lastSpoken = -1;
     for (int i = 0; i < words.length; i++) {
-      if (widget.controller.isWordGreen(ayah, i, surah: widget.verse.surah) ||
-          widget.controller.isWordRed(ayah, i, surah: widget.verse.surah) ||
-          widget.controller.isWordYellow(ayah, i, surah: widget.verse.surah) ||
-          widget.controller.isWordNeutral(ayah, i, surah: widget.verse.surah)) {
+      if (widget.controller.isWordRead(ayah, i, surah: widget.verse.surah)) {
         lastSpoken = i;
       }
     }
@@ -627,15 +572,11 @@ class _VerseRowState extends State<VerseRow> {
       if (needsWordScan) {
         int wHash = 17;
         final wordCount = widget.verse.uthmaniWords.length;
+        const multipliers = [0, 7, 17, 13, 23];
         for (int i = 0; i < wordCount; i++) {
-          if (ctrl.isWordGreen(ayah, i, surah: widget.verse.surah)) {
-            wHash = wHash * 31 + (i + 1) * 7;
-          } else if (ctrl.isWordRed(ayah, i, surah: widget.verse.surah)) {
-            wHash = wHash * 31 + (i + 1) * 13;
-          } else if (ctrl.isWordYellow(ayah, i, surah: widget.verse.surah)) {
-            wHash = wHash * 31 + (i + 1) * 17;
-          } else if (ctrl.isWordNeutral(ayah, i, surah: widget.verse.surah)) {
-            wHash = wHash * 31 + (i + 1) * 23;
+          final status = ctrl.getWordStatus(ayah, i, surah: widget.verse.surah);
+          if (status != null) {
+            wHash = wHash * 31 + (i + 1) * multipliers[status];
           }
         }
         _cachedWordColorsHash = wHash;
@@ -1142,10 +1083,7 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     } else if (isActive && isRecording) {
       // Recitation matching mode: highlight the coming word to be recited (anticipatory lead cursor)
       for (int i = 0; i < words.length; i++) {
-        if (!controller.isWordGreen(ayah, i, surah: surah) &&
-            !controller.isWordRed(ayah, i, surah: surah) &&
-            !controller.isWordYellow(ayah, i, surah: surah) &&
-            !controller.isWordNeutral(ayah, i, surah: surah)) {
+        if (!controller.isWordRead(ayah, i, surah: surah)) {
           activeIndex = i;
           break;
         }
@@ -1153,10 +1091,9 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     }
 
     int getHighlightState(int i) {
-      if (controller.isWordGreen(ayah, i, surah: surah)) return 1;
-      if (controller.isWordYellow(ayah, i, surah: surah)) return 2;
-      if (controller.isWordRed(ayah, i, surah: surah)) return 3;
-      return 0;
+      final s = controller.getWordStatus(ayah, i, surah: surah);
+      if (s == null || s == 4) return 0;
+      return s; // 1: green, 2: yellow, 3: red
     }
 
     bool hasAnyHighlights = (activeIndex >= 0);

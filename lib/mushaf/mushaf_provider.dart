@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
 
-import '../state/app_state.dart';
+import '../core/app_state.dart';
 import 'web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart'
     as web_storage;

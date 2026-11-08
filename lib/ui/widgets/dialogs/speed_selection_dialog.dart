@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../state/app_state.dart';
+import '../../../core/app_state.dart';
 
 /// 2026 Modern Auto-Scroll Speed Dialog matching the app's frosted glassmorphism & tactile design system.
 class SpeedSelectionDialog extends StatefulWidget {

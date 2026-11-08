@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import '../state/highlighting_controller.dart';
+import '../core/highlighting_controller.dart';
 import '../mushaf/mushaf_provider.dart';
 
 /// MaglisHighlightStore

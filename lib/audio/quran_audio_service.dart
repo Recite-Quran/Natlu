@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import '../state/highlighting_controller.dart';
+import '../core/highlighting_controller.dart';
 import 'verse_audio_player.dart';
 
 /// Central Quran Audio Service facade.

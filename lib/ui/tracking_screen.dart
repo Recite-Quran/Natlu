@@ -4,21 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
-import '../state/highlighting_controller.dart';
+import '../core/highlighting_controller.dart';
 import '../audio/quran_timing_service.dart';
 import '../audio/quran_audio_service.dart';
-import '../services/app_haptics.dart';
-import '../state/app_state.dart';
-import 'widgets/dialogs/voice_search_dialog.dart';
-import 'widgets/dialogs/speed_selection_dialog.dart';
+import '../core/platform_utils.dart';
+import 'widgets/dialogs/dialog_service.dart';
+import '../core/app_state.dart';
 import 'widgets/mic_bar.dart';
-import 'widgets/settings_dialog.dart';
-import 'widgets/surah_picker.dart';
+import 'widgets/surahs/surah_picker.dart';
 import '../mushaf/mushaf_view.dart';
 import '../verse_list/verse_list_view.dart';
 import '../maglis/maglis_controller.dart';
-import 'widgets/dialogs/maglis_entry_dialog.dart';
-import 'widgets/dialogs/maglis_explanation_dialog.dart';
 
 /// Main interactive screen for real-time recitation tracking and reading.
 /// Supports high-performance vector Mushaf and dedicated Verse List modes.
@@ -95,7 +91,7 @@ class _TrackingScreenState extends State<TrackingScreen>
       _surahNotifier,
       MaglisController.instance.sessionListenable,
     ]);
-    if (!kIsWeb) {
+    if (!PlatformCapabilities.isWeb) {
       WidgetsBinding.instance.addObserver(this);
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
@@ -108,7 +104,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.currentMushafPage.addListener(_onMushafPageChanged);
 
     // Listen for explicit native user leave hint (Home button pressed or app switched)
-    if (!kIsWeb) {
+    if (!PlatformCapabilities.isWeb) {
       _lifecycleChannel.setMethodCallHandler((call) async {
         if (call.method == 'onUserLeaveHome') {
           AppState.instance.stopVerseAudio();
@@ -119,7 +115,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     // Warm up Surah timings and Ayah 1 audio in memory/disk in the background for zero-latency instant play
     unawaited(QuranTimingService.instance
         .ensureSurahLoaded(widget.controller.targetSurah));
-    if (!kIsWeb) {
+    if (!PlatformCapabilities.isWeb) {
       unawaited(QuranAudioService.ensureAyahDownloaded(
           widget.controller.targetSurah, 1));
     }
@@ -167,11 +163,9 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (kIsWeb) return;
+    if (PlatformCapabilities.isWeb) return;
 
-    final bool isDesktop = defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.linux;
+    final bool isDesktop = PlatformCapabilities.isDesktop;
 
     if (state == AppLifecycleState.detached) {
       QuranAudioService.instance.stop();
@@ -186,9 +180,9 @@ class _TrackingScreenState extends State<TrackingScreen>
           state == AppLifecycleState.hidden) {
         if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
           QuranAudioService.instance.stop();
-        } else if (defaultTargetPlatform == TargetPlatform.android) {
+        } else if (PlatformCapabilities.isAndroid) {
           _checkAndStopIfBackgrounded();
-        } else if (defaultTargetPlatform != TargetPlatform.iOS) {
+        } else if (!PlatformCapabilities.isIOS) {
           QuranAudioService.instance.stop();
         }
         // On iOS, continuous verse recitation remains playing across lock screen
@@ -223,7 +217,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void dispose() {
     AppState.instance.stopVerseAudio();
-    if (!kIsWeb) {
+    if (!PlatformCapabilities.isWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
     widget.controller.removeListener(_onControllerUpdate);
@@ -257,7 +251,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     if (widget.isVoiceSearching && !oldWidget.isVoiceSearching) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          VoiceSearchDialog.show(
+          DialogService.showVoiceSearch(
             context,
             onStop: widget.onVoiceSearchToggle,
             isLoading: widget.isVoiceSearchLoading,
@@ -419,28 +413,13 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _showSettingsDialog() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.54),
-      elevation: 0,
-      builder: (_) => const SettingsDialog(),
-    );
+    DialogService.showSettings(context);
   }
 
   void _showSpeedSelectionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => SpeedSelectionDialog(
-        onSpeedSelected: () {
-          AppState.instance.setHasChosenAutoScrollSpeed(true);
-          if (Navigator.of(ctx).canPop()) {
-            Navigator.of(ctx).pop();
-          }
-        },
-      ),
+    DialogService.showSpeedSelection(
+      context,
+      onSpeedSelected: () => AppState.instance.setHasChosenAutoScrollSpeed(true),
     );
   }
 
@@ -543,12 +522,12 @@ class _TrackingScreenState extends State<TrackingScreen>
                                   AppHaptics.lightImpact();
                                   app.recordMaglisTap();
                                   if (!app.hasSeenMaglisExplanation) {
-                                    await MaglisExplanationDialog.show(context);
+                                    await DialogService.showMaglisExplanation(context);
                                     if (context.mounted) {
-                                      MaglisEntryDialog.show(context);
+                                      DialogService.showMaglisEntry(context);
                                     }
                                   } else {
-                                    MaglisEntryDialog.show(context);
+                                    DialogService.showMaglisEntry(context);
                                   }
                                 },
                                 onMaglisExitTap: () async {

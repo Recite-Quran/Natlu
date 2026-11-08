@@ -3,10 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Page;
 import 'package:flutter/scheduler.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import '../services/app_haptics.dart';
-import '../services/app_modal_route_observer.dart';
-import '../state/app_state.dart';
-import '../state/highlighting_controller.dart';
+import '../core/platform_utils.dart';
+import '../core/app_state.dart';
+import '../core/highlighting_controller.dart';
 import '../maglis/maglis_controller.dart';
 import 'mushaf_actions.dart';
 import 'mushaf_overlays.dart';
@@ -340,16 +339,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
         int wordHash = 17;
         for (final w in ayahWords) {
           final w0 = w.word - 1;
-          int state = 0;
-          if (ctrl.isWordGreen(w.ayah, w0, surah: w.surah)) {
-            state = 1;
-          } else if (ctrl.isWordYellow(w.ayah, w0, surah: w.surah)) {
-            state = 2;
-          } else if (ctrl.isWordRed(w.ayah, w0, surah: w.surah)) {
-            state = 3;
-          } else if (ctrl.isWordNeutral(w.ayah, w0, surah: w.surah)) {
-            state = 4;
-          }
+          final state = ctrl.getWordStatus(w.ayah, w0, surah: w.surah) ?? 0;
           wordHash = 31 * wordHash + state;
         }
         hash = 31 * hash + wordHash;
@@ -705,9 +695,9 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
         if (specifiedWord != null) {
           _ensurePageWordsIndexed(page);
-          final idx = _pageWordMap[
-                  MaglisController.wordKey(s, a, specifiedWord)] ??
-              page.findWord(s, a, specifiedWord + 1);
+          final idx =
+              _pageWordMap[MaglisController.wordKey(s, a, specifiedWord)] ??
+                  page.findWord(s, a, specifiedWord + 1);
           if (idx >= 0) activeWord = idx;
         } else {
           _ensurePageAyahsGrouped(page);
@@ -819,8 +809,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
 
           _ensurePageAyahsGrouped(page);
 
-          final int activeSurahVal =
-              activeMatch?.verse.surah ?? targetSurah;
+          final int activeSurahVal = activeMatch?.verse.surah ?? targetSurah;
           final int activeAyahVal =
               activeMatch?.verse.ayah ?? (activeAyah ?? 0);
 
@@ -1089,7 +1078,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     // 4. Differential handle reconciliation:
     // Retain valid handles for all completed ayahs and unchanged runs.
     // Only drop and re-add handles for newly added or mutated runs.
-    final Map<int, ({int state, int lastWord, int handle})> newActiveHandles = {};
+    final Map<int, ({int state, int lastWord, int handle})> newActiveHandles =
+        {};
     for (final run in runs) {
       final int startWord = run.words.first;
       final int lastWord = run.words.last;
