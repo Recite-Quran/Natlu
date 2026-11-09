@@ -13,7 +13,6 @@ import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'highlighting_controller.dart';
 import '../audio/quran_audio_service.dart';
-import '../maglis/maglis_controller.dart';
 
 // Supported UI languages.
 enum AppLanguage { ar, en }
@@ -221,10 +220,7 @@ class AppState extends ChangeNotifier {
   final ValueNotifier<bool> blurModeNotifier = ValueNotifier<bool>(false);
 
   /// Whether blur (memorization concealing) should actively conceal unrecited words.
-  /// Concealing only occurs during active recitation recording or a Maglis session.
-  /// When idle in normal reading mode, verses are automatically shown unblurred.
-  bool isBlurEffective({bool isRecording = false}) =>
-      isBlurMode && (isRecording || MaglisController.instance.inSession);
+  bool isBlurEffective({bool isRecording = false}) => isBlurMode;
 
   void toggleBlurMode() async {
     isBlurMode = !isBlurMode;

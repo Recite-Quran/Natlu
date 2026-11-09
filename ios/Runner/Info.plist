@@ -36,6 +36,19 @@
 	<string>This app requires microphone access to listen to your recitation and track your Tajweed in real-time.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is used for video participation in collaborative recitation circles.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>natlu</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>natlu</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

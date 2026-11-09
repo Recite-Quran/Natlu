@@ -33,6 +33,7 @@ import 'ui/tracking_screen.dart';
 import 'mushaf/mushaf_view.dart';
 import 'maglis/maglis_controller.dart';
 import 'maglis/maglis_core.dart';
+import 'core/maglis_link_service.dart';
 import 'core/app_audio_processor.dart';
 import 'core/platform_utils.dart';
 import 'mushaf/web/mushaf_web_storage.dart'
@@ -116,6 +117,9 @@ void main() async {
 
 /// Root widget — rebuilds MaterialApp when theme/language changes.
 class QuranApp extends StatelessWidget {
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   const QuranApp({super.key});
 
   @override
@@ -126,6 +130,7 @@ class QuranApp extends StatelessWidget {
         final ThemeColors c = AppState.instance.colors;
         final isDark = AppState.instance.isDarkMode;
         return MaterialApp(
+          navigatorKey: QuranApp.navigatorKey,
           debugShowCheckedModeBanner: false,
           navigatorObservers: [AppModalRouteObserver.instance],
           title: 'Recite Quran - اتلو القران',
@@ -264,6 +269,7 @@ class _OrchestratorState extends State<_Orchestrator>
   @override
   void initState() {
     super.initState();
+    MaglisLinkService.instance.init();
     initModelDownloadTracker();
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
@@ -513,6 +519,7 @@ class _OrchestratorState extends State<_Orchestrator>
 
   @override
   void dispose() {
+    MaglisLinkService.instance.dispose();
     MaglisController.instance.sessionListenable
         .removeListener(_onMaglisSessionChangedForIdleTimer);
     MaglisController.instance.sessionListenable
@@ -590,8 +597,15 @@ class _OrchestratorState extends State<_Orchestrator>
       _ctrl!.setManualAyah(initialSurah, initialAyah);
 
       if (mounted) setState(() => _isInit = false);
+      MaglisLinkService.instance.isAppReady = true;
 
       WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        if (MaglisLinkService.instance.hasPendingRoomCode) {
+          MaglisLinkService.instance.consumePendingIfAny(context);
+          return;
+        }
+
         if (PlatformCapabilities.isWeb)
           return; // Zero intro / popup interruptions on Web
         final prefs = await SharedPreferences.getInstance();
@@ -798,10 +812,9 @@ class _OrchestratorState extends State<_Orchestrator>
           } else {
             // In Verse List mode:
             // Verses are chosen manually in the active surah. Do not reset to first ayah of Mushaf page!
-            selectedSurah =
-                QuranMetadata.isValidSurah(_ctrl!.targetSurah)
-                    ? _ctrl!.targetSurah
-                    : AppState.instance.lastSurah;
+            selectedSurah = QuranMetadata.isValidSurah(_ctrl!.targetSurah)
+                ? _ctrl!.targetSurah
+                : AppState.instance.lastSurah;
             selectedAyah = (activeAyah != null && activeAyah > 0)
                 ? activeAyah
                 : (AppState.instance.lastAyah > 0

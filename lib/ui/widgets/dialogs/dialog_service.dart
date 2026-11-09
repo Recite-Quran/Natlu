@@ -138,8 +138,16 @@ abstract final class DialogService {
   }
 
   /// Opens the Maglis Room entry/hosting bottom sheet.
-  static void showMaglisEntry(BuildContext context) {
-    MaglisEntryDialog.show(context);
+  static void showMaglisEntry(
+    BuildContext context, {
+    int initialTab = 1,
+    String? initialCode,
+  }) {
+    MaglisEntryDialog.show(
+      context,
+      initialTab: initialTab,
+      initialCode: initialCode,
+    );
   }
 
   /// Displays the Maglis informational explanation dialog.

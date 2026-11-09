@@ -74,9 +74,6 @@ class MushafOverlays {
     final l = layout ?? page.readLayout() ?? page.currentLayout;
     if (l == null) return;
 
-    final double fitScale = l.fitScale;
-    final double fitX = l.fitX;
-    final double fitY = l.fitY;
     final double contentW = l.contentW;
 
     _headerFillPaint.color = isDark
@@ -88,14 +85,12 @@ class MushafOverlays {
         : colors.gold.withValues(alpha: 0.30);
 
     for (final h in headers) {
-      final double rawTop = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
-      final double rawBottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
-      final double top = fitY + fitScale * rawTop;
-      final double bottom = fitY + fitScale * rawBottom;
+      final double top = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
+      final double bottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
       if (bottom <= top) continue;
 
-      final double left = fitX + fitScale * (h.x1 > h.x0 ? h.x0 : 0.0);
-      final double right = fitX + fitScale * (h.x1 > h.x0 ? h.x1 : contentW);
+      final double left = h.x1 > h.x0 ? h.x0 : 0.0;
+      final double right = h.x1 > h.x0 ? h.x1 : contentW;
 
       final rect = Rect.fromLTRB(left, top, right, bottom);
       canvas.drawRect(rect, _headerFillPaint);
@@ -104,7 +99,7 @@ class MushafOverlays {
     }
   }
 
-  /// Single-pass overlay: Paints Ayah rings, live audio loading spinner arc, and stop icon.
+  /// Single-pass overlay: Paints Ayah audio loading spinner arc, and stop icon.
   static void paintAyahMarks(
     Canvas canvas,
     QvpPage page,
@@ -113,8 +108,8 @@ class MushafOverlays {
     required double spinnerProgress,
     required Color surfaceColor,
     required Color goldColor,
-    required Color neutralRingColor,
-    required Color ayahHighlightColor,
+    Color? neutralRingColor,
+    Color? ayahHighlightColor,
     HighlightingController? controller,
   }) {
     if (page.isDisposed) return;
@@ -124,9 +119,6 @@ class MushafOverlays {
     // Upgraded: ayahMarksView() computes exact layout/viewport coordinates directly in Rust core
     final marks = page.ayahMarksView();
     if (marks.isEmpty) return;
-
-    final Color blendedMaskColor =
-        Color.alphaBlend(ayahHighlightColor, surfaceColor);
 
     _goldPaint.color = goldColor;
     _spinnerPaint.color = goldColor;
@@ -147,7 +139,7 @@ class MushafOverlays {
               app.activeAudioAyah.value == m.ayah);
 
       if (isThisBuffering) {
-        _bgPaint.color = blendedMaskColor;
+        _bgPaint.color = surfaceColor;
         canvas.drawCircle(center, customR, _bgPaint);
 
         _ringPaint.color = goldColor;
@@ -166,7 +158,7 @@ class MushafOverlays {
           _spinnerPaint,
         );
       } else if (isThisPlaying) {
-        _bgPaint.color = blendedMaskColor;
+        _bgPaint.color = surfaceColor;
         canvas.drawCircle(center, customR, _bgPaint);
 
         _ringPaint.color = goldColor;
@@ -185,17 +177,6 @@ class MushafOverlays {
           ),
           _goldPaint,
         );
-      } else {
-        final bool isCompleted = controller != null &&
-            controller.completedAyahsFor(m.surah).contains(m.ayah);
-        if (isCompleted) {
-          _ringPaint.color = goldColor.withValues(alpha: 0.65);
-          _ringPaint.strokeWidth = 1.2;
-        } else {
-          _ringPaint.color = neutralRingColor;
-          _ringPaint.strokeWidth = 1.0;
-        }
-        canvas.drawCircle(center, customR, _ringPaint);
       }
     }
   }
@@ -235,6 +216,8 @@ class MushafOverlays {
 
     const double minGap = 2.0;
 
+    final double maxW = l.contentW > 0 ? l.contentW : size.width;
+
     for (final entry in wordsByLine.entries) {
       final wordsOnLine = entry.value;
       final List<_BadgePosition> lineBadges = [];
@@ -269,8 +252,8 @@ class MushafOverlays {
           }
         }
 
-        if (lineBadges.last.x + tooltipWidth > size.width - 4.0) {
-          final shift = (lineBadges.last.x + tooltipWidth) - (size.width - 4.0);
+        if (lineBadges.last.x + tooltipWidth > maxW - 4.0) {
+          final shift = (lineBadges.last.x + tooltipWidth) - (maxW - 4.0);
           for (final b in lineBadges) {
             b.x -= shift;
           }
@@ -283,7 +266,7 @@ class MushafOverlays {
         }
       } else if (lineBadges.isNotEmpty) {
         lineBadges.first.x = lineBadges.first.x
-            .clamp(4.0, size.width - tooltipWidth - 4.0)
+            .clamp(4.0, maxW - tooltipWidth - 4.0)
             .roundToDouble();
       }
 

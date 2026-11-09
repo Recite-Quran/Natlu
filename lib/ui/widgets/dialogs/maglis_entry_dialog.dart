@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/platform_utils.dart';
 import '../../../core/app_state.dart';
+import '../../../core/maglis_link_service.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../maglis/maglis_controller.dart';
 import '../../../maglis/maglis_core.dart';
 import 'app_guide_dialogs.dart';
@@ -15,9 +17,14 @@ import '../../../mushaf/mushaf_provider.dart';
 /// Minimal labels, crystal-clear actions, and zero UI-thread blocking.
 class MaglisEntryDialog extends StatefulWidget {
   final int initialTab;
-  const MaglisEntryDialog({super.key, this.initialTab = 1});
+  final String? initialCode;
+  const MaglisEntryDialog({super.key, this.initialTab = 1, this.initialCode});
 
-  static Future<void> show(BuildContext context, {int initialTab = 1}) {
+  static Future<void> show(
+    BuildContext context, {
+    int initialTab = 1,
+    String? initialCode,
+  }) {
     final isWide = MediaQuery.sizeOf(context).width > 600;
     if (isWide) {
       return showDialog(
@@ -27,7 +34,10 @@ class MaglisEntryDialog extends StatefulWidget {
           insetPadding: const EdgeInsets.all(24),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 400),
-            child: MaglisEntryDialog(initialTab: initialTab),
+            child: MaglisEntryDialog(
+              initialTab: initialTab,
+              initialCode: initialCode,
+            ),
           ),
         ),
       );
@@ -36,7 +46,10 @@ class MaglisEntryDialog extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => MaglisEntryDialog(initialTab: initialTab),
+      builder: (_) => MaglisEntryDialog(
+        initialTab: initialTab,
+        initialCode: initialCode,
+      ),
     );
   }
 
@@ -58,6 +71,11 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     super.initState();
     _selectedTab = widget.initialTab;
     _newCode = (10000 + Random().nextInt(90000)).toString();
+    if (widget.initialCode != null && widget.initialCode!.isNotEmpty) {
+      final normalized = normalizeArabicDigits(widget.initialCode!.trim());
+      _codeCtrl.text = normalized;
+      _canJoin = normalized.length == 5;
+    }
     _focusNode.addListener(() {
       if (mounted) setState(() {});
     });
@@ -211,8 +229,10 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
           AppHaptics.selectionClick();
           app.showBanner(AppBannerInfo(
             id: 'maglis_error',
-            messageAr: 'تعذر الاتصال بخوادم المجلس. تحقق من الإنترنت وإذن الميكروفون',
-            messageEn: 'Could not connect to Maglis. Check network and mic permissions',
+            messageAr:
+                'تعذر الاتصال بخوادم المجلس. تحقق من الإنترنت وإذن الميكروفون',
+            messageEn:
+                'Could not connect to Maglis. Check network and mic permissions',
             icon: Icons.error_outline_rounded,
             isWarning: true,
             customDuration: const Duration(seconds: 4),
@@ -222,8 +242,10 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         if (mounted) setState(() => _isCreating = false);
         app.showBanner(AppBannerInfo(
           id: 'maglis_error',
-          messageAr: 'تعذر الاتصال بخوادم المجلس. تحقق من الإنترنت وإذن الميكروفون',
-          messageEn: 'Could not connect to Maglis. Check network and mic permissions',
+          messageAr:
+              'تعذر الاتصال بخوادم المجلس. تحقق من الإنترنت وإذن الميكروفون',
+          messageEn:
+              'Could not connect to Maglis. Check network and mic permissions',
           icon: Icons.error_outline_rounded,
           isWarning: true,
           customDuration: const Duration(seconds: 4),
@@ -237,10 +259,17 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final raw = data?.text?.trim() ?? '';
       if (raw.isEmpty) return;
+      final uri = Uri.tryParse(raw);
+      String? parsedCode;
+      if (uri != null) {
+        parsedCode = MaglisLinkService.extractRoomCode(uri);
+      }
       final normalized = normalizeArabicDigits(raw);
       final digitsOnly = normalized.replaceAll(RegExp(r'\D'), '');
-      if (digitsOnly.length >= 5) {
-        final code = digitsOnly.substring(0, 5);
+      final code = parsedCode ??
+          (digitsOnly.length >= 5 ? digitsOnly.substring(0, 5) : null);
+
+      if (code != null) {
         _codeCtrl.text = code;
         _onCodeChanged(code);
         AppHaptics.mediumImpact();
@@ -259,6 +288,19 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         AppHaptics.lightImpact();
       }
     } catch (_) {}
+  }
+
+  void _copyShareLink() {
+    final link = MaglisLinkService.formatUrl(_newCode);
+    Clipboard.setData(ClipboardData(text: link));
+    AppHaptics.lightImpact();
+    AppState.instance.showBanner(AppBannerInfo(
+      id: 'maglis_link_copied',
+      messageAr: 'تم نسخ رابط المجلس: $link',
+      messageEn: 'Maglis link copied: $link',
+      icon: Icons.link_rounded,
+      customDuration: const Duration(seconds: 2),
+    ));
   }
 
   @override
@@ -374,7 +416,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                         duration: const Duration(milliseconds: 180),
                         child: _selectedTab == 0
                             ? _buildModernJoinBody(isDark, isAr, c, borderColor)
-                            : _buildModernCreateBody(isDark, isAr, c, borderColor),
+                            : _buildModernCreateBody(
+                                isDark, isAr, c, borderColor),
                       ),
                     ),
                   ],
@@ -436,9 +479,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       accentColor = const Color(0xFF10B981);
     }
 
-    final Color iconColor = (banner.isWarning && isDark)
-        ? const Color(0xFFFBBF24)
-        : accentColor;
+    final Color iconColor =
+        (banner.isWarning && isDark) ? const Color(0xFFFBBF24) : accentColor;
     final String message = isAr ? banner.messageAr : banner.messageEn;
 
     return Center(
@@ -632,64 +674,67 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                                 return Container(
                                   width: 40,
                                   height: 44,
-                                  margin:
-                                      const EdgeInsets.symmetric(horizontal: 2.5),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? (hasChar
-                                          ? Colors.white.withValues(alpha: 0.12)
-                                          : Colors.white
-                                              .withValues(alpha: 0.05))
-                                      : (hasChar
-                                          ? Colors.white
-                                          : Colors.white
-                                              .withValues(alpha: 0.60)),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: isCurrent
-                                        ? const Color(0xFF10B981)
+                                  margin: const EdgeInsets.symmetric(
+                                      horizontal: 2.5),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? (hasChar
+                                            ? Colors.white
+                                                .withValues(alpha: 0.12)
+                                            : Colors.white
+                                                .withValues(alpha: 0.05))
                                         : (hasChar
+                                            ? Colors.white
+                                            : Colors.white
+                                                .withValues(alpha: 0.60)),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: isCurrent
+                                          ? const Color(0xFF10B981)
+                                          : (hasChar
+                                              ? const Color(0xFF10B981)
+                                                  .withValues(
+                                                      alpha:
+                                                          isDark ? 0.45 : 0.35)
+                                              : (isDark
+                                                  ? Colors.white
+                                                      .withValues(alpha: 0.15)
+                                                  : Colors.black.withValues(
+                                                      alpha: 0.12))),
+                                      width: isCurrent ? 1.8 : 1.2,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: (isCurrent || hasChar)
                                             ? const Color(0xFF10B981)
                                                 .withValues(
-                                                    alpha: isDark ? 0.45 : 0.35)
-                                            : (isDark
-                                                ? Colors.white
-                                                    .withValues(alpha: 0.15)
-                                                : Colors.black
-                                                    .withValues(alpha: 0.12))),
-                                    width: isCurrent ? 1.8 : 1.2,
+                                                    alpha: isDark ? 0.20 : 0.10)
+                                            : Colors.transparent,
+                                        blurRadius: isCurrent ? 6 : 3,
+                                        offset: const Offset(0, 1),
+                                      ),
+                                    ],
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: (isCurrent || hasChar)
-                                          ? const Color(0xFF10B981).withValues(
-                                              alpha: isDark ? 0.20 : 0.10)
-                                          : Colors.transparent,
-                                      blurRadius: isCurrent ? 6 : 3,
-                                      offset: const Offset(0, 1),
-                                    ),
-                                  ],
-                                ),
-                                alignment: Alignment.center,
-                                child: hasChar
-                                    ? Text(
-                                        char,
-                                        style: const TextStyle(
-                                          fontFamily: 'cairo',
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 22,
-                                          color: Color(0xFF10B981),
-                                        ),
-                                      )
-                                    : (isCurrent
-                                        ? Container(
-                                            width: 2,
-                                            height: 18,
-                                            color: const Color(0xFF10B981),
-                                          )
-                                        : const SizedBox.shrink()),
-                              );
-                            }),
+                                  alignment: Alignment.center,
+                                  child: hasChar
+                                      ? Text(
+                                          char,
+                                          style: const TextStyle(
+                                            fontFamily: 'cairo',
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 22,
+                                            color: Color(0xFF10B981),
+                                          ),
+                                        )
+                                      : (isCurrent
+                                          ? Container(
+                                              width: 2,
+                                              height: 18,
+                                              color: const Color(0xFF10B981),
+                                            )
+                                          : const SizedBox.shrink()),
+                                );
+                              }),
                             ),
                           ),
                         ),
@@ -919,92 +964,160 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                           width: 40,
                           height: 44,
                           margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.07)
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: const Color(0xFF10B981)
-                                .withValues(alpha: isDark ? 0.45 : 0.35),
-                            width: 1.2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.07)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
                               color: const Color(0xFF10B981)
-                                  .withValues(alpha: isDark ? 0.15 : 0.08),
-                              blurRadius: 4,
-                              offset: const Offset(0, 1),
+                                  .withValues(alpha: isDark ? 0.45 : 0.35),
+                              width: 1.2,
                             ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          displayDigits[index],
-                          style: const TextStyle(
-                            fontFamily: 'cairo',
-                            fontWeight: FontWeight.w900,
-                            fontSize: 22,
-                            color: Color(0xFF10B981),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF10B981)
+                                    .withValues(alpha: isDark ? 0.15 : 0.08),
+                                blurRadius: 4,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
                           ),
-                        ),
-                      );
-                    }),
+                          alignment: Alignment.center,
+                          child: Text(
+                            displayDigits[index],
+                            style: const TextStyle(
+                              fontFamily: 'cairo',
+                              fontWeight: FontWeight.w900,
+                              fontSize: 22,
+                              color: Color(0xFF10B981),
+                            ),
+                          ),
+                        );
+                      }),
                     ),
                   ),
                 ),
 
                 const SizedBox(height: 10),
 
-                // Dedicated Copy Button (Tall 38dp, comfortable pill button)
-                InkWell(
-                  borderRadius: BorderRadius.circular(22),
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: _newCode));
-                    AppHaptics.lightImpact();
-                    AppState.instance.showBanner(AppBannerInfo(
-                      id: 'maglis_code_copied',
-                      messageAr:
-                          'تم نسخ رمز المجلس: \u202A${formatMaglisCode(_newCode, isArabic: true)}\u202C',
-                      messageEn: 'Maglis code copied: $_newCode',
-                      icon: Icons.copy_rounded,
-                      customDuration: const Duration(seconds: 2),
-                    ));
-                  },
-                  child: Container(
-                    height: 38,
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.07)
-                          : Colors.black.withValues(alpha: 0.05),
+                // Action Buttons: Copy Code & Share Link (WhatsApp)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // 1. Copy Code Button
+                    InkWell(
                       borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.14)
-                            : Colors.black.withValues(alpha: 0.10),
-                        width: 1.0,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.copy_rounded,
-                            color: Color(0xFF10B981), size: 17),
-                        const SizedBox(width: 7),
-                        Text(
-                          isAr ? 'نسخ رمز المجلس' : 'Copy Maglis Code',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: _newCode));
+                        AppHaptics.lightImpact();
+                        AppState.instance.showBanner(AppBannerInfo(
+                          id: 'maglis_code_copied',
+                          messageAr:
+                              'تم نسخ رمز المجلس: \u202A${formatMaglisCode(_newCode, isArabic: true)}\u202C',
+                          messageEn: 'Maglis code copied: $_newCode',
+                          icon: Icons.copy_rounded,
+                          customDuration: const Duration(seconds: 2),
+                        ));
+                      },
+                      child: Container(
+                        height: 38,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.07)
+                              : Colors.black.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
                             color: isDark
-                                ? const Color(0xFFCBD5E1)
-                                : const Color(0xFF334155),
+                                ? Colors.white.withValues(alpha: 0.14)
+                                : Colors.black.withValues(alpha: 0.10),
+                            width: 1.0,
                           ),
                         ),
-                      ],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.copy_rounded,
+                                color: Color(0xFF10B981), size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              isAr ? 'نسخ الرمز' : 'Copy Code',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: isDark
+                                    ? const Color(0xFFCBD5E1)
+                                    : const Color(0xFF334155),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+
+                    // 2. Share Link Button (Any app via native share sheet)
+                    InkWell(
+                      borderRadius: BorderRadius.circular(22),
+                      onTap: () async {
+                        final text = MaglisLinkService.formatInviteText(
+                            _newCode,
+                            isArabic: isAr);
+                        final subject = isAr
+                            ? 'دعوة لمجلس تلاوة القرآن الكريم'
+                            : 'Quran Maglis Invitation';
+                        Rect? origin;
+                        final box = context.findRenderObject() as RenderBox?;
+                        if (box != null && box.hasSize) {
+                          origin = box.localToGlobal(Offset.zero) & box.size;
+                        }
+                        origin ??= const Rect.fromLTWH(0, 0, 100, 100);
+                        AppHaptics.lightImpact();
+                        try {
+                          await SharePlus.instance.share(ShareParams(
+                            text: text,
+                            subject: subject,
+                            title: subject,
+                            sharePositionOrigin: origin,
+                          ));
+                        } catch (_) {
+                          _copyShareLink();
+                        }
+                      },
+                      onLongPress: _copyShareLink,
+                      child: Container(
+                        height: 38,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981)
+                              .withValues(alpha: isDark ? 0.15 : 0.10),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: const Color(0xFF10B981)
+                                .withValues(alpha: isDark ? 0.35 : 0.25),
+                            width: 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.share_rounded,
+                                color: Color(0xFF10B981), size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              isAr ? 'مشاركة الرابط' : 'Share Link',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF10B981),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

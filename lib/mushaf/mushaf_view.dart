@@ -104,66 +104,18 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   late final Listenable _combinedRepaintListenable;
   final ValueNotifier<List<int>> _yellowWordsNotifier =
       ValueNotifier<List<int>>(const []);
+  final ValueNotifier<int> _visualsRevision = ValueNotifier<int>(0);
 
-  // Recitation & Highlight handles on the single active QvpPage
-  int _ayahHighlightHandle = 0;
-  int _wordHighlightHandle = 0;
-  Map<int, ({int state, int lastWord, int handle})> _activeRunHandles = {};
+  // Persistent highlight handles on the single active QvpPage
+  // 5 discrete states: grey (selected ayah), green (correct), red (wrong), yellow (tajweed), neon (active/waited/audio)
+  int _hlGrey = 0;
+  int _hlGreen = 0;
+  int _hlRed = 0;
+  int _hlYellow = 0;
+  int _hlNeon = 0;
 
-  (int, int)? _lastActiveAyah;
-  int? _lastActiveWord;
   bool? _lastIsDark;
-  List<int> _lastGreenWords = const [];
-  List<int> _lastYellowWords = const [];
-  List<int> _lastRedWords = const [];
-  List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
-  bool _hasEvaluatedWords = false;
-  bool? _lastBlurEffective;
-  bool? _lastIsRecording;
-
-  Map<int, int> _pageWordMap = {};
-  final Map<int, List<QvpWordInfo>> _pageAyahWords = {};
-  final Map<int, List<int>> _cachedCompletedGreenWords = {};
-  final Map<int, List<int>> _cachedCompletedYellowWords = {};
-  final Map<int, List<int>> _cachedCompletedRedWords = {};
-  final Map<int, List<int>> _cachedCompletedHiddenWords = {};
-
-  void _clearCompletedAyahCache() {
-    _cachedCompletedGreenWords.clear();
-    _cachedCompletedYellowWords.clear();
-    _cachedCompletedRedWords.clear();
-    _cachedCompletedHiddenWords.clear();
-    _lastVisualFingerprint = -1;
-    _lastSyncRevision = -1;
-  }
-
-  int _lastWordsIndexedPage = -1;
-  int _lastAyahsGroupedPage = -1;
-
-  void _ensurePageWordsIndexed(QvpPage page) {
-    if (_lastWordsIndexedPage == _currentPage && _pageWordMap.isNotEmpty) {
-      return;
-    }
-    final map = <int, int>{};
-    for (final w in page.words) {
-      map[QuranCoordinate.packWordKey(w.surah, w.ayah, w.word - 1)] = w.index;
-    }
-    _pageWordMap = map;
-    _lastWordsIndexedPage = _currentPage;
-  }
-
-  void _ensurePageAyahsGrouped(QvpPage page) {
-    if (_lastAyahsGroupedPage == _currentPage && _pageAyahWords.isNotEmpty) {
-      return;
-    }
-    _pageAyahWords.clear();
-    for (final w in page.words) {
-      final key = QuranCoordinate.packAyahKey(w.surah, w.ayah);
-      (_pageAyahWords[key] ??= []).add(w);
-    }
-    _lastAyahsGroupedPage = _currentPage;
-  }
 
   // Keyboard navigation: Left = Next page (+1 in RTL), Right = Prev page (-1 in RTL)
   KeyEventResult _controlRLByKeyboard(FocusNode node, KeyEvent event) {
@@ -226,11 +178,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final app = AppState.instance;
     _combinedRepaintListenable = Listenable.merge([
       _spinnerController,
+      _visualsRevision,
       app.activeAudioAyah,
       app.activeAudioSurah,
       app.isAudioBuffering,
       app.isAudioPlaying,
       app.modeNotifier,
+      app.blurModeNotifier,
       app.hasClickedTajweedNotifier,
       widget.controller.activeAyah,
       _yellowWordsNotifier,
@@ -242,6 +196,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.activeAudioAyah.addListener(_onAudioAyahChanged);
     app.activeAudioSurah.addListener(_onAudioAyahChanged);
     app.themeNotifier.addListener(_requestSyncVisuals);
+    app.blurModeNotifier.addListener(_requestSyncVisuals);
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
@@ -290,7 +245,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       widget.controller.activeAyah.addListener(_onActiveAyahChanged);
       widget.controller.addListener(_onControllerProgress);
       widget.controller.addListener(_requestSyncVisuals);
-      _clearCompletedAyahCache();
       _requestSyncVisuals();
     }
     if (!oldWidget.isRecording && widget.isRecording) {
@@ -323,8 +277,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onModalStateChanged() {
     if (!mounted) return;
-    if (!AppModalRouteObserver.instance.isModalOpen &&
-        _needsSyncAfterModal) {
+    if (!AppModalRouteObserver.instance.isModalOpen && _needsSyncAfterModal) {
       _needsSyncAfterModal = false;
       _onActiveAyahChanged();
       _requestSyncVisuals();
@@ -387,6 +340,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.activeAudioAyah.removeListener(_onAudioAyahChanged);
     app.activeAudioSurah.removeListener(_onAudioAyahChanged);
     app.themeNotifier.removeListener(_requestSyncVisuals);
+    app.blurModeNotifier.removeListener(_requestSyncVisuals);
+    _visualsRevision.dispose();
     _focusNode.dispose();
     _clearPageVisuals(_currentPageObject);
     super.dispose();
@@ -465,7 +420,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     // 1. Hands-free recitation flow across Surahs
     if (ctrl.isSurahFinished(activeSurah)) {
-      if (activeSurah < QuranMetadata.maxSurah && _lastAdvancedSurah != activeSurah) {
+      if (activeSurah < QuranMetadata.maxSurah &&
+          _lastAdvancedSurah != activeSurah) {
         _advanceToNextSurah(activeSurah);
         return;
       }
@@ -478,13 +434,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final lastWord = provider.getLastWordOnPage(_currentPage);
     if (lastWord == null) return;
 
-    final isLastWordOnPageRead =
-        ctrl.isWordRead(lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah);
+    final isLastWordOnPageRead = ctrl
+        .isWordRead(lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah);
     final isLastAyahOnPageCompleted =
         ctrl.completedAyahsFor(lastWord.surah).contains(lastWord.ayah);
 
     if (isLastWordOnPageRead || isLastAyahOnPageCompleted) {
-      if (_currentPage < QuranMetadata.maxPage && _lastAutoAdvancedFromPage != _currentPage) {
+      if (_currentPage < QuranMetadata.maxPage &&
+          _lastAutoAdvancedFromPage != _currentPage) {
         _isAutoAdvancingPage = true;
         _lastAutoAdvancedFromPage = _currentPage;
 
@@ -644,7 +601,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _loadCurrentPage(clamped, triggerSlide: animated);
   }
 
-  Future<void> _loadCurrentPage(int pageNumber, {bool triggerSlide = false}) async {
+  Future<void> _loadCurrentPage(int pageNumber,
+      {bool triggerSlide = false}) async {
     final cached = MushafProvider.instance.getCachedPage(pageNumber);
     if (cached != null && !cached.isDisposed) {
       _clearPageVisuals(_currentPageObject);
@@ -684,115 +642,37 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _clearPageVisuals(QvpPage? page) {
     if (page == null || page.isDisposed) return;
     page.batch(() {
-      if (_ayahHighlightHandle != 0) {
-        page.removeHighlight(_ayahHighlightHandle);
-        _ayahHighlightHandle = 0;
+      if (_hlGrey != 0) {
+        page.removeHighlight(_hlGrey);
+        _hlGrey = 0;
       }
-      if (_wordHighlightHandle != 0) {
-        page.removeHighlight(_wordHighlightHandle);
-        _wordHighlightHandle = 0;
+      if (_hlGreen != 0) {
+        page.removeHighlight(_hlGreen);
+        _hlGreen = 0;
       }
-      for (final r in _activeRunHandles.values) {
-        page.removeHighlight(r.handle);
+      if (_hlYellow != 0) {
+        page.removeHighlight(_hlYellow);
+        _hlYellow = 0;
       }
-      _activeRunHandles.clear();
+      if (_hlRed != 0) {
+        page.removeHighlight(_hlRed);
+        _hlRed = 0;
+      }
+      if (_hlNeon != 0) {
+        page.removeHighlight(_hlNeon);
+        _hlNeon = 0;
+      }
       if (_hasMasks) {
-        page.unmaskAll();
+        page.unmask();
         _hasMasks = false;
       }
     });
-    _lastActiveAyah = null;
-    _lastActiveWord = null;
-    _lastGreenWords = const [];
-    _lastYellowWords = const [];
     _yellowWordsNotifier.value = const [];
-    _lastRedWords = const [];
-    _lastHiddenWords = const [];
-    _hasEvaluatedWords = false;
-    _clearCompletedAyahCache();
   }
 
   // Visual synchronization & recitation highlights
   bool _syncScheduled = false;
   bool _needsSyncAfterModal = false;
-  int _lastVisualFingerprint = -1;
-  int _lastSyncRevision = -1;
-  int? _lastSyncActiveAyah;
-  int? _lastSyncActiveWord;
-  int _lastSyncTargetSurah = -1;
-  bool _lastSyncDarkMode = false;
-  bool _lastSyncBlur = false;
-  bool _lastSyncRecording = false;
-
-  final List<int> _evalGreen = [];
-  final List<int> _evalYellow = [];
-  final List<int> _evalRed = [];
-  final List<int> _evalHidden = [];
-
-  int _computeVisualFingerprint() {
-    final app = AppState.instance;
-    final ctrl = widget.controller;
-
-    int hash = _currentPage;
-    hash = 31 * hash + (app.isDarkMode ? 1 : 0);
-    hash = 31 * hash +
-        (app.isBlurEffective(isRecording: widget.isRecording) ? 1 : 0);
-    hash = 31 * hash + (widget.isRecording ? 1 : 0);
-
-    final bool isRemote = ctrl.isRemoteReciting ||
-        (MaglisController.instance.inSession &&
-            !widget.isRecording &&
-            MaglisController.instance.isRemoteReciting);
-    hash = 31 * hash + (isRemote ? 1 : 0);
-
-    final int targetSurah =
-        ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
-    hash = 31 * hash + targetSurah;
-
-    final int? activeAyah = ctrl.activeAyah.value;
-    hash = 31 * hash + (activeAyah ?? 0);
-
-    final activeMatch = ctrl.currentMatchedVerse;
-    if (activeMatch != null) {
-      hash = 31 * hash + activeMatch.verse.surah;
-      hash = 31 * hash + activeMatch.verse.ayah;
-    }
-
-    final bool isAudioActive = ctrl.isAudioActive;
-    if (isAudioActive) {
-      hash = 31 * hash + (ctrl.audioSurah ?? 0);
-      hash = 31 * hash + (ctrl.audioAyah ?? 0);
-      hash = 31 * hash + (ctrl.audioWordIndex ?? -1);
-      hash = 31 * hash + (ctrl.isAudioPlaying ? 1 : 0);
-      hash = 31 * hash + (ctrl.isAudioBuffering ? 1 : 0);
-    }
-
-    final int s = activeMatch?.verse.surah ?? targetSurah;
-    final int a = activeMatch?.verse.ayah ?? (activeAyah ?? 0);
-    final bool isReciting = widget.isRecording || isRemote;
-
-    if (ctrl.activeWordIndex != null) {
-      hash = 31 * hash + ctrl.activeWordIndex!;
-    }
-
-    final page = _currentPageObject;
-    if (isReciting && page != null && !page.isDisposed && a > 0) {
-      _ensurePageAyahsGrouped(page);
-      final ayahWords = _pageAyahWords[QuranCoordinate.packAyahKey(s, a)];
-      if (ayahWords != null && ayahWords.isNotEmpty) {
-        int wordHash = 17;
-        for (final w in ayahWords) {
-          final w0 = w.word - 1;
-          final state = ctrl.getWordStatus(w.ayah, w0, surah: w.surah) ?? 0;
-          wordHash = 31 * wordHash + state;
-        }
-        hash = 31 * hash + wordHash;
-      }
-      hash = 31 * hash + ctrl.completedAyahsFor(s).length;
-    }
-
-    return hash;
-  }
 
   void _requestSyncVisuals() {
     if (!mounted) return;
@@ -800,35 +680,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _needsSyncAfterModal = true;
       return;
     }
-
-    final ctrl = widget.controller;
-    final app = AppState.instance;
-    final int rev = ctrl.globalRevision.value;
-    final int? activeAyah = ctrl.activeAyah.value;
-    final int? activeWord = ctrl.activeWordIndex;
-    final int targetSurah =
-        ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
-    final bool isDark = app.isDarkMode;
-    final bool isBlur = app.isBlurEffective(isRecording: widget.isRecording);
-    final bool isRec = widget.isRecording;
-
-    if (_lastVisualFingerprint != -1 &&
-        rev == _lastSyncRevision &&
-        activeAyah == _lastSyncActiveAyah &&
-        activeWord == _lastSyncActiveWord &&
-        targetSurah == _lastSyncTargetSurah &&
-        isDark == _lastSyncDarkMode &&
-        isBlur == _lastSyncBlur &&
-        isRec == _lastSyncRecording &&
-        !ctrl.isAudioActive) {
-      return;
-    }
-
-    final int fp = _computeVisualFingerprint();
-    if (fp == _lastVisualFingerprint && _lastVisualFingerprint != -1) {
-      return;
-    }
-
     if (_syncScheduled) return;
     _syncScheduled = true;
     SchedulerBinding.instance.scheduleFrameCallback((_) {
@@ -848,486 +699,180 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     final app = AppState.instance;
     final ctrl = widget.controller;
-    final activeAyah = ctrl.activeAyah.value;
-    final targetSurah =
-        ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
-    final activeMatch = ctrl.currentMatchedVerse;
-
-    final isRemoteReciting = ctrl.isRemoteReciting ||
-        (MaglisController.instance.inSession &&
-            !widget.isRecording &&
-            MaglisController.instance.isRemoteReciting);
-    final bool isReciting = widget.isRecording || isRemoteReciting;
-
-    final bool isAudioActive = ctrl.isAudioActive;
-    final int? audioSurah = ctrl.audioSurah;
-    final int? audioAyah = ctrl.audioAyah;
-
     final provider = MushafProvider.instance;
+    final isDark = app.isDarkMode;
+    final bool themeChanged = (_lastIsDark != isDark);
+    final palette =
+        QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
 
-    final bool hasRecitingAyah = activeAyah != null &&
+    // 1. Resolve Active Ayah Coordinate (surah, ayah)
+    final coord = ctrl.activeAyahCoordinate ??
+        (app.lastSurah != 0 && app.lastAyah != 0
+            ? (app.lastSurah, app.lastAyah)
+            : null);
+
+    final bool hasAyahOnPage = coord != null &&
         provider.isAyahOnPage(
-            pageNumber: _currentPage,
-            surah: targetSurah,
-            ayah: activeAyah);
-    final bool hasMatchedAyah = activeMatch != null &&
-        provider.isAyahOnPage(
-            pageNumber: _currentPage,
-            surah: activeMatch.verse.surah,
-            ayah: activeMatch.verse.ayah);
-    final bool hasAudioAyah = isAudioActive &&
-        audioSurah != null &&
-        audioAyah != null &&
-        provider.isAyahOnPage(
-            pageNumber: _currentPage, surah: audioSurah, ayah: audioAyah);
-
-    page.batch(() {
-      final c = app.colors;
-      final isDark = app.isDarkMode;
-      final bool themeChanged = (_lastIsDark != isDark);
-      final palette = QuranHighlightPalette.fromTheme(colors: c, isDark: isDark);
-
-      // 1. ACTIVE AYAH HIGHLIGHT
-      (int, int)? targetAyah;
-      if (!isReciting) {
-        if (hasAudioAyah) {
-          targetAyah = (audioSurah, audioAyah);
-        } else if (hasMatchedAyah) {
-          targetAyah = (activeMatch.verse.surah, activeMatch.verse.ayah);
-        } else if (hasRecitingAyah) {
-          targetAyah = (targetSurah, activeAyah);
-        }
-      }
-
-      if (targetAyah != _lastActiveAyah || themeChanged) {
-        _lastActiveAyah = targetAyah;
-        if (targetAyah != null) {
-          final style = QvpHighlightStyle(
-            mode: 'band',
-            height: 'lineSpacing',
-            band: palette.activeAyahBand,
-            padX: 1.2,
-            radius: 4.0,
-            ms: 0,
-            layer: QvpLayer.highlight - 2,
-          );
-          if (_ayahHighlightHandle != 0) {
-            if (themeChanged) {
-              page.restyleHighlight(_ayahHighlightHandle, style);
-            }
-            page.moveHighlight(
-              _ayahHighlightHandle,
-              T.ayah(targetAyah.$1, targetAyah.$2),
-            );
-          } else {
-            _ayahHighlightHandle = page.highlight(
-              T.ayah(targetAyah.$1, targetAyah.$2),
-              style,
-            );
-          }
-        } else if (_ayahHighlightHandle != 0) {
-          page.removeHighlight(_ayahHighlightHandle);
-          _ayahHighlightHandle = 0;
-        }
-      }
-
-      // 2. ACTIVE WORD HIGHLIGHT
-      int? activeWord;
-      final int s = hasAudioAyah
-          ? audioSurah
-          : (activeMatch?.verse.surah ?? targetSurah);
-      final int a = hasAudioAyah
-          ? audioAyah
-          : (activeMatch?.verse.ayah ?? (activeAyah ?? 0));
-
-      if (hasAudioAyah || (isReciting && (hasMatchedAyah || hasRecitingAyah))) {
-        _ensurePageAyahsGrouped(page);
-        final ayahWords = _pageAyahWords[QuranCoordinate.packAyahKey(s, a)];
-        final int? leadWord0 = ctrl.getLeadWordIndex(
-          surah: s,
-          ayah: a,
-          totalWords: ayahWords?.length ?? 0,
-          isRecording: isReciting,
+          pageNumber: _currentPage,
+          surah: coord.$1,
+          ayah: coord.$2,
         );
 
-        if (leadWord0 != null) {
-          _ensurePageWordsIndexed(page);
-          final idx = _pageWordMap[QuranCoordinate.packWordKey(s, a, leadWord0)] ??
-              page.findWord(s, a, leadWord0 + 1);
-          if (idx >= 0) activeWord = idx;
+    // 2. Resolve Active / Waited Lead Word Index on this page
+    int? activeWordPageIdx;
+    int? leadW0;
+    if (coord != null && hasAyahOnPage) {
+      final int s = coord.$1;
+      final int a = coord.$2;
+      int maxWordOnPage = 0;
+      for (final w in page.words) {
+        if (w.surah == s && w.ayah == a && w.word > maxWordOnPage) {
+          maxWordOnPage = w.word;
         }
       }
-
-      if (activeWord != _lastActiveWord || themeChanged) {
-        _lastActiveWord = activeWord;
-        if (activeWord != null) {
-          final style = QvpHighlightStyle(
-            mode: 'band',
-            height: 'lineSpacing',
-            band: palette.leadWordBand,
-            padX: 1.2,
-            radius: 4.0,
-            ms: 0,
-            layer: QvpLayer.highlight,
-          );
-
-          if (_wordHighlightHandle != 0) {
-            if (themeChanged) {
-              page.restyleHighlight(_wordHighlightHandle, style);
-            }
-            page.moveHighlight(_wordHighlightHandle, T.word(activeWord));
-          } else {
-            _wordHighlightHandle = page.highlight(
-              T.word(activeWord),
-              style,
-            );
-          }
-        } else if (_wordHighlightHandle != 0) {
-          page.removeHighlight(_wordHighlightHandle);
-          _wordHighlightHandle = 0;
-        }
+      leadW0 = ctrl.getLeadWordIndex(
+        surah: s,
+        ayah: a,
+        totalWords: maxWordOnPage,
+        isRecording: widget.isRecording,
+      );
+      if (leadW0 != null) {
+        final idx = page.findWord(s, a, leadW0 + 1);
+        if (idx >= 0) activeWordPageIdx = idx;
       }
+    }
 
-      // 3. RECITATION FEEDBACK (TEXT INK ONLY) & HIFZ CONCEALING
+    page.batch(() {
+      // ── Clean Single-Layer Discrete Word States ──
+      // Every word on the page belongs to AT MOST ONE discrete bucket:
+      // - Neon: Active waited word or current audio playback word
+      // - Green: Recited correctly or completed ayah
+      // - Yellow: Tajweed notice
+      // - Red: Mispronounced word
+      // - Grey: Selected/active ayah unrecited words
+      // - Hidden: Words masked by Hifz hide mode (vector invisible ink)
+      final List<int> neonWords = [];
+      final List<int> greenWords = [];
+      final List<int> yellowWords = [];
+      final List<int> redWords = [];
+      final List<int> greyWords = [];
+      final List<int> hiddenWords = [];
+
       final bool isBlurEffective =
           app.isBlurEffective(isRecording: widget.isRecording);
-      final bool blurChanged = (_lastBlurEffective != isBlurEffective);
-      final bool recordingChanged = (_lastIsRecording != widget.isRecording);
-      final bool hasReciterOnPage =
-          isReciting && (hasRecitingAyah || hasMatchedAyah);
+      final int wordCount = page.words.length;
 
-      final bool needsWordEvaluation = hasReciterOnPage ||
-          blurChanged ||
-          recordingChanged ||
-          themeChanged ||
-          !_hasEvaluatedWords ||
-          _lastWordsIndexedPage != _currentPage ||
-          _lastAyahsGroupedPage != _currentPage;
+      for (int i = 0; i < wordCount; i++) {
+        if (i == activeWordPageIdx) {
+          neonWords.add(i);
+          continue;
+        }
 
-      if (needsWordEvaluation) {
-        _evalGreen.clear();
-        _evalYellow.clear();
-        _evalRed.clear();
-        _evalHidden.clear();
+        final w = page.words[i];
+        final int w0 = w.word - 1;
+        final int s = w.surah;
+        final int a = w.ayah;
 
-        _ensurePageWordsIndexed(page);
+        int state = ctrl.getWordStatus(a, w0, surah: s) ?? 0;
+        if (state == 0 && ctrl.completedAyahsFor(s).contains(a)) {
+          state = 1; // Completed ayah words are treated as green
+        }
 
-        final bool hasAnyRecitationOrBlur = isReciting ||
-            isBlurEffective ||
-            ctrl.globalRevision.value > 0 ||
-            _hasMasks ||
-            _lastGreenWords.isNotEmpty ||
-            _lastYellowWords.isNotEmpty ||
-            _lastRedWords.isNotEmpty ||
-            _lastHiddenWords.isNotEmpty;
+        if (state == 1) {
+          greenWords.add(i);
+        } else if (state == 2) {
+          yellowWords.add(i);
+        } else if (state == 3) {
+          redWords.add(i);
+        } else if (hasAyahOnPage && s == coord.$1 && a == coord.$2) {
+          // Unrecited words of the active ayah are highlighted in grey
+          greyWords.add(i);
+        } else if (isBlurEffective) {
+          hiddenWords.add(i);
+        }
+      }
 
-        if (hasAnyRecitationOrBlur) {
-          if (themeChanged ||
-              blurChanged ||
-              recordingChanged ||
-              !_hasEvaluatedWords) {
-            _clearCompletedAyahCache();
+      final styleNeon = QvpHighlightStyle(
+        mode: 'band',
+        height: 'lineSpacing',
+        band: palette.leadWordBand,
+        padX: 0.0,
+        radius: 2.0,
+        ms: 0,
+      );
+      final styleGreen = QvpHighlightStyle(
+        mode: 'band',
+        height: 'lineSpacing',
+        band: palette.greenBand,
+        padX: 0.0,
+        radius: 2.0,
+        ms: 0,
+      );
+      final styleYellow = QvpHighlightStyle(
+        mode: 'band',
+        height: 'lineSpacing',
+        band: palette.yellowBand,
+        padX: 0.0,
+        radius: 2.0,
+        ms: 0,
+      );
+      final styleRed = QvpHighlightStyle(
+        mode: 'band',
+        height: 'lineSpacing',
+        band: palette.redBand,
+        padX: 0.0,
+        radius: 2.0,
+        ms: 0,
+      );
+      final styleGrey = QvpHighlightStyle(
+        mode: 'band',
+        height: 'lineSpacing',
+        band: palette.activeAyahBand,
+        padX: 0.0,
+        radius: 2.0,
+        ms: 0,
+      );
+
+      int syncGroup(int handle, List<int> words, QvpHighlightStyle style) {
+        if (words.isNotEmpty) {
+          final target = T.words(words);
+          if (handle != 0 && !themeChanged) {
+            page.moveHighlight(handle, target);
+            return handle;
+          } else {
+            if (handle != 0) page.removeHighlight(handle);
+            return page.highlight(target, style);
           }
-
-          _ensurePageAyahsGrouped(page);
-
-          final int activeSurahVal = activeMatch?.verse.surah ?? targetSurah;
-          final int activeAyahVal =
-              activeMatch?.verse.ayah ?? (activeAyah ?? 0);
-
-          final Set<int> completedAyahs =
-              ctrl.completedAyahsFor(activeSurahVal);
-
-          _pageAyahWords.forEach((ayahKey, words) {
-            if (words.isEmpty) return;
-            final first = words.first;
-            final s = first.surah;
-            final a = first.ayah;
-
-            final bool isFuture = (s > activeSurahVal) ||
-                (s == activeSurahVal &&
-                    a > activeAyahVal &&
-                    !completedAyahs.contains(a));
-
-            if (isFuture) {
-              if (isBlurEffective) {
-                for (final w in words) {
-                  _evalHidden.add(w.index);
-                }
-              }
-              return;
-            }
-
-            final bool isPast = (s < activeSurahVal) ||
-                (s == activeSurahVal && a < activeAyahVal) ||
-                completedAyahs.contains(a);
-
-            if (isPast && a != activeAyahVal) {
-              final cachedG = _cachedCompletedGreenWords[ayahKey];
-              if (cachedG != null) {
-                _evalGreen.addAll(cachedG);
-                final cachedY = _cachedCompletedYellowWords[ayahKey];
-                if (cachedY != null) _evalYellow.addAll(cachedY);
-                final cachedR = _cachedCompletedRedWords[ayahKey];
-                if (cachedR != null) _evalRed.addAll(cachedR);
-                final cachedH = _cachedCompletedHiddenWords[ayahKey];
-                if (cachedH != null) _evalHidden.addAll(cachedH);
-                return;
-              }
-            }
-
-            final ayGreen = <int>[];
-            final ayYellow = <int>[];
-            final ayRed = <int>[];
-            final ayHidden = <int>[];
-
-            for (final w in words) {
-              final w0 = w.word - 1;
-              final color = QuranInteractionService.resolveWordDisplayColor(
-                ayah: w.ayah,
-                wordIndex: w0,
-                controller: ctrl,
-                app: app,
-                colors: c,
-                surah: w.surah,
-                isBlurEffective: isBlurEffective,
-              );
-              if (color == Colors.transparent) {
-                ayHidden.add(w.index);
-              } else if (color == c.green) {
-                ayGreen.add(w.index);
-              } else if (color == c.warning) {
-                ayYellow.add(w.index);
-              } else if (color == c.red) {
-                ayRed.add(w.index);
-              }
-            }
-
-            _evalGreen.addAll(ayGreen);
-            _evalYellow.addAll(ayYellow);
-            _evalRed.addAll(ayRed);
-            _evalHidden.addAll(ayHidden);
-
-            if (isPast && a != activeAyahVal) {
-              _cachedCompletedGreenWords[ayahKey] = ayGreen;
-              if (ayYellow.isNotEmpty) {
-                _cachedCompletedYellowWords[ayahKey] = ayYellow;
-              }
-              if (ayRed.isNotEmpty) {
-                _cachedCompletedRedWords[ayahKey] = ayRed;
-              }
-              if (ayHidden.isNotEmpty) {
-                _cachedCompletedHiddenWords[ayahKey] = ayHidden;
-              }
-            }
-          });
+        } else {
+          if (handle != 0) page.removeHighlight(handle);
+          return 0;
         }
+      }
 
-        bool listsDiffer(List<int> a, List<int> b) {
-          if (a.length != b.length) return true;
-          if (a.isEmpty) return false;
-          if (a.first != b.first || a.last != b.last) return true;
-          return !listEquals(a, b);
-        }
+      _hlGrey = syncGroup(_hlGrey, greyWords, styleGrey);
+      _hlGreen = syncGroup(_hlGreen, greenWords, styleGreen);
+      _hlYellow = syncGroup(_hlYellow, yellowWords, styleYellow);
+      _hlRed = syncGroup(_hlRed, redWords, styleRed);
+      _hlNeon = syncGroup(_hlNeon, neonWords, styleNeon);
 
-        final Color greenBandColor = palette.greenBand;
-        final Color yellowBandColor = palette.yellowBand;
-        final Color redBandColor = palette.redBand;
+      // Notify Tajweed tooltips
+      if (!listEquals(_yellowWordsNotifier.value, yellowWords)) {
+        _yellowWordsNotifier.value = yellowWords;
+      }
 
-        final bool recitationDiffers = themeChanged ||
-            listsDiffer(_evalGreen, _lastGreenWords) ||
-            listsDiffer(_evalYellow, _lastYellowWords) ||
-            listsDiffer(_evalRed, _lastRedWords);
-
-        if (recitationDiffers) {
-          _lastGreenWords = List<int>.from(_evalGreen);
-          _lastYellowWords = List<int>.from(_evalYellow);
-          _yellowWordsNotifier.value = _lastYellowWords;
-          _lastRedWords = List<int>.from(_evalRed);
-
-          _updateRecitationHighlights(
-            page,
-            greenBandColor: greenBandColor,
-            yellowBandColor: yellowBandColor,
-            redBandColor: redBandColor,
-            themeChanged: themeChanged,
-          );
-        }
-
-        if (!listEquals(_evalHidden, _lastHiddenWords)) {
-          _lastHiddenWords = List<int>.from(_evalHidden);
-          if (_lastHiddenWords.isNotEmpty) {
-            page.mask(T.words(_lastHiddenWords), 'hide');
-            _hasMasks = true;
-          } else if (_hasMasks) {
-            page.unmaskAll();
-            _hasMasks = false;
-          }
-        }
-        _hasEvaluatedWords = true;
-        _lastBlurEffective = isBlurEffective;
-        _lastIsRecording = widget.isRecording;
+      // Hifz Concealing masks (Native vector invisible ink)
+      if (hiddenWords.isNotEmpty) {
+        page.mask(T.words(hiddenWords), 'hide');
+        _hasMasks = true;
+      } else if (_hasMasks) {
+        page.unmask();
+        _hasMasks = false;
       }
 
       _lastIsDark = isDark;
-      _lastVisualFingerprint = _computeVisualFingerprint();
-      _lastSyncRevision = ctrl.globalRevision.value;
-      _lastSyncActiveAyah = ctrl.activeAyah.value;
-      _lastSyncActiveWord = ctrl.activeWordIndex;
-      _lastSyncTargetSurah =
-          ctrl.targetSurah != 0 ? ctrl.targetSurah : app.lastSurah;
-      _lastSyncDarkMode = isDark;
-      _lastSyncBlur = isBlurEffective;
-      _lastSyncRecording = widget.isRecording;
     });
-  }
 
-  void _updateRecitationHighlights(
-    QvpPage page, {
-    required Color greenBandColor,
-    required Color yellowBandColor,
-    required Color redBandColor,
-    bool themeChanged = false,
-  }) {
-    final wordCount = page.words.length;
-    if (wordCount == 0) {
-      for (final r in _activeRunHandles.values) {
-        page.removeHighlight(r.handle);
-      }
-      _activeRunHandles.clear();
-      return;
-    }
-
-    if (themeChanged) {
-      for (final r in _activeRunHandles.values) {
-        page.removeHighlight(r.handle);
-      }
-      _activeRunHandles.clear();
-    }
-
-    final states = Uint8List(wordCount);
-    for (final idx in _lastGreenWords) {
-      if (idx >= 0 && idx < wordCount) states[idx] = 1;
-    }
-    for (final idx in _lastYellowWords) {
-      if (idx >= 0 && idx < wordCount) states[idx] = 2;
-    }
-    for (final idx in _lastRedWords) {
-      if (idx >= 0 && idx < wordCount) states[idx] = 3;
-    }
-
-    int currentRunState = 0;
-    int currentAyahKey = 0;
-    List<int>? currentRunWords;
-    final List<({int state, List<int> words})> runs = [];
-
-    for (int i = 0; i < wordCount; i++) {
-      final int st = states[i];
-      if (st == 0) {
-        if (currentRunWords != null) {
-          runs.add((state: currentRunState, words: currentRunWords));
-          currentRunWords = null;
-          currentRunState = 0;
-          currentAyahKey = 0;
-        }
-        continue;
-      }
-
-      final w = page.words[i];
-      final int ayahKey = QuranCoordinate.packAyahKey(w.surah, w.ayah);
-
-      if (currentRunWords != null &&
-          currentRunState == st &&
-          currentAyahKey == ayahKey) {
-        currentRunWords.add(i);
-      } else {
-        if (currentRunWords != null) {
-          runs.add((state: currentRunState, words: currentRunWords));
-        }
-        currentRunState = st;
-        currentAyahKey = ayahKey;
-        currentRunWords = [i];
-      }
-    }
-
-    if (currentRunWords != null) {
-      runs.add((state: currentRunState, words: currentRunWords));
-    }
-
-    if (runs.isEmpty) {
-      for (final r in _activeRunHandles.values) {
-        page.removeHighlight(r.handle);
-      }
-      _activeRunHandles.clear();
-      return;
-    }
-
-    final styleGreen = QvpHighlightStyle(
-      mode: 'band',
-      height: 'lineSpacing',
-      band: greenBandColor,
-      padX: 0.6,
-      radius: 2.0,
-      ms: 0,
-      layer: QvpLayer.highlight - 1,
-    );
-    final styleYellow = QvpHighlightStyle(
-      mode: 'band',
-      height: 'lineSpacing',
-      band: yellowBandColor,
-      padX: 0.6,
-      radius: 2.0,
-      ms: 0,
-      layer: QvpLayer.highlight - 1,
-    );
-    final styleRed = QvpHighlightStyle(
-      mode: 'band',
-      height: 'lineSpacing',
-      band: redBandColor,
-      padX: 0.6,
-      radius: 2.0,
-      ms: 0,
-      layer: QvpLayer.highlight - 1,
-    );
-
-    final Map<int, ({int state, int lastWord, int handle})> newActiveHandles =
-        {};
-    for (final run in runs) {
-      final int startWord = run.words.first;
-      final int lastWord = run.words.last;
-      final int state = run.state;
-
-      final existing = _activeRunHandles[startWord];
-      if (existing != null && existing.state == state) {
-        if (existing.lastWord != lastWord) {
-          page.moveHighlight(existing.handle, T.words(run.words));
-        }
-        newActiveHandles[startWord] =
-            (state: state, lastWord: lastWord, handle: existing.handle);
-        _activeRunHandles.remove(startWord);
-      } else {
-        if (existing != null) {
-          page.removeHighlight(existing.handle);
-          _activeRunHandles.remove(startWord);
-        }
-        final QvpHighlightStyle style;
-        if (state == 1) {
-          style = styleGreen;
-        } else if (state == 2) {
-          style = styleYellow;
-        } else {
-          style = styleRed;
-        }
-        final h = page.highlight(T.words(run.words), style);
-        newActiveHandles[startWord] =
-            (state: state, lastWord: lastWord, handle: h);
-      }
-    }
-
-    for (final remaining in _activeRunHandles.values) {
-      page.removeHighlight(remaining.handle);
-    }
-    _activeRunHandles = newActiveHandles;
+    _visualsRevision.value++;
   }
 
   void _onWordTap(BuildContext context, QvpPage page, int wordIndex) {
@@ -1402,7 +947,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
   }
 
-  void _paintUnderlay(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
+  void _paintUnderlay(
+      ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
     if (page.isDisposed) return;
     if (page.surahHeaders().isNotEmpty) {
       MushafOverlays.paintSurahHeaders(
@@ -1415,7 +961,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
   }
 
-  void _paintOverlay(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
+  void _paintOverlay(
+      ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
     if (page.isDisposed) return;
     final app = AppState.instance;
     final c = app.colors;
@@ -1517,6 +1064,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                     child: Center(
                       child: SizedBox(
                         width: pageContainerWidth,
+                        height: usableHeight,
                         child: _currentPageObject == null
                             ? const SizedBox.expand()
                             : AnimatedBuilder(
@@ -1530,8 +1078,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                   final double offsetFraction =
                                       (1.0 - progress) *
                                           (-_activeSlideDir * 0.16);
-                                  final double alpha =
-                                      0.55 + 0.45 * progress;
+                                  final double alpha = 0.55 + 0.45 * progress;
                                   return Transform.translate(
                                     offset: Offset(
                                       offsetFraction * pageContainerWidth,
@@ -1555,6 +1102,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                       padSide: 4,
                                       lineSpacing: 1.0,
                                       fillHeight: true,
+                                      maxAspectSlack: 0.0,
                                       surahFrames: false,
                                     ),
                                     hitMaxDistance: 28.0,
@@ -1592,7 +1140,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                         color: c.textSecondary.withValues(alpha: 0.6),
                         hoverColor: c.gold.withValues(alpha: 0.15),
                         tooltip: 'الصفحة التالية • Next Page',
-                        onPressed: _currentPage < QuranMetadata.maxPage ? _nextPage : null,
+                        onPressed: _currentPage < QuranMetadata.maxPage
+                            ? _nextPage
+                            : null,
                       ),
                     ),
                     // Right navigation button (Previous page in RTL reading order)

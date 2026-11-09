@@ -29,9 +29,10 @@ class QvpViewLayout {
     this.lineSpacing = 1,
     this.fillHeight = false,
     this.gridLines = 0,
+    this.maxAspectSlack = 0.0,
     this.surahFrames = true,
   });
-  final double padTop, padBottom, padSide, lineSpacing;
+  final double padTop, padBottom, padSide, lineSpacing, maxAspectSlack;
   final bool fillHeight, surahFrames;
   final int gridLines;
 
@@ -42,6 +43,7 @@ class QvpViewLayout {
     double? lineSpacing,
     bool? fillHeight,
     int? gridLines,
+    double? maxAspectSlack,
     bool? surahFrames,
   }) =>
       QvpViewLayout(
@@ -51,6 +53,7 @@ class QvpViewLayout {
         lineSpacing: lineSpacing ?? this.lineSpacing,
         fillHeight: fillHeight ?? this.fillHeight,
         gridLines: gridLines ?? this.gridLines,
+        maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
         surahFrames: surahFrames ?? this.surahFrames,
       );
 
@@ -64,7 +67,7 @@ class QvpViewLayout {
         lineSpacing: lineSpacing,
         fillHeight: fillHeight,
         gridLines: gridLines,
-        maxAspectSlack: QvpDefaults.aspectSlack,
+        maxAspectSlack: maxAspectSlack,
         surahFrames: surahFrames,
       );
 
@@ -77,6 +80,7 @@ class QvpViewLayout {
       other.lineSpacing == lineSpacing &&
       other.fillHeight == fillHeight &&
       other.gridLines == gridLines &&
+      other.maxAspectSlack == maxAspectSlack &&
       other.surahFrames == surahFrames;
 
   @override
@@ -87,6 +91,7 @@ class QvpViewLayout {
         lineSpacing,
         fillHeight,
         gridLines,
+        maxAspectSlack,
         surahFrames,
       );
 }
@@ -427,6 +432,7 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _onPageChanged() {
     if (_isRelayouting) return;
+    _frame.value++; // Repaint when page highlights, styles, or masks update
     // the app cleared the selection behind our back → drop our band
     if (_selHandle != 0 &&
         !_selecting &&
@@ -1108,23 +1114,12 @@ class _DrawList {
   }
 }
 
-class _BoxEntry {
-  int id = 0;
-  int line = 0;
-  int color = 0;
-  double x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-  double radius = 0;
-  bool flatLeft = false;
-  bool flatRight = false;
-}
-
 /// Boxes the engine placed in viewport px, highlight bands or mask blocks, as one nonzero path
 /// for each run of boxes that share a highlight and a colour. The layer builds the paths when
 /// the boxes change, and every frame after that draws them as they are.
 class _BoxLayer {
   final List<ui.Path> _paths = [];
   final List<Color> _colors = [];
-  final List<_BoxEntry> _items = [];
   int _groups = 0;
 
   /// How many boxes the paths hold.
@@ -1133,79 +1128,10 @@ class _BoxLayer {
   void set(List<QvpBox> list) {
     _groups = 0;
     boxes = list.length;
-    final int n = list.length;
-    if (n == 0) return;
-
-    if (n == 1) {
-      final b = list[0];
-      final path = _take(0, b.color);
-      _groups = 1;
-      final r = Rect.fromLTRB(b.x0, b.y0, b.x1, b.y1);
-      if (b.radius > 0) {
-        path.addRRect(RRect.fromRectAndRadius(r, Radius.circular(b.radius)));
-      } else {
-        path.addRect(r);
-      }
-      return;
-    }
-
-    // Reuse pooled entries for zero GC allocations on every frame update
-    while (_items.length < n) {
-      _items.add(_BoxEntry());
-    }
-
-    for (var i = 0; i < n; i++) {
-      final b = list[i];
-      final item = _items[i];
-      item.id = b.id;
-      item.line = b.line;
-      item.color = b.color;
-      item.x0 = b.x0;
-      item.y0 = b.y0;
-      item.x1 = b.x1;
-      item.y1 = b.y1;
-      item.radius = b.radius;
-      item.flatLeft = false;
-      item.flatRight = false;
-    }
-
-    // In-place sort of active items [0..n-1] by line, then by horizontal x0 (zero GC allocations).
-    // This guarantees we only ever examine IMMEDIATE geometric neighbors on the same line,
-    // completely preventing non-adjacent boxes from ever bridging across an intermediate word.
-    for (var i = 1; i < n; i++) {
-      final item = _items[i];
-      var j = i - 1;
-      while (j >= 0 &&
-          (_items[j].line > item.line ||
-              (_items[j].line == item.line && _items[j].x0 > item.x0))) {
-        _items[j + 1] = _items[j];
-        j--;
-      }
-      _items[j + 1] = item;
-    }
-
-    // Resolve seams strictly between immediate adjacent highlight boxes on the same line.
-    // Clamps their boundary to the midpoint so they connect like one ribbon with zero gap and zero overlap.
-    for (var i = 0; i < n - 1; i++) {
-      final left = _items[i];
-      final right = _items[i + 1];
-      if (left.line != right.line) continue;
-      if (left.id == right.id && left.color == right.color) continue;
-
-      final double dist = right.x0 - left.x1;
-      if (dist >= -12.0 && dist <= 14.0) {
-        final double midX = (left.x1 + right.x0) / 2.0;
-        left.x1 = midX;
-        right.x0 = midX;
-        left.flatRight = true;
-        right.flatLeft = true;
-      }
-    }
-
     var id = -1, col = 0;
     ui.Path? path;
-    for (var i = 0; i < n; i++) {
-      final b = _items[i];
+    for (var i = 0; i < list.length; i++) {
+      final b = list[i];
       if (path == null || b.id != id || b.color != col) {
         path = _take(_groups, b.color);
         _groups++;
@@ -1214,17 +1140,7 @@ class _BoxLayer {
       }
       final r = Rect.fromLTRB(b.x0, b.y0, b.x1, b.y1);
       if (b.radius > 0) {
-        if (b.flatLeft || b.flatRight) {
-          path.addRRect(RRect.fromRectAndCorners(
-            r,
-            topLeft: b.flatLeft ? Radius.zero : Radius.circular(b.radius),
-            bottomLeft: b.flatLeft ? Radius.zero : Radius.circular(b.radius),
-            topRight: b.flatRight ? Radius.zero : Radius.circular(b.radius),
-            bottomRight: b.flatRight ? Radius.zero : Radius.circular(b.radius),
-          ));
-        } else {
-          path.addRRect(RRect.fromRectAndRadius(r, Radius.circular(b.radius)));
-        }
+        path.addRRect(RRect.fromRectAndRadius(r, Radius.circular(b.radius)));
       } else {
         path.addRect(r);
       }
@@ -1424,9 +1340,9 @@ class _InkCache {
       styledKey = key;
       styledColors = [for (final s in styled) QvpColor.toColor(s.color)];
       bands.set(page.highlightBoxesView());
+      masks.set(page.maskBoxesView());
     }
     if (changed) {
-      masks.set(page.maskBoxesView());
       dress = page.dressInfo();
     }
     _readPage = page;
@@ -1707,6 +1623,8 @@ class _QvpPainter extends CustomPainter {
     // Single-pass underlay (e.g. Surah header cards)
     if (underlay != null) {
       canvas.save();
+      canvas.translate(view.offsetX, view.offsetY);
+      canvas.scale(view.scale);
       try {
         underlay!(canvas, size, page, l);
       } finally {
@@ -1916,6 +1834,8 @@ class _QvpPainter extends CustomPainter {
     // Single-pass overlay (e.g. Ayah marks, numerals, tooltips)
     if (overlay != null) {
       canvas.save();
+      canvas.translate(view.offsetX, view.offsetY);
+      canvas.scale(view.scale);
       try {
         overlay!(canvas, size, page, l);
       } finally {

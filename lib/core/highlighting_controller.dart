@@ -276,6 +276,21 @@ class HighlightingController extends rq.HighlightingController {
     return null;
   }
 
+  /// The active coordinate (surah, ayah) driving playback or recitation.
+  (int surah, int ayah)? get activeAyahCoordinate {
+    if (isAudioActive && _audioSurah != null && _audioAyah != null) {
+      return (_audioSurah!, _audioAyah!);
+    }
+    final activeMatch = currentMatchedVerse;
+    if (activeMatch != null) {
+      return (activeMatch.verse.surah, activeMatch.verse.ayah);
+    }
+    if (activeAyah.value != null && targetSurah != 0) {
+      return (targetSurah, activeAyah.value!);
+    }
+    return null;
+  }
+
   /// Direct access to the highlight store.
   HighlightStore get highlightStore => _store;
 
