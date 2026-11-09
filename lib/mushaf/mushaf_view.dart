@@ -373,6 +373,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       await widget.controller.advanceToNextSurah(
         isRecording: widget.isRecording,
       );
+      _requestSyncVisuals();
     } catch (e) {
       debugPrint('Error advancing to next surah: $e');
     } finally {
@@ -397,7 +398,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final int activeSurah =
         ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
     final int? activeAyah = ctrl.activeAyah.value;
-    final int? activeWord = ctrl.activeWordIndex;
+    final int? activeWord = ctrl.activeWordIndex ??
+        ctrl.getLeadWordIndex(
+          surah: activeSurah,
+          ayah: activeAyah ?? 0,
+          totalWords: 999,
+          isRecording: widget.isRecording,
+        );
     final int rev = ctrl.globalRevision.value;
 
     if (activeSurah == _lastProgressSurah &&
