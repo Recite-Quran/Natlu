@@ -470,107 +470,119 @@ class SettingsSheet extends StatelessWidget {
 
               const SizedBox(height: 16),
 
-              // ── Bottom Action Buttons (How to Use & Reset) ──
+              // ── Bottom Action Buttons (How to Use & Reset - Single Line Guaranteed) ──
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Wrap(
-                  alignment: WrapAlignment.center,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 12,
-                  runSpacing: 6,
-                  children: [
-                    // 1. How to Use
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          DialogService.showAppGuide(context);
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.help_outline_rounded,
-                                size: 13,
-                                color: c.textSecondary.withValues(alpha: 0.65),
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                isAr ? 'دليل الاستخدام' : 'How to Use',
-                                style: TextStyle(
-                                  color: c.textSecondary.withValues(alpha: 0.70),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.1,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.center,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 1. How to Use
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            DialogService.showAppGuide(context);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.help_outline_rounded,
+                                  size: 13,
+                                  color: c.textSecondary.withValues(alpha: 0.65),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+                                Text(
+                                  isAr ? 'دليل الاستخدام' : 'How to Use',
+                                  style: TextStyle(
+                                    color: c.textSecondary.withValues(alpha: 0.70),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
 
-                    // 2. Reset to Default Settings
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () async {
-                          final prefs =
-                              await SharedPreferences.getInstance();
-                          final savedSurah = prefs.getInt('last_surah');
-                          final savedAyah = prefs.getInt('last_ayah');
-                          await prefs.clear();
-                          if (savedSurah != null) {
-                            await prefs.setInt('last_surah', savedSurah);
-                          }
-                          if (savedAyah != null) {
-                            await prefs.setInt('last_ayah', savedAyah);
-                          }
-                          if (context.mounted) {
-                            await app.load();
-                            if (context.mounted) {
-                              Navigator.of(context).pop();
-                              app.showSettingsResetBanner();
+                      Container(
+                        width: 3,
+                        height: 3,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        decoration: BoxDecoration(
+                          color: c.textSecondary.withValues(alpha: 0.35),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+
+                      // 2. Reset to Default Settings
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () async {
+                            final prefs =
+                                await SharedPreferences.getInstance();
+                            final savedSurah = prefs.getInt('last_surah');
+                            final savedAyah = prefs.getInt('last_ayah');
+                            await prefs.clear();
+                            if (savedSurah != null) {
+                              await prefs.setInt('last_surah', savedSurah);
                             }
-                          }
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.refresh_rounded,
-                                size: 13,
-                                color:
-                                    c.textSecondary.withValues(alpha: 0.65),
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                isAr
-                                    ? 'إعادة ضبط الإعدادات الافتراضية'
-                                    : 'Reset to Default Settings',
-                                style: TextStyle(
-                                  color: c.textSecondary
-                                      .withValues(alpha: 0.70),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.1,
+                            if (savedAyah != null) {
+                              await prefs.setInt('last_ayah', savedAyah);
+                            }
+                            if (context.mounted) {
+                              await app.load();
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                                app.showSettingsResetBanner();
+                              }
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.refresh_rounded,
+                                  size: 13,
+                                  color:
+                                      c.textSecondary.withValues(alpha: 0.65),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+                                Text(
+                                  isAr
+                                      ? 'إعادة ضبط الإعدادات'
+                                      : 'Reset Settings',
+                                  style: TextStyle(
+                                    color: c.textSecondary
+                                        .withValues(alpha: 0.70),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.1,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 8),

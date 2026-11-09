@@ -799,6 +799,9 @@ class VerseAudioPlayer {
     // Fallback if timing data is still downloading or offline:
     // Estimate word index proportionally from track duration and word count
     if (activeIdx == null) {
+      if (QuranTimingService.instance.getSurahTiming(playingSurah) == null) {
+        unawaited(QuranTimingService.instance.ensureSurahLoaded(playingSurah));
+      }
       final duration = _player?.duration;
       if (duration != null && duration.inMilliseconds > 0) {
         final totalMs = duration.inMilliseconds;

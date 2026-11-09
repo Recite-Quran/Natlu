@@ -489,9 +489,19 @@ class HighlightingController extends rq.HighlightingController {
     return {...localSet, ...remoteSet};
   }
 
-  /// High-speed O(1) check if a specific ayah has any stored highlights across local or remote store.
+  /// High-speed check if a specific ayah has any stored highlights across local or remote store.
   bool hasAyahHighlights(int surah, int ayah) {
-    return _store.hasAyahHighlights(surah, ayah);
+    if (_store.hasAyahHighlights(surah, ayah)) return true;
+    final v = repository.getVerse(surah, ayah);
+    final count = v?.uthmaniWords.length ?? 0;
+    for (int i = 0; i < count; i++) {
+      if (isWordRead(ayah, i, surah: surah)) {
+        // Synchronize into store so subsequent lookups are O(1) instant
+        extractAyahWordClassification(surah, ayah, count);
+        return true;
+      }
+    }
+    return false;
   }
 
   // ── Remote Maglis Recitation Ingestion ──
@@ -704,7 +714,9 @@ class HighlightingController extends rq.HighlightingController {
     if (isRemoteReciting && (targetSurah == 0 || targetSurah == surah) && activeAyah.value == ayah) {
       return activeWordIndex;
     }
-    if (activeAyah.value == ayah && (targetSurah == 0 || targetSurah == surah)) {
+    // Live ASR recitation mode: only highlight awaited lead word in neon when recording is active.
+    // When idle (browsing / selecting), all words in the selected ayah remain neutral grey.
+    if (isRecording && activeAyah.value == ayah && (targetSurah == 0 || targetSurah == surah)) {
       for (int i = 0; i < totalWords; i++) {
         if (!isWordRead(ayah, i, surah: surah)) {
           return i;

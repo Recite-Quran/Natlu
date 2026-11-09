@@ -660,44 +660,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     final app = AppState.instance;
     final ctrl = widget.controller;
-    final provider = MushafProvider.instance;
-
-    // 1. Resolve Active Ayah Coordinate (surah, ayah)
-    final coord = ctrl.activeAyahCoordinate ??
-        (app.lastSurah != 0 && app.lastAyah != 0
-            ? (app.lastSurah, app.lastAyah)
-            : null);
-
-    final bool hasAyahOnPage = coord != null &&
-        provider.isAyahOnPage(
-          pageNumber: _currentPage,
-          surah: coord.$1,
-          ayah: coord.$2,
-        );
-
-    // 2. Resolve Active / Waited Lead Word Index on this page
-    int? activeWordPageIdx;
-    if (coord != null && hasAyahOnPage) {
-      final int s = coord.$1;
-      final int a = coord.$2;
-      int maxWordOnPage = 0;
-      for (final w in page.words) {
-        if (w.surah == s && w.ayah == a && w.word > maxWordOnPage) {
-          maxWordOnPage = w.word;
-        }
-      }
-      final leadW0 = ctrl.getLeadWordIndex(
-        surah: s,
-        ayah: a,
-        totalWords: maxWordOnPage,
-        isRecording: widget.isRecording,
-      );
-      if (leadW0 != null) {
-        final idx = page.findWord(s, a, leadW0 + 1);
-        if (idx >= 0) activeWordPageIdx = idx;
-      }
-    }
-
     final bool isBlurEffective =
         app.isBlurEffective(isRecording: widget.isRecording);
     final int wordCount = page.words.length;
@@ -705,17 +667,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final List<int> hiddenWords = [];
 
     for (int i = 0; i < wordCount; i++) {
-      if (i == activeWordPageIdx) continue;
-
       final w = page.words[i];
-      final int w0 = w.word - 1;
-      final int s = w.surah;
-      final int a = w.ayah;
-
-      int state = ctrl.getWordStatus(a, w0, surah: s) ?? 0;
-      if (state == 0 && ctrl.completedAyahsFor(s).contains(a)) {
-        state = 1;
-      }
+      final int state =
+          ctrl.getWordStatus(w.ayah, w.word - 1, surah: w.surah) ?? 0;
 
       if (state == 2) {
         yellowWords.add(i);

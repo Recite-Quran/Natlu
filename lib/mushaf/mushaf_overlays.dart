@@ -157,9 +157,6 @@ class MushafOverlays {
       }
     }
 
-    final bool isBlurEffective =
-        app.isBlurEffective(isRecording: isRecording);
-
     // 3. Identify all ayahs to render on this page:
     //    a) The active selected ayah (if present)
     //    b) Completed ayahs for surahs on this page
@@ -174,7 +171,8 @@ class MushafOverlays {
       if (ayahsToPaint.contains(key)) continue;
 
       if (controller.completedAyahsFor(w.surah).contains(w.ayah) ||
-          controller.hasAyahHighlights(w.surah, w.ayah)) {
+          controller.hasAyahHighlights(w.surah, w.ayah) ||
+          controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah) != null) {
         ayahsToPaint.add(key);
       }
     }
@@ -262,7 +260,6 @@ class MushafOverlays {
             activeWordPageIdx: activeWordPageIdx,
             controller: controller,
             palette: palette,
-            isBlurEffective: isBlurEffective,
           );
 
           if (color.a > 0) {
@@ -282,7 +279,6 @@ class MushafOverlays {
     required int? activeWordPageIdx,
     required HighlightingController controller,
     required QuranHighlightPalette palette,
-    required bool isBlurEffective,
   }) {
     // 1. Current active / waited word -> Neon
     if (activeWordPageIdx != null && w.index == activeWordPageIdx) {
@@ -304,7 +300,7 @@ class MushafOverlays {
       return palette.yellowBand;
     } else if (status == 3) {
       return palette.redBand;
-    } else if (isActiveAyah && !isBlurEffective) {
+    } else if (isActiveAyah) {
       // Selected/active ayah unrecited words -> Grey!
       return palette.activeAyahBand;
     }

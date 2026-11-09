@@ -8,11 +8,13 @@ import 'dialog_base.dart';
 // 1. APP GUIDE & HOW-TO DIALOG
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Ultra-lightweight, direct user guide explaining strictly how to use the app:
+/// Ultra-lightweight, zero-duplicate user guide explaining strictly how to use:
 /// 1. Word colors (Green: right, Yellow: Tajweed/Tashkeel & tap to see error, Red: skipped/wrong).
-/// 2. Audio on Ayah number tap & word tap.
-/// 3. Maglis live group recitation.
-/// 4. Verse list & auto-scroll.
+/// 2. Tajweed toggle button (with same icon).
+/// 3. Audio on Ayah number tap & word tap (no "(1)").
+/// 4. Voice search.
+/// 5. Maglis live group recitation.
+/// 6. Verse list & auto-scroll.
 class AppGuideDialog extends StatelessWidget {
   const AppGuideDialog({super.key});
 
@@ -39,7 +41,7 @@ class AppGuideDialog extends StatelessWidget {
     return AppDialog(
       maxWidth: 380,
       scrollable: true,
-      padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       topTrailing: IconButton(
         onPressed: () {
           AppHaptics.lightImpact();
@@ -50,15 +52,6 @@ class AppGuideDialog extends StatelessWidget {
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
         splashRadius: 16,
-      ),
-      heroIcon: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.asset(
-          'assets/icon/app_icon.png',
-          width: 44,
-          height: 44,
-          fit: BoxFit.cover,
-        ),
       ),
       title: isAr ? 'دليل الاستخدام' : 'How to Use',
       content: Container(
@@ -74,10 +67,10 @@ class AppGuideDialog extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           children: [
-            // ── 1. Recitation Colors ──
+            // 1. Recitation Colors
             _buildRow(
-              icon: Icons.record_voice_over_rounded,
-              iconColor: c.primary,
+              icon: Icons.check_circle_outline_rounded,
+              iconColor: c.green,
               title: isAr ? 'ألوان التسميع' : 'Recitation Colors',
               c: c,
               body: Column(
@@ -108,60 +101,51 @@ class AppGuideDialog extends StatelessWidget {
             ),
             _buildDivider(c, isDark),
 
-            // ── 2. Audio Playback ──
+            // 2. Tajweed Option Button
+            _buildRow(
+              icon: Icons.record_voice_over_rounded,
+              iconColor: c.primary,
+              title: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
+              text: isAr
+                  ? 'زر التجويد لتفعيل أو إيقاف التنبيه على أحكام التجويد والتشكيل.'
+                  : 'Button to enable or disable Tajweed and Tashkeel feedback.',
+              c: c,
+            ),
+            _buildDivider(c, isDark),
+
+            // 3. Audio Playback
             _buildRow(
               icon: Icons.play_circle_fill_rounded,
               iconColor: isDark ? c.gold : const Color(0xFFD97706),
               title: isAr ? 'تشغيل الصوت' : 'Audio Playback',
+              text: isAr
+                  ? 'اضغط على رقم الآية لتشغيل التلاوة، واضغط على أي كلمة لسماع نطقها.'
+                  : 'Tap Ayah number to play recitation, or tap any word to hear it.',
               c: c,
-              body: Text(
-                isAr
-                    ? 'اضغط على رقم الآية ﴿١﴾ لتشغيل التلاوة، واضغط على أي كلمة لسماع نطقها.'
-                    : 'Tap Ayah number ﴿١﴾ to play recitation, or tap any word to hear it.',
-                style: TextStyle(
-                  color: c.textSecondary,
-                  fontSize: 11.5,
-                  height: 1.35,
-                ),
-              ),
             ),
             _buildDivider(c, isDark),
 
-            // ── 3. Quran Maglis ──
+            // 4. Voice Search
+            _buildRow(
+              icon: Icons.graphic_eq_rounded,
+              iconColor: const Color(0xFF10B981),
+              title: isAr ? 'بحث صوتي' : 'Voice Search',
+              text: isAr
+                  ? 'زر داخل قائمة السور للبحث الصوتي عن أي آية بمجرد نطقها.'
+                  : 'A button inside the Surah list to jump to any verse by voice.',
+              c: c,
+            ),
+            _buildDivider(c, isDark),
+
+            // 5. Quran Maglis
             _buildRow(
               icon: Icons.groups_rounded,
               iconColor: const Color(0xFF2563EB),
               title: isAr ? 'مجلس القرآن' : 'Quran Maglis',
+              text: isAr
+                  ? 'تلاوة جماعية مباشرة بمكالمة صوتية وتصفح مشترك عبر رمز (5 أرقام).'
+                  : 'Recite together live with voice call & synced pages using a 5-digit code.',
               c: c,
-              body: Text(
-                isAr
-                    ? 'تلاوة جماعية مباشرة بمكالمة صوتية وتصفح مشترك عبر رمز (5 أرقام).'
-                    : 'Recite together live with voice call & synced pages using a 5-digit code.',
-                style: TextStyle(
-                  color: c.textSecondary,
-                  fontSize: 11.5,
-                  height: 1.35,
-                ),
-              ),
-            ),
-            _buildDivider(c, isDark),
-
-            // ── 4. Verse List ──
-            _buildRow(
-              icon: Icons.format_list_bulleted_rounded,
-              iconColor: const Color(0xFF0D9488),
-              title: isAr ? 'قائمة الآيات' : 'Verse List',
-              c: c,
-              body: Text(
-                isAr
-                    ? 'التبديل بين المصحف وقائمة الآيات مع ميزة التمرير التلقائي.'
-                    : 'Switch between Mushaf and Verse List with Auto-Scroll.',
-                style: TextStyle(
-                  color: c.textSecondary,
-                  fontSize: 11.5,
-                  height: 1.35,
-                ),
-              ),
             ),
           ],
         ),
@@ -180,23 +164,24 @@ class AppGuideDialog extends StatelessWidget {
     required IconData icon,
     required Color iconColor,
     required String title,
-    required Widget body,
     required ThemeColors c,
+    String? text,
+    Widget? body,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 32,
-          height: 32,
+          width: 30,
+          height: 30,
           decoration: BoxDecoration(
             color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(8),
           ),
           alignment: Alignment.center,
-          child: Icon(icon, size: 17, color: iconColor),
+          child: Icon(icon, size: 16.5, color: iconColor),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 9),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -205,12 +190,20 @@ class AppGuideDialog extends StatelessWidget {
                 title,
                 style: TextStyle(
                   color: c.text,
-                  fontSize: 12.8,
+                  fontSize: 12.5,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 2),
-              body,
+              const SizedBox(height: 1.5),
+              body ??
+                  Text(
+                    text!,
+                    style: TextStyle(
+                      color: c.textSecondary,
+                      fontSize: 11.5,
+                      height: 1.35,
+                    ),
+                  ),
             ],
           ),
         ),
@@ -228,12 +221,9 @@ class AppGuideDialog extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          width: 6,
-          height: 6,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          width: 5.5,
+          height: 5.5,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 6),
         Expanded(
@@ -241,9 +231,9 @@ class AppGuideDialog extends StatelessWidget {
             text,
             style: TextStyle(
               color: highlight ? c.text : c.textSecondary,
-              fontSize: 11.5,
+              fontSize: 11.2,
               fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
-              height: 1.3,
+              height: 1.25,
             ),
           ),
         ),
@@ -253,7 +243,7 @@ class AppGuideDialog extends StatelessWidget {
 
   Widget _buildDivider(ThemeColors c, bool isDark) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Divider(
         height: 1,
         thickness: 0.7,
