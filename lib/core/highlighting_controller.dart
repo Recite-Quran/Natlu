@@ -701,10 +701,10 @@ class HighlightingController extends rq.HighlightingController {
     if (isAudioActive && audioSurah == surah && audioAyah == ayah) {
       return audioWordIndex;
     }
-    if (isRemoteReciting && targetSurah == surah && activeAyah.value == ayah) {
+    if (isRemoteReciting && (targetSurah == 0 || targetSurah == surah) && activeAyah.value == ayah) {
       return activeWordIndex;
     }
-    if (isRecording && targetSurah == surah && activeAyah.value == ayah) {
+    if (activeAyah.value == ayah && (targetSurah == 0 || targetSurah == surah)) {
       for (int i = 0; i < totalWords; i++) {
         if (!isWordRead(ayah, i, surah: surah)) {
           return i;

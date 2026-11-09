@@ -861,10 +861,11 @@ class _InkKey {
     this.offsetY,
     this.top,
     this.bandH,
-    this.surahFrames,
-  );
+    this.surahFrames, [
+    this.hiddenHash = 0,
+  ]);
 
-  final int page, ink, bandH;
+  final int page, ink, bandH, hiddenHash;
   final double? scale, offsetX, offsetY;
   final double top;
   final bool surahFrames;
@@ -882,9 +883,13 @@ class _InkKey {
     double? offsetY,
     double top,
     int bandH,
-    bool surahFrames,
-  ) {
-    if (page != this.page || ink != this.ink || surahFrames != this.surahFrames) {
+    bool surahFrames, [
+    int hiddenHash = 0,
+  ]) {
+    if (page != this.page ||
+        ink != this.ink ||
+        surahFrames != this.surahFrames ||
+        hiddenHash != this.hiddenHash) {
       return false;
     }
     if (((top * 2).round() - _topKey).abs() > 1) return false;
@@ -1660,9 +1665,16 @@ class _QvpPainter extends CustomPainter {
     // are in the key: a relayout moves them and must redraw. A frame whose key matches the
     // picture in hand keeps it without asking the global cache.
     //
-    // Base ink represents the full static text in default ink; recitation highlights (colored words)
-    // are painted directly on top in Step 3. Decoupling base ink from styledKey prevents
-    // re-recording 1,000+ vector paths on every uttered word.
+    // Base ink represents the static text in default ink; recitation highlights (colored words)
+    // are painted directly on top in Step 3. Hidden words are excluded so conceal works instantly.
+    int hiddenHash = 0;
+    for (var i = 0; i < styled.length; i++) {
+      final s = styled[i];
+      if ((s.color & 0xff) == 0) {
+        hiddenHash = 31 * hiddenHash + s.path;
+      }
+    }
+
     final q = cache.getDrawList(page, l, top, bandH, contentH);
     final held = cache.entry;
     if (held != null &&
@@ -1676,6 +1688,7 @@ class _QvpPainter extends CustomPainter {
           top,
           bandH.toInt(),
           surahFrames,
+          hiddenHash,
         )) {
       cache.basePaths = held.paths;
       if (cache.picture == null) {
@@ -1691,6 +1704,7 @@ class _QvpPainter extends CustomPainter {
         top,
         bandH.toInt(),
         surahFrames,
+        hiddenHash,
       );
       final kept = _InkCache.getGlobalInk(key);
       if (kept != null) {

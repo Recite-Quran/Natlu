@@ -43,12 +43,11 @@ echo "=== [5/5] Setting Up Cloudflare Pages Artifacts ==="
 cp web/cloudflare/_headers build/web/_headers 2>/dev/null || true
 cp web/cloudflare/_redirects build/web/_redirects 2>/dev/null || true
 
-# Provide Cloudflare Pages Functions to both root and output dir
-mkdir -p functions/api build/web/functions/api
-cp web/cloudflare/functions/download-model.js functions/download-model.js 2>/dev/null || true
-cp web/cloudflare/functions/download-model.js build/web/functions/download-model.js 2>/dev/null || true
-cp web/cloudflare/functions/api/qvp.js functions/api/qvp.js 2>/dev/null || true
-cp web/cloudflare/functions/api/qvp.js build/web/functions/api/qvp.js 2>/dev/null || true
+# Provide all Cloudflare Pages Functions & .well-known files to root and output dir
+mkdir -p functions build/web/functions build/web/.well-known
+cp -R web/cloudflare/functions/* functions/ 2>/dev/null || true
+cp -R web/cloudflare/functions/* build/web/functions/ 2>/dev/null || true
+cp -R web/.well-known/* build/web/.well-known/ 2>/dev/null || true
 cp web/cloudflare/wrangler.toml build/web/wrangler.toml 2>/dev/null || true
 cp web/wasm/sherpa-onnx-wasm-main-asr.wasm build/web/sherpa-onnx-wasm-main-asr.wasm 2>/dev/null || true
 rm -rf build/web/scripts build/web/cloudflare build/web/assets/packages/sherpa_onnx_web build/web/assets/assets/pages.tar.xz 2>/dev/null || true

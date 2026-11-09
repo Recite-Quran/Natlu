@@ -14,7 +14,7 @@ class MaglisLinkService {
   MaglisLinkService._();
   static final MaglisLinkService instance = MaglisLinkService._();
 
-  static const String baseUrl = 'https://natlu.pages.dev/m';
+  static const String baseUrl = 'https://natlu.pages.dev';
 
   AppLinks? _appLinks;
   StreamSubscription<Uri>? _sub;
@@ -27,7 +27,7 @@ class MaglisLinkService {
   /// Whether a room code arrived before the app finished initialization
   bool get hasPendingRoomCode => _pendingRoomCode != null;
 
-  /// Builds short HTTPS share link: https://natlu.pages.dev/m/48291
+  /// Builds short HTTPS share link: https://natlu.pages.dev/48291
   static String formatUrl(String code) => '$baseUrl/$code';
 
   /// Builds rich invitation message for any platform
@@ -48,15 +48,22 @@ class MaglisLinkService {
 
   /// Extracts 5-digit room code from incoming URI
   static String? extractRoomCode(Uri uri) {
-    // 1. Path format: /m/48291
     final segments = uri.pathSegments;
+
+    // 1. Direct root format: /48291
+    if (segments.length == 1) {
+      final code = segments.first.replaceAll(RegExp(r'\D'), '');
+      if (code.length == 5) return code;
+    }
+
+    // 2. Prefixed path format: /m/48291
     final mIndex = segments.indexOf('m');
     if (mIndex != -1 && mIndex + 1 < segments.length) {
       final code = segments[mIndex + 1].replaceAll(RegExp(r'\D'), '');
       if (code.length == 5) return code;
     }
 
-    // 2. Custom scheme: natlu://maglis/48291
+    // 3. Custom scheme: natlu://maglis/48291
     if (uri.scheme == 'natlu' && uri.host == 'maglis') {
       if (segments.isNotEmpty) {
         final code = segments.first.replaceAll(RegExp(r'\D'), '');
@@ -64,15 +71,15 @@ class MaglisLinkService {
       }
     }
 
-    // 3. Web Hash route format: #/m/48291 or #m/48291
+    // 4. Web Hash route format: #/48291 or #/m/48291
     if (uri.fragment.isNotEmpty) {
-      final fragmentMatch = RegExp(r'/m/(\d{5})').firstMatch(uri.fragment);
+      final fragmentMatch = RegExp(r'(?:^|/)(?:m/)?(\d{5})(?:$|/)').firstMatch(uri.fragment);
       if (fragmentMatch != null) {
         return fragmentMatch.group(1);
       }
     }
 
-    // 4. Query params fallback (if any external link passed params): ?m=48291 or ?code=48291
+    // 5. Query params fallback (if any external link passed params): ?m=48291 or ?code=48291
     final queryParam = uri.queryParameters['m'] ??
         uri.queryParameters['code'] ??
         uri.queryParameters['maglis'];

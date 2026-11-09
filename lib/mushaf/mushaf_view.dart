@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import '../core/app_state.dart';
@@ -477,6 +476,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _lastAutoAdvancedFromPage = null;
       }
     }
+    _requestSyncVisuals();
   }
 
   void _onActiveAyahChanged() {
@@ -671,7 +671,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   // Visual synchronization & recitation highlights
-  bool _syncScheduled = false;
   bool _needsSyncAfterModal = false;
 
   void _requestSyncVisuals() {
@@ -680,17 +679,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _needsSyncAfterModal = true;
       return;
     }
-    if (_syncScheduled) return;
-    _syncScheduled = true;
-    SchedulerBinding.instance.scheduleFrameCallback((_) {
-      _syncScheduled = false;
-      if (!mounted) return;
-      if (AppModalRouteObserver.instance.isModalOpen) {
-        _needsSyncAfterModal = true;
-        return;
-      }
-      _syncVisuals();
-    });
+    _syncVisuals();
   }
 
   void _syncVisuals() {
@@ -749,8 +738,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       // - Green: Recited correctly or completed ayah
       // - Yellow: Tajweed notice
       // - Red: Mispronounced word
-      // - Grey: Selected/active ayah unrecited words
-      // - Hidden: Words masked by Hifz hide mode (vector invisible ink)
+      // - Hidden: Words masked by Hifz hide mode (vector invisible ink - ALL unrecited verses)
+      // - Grey: Selected/active ayah unrecited words (when hide mode is inactive)
       final List<int> neonWords = [];
       final List<int> greenWords = [];
       final List<int> yellowWords = [];
@@ -784,11 +773,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
           yellowWords.add(i);
         } else if (state == 3) {
           redWords.add(i);
-        } else if (hasAyahOnPage && s == coord.$1 && a == coord.$2) {
-          // Unrecited words of the active ayah are highlighted in grey
-          greyWords.add(i);
         } else if (isBlurEffective) {
+          // In Hifz hide mode, ALL unrecited verses on the page are concealed
           hiddenWords.add(i);
+        } else if (hasAyahOnPage && s == coord.$1 && a == coord.$2) {
+          // When hide mode is inactive, unrecited words of active ayah are grey
+          greyWords.add(i);
         }
       }
 

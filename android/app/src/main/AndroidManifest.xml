@@ -48,6 +48,7 @@
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="natlu.pages.dev" android:pathPattern="/....."/>
                 <data android:scheme="https" android:host="natlu.pages.dev" android:pathPrefix="/m"/>
             </intent-filter>
 

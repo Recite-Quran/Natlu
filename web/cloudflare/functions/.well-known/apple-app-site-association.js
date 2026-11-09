@@ -5,11 +5,15 @@ export async function onRequest() {
       "details": [
         {
           "appID": "ZKQ5264RUS.com.recitequran.app",
-          "paths": ["/m/*"],
+          "paths": ["/m/*", "/[0-9][0-9][0-9][0-9][0-9]"],
           "components": [
             {
               "/": "/m/*",
-              "comment": "Natlu Maglis Room Code Deep Link"
+              "comment": "Natlu Maglis Room Code Deep Link (Prefixed)"
+            },
+            {
+              "/": "/[0-9][0-9][0-9][0-9][0-9]",
+              "comment": "Natlu Maglis Room Code Deep Link (Direct 5-digit)"
             }
           ]
         }
