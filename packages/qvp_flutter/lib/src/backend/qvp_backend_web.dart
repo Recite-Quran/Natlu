@@ -1,4 +1,7 @@
 // dart:js_interop implementation of QvpBackend for Flutter Web.
+// crates/qvp-ffi/include/qvp.h documents every call and struct this file marshals, so its
+// members carry no doc block of their own.
+// ignore_for_file: public_member_api_docs
 import 'dart:async';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
@@ -309,6 +312,12 @@ class QvpWebBackend implements QvpBackend {
     if (t.words != null && t.words!.isNotEmpty) {
       res['words'] = Uint32List.fromList(t.words!).toJS;
     }
+    // A '2:255:3' target names a word by key. qvp.js finds it on the page, and a key that is
+    // not on the page names no word. The native backend does the same with qvp_find_word.
+    // Without the key, qvp.js read word 0.
+    if (t.wordKey != null) {
+      res['wordKey'] = t.wordKey!.map((n) => n.toJS).toList().toJS;
+    }
     return res;
   }
 
@@ -564,6 +573,24 @@ class QvpWebBackend implements QvpBackend {
   );
 
   @override
+  int viewSwipe(double dx, double dy, double vx, double vy) =>
+      (js.callMethodVarArgs<JSNumber>('viewSwipe'.toJS, [
+        dx.toJS,
+        dy.toJS,
+        vx.toJS,
+        vy.toJS,
+      ])).toDartInt;
+
+  @override
+  int swipePages(double dx, double dy, double vx, double vy) =>
+      (js.callMethodVarArgs<JSNumber>('swipePages'.toJS, [
+        dx.toJS,
+        dy.toJS,
+        vx.toJS,
+        vy.toJS,
+      ])).toDartInt;
+
+  @override
   void dispose() {}
 
   // ── Page Lifecycle ──
@@ -768,8 +795,9 @@ class QvpWebBackend implements QvpBackend {
   }
 
   @override
-  List<QvpAyahMark> ayahMarks(PageHandle handle) {
-    final arr = _page(handle).callMethod<JSArray>('ayahMarks'.toJS);
+  List<QvpAyahMark> ayahMarks(PageHandle handle, {required bool view}) {
+    final arr = _page(handle)
+        .callMethod<JSArray>(view ? 'ayahMarksView'.toJS : 'ayahMarks'.toJS);
     return List<QvpAyahMark>.generate(arr.length, (i) {
       final m = arr[i] as JSObject;
       return QvpAyahMark(
@@ -999,9 +1027,15 @@ class QvpWebBackend implements QvpBackend {
   }
 
   @override
-  List<QvpHitArea> hitAreas(PageHandle handle, double gapBias) {
-    final arr = _page(handle)
-        .callMethod<JSArray>('hitAreas'.toJS, gapBias.toJS);
+  List<QvpHitArea> hitAreas(
+    PageHandle handle,
+    double gapBias, {
+    required bool view,
+  }) {
+    final arr = _page(handle).callMethod<JSArray>(
+      view ? 'hitAreasView'.toJS : 'hitAreas'.toJS,
+      gapBias.toJS,
+    );
     return List<QvpHitArea>.generate(arr.length, (i) {
       final a = arr[i] as JSObject;
       return QvpHitArea(
@@ -1234,6 +1268,55 @@ class QvpWebBackend implements QvpBackend {
   )).toDartDouble;
 
   @override
+  QvpView viewAnchor(
+    PageHandle handle,
+    QvpView view,
+    int word,
+    double nx,
+    double ny,
+    double toX,
+    double toY,
+    double viewportW,
+    double viewportH,
+  ) => _jsToView(
+    _page(handle).callMethodVarArgs<JSObject>('viewAnchor'.toJS, [
+      _viewToJs(view),
+      word.toJS,
+      nx.toJS,
+      ny.toJS,
+      toX.toJS,
+      toY.toJS,
+      viewportW.toJS,
+      viewportH.toJS,
+    ]),
+  );
+
+  @override
+  QvpInkBand layoutInkBand(
+    PageHandle handle,
+    QvpView view,
+    double viewportW,
+    double viewportH,
+    double maxHeight,
+    double maxPixels,
+  ) {
+    final options = JSObject()
+      ..['maxHeight'] = maxHeight.toJS
+      ..['maxPixels'] = maxPixels.toJS;
+    final res = _page(handle).callMethod<JSObject>(
+      'layoutInkBand'.toJS,
+      _viewToJs(view),
+      viewportW.toJS,
+      viewportH.toJS,
+      options,
+    );
+    return QvpInkBand(
+      top: (res['top'] as JSNumber).toDartDouble,
+      height: (res['height'] as JSNumber).toDartDouble,
+    );
+  }
+
+  @override
   ({double x, double y}) viewToLayout(
     PageHandle handle,
     QvpView view,
@@ -1448,6 +1531,7 @@ class QvpWebBackend implements QvpBackend {
   List<QvpBox> wordBands(
     PageHandle handle,
     List<int> ws, {
+    required bool view,
     required bool inkHeight,
     required double padX,
     required double padY,
@@ -1458,7 +1542,7 @@ class QvpWebBackend implements QvpBackend {
       ..['padY'] = padY.toJS;
     return _readBoxes(
       _page(handle).callMethod<JSArray>(
-        'wordBands'.toJS,
+        view ? 'wordBandsView'.toJS : 'wordBands'.toJS,
         Uint32List.fromList(ws).toJS,
         opt,
       ),

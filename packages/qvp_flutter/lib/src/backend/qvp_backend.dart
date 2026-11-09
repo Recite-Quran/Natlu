@@ -1,4 +1,8 @@
 // QvpBackend — the call surface each platform implements, and the handles it hands back.
+// Each member is the platform half of a call that page.dart, engine.dart, atlas.dart,
+// ornaments.dart or passage.dart documents, and crates/qvp-ffi/include/qvp.h documents the C
+// call under it. A block here would repeat theirs.
+// ignore_for_file: public_member_api_docs
 import 'dart:typed_data';
 
 import '../types.dart';
@@ -93,6 +97,8 @@ abstract interface class QvpBackend {
     double viewportW,
     double viewportH,
   );
+  int viewSwipe(double dx, double dy, double vx, double vy);
+  int swipePages(double dx, double dy, double vx, double vy);
   void dispose();
 
   // ── Page lifecycle & data ──
@@ -106,7 +112,7 @@ abstract interface class QvpBackend {
   List<QvpSurah> surahs(PageHandle handle);
   List<QvpDivision> divisions(PageHandle handle);
   List<QvpSurahHeader> surahHeaders(PageHandle handle, {required bool view});
-  List<QvpAyahMark> ayahMarks(PageHandle handle);
+  List<QvpAyahMark> ayahMarks(PageHandle handle, {required bool view});
   List<QvpRosette> rosettes(PageHandle handle);
   List<QvpSajdah> sajdahs(PageHandle handle);
   List<(int, int)> ayahKeys(PageHandle handle);
@@ -149,7 +155,11 @@ abstract interface class QvpBackend {
     QvpHitOptions options,
   );
   List<QvpLineBand> lineBands(PageHandle handle);
-  List<QvpHitArea> hitAreas(PageHandle handle, double gapBias);
+  List<QvpHitArea> hitAreas(
+    PageHandle handle,
+    double gapBias, {
+    required bool view,
+  });
 
   // ── Page layout & zoom ──
   QvpLayout layout(PageHandle handle, QvpLayoutSpec spec);
@@ -204,11 +214,30 @@ abstract interface class QvpBackend {
     QvpLayoutSpec spec,
     double max,
   );
+  QvpView viewAnchor(
+    PageHandle handle,
+    QvpView view,
+    int word,
+    double nx,
+    double ny,
+    double toX,
+    double toY,
+    double viewportW,
+    double viewportH,
+  );
   ({double x, double y}) viewToLayout(
     PageHandle handle,
     QvpView view,
     double viewX,
     double viewY,
+  );
+  QvpInkBand layoutInkBand(
+    PageHandle handle,
+    QvpView view,
+    double viewportW,
+    double viewportH,
+    double maxHeight,
+    double maxPixels,
   );
   ({double x0, double y0, double x1, double y1}) wordBoundsView(
     PageHandle handle,
@@ -261,6 +290,7 @@ abstract interface class QvpBackend {
   List<QvpBox> wordBands(
     PageHandle handle,
     List<int> ws, {
+    required bool view,
     required bool inkHeight,
     required double padX,
     required double padY,

@@ -17,66 +17,93 @@ enum RecitationSource {
   audioPlayback,
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Quran Coordinate Packing & Arithmetic
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Centralized Quran Coordinate Arithmetic & Packing.
+/// Replaces ad-hoc bit shifting and frees Mushaf and UI layers from importing networking controllers.
+abstract final class QuranCoordinate {
+  /// Packs (surah, ayah, word0) into a single compact 32-bit integer:
+  /// ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF)
+  static int packWordKey(int surah, int ayah, int word0) =>
+      ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF);
+
+  /// Unpacks a 32-bit packed word key into (surah, ayah, word0).
+  static (int surah, int ayah, int word0) unpackWordKey(int key) => (
+        (key >> 20) & 0xFF,
+        (key >> 8) & 0xFFF,
+        key & 0xFF,
+      );
+
+  /// Packs (surah, ayah) into a 32-bit integer: (surah << 16) | (ayah & 0xFFFF)
+  static int packAyahKey(int surah, int ayah) =>
+      ((surah & 0xFFFF) << 16) | (ayah & 0xFFFF);
+
+  /// Unpacks a 32-bit packed ayah key into (surah, ayah).
+  static (int surah, int ayah) unpackAyahKey(int key) => (
+        (key >> 16) & 0xFFFF,
+        key & 0xFFFF,
+      );
+}
+
 /// HighlightStore
 ///
-/// High-performance O(1) set-based store for Quran word highlight states
-/// and Tajweed recitation errors. Serves as the single source of truth for all
-/// producers (Local ASR, Remote Maglis, and Audio Playback).
+/// High-performance flat O(1) bit-packed key store for Quran word highlight states
+/// (1: Green, 2: Yellow, 3: Red, 4: Neutral) and Tajweed recitation errors.
+/// Serves as the single source of truth for all producers (Local ASR, Remote Maglis, and Audio Playback).
 class HighlightStore {
-  // Key: surah -> (ayah -> Set of 0-based word indices)
-  final Map<int, Map<int, Set<int>>> _green = {};
-  final Map<int, Map<int, Set<int>>> _yellow = {};
-  final Map<int, Map<int, Set<int>>> _red = {};
-  final Map<int, Map<int, Set<int>>> _neutral = {};
+  // Key: QuranCoordinate.packWordKey(surah, ayah, word0) -> status (1..4)
+  final Map<int, int> _states = {};
 
-  // Tajweed errors per word: surah -> (ayah -> (wordIndex -> List<ReciterError>))
-  final Map<int, Map<int, Map<int, List<rq.ReciterError>>>> _errors = {};
+  // Key: QuranCoordinate.packWordKey(surah, ayah, word0) -> errors
+  final Map<int, List<rq.ReciterError>> _errors = {};
 
   // Completed ayahs per surah: surah -> Set of ayah numbers (1-based)
   final Map<int, Set<int>> _completedAyahs = {};
 
+  // Fast count of highlights per (surah, ayah)
+  final Map<int, int> _ayahHighlightCounts = {};
+
   // ── Writes ──
 
-  void markGreen(int surah, int ayah, int wordIndex) {
-    _red[surah]?[ayah]?.remove(wordIndex);
-    _yellow[surah]?[ayah]?.remove(wordIndex);
-    _neutral[surah]?[ayah]?.remove(wordIndex);
-    _errors[surah]?[ayah]?.remove(wordIndex);
-    ((_green[surah] ??= {})[ayah] ??= {}).add(wordIndex);
+  void setWordStatus(
+    int surah,
+    int ayah,
+    int wordIndex,
+    int status, [
+    List<rq.ReciterError>? errors,
+  ]) {
+    final key = QuranCoordinate.packWordKey(surah, ayah, wordIndex);
+    final ayahKey = QuranCoordinate.packAyahKey(surah, ayah);
+    final prev = _states[key];
+    if (prev == null || prev == 0) {
+      _ayahHighlightCounts[ayahKey] = (_ayahHighlightCounts[ayahKey] ?? 0) + 1;
+    }
+    _states[key] = status;
+    if (errors != null && errors.isNotEmpty && status == 2) {
+      _errors[key] = errors;
+    } else {
+      _errors.remove(key);
+    }
   }
+
+  void markGreen(int surah, int ayah, int wordIndex) =>
+      setWordStatus(surah, ayah, wordIndex, 1);
 
   void markYellow(
     int surah,
     int ayah,
     int wordIndex, [
     List<rq.ReciterError>? errors,
-  ]) {
-    _green[surah]?[ayah]?.remove(wordIndex);
-    _red[surah]?[ayah]?.remove(wordIndex);
-    _neutral[surah]?[ayah]?.remove(wordIndex);
-    ((_yellow[surah] ??= {})[ayah] ??= {}).add(wordIndex);
-    if (errors != null && errors.isNotEmpty) {
-      ((_errors[surah] ??= {})[ayah] ??= {})[wordIndex] = errors;
-    } else {
-      _errors[surah]?[ayah]?.remove(wordIndex);
-    }
-  }
+  ]) =>
+      setWordStatus(surah, ayah, wordIndex, 2, errors);
 
-  void markRed(int surah, int ayah, int wordIndex) {
-    _green[surah]?[ayah]?.remove(wordIndex);
-    _yellow[surah]?[ayah]?.remove(wordIndex);
-    _neutral[surah]?[ayah]?.remove(wordIndex);
-    _errors[surah]?[ayah]?.remove(wordIndex);
-    ((_red[surah] ??= {})[ayah] ??= {}).add(wordIndex);
-  }
+  void markRed(int surah, int ayah, int wordIndex) =>
+      setWordStatus(surah, ayah, wordIndex, 3);
 
-  void markNeutral(int surah, int ayah, int wordIndex) {
-    _green[surah]?[ayah]?.remove(wordIndex);
-    _yellow[surah]?[ayah]?.remove(wordIndex);
-    _red[surah]?[ayah]?.remove(wordIndex);
-    _errors[surah]?[ayah]?.remove(wordIndex);
-    ((_neutral[surah] ??= {})[ayah] ??= {}).add(wordIndex);
-  }
+  void markNeutral(int surah, int ayah, int wordIndex) =>
+      setWordStatus(surah, ayah, wordIndex, 4);
 
   void markAyahCompleted(int surah, int ayah) {
     (_completedAyahs[surah] ??= {}).add(ayah);
@@ -84,59 +111,87 @@ class HighlightStore {
 
   // ── Reads ──
 
+  int getWordStatus(int surah, int ayah, int wordIndex) =>
+      _states[QuranCoordinate.packWordKey(surah, ayah, wordIndex)] ?? 0;
+
   bool isGreen(int surah, int ayah, int wordIndex) =>
-      _green[surah]?[ayah]?.contains(wordIndex) ?? false;
+      getWordStatus(surah, ayah, wordIndex) == 1;
 
   bool isYellow(int surah, int ayah, int wordIndex) =>
-      _yellow[surah]?[ayah]?.contains(wordIndex) ?? false;
+      getWordStatus(surah, ayah, wordIndex) == 2;
 
   bool isRed(int surah, int ayah, int wordIndex) =>
-      _red[surah]?[ayah]?.contains(wordIndex) ?? false;
+      getWordStatus(surah, ayah, wordIndex) == 3;
 
   bool isNeutral(int surah, int ayah, int wordIndex) =>
-      _neutral[surah]?[ayah]?.contains(wordIndex) ?? false;
+      getWordStatus(surah, ayah, wordIndex) == 4;
+
+  bool isRead(int surah, int ayah, int wordIndex) =>
+      getWordStatus(surah, ayah, wordIndex) > 0;
 
   List<rq.ReciterError>? errorsFor(int surah, int ayah, int wordIndex) {
     if (!isYellow(surah, ayah, wordIndex)) return null;
-    return _errors[surah]?[ayah]?[wordIndex];
+    return _errors[QuranCoordinate.packWordKey(surah, ayah, wordIndex)];
   }
 
   Set<int> completedAyahsFor(int surah) =>
       _completedAyahs[surah] ?? const <int>{};
 
-  bool get hasHighlights =>
-      _green.isNotEmpty ||
-      _yellow.isNotEmpty ||
-      _red.isNotEmpty ||
-      _neutral.isNotEmpty;
+  /// High-speed O(1) check if a specific ayah has any stored highlights.
+  bool hasAyahHighlights(int surah, int ayah) =>
+      (_ayahHighlightCounts[QuranCoordinate.packAyahKey(surah, ayah)] ?? 0) > 0;
+
+  bool get hasHighlights => _states.isNotEmpty;
+
+  /// Builds radix-16 snapshot map for network synchronization.
+  Map<String, int> buildSnapshotMap() {
+    final map = <String, int>{};
+    for (final e in _states.entries) {
+      map[e.key.toRadixString(16)] = e.value;
+    }
+    return map;
+  }
 
   // ── Clearing ──
 
   void clearAll() {
-    _green.clear();
-    _yellow.clear();
-    _red.clear();
-    _neutral.clear();
+    _states.clear();
     _errors.clear();
     _completedAyahs.clear();
+    _ayahHighlightCounts.clear();
   }
 
   void clearSurah(int surah) {
-    _green.remove(surah);
-    _yellow.remove(surah);
-    _red.remove(surah);
-    _neutral.remove(surah);
-    _errors.remove(surah);
+    _states.removeWhere((key, _) => ((key >> 20) & 0xFF) == surah);
+    _errors.removeWhere((key, _) => ((key >> 20) & 0xFF) == surah);
     _completedAyahs.remove(surah);
+    _ayahHighlightCounts.removeWhere((key, _) => (key >> 16) == surah);
+  }
+
+  void clearAllExceptSurah(int keepSurah) {
+    _states.removeWhere((key, _) => ((key >> 20) & 0xFF) != keepSurah);
+    _errors.removeWhere((key, _) => ((key >> 20) & 0xFF) != keepSurah);
+    _completedAyahs.removeWhere((s, _) => s != keepSurah);
+    _ayahHighlightCounts.removeWhere((key, _) => (key >> 16) != keepSurah);
   }
 
   void clearSurahFromAyah(int surah, int startAyah) {
     _completedAyahs[surah]?.removeWhere((ayah) => ayah >= startAyah);
-    _green[surah]?.removeWhere((ayah, _) => ayah >= startAyah);
-    _yellow[surah]?.removeWhere((ayah, _) => ayah >= startAyah);
-    _red[surah]?.removeWhere((ayah, _) => ayah >= startAyah);
-    _neutral[surah]?.removeWhere((ayah, _) => ayah >= startAyah);
-    _errors[surah]?.removeWhere((ayah, _) => ayah >= startAyah);
+    _states.removeWhere((key, _) {
+      final s = (key >> 20) & 0xFF;
+      final a = (key >> 8) & 0xFFF;
+      return s > surah || (s == surah && a >= startAyah);
+    });
+    _errors.removeWhere((key, _) {
+      final s = (key >> 20) & 0xFF;
+      final a = (key >> 8) & 0xFFF;
+      return s > surah || (s == surah && a >= startAyah);
+    });
+    _ayahHighlightCounts.removeWhere((key, _) {
+      final s = key >> 16;
+      final a = key & 0xFFFF;
+      return s > surah || (s == surah && a >= startAyah);
+    });
   }
 }
 
@@ -230,6 +285,63 @@ class HighlightingController extends rq.HighlightingController {
   static void Function(int surah, int ayah)? onAutoSavePosition;
 
   @override
+  Future<void> setTargetSurah(
+    int surah, {
+    bool preserveOtherSurahStates = false,
+    bool clearTargetSurah = true,
+  }) async {
+    if (!preserveOtherSurahStates) {
+      _store.clearAllExceptSurah(surah);
+    }
+    if (clearTargetSurah) {
+      _store.clearSurah(surah);
+    }
+    await super.setTargetSurah(
+      surah,
+      preserveOtherSurahStates: preserveOtherSurahStates,
+      clearTargetSurah: clearTargetSurah,
+    );
+  }
+
+  /// Extracts classified word indices (green, yellow, red) and errors for an ayah,
+  /// while seamlessly recording local ASR matches into the flat [_store] for O(1) snapshots.
+  ({
+    List<int> greenWords,
+    List<int> yellowWords,
+    List<int> redWords,
+    Map<int, List<rq.ReciterError>>? wordErrors,
+  }) extractAyahWordClassification(int surah, int ayah, int wordCount) {
+    final greenWords = <int>[];
+    final yellowWords = <int>[];
+    final redWords = <int>[];
+    Map<int, List<rq.ReciterError>>? wordErrors;
+
+    for (int w0 = 0; w0 < wordCount; w0++) {
+      if (isWordRed(ayah, w0, surah: surah)) {
+        redWords.add(w0);
+        _store.markRed(surah, ayah, w0);
+      } else if (isWordYellow(ayah, w0, surah: surah)) {
+        yellowWords.add(w0);
+        final errs = getWordErrors(ayah, w0, surah: surah);
+        if (errs != null && errs.isNotEmpty) {
+          (wordErrors ??= {})[w0] = errs;
+        }
+        _store.markYellow(surah, ayah, w0, errs);
+      } else if (isWordGreen(ayah, w0, surah: surah)) {
+        greenWords.add(w0);
+        _store.markGreen(surah, ayah, w0);
+      }
+    }
+
+    return (
+      greenWords: greenWords,
+      yellowWords: yellowWords,
+      redWords: redWords,
+      wordErrors: wordErrors,
+    );
+  }
+
+  @override
   void setManualAyah(int surah, int ayah) {
     super.setManualAyah(surah, ayah);
     onAutoSavePosition?.call(surah, ayah);
@@ -314,6 +426,11 @@ class HighlightingController extends rq.HighlightingController {
     if (remoteSet.isEmpty) return localSet;
     if (localSet.isEmpty) return remoteSet;
     return {...localSet, ...remoteSet};
+  }
+
+  /// High-speed O(1) check if a specific ayah has any stored highlights across local or remote store.
+  bool hasAyahHighlights(int surah, int ayah) {
+    return _store.hasAyahHighlights(surah, ayah);
   }
 
   // ── Remote Maglis Recitation Ingestion ──
@@ -501,6 +618,46 @@ class HighlightingController extends rq.HighlightingController {
     notifyListeners();
   }
 
+  // ── Quran Presentation Queries ──
+
+  /// Returns the 0-based lead target word index:
+  /// - Audio mode: audioWordIndex
+  /// - Remote Maglis mode: activeWord
+  /// - Live ASR mode: first unread word (+1 anticipatory cursor)
+  int? getLeadWordIndex({
+    required int surah,
+    required int ayah,
+    required int totalWords,
+    bool isRecording = false,
+  }) {
+    if (isAudioActive && audioSurah == surah && audioAyah == ayah) {
+      return audioWordIndex;
+    }
+    if (isRemoteReciting && targetSurah == surah && activeAyah.value == ayah) {
+      return activeWordIndex;
+    }
+    if (isRecording && targetSurah == surah && activeAyah.value == ayah) {
+      for (int i = 0; i < totalWords; i++) {
+        if (!isWordRead(ayah, i, surah: surah)) {
+          return i;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Determines if an Ayah is actively selected, reciting, or playing audio.
+  bool isAyahActive(int surah, int ayah) {
+    if (isAudioActive && audioSurah == surah && audioAyah == ayah) return true;
+    final activeMatch = currentMatchedVerse;
+    if (activeMatch != null &&
+        activeMatch.verse.surah == surah &&
+        activeMatch.verse.ayah == ayah) {
+      return true;
+    }
+    return activeAyah.value == ayah && targetSurah == surah;
+  }
+
   @override
   void clearHighlights() {
     _store.clearAll();
@@ -509,6 +666,77 @@ class HighlightingController extends rq.HighlightingController {
     globalRevision.value++;
     notifyListeners();
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Quran Highlight Palette & Styling
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Unified Quran Highlight Palette.
+/// Centralizes all recitation highlight and cursor shades, borders, and opacities
+/// ensuring identical visual fidelity across Mushaf Vector Canvas and Verse List Row viewports.
+class QuranHighlightPalette {
+  final Color greenBand;
+  final Color yellowBand;
+  final Color redBand;
+  final Color leadWordBand;
+  final Color activeAyahBorder;
+  final Color activeAyahBand;
+
+  const QuranHighlightPalette({
+    required this.greenBand,
+    required this.yellowBand,
+    required this.redBand,
+    required this.leadWordBand,
+    required this.activeAyahBorder,
+    required this.activeAyahBand,
+  });
+
+  /// Derives consistent, serene highlight shades from the active app theme.
+  factory QuranHighlightPalette.fromTheme({
+    required ThemeColors colors,
+    required bool isDark,
+  }) {
+    return QuranHighlightPalette(
+      greenBand: colors.green.withValues(alpha: isDark ? 0.22 : 0.15),
+      yellowBand: colors.warning.withValues(alpha: isDark ? 0.24 : 0.18),
+      redBand: colors.red.withValues(alpha: isDark ? 0.22 : 0.14),
+      leadWordBand: colors.wordHighlight.withValues(alpha: isDark ? 0.24 : 0.16),
+      activeAyahBorder: colors.gold.withValues(alpha: isDark ? 0.70 : 0.60),
+      activeAyahBand: isDark
+          ? Colors.white.withValues(alpha: 0.10)
+          : const Color(0xFF64748B).withValues(alpha: 0.09),
+    );
+  }
+
+  /// Resolves the band color for a numeric word highlight state:
+  /// 1: Green (Correct)
+  /// 2: Yellow (Tajweed Warning)
+  /// 3: Red (Mispronounced/Skipped)
+  /// isLead: Active anticipatory cursor (Word N+1)
+  Color bandForState(int state, {bool isLead = false}) {
+    if (isLead) return leadWordBand;
+    if (state == 1) return greenBand;
+    if (state == 2) return yellowBand;
+    if (state == 3) return redBand;
+    return Colors.transparent;
+  }
+}
+
+/// Contiguous word highlight span model.
+/// Standardizes ribbon and pill grouping across both Mushaf Vector and Verse List views.
+class WordHighlightSpan {
+  final int state;
+  final int startWord;
+  final int endWord;
+  final bool isLead;
+
+  const WordHighlightSpan({
+    required this.state,
+    required this.startWord,
+    required this.endWord,
+    this.isLead = false,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

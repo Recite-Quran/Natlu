@@ -295,6 +295,10 @@ class _OrchestratorState extends State<_Orchestrator>
     MaglisController.instance.sessionListenable
         .addListener(_syncMaglisBroadcastListeners);
 
+    MaglisController.instance.onGetSnapshotCumulativeMap = () {
+      return _ctrl?.highlightStore.buildSnapshotMap() ?? {};
+    };
+
     MaglisController.instance.onRemoteRecitationProgress = ({
       required int surah,
       required int ayah,
@@ -525,6 +529,7 @@ class _OrchestratorState extends State<_Orchestrator>
     }
     MaglisController.instance.onRemoteFloorClaimed = null;
     MaglisController.instance.onRemoteRecitationProgress = null;
+    MaglisController.instance.onGetSnapshotCumulativeMap = null;
     MaglisController.instance.onSessionEnded = null;
     if (_hasAttachedMaglisBroadcast) {
       _hasAttachedMaglisBroadcast = false;
@@ -924,24 +929,15 @@ class _OrchestratorState extends State<_Orchestrator>
       final prevSurah = _lastProcessedSurah!;
       final prevVerse = _ctrl!.repository.getVerse(prevSurah, prevAyah);
       final prevWordCount = prevVerse?.uthmaniWords.length ?? 0;
-      final prevGreen = <int>[];
-      final prevYellow = <int>[];
-      final prevRed = <int>[];
-      Map<int, List<ReciterError>>? prevErrors;
-      for (int w0 = 0; w0 < prevWordCount; w0++) {
-        if (_ctrl!.isWordRed(prevAyah, w0, surah: prevSurah)) {
-          prevRed.add(w0);
-        } else if (_ctrl!.isWordYellow(prevAyah, w0, surah: prevSurah)) {
-          prevYellow.add(w0);
-          final errs = _ctrl!.getWordErrors(prevAyah, w0, surah: prevSurah);
-          if (errs != null && errs.isNotEmpty) {
-            (prevErrors ??= {})[w0] = errs;
-          }
-        } else if (_ctrl!.isWordGreen(prevAyah, w0, surah: prevSurah)) {
-          prevGreen.add(w0);
-        }
-      }
-      if (prevGreen.isNotEmpty || prevYellow.isNotEmpty || prevRed.isNotEmpty) {
+      final prevClassification = _ctrl!.extractAyahWordClassification(
+        prevSurah,
+        prevAyah,
+        prevWordCount,
+      );
+
+      if (prevClassification.greenWords.isNotEmpty ||
+          prevClassification.yellowWords.isNotEmpty ||
+          prevClassification.redWords.isNotEmpty) {
         final prevPage =
             MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
         maglis.broadcastRecitation(
@@ -949,60 +945,42 @@ class _OrchestratorState extends State<_Orchestrator>
           surah: prevSurah,
           ayah: prevAyah,
           activeWord: null,
-          greenWords: prevGreen,
-          yellowWords: prevYellow,
-          redWords: prevRed,
-          errors: prevErrors,
+          greenWords: prevClassification.greenWords,
+          yellowWords: prevClassification.yellowWords,
+          redWords: prevClassification.redWords,
+          errors: prevClassification.wordErrors,
         );
       }
     }
     _lastProcessedAyah = activeAyah;
     _lastProcessedSurah = targetSurah;
 
-    final greenWords = <int>[];
-    final yellowWords = <int>[];
-    final redWords = <int>[];
-    Map<int, List<ReciterError>>? wordErrors;
-    int? activeWord;
-
     // Scan canonical verse words directly from loaded repository (never depends on GPU page cache)
     final currentVerse = _ctrl!.repository.getVerse(targetSurah, activeAyah);
     final wordCount = currentVerse?.uthmaniWords.length ?? 0;
 
-    for (int w0 = 0; w0 < wordCount; w0++) {
-      if (_ctrl!.isWordRed(activeAyah, w0, surah: targetSurah)) {
-        redWords.add(w0);
-      } else if (_ctrl!.isWordYellow(activeAyah, w0, surah: targetSurah)) {
-        yellowWords.add(w0);
-        final errs = _ctrl!.getWordErrors(activeAyah, w0, surah: targetSurah);
-        if (errs != null && errs.isNotEmpty) {
-          (wordErrors ??= {})[w0] = errs;
-        }
-      } else if (_ctrl!.isWordGreen(activeAyah, w0, surah: targetSurah)) {
-        greenWords.add(w0);
-      } else if (activeWord == null &&
-          !_ctrl!.isWordNeutral(activeAyah, w0, surah: targetSurah)) {
-        activeWord = w0;
-      }
-    }
+    final classification = _ctrl!.extractAyahWordClassification(
+      targetSurah,
+      activeAyah,
+      wordCount,
+    );
 
-    if (activeWord == null) {
-      if (greenWords.isNotEmpty) {
-        activeWord = greenWords.last + 1;
-      } else if (wordCount > 0) {
-        activeWord = 0;
-      }
-    }
+    final activeWord = _ctrl!.getLeadWordIndex(
+      surah: targetSurah,
+      ayah: activeAyah,
+      totalWords: wordCount,
+      isRecording: true,
+    );
 
     maglis.broadcastRecitation(
       page: page,
       surah: targetSurah,
       ayah: activeAyah,
       activeWord: activeWord,
-      greenWords: greenWords,
-      yellowWords: yellowWords,
-      redWords: redWords,
-      errors: wordErrors,
+      greenWords: classification.greenWords,
+      yellowWords: classification.yellowWords,
+      redWords: classification.redWords,
+      errors: classification.wordErrors,
     );
   }
 

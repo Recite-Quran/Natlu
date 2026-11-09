@@ -1,4 +1,7 @@
 // dart:ffi implementation of QvpBackend.
+// crates/qvp-ffi/include/qvp.h documents every call and struct this file marshals, so its
+// members carry no doc block of their own.
+// ignore_for_file: public_member_api_docs
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
@@ -461,6 +464,18 @@ class QvpNativeBackend implements QvpBackend {
   }
 
   @override
+  int viewSwipe(double dx, double dy, double vx, double vy) {
+    _live();
+    return b.viewSwipe(dx, dy, vx, vy);
+  }
+
+  @override
+  int swipePages(double dx, double dy, double vx, double vy) {
+    _live();
+    return b.swipePages(dx, dy, vx, vy);
+  }
+
+  @override
   void dispose() {
     if (_disposed) return;
     _disposed = true;
@@ -722,10 +737,12 @@ class QvpNativeBackend implements QvpBackend {
       );
 
   @override
-  List<QvpAyahMark> ayahMarks(PageHandle handle) =>
+  List<QvpAyahMark> ayahMarks(PageHandle handle, {required bool view}) =>
       _readArray<QvpAyahMarkC, QvpAyahMark>(
         ffi.sizeOf<QvpAyahMarkC>(),
-        (out, cap) => b.ayahMarks(_page(handle), out, cap),
+        (out, cap) => view
+            ? b.ayahMarksView(_page(handle), out, cap)
+            : b.ayahMarks(_page(handle), out, cap),
         (ptr, i) {
           final m = ptr[i];
           return QvpAyahMark(
@@ -946,26 +963,31 @@ class QvpNativeBackend implements QvpBackend {
       );
 
   @override
-  List<QvpHitArea> hitAreas(PageHandle handle, double gapBias) =>
-      _readArray<QvpHitAreaC, QvpHitArea>(
-        ffi.sizeOf<QvpHitAreaC>(),
-        (out, cap) => b.hitAreas(_page(handle), gapBias, out, cap),
-        (ptr, i) {
-          final ha = ptr[i];
-          return QvpHitArea(
-            word: ha.word,
-            line: ha.line,
-            x0: ha.x0,
-            y0: ha.y0,
-            x1: ha.x1,
-            y1: ha.y1,
-            inkX0: ha.inkX0,
-            inkY0: ha.inkY0,
-            inkX1: ha.inkX1,
-            inkY1: ha.inkY1,
-          );
-        },
+  List<QvpHitArea> hitAreas(
+    PageHandle handle,
+    double gapBias, {
+    required bool view,
+  }) => _readArray<QvpHitAreaC, QvpHitArea>(
+    ffi.sizeOf<QvpHitAreaC>(),
+    (out, cap) => view
+        ? b.hitAreasView(_page(handle), gapBias, out, cap)
+        : b.hitAreas(_page(handle), gapBias, out, cap),
+    (ptr, i) {
+      final ha = ptr[i];
+      return QvpHitArea(
+        word: ha.word,
+        line: ha.line,
+        x0: ha.x0,
+        y0: ha.y0,
+        x1: ha.x1,
+        y1: ha.y1,
+        inkX0: ha.inkX0,
+        inkY0: ha.inkY0,
+        inkX1: ha.inkX1,
+        inkY1: ha.inkY1,
       );
+    },
+  );
 
   // ── Layout & zoom ──
 
@@ -1166,6 +1188,58 @@ class QvpNativeBackend implements QvpBackend {
   }
 
   @override
+  QvpView viewAnchor(
+    PageHandle handle,
+    QvpView view,
+    int word,
+    double nx,
+    double ny,
+    double toX,
+    double toY,
+    double viewportW,
+    double viewportH,
+  ) {
+    final page = _page(handle);
+    _writeView(_view, view);
+    b.viewAnchor(
+      page,
+      _view,
+      word,
+      nx,
+      ny,
+      toX,
+      toY,
+      viewportW,
+      viewportH,
+      _viewOut,
+    );
+    return _readView(_viewOut.ref);
+  }
+
+  @override
+  QvpInkBand layoutInkBand(
+    PageHandle handle,
+    QvpView view,
+    double viewportW,
+    double viewportH,
+    double maxHeight,
+    double maxPixels,
+  ) {
+    _writeView(_view, view);
+    final p = _scratch.cast<QvpInkBandC>();
+    b.layoutInkBand(
+      _page(handle),
+      _view,
+      viewportW,
+      viewportH,
+      maxHeight,
+      maxPixels,
+      p,
+    );
+    return QvpInkBand(top: p.ref.top, height: p.ref.height);
+  }
+
+  @override
   ({double x, double y}) viewToLayout(
     PageHandle handle,
     QvpView view,
@@ -1324,22 +1398,34 @@ class QvpNativeBackend implements QvpBackend {
   List<QvpBox> wordBands(
     PageHandle handle,
     List<int> ws, {
+    required bool view,
     required bool inkHeight,
     required double padX,
     required double padY,
   }) => _withU32(
     ws,
     (wPtr, n) => _readBoxes(
-      (out, cap) => b.wordBands(
-        _page(handle),
-        wPtr,
-        n,
-        inkHeight ? 1 : 0,
-        padX,
-        padY,
-        out,
-        cap,
-      ),
+      (out, cap) => view
+          ? b.wordBandsView(
+              _page(handle),
+              wPtr,
+              n,
+              inkHeight ? 1 : 0,
+              padX,
+              padY,
+              out,
+              cap,
+            )
+          : b.wordBands(
+              _page(handle),
+              wPtr,
+              n,
+              inkHeight ? 1 : 0,
+              padX,
+              padY,
+              out,
+              cap,
+            ),
     ),
   );
 
@@ -1946,7 +2032,18 @@ class QvpNativeBackend implements QvpBackend {
     if (t.wordKey != null && handle != null) {
       final wk = t.wordKey!;
       final w = b.findWord(_page(handle), wk[0], wk[1], wk[2]);
-      r.a = w < 0 ? 0 : w;
+      if (w < 0) {
+        // A word key that is not on this page names no word, as in qvp.js: an empty words
+        // target. It used to name word 0.
+        r.target = T.words(const []).code;
+        r.a = 0;
+        r.b = 0;
+        r.c = 0;
+        r.words = ffi.nullptr;
+        r.nWords = 0;
+        return;
+      }
+      r.a = w;
     } else {
       r.a = t.argA;
     }

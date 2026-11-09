@@ -228,6 +228,7 @@ class QvpPageView extends StatefulWidget {
     this.underlay,
     this.overlay,
     this.repaintListenable,
+    this.onSwipe,
   });
 
   final QvpPage page;
@@ -241,6 +242,9 @@ class QvpPageView extends StatefulWidget {
 
   /// Optional listenable that requests a repaint of this view when fired (e.g. audio spinner).
   final Listenable? repaintListenable;
+
+  /// Sideways flick / swipe turns pages: +1 for next page (in RTL), -1 for previous page.
+  final void Function(int pages)? onSwipe;
 
   /// The size the reader is at changed: a pinch committed, or a step was asked for. The page
   /// reflows as they zoom, so this is where a host redraws its own furniture.
@@ -558,9 +562,12 @@ class QvpPageViewState extends State<QvpPageView>
     }
   }
 
+  double _swipeDx = 0.0;
+
   /// The fingers went down, or their number changed: Flutter starts the scale gesture again
   /// then, with `scale` back at 1, so this is where every pinch is measured from.
   void _onScaleStart(ScaleStartDetails d) {
+    _swipeDx = 0.0;
     _gView = _ctl.view;
     _gFocal = d.localFocalPoint;
     // where the control stood when the fingers went down: the engine measures them against this,
@@ -572,7 +579,11 @@ class QvpPageViewState extends State<QvpPageView>
   /// border on the screen too, not only its text.
   void _hold(QvpView v) {
     final h = page.dressClamp(v, _size.width, _size.height);
-    _ctl.set(scale: h.scale, offsetX: h.offsetX, offsetY: h.offsetY);
+    _ctl.set(
+      scale: h.scale,
+      offsetX: h.offsetX.roundToDouble(),
+      offsetY: h.offsetY.roundToDouble(),
+    );
   }
 
   void _onScaleUpdate(ScaleUpdateDetails d) {
@@ -589,6 +600,9 @@ class QvpPageViewState extends State<QvpPageView>
           d.focalPointDelta.dy,
         ),
       );
+      if (d.pointerCount == 1) {
+        _swipeDx += d.focalPointDelta.dx;
+      }
       return;
     }
     // the fingers' drift since the pinch began: it pans the page, so two fingers drag it
@@ -632,6 +646,25 @@ class QvpPageViewState extends State<QvpPageView>
       widget.onZoomChanged?.call(c.zoom);
     }
     _hold(page.engine.viewPan(c.view, drift.dx, drift.dy));
+  }
+
+  void _onScaleEnd(ScaleEndDetails d) {
+    if (widget.onSwipe != null) {
+      final sideways = page.sidewaysDrag(_zoom, _ctl.view, _fitScale);
+      if (sideways == QvpSideways.turnPage) {
+        final vx = d.velocity.pixelsPerSecond.dx;
+        int dir = 0;
+        if (vx.abs() > 180) {
+          dir = vx < 0 ? 1 : -1;
+        } else if (_swipeDx.abs() > 36.0) {
+          dir = _swipeDx < 0 ? 1 : -1;
+        }
+        if (dir != 0) {
+          widget.onSwipe!(dir);
+        }
+      }
+    }
+    _swipeDx = 0.0;
   }
 
   /// Move the control to one of the page's steps: 0 is the printed page.
@@ -752,6 +785,28 @@ class QvpPageViewState extends State<QvpPageView>
               onDoubleTap: widget.panZoomEnabled ? fit : null,
               onScaleStart: widget.panZoomEnabled ? _onScaleStart : null,
               onScaleUpdate: widget.panZoomEnabled ? _onScaleUpdate : null,
+              onScaleEnd: widget.panZoomEnabled ? _onScaleEnd : null,
+              onHorizontalDragStart: (!widget.panZoomEnabled && widget.onSwipe != null)
+                  ? (_) => _swipeDx = 0.0
+                  : null,
+              onHorizontalDragUpdate: (!widget.panZoomEnabled && widget.onSwipe != null)
+                  ? (d) => _swipeDx += d.primaryDelta ?? d.delta.dx
+                  : null,
+              onHorizontalDragEnd: (!widget.panZoomEnabled && widget.onSwipe != null)
+                  ? (d) {
+                      final vx = d.primaryVelocity ?? 0.0;
+                      int dir = 0;
+                      if (vx.abs() > 180) {
+                        dir = vx < 0 ? 1 : -1;
+                      } else if (_swipeDx.abs() > 36.0) {
+                        dir = _swipeDx < 0 ? 1 : -1;
+                      }
+                      if (dir != 0) {
+                        widget.onSwipe!(dir);
+                      }
+                      _swipeDx = 0.0;
+                    }
+                  : null,
               onLongPressStart:
                   widget.selectionEnabled ? _onLongPressStart : null,
               onLongPressMoveUpdate:
@@ -871,19 +926,16 @@ class _InkKey {
 class _PictureCacheEntry {
   final _InkKey key;
   final ui.Picture picture;
-  final ui.Image? image;
-  final double dpr;
+  final int paths;
+
   _PictureCacheEntry(
     this.key,
     this.picture,
-    this.paths, {
-    this.image,
-    this.dpr = 1.0,
-  });
+    this.paths,
+  );
 
   /// How many engine paths the recording draws. A replay draws all of them, so the stats of
   /// the last frame need this on a cache hit as much as on a fresh recording.
-  final int paths;
 
   /// True once the cache has let the picture go. A view that holds the entry records again.
   bool disposed = false;
@@ -893,15 +945,11 @@ class _PictureCacheEntry {
     try {
       picture.dispose();
     } on Object catch (_) {}
-    try {
-      image?.dispose();
-    } on Object catch (_) {}
   }
 }
 
 class _LruCache {
-  /// How many page textures to keep in cache. 24 provides ample headroom across
-  /// current + adjacent preloaded pages within a 48MB budget.
+  /// How many page vector pictures to keep in cache (vector pictures take <100KB each).
   static const int maxEntries = 24;
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
 
@@ -977,20 +1025,16 @@ class _LruCache {
   _PictureCacheEntry put(
     _InkKey key,
     ui.Picture pic,
-    int paths, {
-    ui.Image? image,
-    double dpr = 1.0,
-  }) {
+    int paths,
+  ) {
     final old = _entries.remove(key);
-    if (old != null && (old.picture != pic || old.image != image)) {
+    if (old != null && old.picture != pic) {
       old.dispose();
     }
     final entry = _entries[key] = _PictureCacheEntry(
       key,
       pic,
       paths,
-      image: image,
-      dpr: dpr,
     );
     while (_entries.length > maxEntries) {
       final firstKey = _entries.keys.first;
@@ -1002,13 +1046,6 @@ class _LruCache {
   bool containsPicture(ui.Picture p) {
     for (final e in _entries.values) {
       if (e.picture == p) return true;
-    }
-    return false;
-  }
-
-  bool containsImage(ui.Image img) {
-    for (final e in _entries.values) {
-      if (e.image == img) return true;
     }
     return false;
   }
@@ -1228,11 +1265,9 @@ class _InkCache {
   static _PictureCacheEntry keepGlobalInk(
     _InkKey key,
     ui.Picture pic,
-    int paths, {
-    ui.Image? image,
-    double dpr = 1.0,
-  }) =>
-      _globalInkCache.put(key, pic, paths, image: image, dpr: dpr);
+    int paths,
+  ) =>
+      _globalInkCache.put(key, pic, paths);
 
   static void prepare(
     QvpPage page, {
@@ -1261,10 +1296,7 @@ class _InkCache {
       surahFrames,
     );
     final existing = getGlobalInk(key);
-    if (existing != null && existing.image != null) return;
-
-    final targetW = ((width ?? l.contentW) * dpr).round();
-    final targetH = ((height ?? bandH) * dpr).round();
+    if (existing != null) return;
 
     final rec = ui.PictureRecorder();
     final c = ui.Canvas(rec);
@@ -1299,26 +1331,11 @@ class _InkCache {
     if (open) c.restore();
     final pic = rec.endRecording();
 
-    ui.Image? img;
-    if (targetW > 0 && targetH > 0) {
-      try {
-        final wrapRec = ui.PictureRecorder();
-        final wrapCanvas = ui.Canvas(wrapRec);
-        wrapCanvas.scale(dpr, dpr);
-        wrapCanvas.drawPicture(pic);
-        final wrapPic = wrapRec.endRecording();
-        img = wrapPic.toImageSync(targetW, targetH);
-        wrapPic.dispose();
-      } catch (_) {}
-    }
-
-    keepGlobalInk(key, pic, n, image: img, dpr: dpr);
+    keepGlobalInk(key, pic, n);
   }
 
   QvpPage? page;
   ui.Picture? picture;
-  ui.Image? image;
-  double imageDpr = 1.0;
 
   /// The global cache's entry for [picture], or null when this cache recorded nothing yet.
   _PictureCacheEntry? entry;
@@ -1373,7 +1390,6 @@ class _InkCache {
   QvpPage? _readPage;
   QvpLayout? _readLayout;
   int _readRevision = 0, _readClock = 0;
-  int _readStyledRevision = -1;
 
   /// Paths off the default ink, their colours, and a hash of which paths they are: the
   /// base ink leaves them out, so the key of its recording holds the hash.
@@ -1389,24 +1405,20 @@ class _InkCache {
   /// masks and the dress follow the page alone. A frame where nothing changed asks for nothing.
   void read(QvpPage page) {
     final l = page.currentLayout;
-    final pageChanged = !identical(page, _readPage);
-    final revisionChanged = page.revision != _readRevision;
-    final layoutChanged = !identical(l, _readLayout);
-    final changed = pageChanged || revisionChanged || layoutChanged;
+    final changed =
+        !identical(page, _readPage) ||
+        page.revision != _readRevision ||
+        !identical(l, _readLayout);
     final clock = pageClock(page);
-    final styledRevisionChanged = page.styledRevision != _readStyledRevision;
 
     if (changed || clock != _readClock) {
-      if (pageChanged || styledRevisionChanged || layoutChanged) {
-        styled = page.styledPaths();
-        var key = 1;
-        for (var i = 0; i < styled.length; i++) {
-          key = 31 * (31 * key + styled[i].path) + styled[i].color;
-        }
-        styledKey = key;
-        styledColors = [for (final s in styled) QvpColor.toColor(s.color)];
-        _readStyledRevision = page.styledRevision;
+      styled = page.styledPaths();
+      var key = 1;
+      for (var i = 0; i < styled.length; i++) {
+        key = 31 * (31 * key + styled[i].path) + styled[i].color;
       }
+      styledKey = key;
+      styledColors = [for (final s in styled) QvpColor.toColor(s.color)];
       bands.set(page.highlightBoxesView());
     }
     if (changed) {
@@ -1437,7 +1449,6 @@ class _InkCache {
     dropStyledPicture();
     _drawList = null;
     _readPage = null;
-    _readStyledRevision = -1;
   }
 
   void _dropPicture() {
@@ -1449,14 +1460,6 @@ class _InkCache {
         } on Object catch (_) {}
       }
       picture = null;
-    }
-    if (image != null) {
-      if (!_globalInkCache.containsImage(image!)) {
-        try {
-          image!.dispose();
-        } on Object catch (_) {}
-      }
-      image = null;
     }
   }
 
@@ -1474,7 +1477,6 @@ class _InkCache {
 
   /// Drops the styled picture (colored text ink).
   void dropStyledPicture() {
-    _readStyledRevision = -1;
     if (styledPicture != null) {
       try {
         styledPicture!.dispose();
@@ -1496,7 +1498,6 @@ class _InkCache {
     _drawList = null;
     _readPage = null;
     _readLayout = null;
-    _readStyledRevision = -1;
   }
 }
 
@@ -1573,9 +1574,6 @@ class _QvpPainter extends CustomPainter {
   final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? underlay;
   final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? overlay;
 
-  final ui.Paint _imagePaint = ui.Paint()
-    ..filterQuality = ui.FilterQuality.low
-    ..isAntiAlias = false;
 
   final ui.Paint _boxPaint = ui.Paint()..isAntiAlias = true;
   final ui.Path _boxPath = ui.Path();
@@ -1761,10 +1759,6 @@ class _QvpPainter extends CustomPainter {
       if (cache.picture == null) {
         cache.picture = held.picture;
       }
-      if (cache.image == null) {
-        cache.image = held.image;
-        cache.imageDpr = held.dpr;
-      }
     } else {
       final key = _InkKey(
         page.page,
@@ -1779,8 +1773,6 @@ class _QvpPainter extends CustomPainter {
       final kept = _InkCache.getGlobalInk(key);
       if (kept != null) {
         cache.picture = kept.picture;
-        cache.image = kept.image;
-        cache.imageDpr = kept.dpr;
         cache.entry = kept;
         // the replay draws every path the recording holds, so the HUD reads the real number
         cache.basePaths = kept.paths;
@@ -1823,53 +1815,14 @@ class _QvpPainter extends CustomPainter {
         cache._dropPicture();
         final pic = rec.endRecording();
 
-        final contentW = (l?.contentW ?? page.width);
-        final targetW = (contentW * dpr).round();
-        final targetH = (bandH * dpr).round();
-        ui.Image? img;
-        if (targetW > 0 && targetH > 0) {
-          try {
-            final wrapRec = ui.PictureRecorder();
-            final wrapCanvas = ui.Canvas(wrapRec);
-            wrapCanvas.scale(dpr, dpr);
-            wrapCanvas.drawPicture(pic);
-            final wrapPic = wrapRec.endRecording();
-            img = wrapPic.toImageSync(targetW, targetH);
-            wrapPic.dispose();
-          } catch (_) {}
-        }
-
         cache.picture = pic;
-        cache.image = img;
-        cache.imageDpr = dpr;
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
         cache.entry = _InkCache.keepGlobalInk(
           key,
           pic,
           n,
-          image: img,
-          dpr: dpr,
         );
-      }
-    }
-
-    // Ensure GPU texture is ready for current DPR (matches native Android Bitmap inkCache)
-    if (cache.image == null && cache.picture != null) {
-      final contentW = (l?.contentW ?? page.width);
-      final targetW = (contentW * dpr).round();
-      final targetH = (bandH * dpr).round();
-      if (targetW > 0 && targetH > 0) {
-        try {
-          final wrapRec = ui.PictureRecorder();
-          final wrapCanvas = ui.Canvas(wrapRec);
-          wrapCanvas.scale(dpr, dpr);
-          wrapCanvas.drawPicture(cache.picture!);
-          final wrapPic = wrapRec.endRecording();
-          cache.image = wrapPic.toImageSync(targetW, targetH);
-          cache.imageDpr = dpr;
-          wrapPic.dispose();
-        } catch (_) {}
       }
     }
 
@@ -1882,20 +1835,8 @@ class _QvpPainter extends CustomPainter {
     // 1. highlight bands (behind the ink)
     cache.bands.draw(canvas, _boxPaint, view);
 
-    // 2. base ink: GPU hardware texture blit (0.015ms) matching native Android canvas.drawBitmap
-    final img = cache.image;
-    if (img != null) {
-      final contentW = (l?.contentW ?? page.width);
-      final src =
-          Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble());
-      final dst = Rect.fromLTWH(
-        view.offsetX,
-        view.offsetY + (top != 0.0 ? top * view.scale : 0.0),
-        contentW * view.scale,
-        bandH * view.scale,
-      );
-      canvas.drawImageRect(img, src, dst, _imagePaint);
-    } else if (cache.picture != null) {
+    // 2. base ink: GPU hardware picture playback (0.05ms)
+    if (cache.picture != null) {
       canvas.save();
       canvas.translate(view.offsetX, view.offsetY);
       canvas.scale(view.scale);

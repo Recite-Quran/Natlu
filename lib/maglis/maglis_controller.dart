@@ -5,7 +5,6 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../core/highlighting_controller.dart';
 import '../core/app_state.dart';
 import 'maglis_core.dart';
-import 'maglis_highlight_store.dart';
 import 'maglis_network.dart';
 import '../mushaf/mushaf_provider.dart';
 
@@ -16,6 +15,7 @@ class MaglisController extends ChangeNotifier {
   void Function(int page, int surah, int ayah)? onSyncMushafUI;
   void Function(int surah, int ayah)? onRemoteFloorClaimed;
   VoidCallback? onSessionEnded;
+  Map<String, int> Function()? onGetSnapshotCumulativeMap;
   void Function({
     required int surah,
     required int ayah,
@@ -38,38 +38,18 @@ class MaglisController extends ChangeNotifier {
     _sessionNotifier.notifyListeners();
   }
 
-  // Compact 32-bit integer key: ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF)
+  // Compact 32-bit integer key: delegated to canonical QuranCoordinate
   static int wordKey(int surah, int ayah, int word0) =>
-      MaglisHighlightStore.wordKey(surah, ayah, word0);
+      QuranCoordinate.packWordKey(surah, ayah, word0);
 
   /// Ultra-compact structured error map for minimum bandwidth over WebRTC.
   static Map<String, dynamic> compactErrorMap(ReciterError e) =>
-      MaglisHighlightStore.compactErrorMap(e);
+      MaglisPacket.compactErrorMap(e);
 
-  List<ReciterError>? getWordErrors(int surah, int ayah, int word0) =>
-      _session?.highlightStore.getWordErrors(surah, ayah, word0);
-
-  int? getWordHighlight(int surah, int ayah, int word0) =>
-      _session?.highlightStore.getWordHighlight(surah, ayah, word0);
-
-  int? getCumulativeHighlightByKey(int key) =>
-      _session?.highlightStore.getCumulativeHighlightByKey(key);
-
-  int get cumulativeHighlightsCount =>
-      _session?.highlightStore.cumulativeHighlights.length ?? 0;
-
-  bool get hasCumulativeHighlights =>
-      _session?.highlightStore.hasCumulativeHighlights ?? false;
-  int get cumulativeVersion => _session?.highlightStore.cumulativeVersion ?? 0;
-  int getPageCumulativeVersion(int page) =>
-      _session?.highlightStore.getPageCumulativeVersion(page) ?? 0;
-
-  /// Clears cumulative session highlights from [startSurah, startAyah] onwards when recording starts.
-  /// Any verse coming before [startSurah, startAyah] strictly keeps its highlights.
+  /// Clears broadcast state when local floor claim begins.
   void clearHighlightsFrom(int startSurah, int startAyah) {
     final s = _session;
     if (s == null) return;
-    s.highlightStore.clearHighlightsFrom(startSurah, startAyah);
     s.lastBroadcastPage = null;
     s.lastBroadcastSurah = null;
     s.lastBroadcastAyah = null;
@@ -246,8 +226,8 @@ class MaglisController extends ChangeNotifier {
       yellowWords: s?.remoteYellowWords ?? const [],
       redWords: s?.remoteRedWords ?? const [],
       activeReciterId: s?.activeReciterId,
-      cumulative: s?.highlightStore.buildSnapshotCumulativeMap(),
-      errors: s?.highlightStore.buildSnapshotErrorsMap(),
+      cumulative: onGetSnapshotCumulativeMap?.call(),
+      errors: null,
       ts: DateTime.now().millisecondsSinceEpoch,
     );
   }
@@ -272,7 +252,7 @@ class MaglisController extends ChangeNotifier {
       if (pkt.type == MaglisPacketType.snapshot) {
         if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
           final currentKeyPrefix =
-              MaglisHighlightStore.wordKey(s.remoteSurah, s.remoteAyah, 0);
+              QuranCoordinate.packWordKey(s.remoteSurah, s.remoteAyah, 0);
           final priorOnly = <String, int>{};
           pkt.cumulative!.forEach((k, v) {
             final parsed = int.tryParse(k, radix: 16);
@@ -280,9 +260,13 @@ class MaglisController extends ChangeNotifier {
               priorOnly[k] = v;
             }
           });
-          if (priorOnly.isNotEmpty &&
-              s.highlightStore.mergeCumulative(priorOnly)) {
-            notifyListeners();
+          if (priorOnly.isNotEmpty) {
+            onRemoteRecitationProgress?.call(
+              surah: s.remoteSurah,
+              ayah: s.remoteAyah,
+              cumulative: priorOnly,
+              isReciting: true,
+            );
           }
         }
         return;
@@ -379,33 +363,21 @@ class MaglisController extends ChangeNotifier {
         pkt.senderId != s.activeReciterId &&
         pkt.activeReciterId != s.activeReciterId) {
       if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
-        if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
-          notifyListeners();
-        }
+        onRemoteRecitationProgress?.call(
+          surah: s.remoteSurah,
+          ayah: s.remoteAyah,
+          cumulative: pkt.cumulative,
+          isReciting: false,
+        );
       }
       return;
     }
 
-    // 5. Merge cumulative and live words into persistent room highlights with fast radix decoding
-    bool cumulativeChanged = false;
-    if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
-      if (s.highlightStore.mergeCumulative(pkt.cumulative!)) {
-        cumulativeChanged = true;
-      }
-    }
-    if (s.highlightStore.mergeWords(
-      pkt.surah,
-      pkt.ayah,
-      greenWords: pkt.greenWords,
-      yellowWords: pkt.yellowWords,
-      redWords: pkt.redWords,
-    )) {
-      cumulativeChanged = true;
-    }
+    final bool cumulativeChanged =
+        (pkt.cumulative != null && pkt.cumulative!.isNotEmpty);
 
     Map<int, List<ReciterError>>? parsedWordErrors;
     if (pkt.errors != null && pkt.errors!.isNotEmpty) {
-      s.highlightStore.mergeErrors(pkt.surah, pkt.ayah, pkt.errors!);
       parsedWordErrors = <int, List<ReciterError>>{};
       pkt.errors!.forEach((k, list) {
         int? w0;
@@ -608,7 +580,7 @@ class MaglisController extends ChangeNotifier {
           }
         } else {
           if (s.isLocalReciting) break;
-          if (cumulativeChanged || s.highlightStore.hasCumulativeHighlights) {
+          if (cumulativeChanged) {
             notifyListeners();
             if (pkt.cumulative != null && pkt.cumulative!.isNotEmpty) {
               onRemoteRecitationProgress?.call(
@@ -652,14 +624,13 @@ class MaglisController extends ChangeNotifier {
     s.remoteYellowWords = const [];
     s.remoteRedWords = const [];
 
-    // Clear cumulative highlights from [surah, ayah] onwards symmetrically on the local store
-    // so stale highlights from a previous reciter are never re-broadcast by recitationSyncTimer.
-    s.highlightStore.clearHighlightsFrom(surah, ayah);
+    // Clear broadcast state from [surah, ayah] onwards so stale highlights
+    // from a previous reciter are never re-broadcast by recitationSyncTimer.
+    clearHighlightsFrom(surah, ayah);
     s.lastBroadcastPage = null;
     s.lastBroadcastSurah = null;
     s.lastBroadcastAyah = null;
     s.lastBroadcastWord = null;
-    s.highlightStore.sentErrorWords.clear();
 
     final claimSeq = ++s.seq;
     s.net.sendPacket(
@@ -734,14 +705,9 @@ class MaglisController extends ChangeNotifier {
       final bool includeCumulative = (syncTicks % 3 == 0);
 
       Map<String, int>? cumulativeMap;
-      if (includeCumulative && s.highlightStore.hasCumulativeHighlights) {
-        cumulativeMap = s.highlightStore.buildSnapshotCumulativeMap();
+      if (includeCumulative) {
+        cumulativeMap = onGetSnapshotCumulativeMap?.call();
       }
-
-      final currentVerseErrors = s.highlightStore.buildVerseErrorsMap(
-        s.remoteSurah,
-        s.remoteAyah,
-      );
 
       s.net.sendPacket(
         MaglisPacket(
@@ -757,7 +723,7 @@ class MaglisController extends ChangeNotifier {
           redWords: s.remoteRedWords,
           activeReciterId: s.localPeerId,
           cumulative: cumulativeMap,
-          errors: currentVerseErrors,
+          errors: null,
           ts: DateTime.now().millisecondsSinceEpoch,
         ),
       );
@@ -832,23 +798,8 @@ class MaglisController extends ChangeNotifier {
     final sortedYellow = List<int>.from(yellowWords)..sort();
     final sortedRed = List<int>.from(redWords)..sort();
 
-    // Persist local words into cumulative session highlights with fast integer hashing
-    s.highlightStore.mergeWords(
-      surah,
-      ayah,
-      greenWords: sortedGreen,
-      yellowWords: sortedYellow,
-      redWords: sortedRed,
-    );
-
-    // Save local errors into remoteWordErrors as well so local reciter has exact same lookup map
-    if (errors != null && errors.isNotEmpty) {
-      s.highlightStore.recordLocalErrors(surah, ayah, errors);
-    }
-
-    // Serialize active errors strictly once per word BEFORE deduplication check
-    // so already-transmitted verse errors do not trigger redundant packets when the reciter pauses.
-    final serializedErrors = s.highlightStore.serializeNewErrors(
+    // Serialize active errors strictly once per word
+    final serializedErrors = MaglisPacket.serializeErrors(
       surah,
       ayah,
       errors,

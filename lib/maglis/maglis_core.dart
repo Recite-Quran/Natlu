@@ -9,6 +9,8 @@ import 'package:cryptography/cryptography.dart' hide Hmac;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:recite_quran/recite_quran.dart' as rq;
+import '../core/highlighting_controller.dart';
 
 enum MaglisPacketType {
   snapshot,
@@ -111,6 +113,53 @@ class MaglisPacket {
 
   static MaglisPacket? unpackBinary(Uint8List bytes) =>
       MaglisBinaryPacker.unpack(bytes);
+
+  /// Ultra-compact structured error map for minimum bandwidth over WebRTC.
+  static Map<String, dynamic> compactErrorMap(rq.ReciterError e) {
+    final m = <String, dynamic>{
+      'errorType': e.errorType.index,
+      'speechErrorType': e.speechErrorType.index,
+      'expectedPh': e.expectedPh,
+      'predictedPh': e.predictedPh,
+    };
+    if (e.durationStatus != null) {
+      m['durationStatus'] = e.durationStatus!.index;
+    }
+    if (e.expectedRule != null) {
+      m['expectedRule'] = {
+        'type': e.expectedRule.runtimeType.toString(),
+        'nameAr': e.expectedRule!.name.ar,
+        'nameEn': e.expectedRule!.name.en,
+        'goldenLen': e.expectedRule!.goldenLen,
+      };
+    }
+    if (e.expectedDuration != null) {
+      m['expectedDuration'] =
+          double.parse(e.expectedDuration!.toStringAsFixed(2));
+    }
+    if (e.actualDuration != null) {
+      m['actualDuration'] =
+          double.parse(e.actualDuration!.toStringAsFixed(2));
+    }
+    return m;
+  }
+
+  /// Serializes active errors per word into radix-16 keyed map.
+  static Map<String, List<Map<String, dynamic>>>? serializeErrors(
+    int surah,
+    int ayah,
+    Map<int, List<rq.ReciterError>>? errors,
+  ) {
+    if (errors == null || errors.isEmpty) return null;
+    final map = <String, List<Map<String, dynamic>>>{};
+    for (final entry in errors.entries) {
+      if (entry.value.isEmpty) continue;
+      final key = QuranCoordinate.packWordKey(surah, ayah, entry.key);
+      map[key.toRadixString(16)] =
+          entry.value.map((e) => compactErrorMap(e)).toList();
+    }
+    return map.isNotEmpty ? map : null;
+  }
 }
 
 /// High-efficiency binary serialization inspired by PeerRTC Packer.

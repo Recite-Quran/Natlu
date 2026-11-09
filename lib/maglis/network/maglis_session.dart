@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../maglis_core.dart';
-import '../maglis_highlight_store.dart';
 import '../maglis_network.dart';
 
 /// MaglisActiveSession
@@ -14,7 +13,6 @@ class MaglisActiveSession {
   final String localPeerId;
   final bool isHost;
   final MaglisNetworkEngine net;
-  final MaglisHighlightStore highlightStore = MaglisHighlightStore();
 
   StreamSubscription<MaglisPacket>? pktSub;
   StreamSubscription<Map<String, RTCIceConnectionState>>? stateSub;
@@ -101,6 +99,5 @@ class MaglisActiveSession {
     try {
       await net.dispose();
     } catch (_) {}
-    highlightStore.clearAll();
   }
 }

@@ -1343,6 +1343,53 @@ class QvpBindings {
         int Function(ffi.Pointer<QvpPageC>, ffi.Pointer<ffi.Float>, int)
       >();
 
+  void layoutInkBand(
+    ffi.Pointer<QvpPageC> arg0,
+    ffi.Pointer<QvpViewC> arg1,
+    double viewportW,
+    double viewportH,
+    double maxHeight,
+    double maxPixels,
+    ffi.Pointer<QvpInkBandC> out,
+  ) {
+    return _layoutInkBand(
+      arg0,
+      arg1,
+      viewportW,
+      viewportH,
+      maxHeight,
+      maxPixels,
+      out,
+    );
+  }
+
+  late final _layoutInkBandPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(
+            ffi.Pointer<QvpPageC>,
+            ffi.Pointer<QvpViewC>,
+            ffi.Float,
+            ffi.Float,
+            ffi.Float,
+            ffi.Float,
+            ffi.Pointer<QvpInkBandC>,
+          )
+        >
+      >('qvp_layout_ink_band');
+  late final _layoutInkBand = _layoutInkBandPtr
+      .asFunction<
+        void Function(
+          ffi.Pointer<QvpPageC>,
+          ffi.Pointer<QvpViewC>,
+          double,
+          double,
+          double,
+          double,
+          ffi.Pointer<QvpInkBandC>,
+        )
+      >();
+
   double layoutLineSpacingToFill(
     ffi.Pointer<QvpPageC> arg0,
     ffi.Pointer<QvpLayoutSpecC> arg1,
@@ -4493,6 +4540,22 @@ final class QvpHitOptionsC extends ffi.Struct {
     ..ref.maxDistance = maxDistance
     ..ref.gapBias = gapBias
     ..ref.preferExact = preferExact;
+}
+
+final class QvpInkBandC extends ffi.Struct {
+  @ffi.Float()
+  external double top;
+
+  @ffi.Float()
+  external double height;
+
+  static ffi.Pointer<QvpInkBandC> $allocate(
+    ffi.Allocator $allocator, {
+    required double top,
+    required double height,
+  }) => $allocator<QvpInkBandC>()
+    ..ref.top = top
+    ..ref.height = height;
 }
 
 final class QvpLayoutC extends ffi.Struct {

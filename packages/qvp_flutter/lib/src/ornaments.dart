@@ -3,9 +3,11 @@ import 'engine.dart';
 
 /// The ornaments of other mushafs and fonts, from `ornaments.qvo`.
 class QvpOrnaments {
+  /// Wraps a set the backend has loaded. Apps call [QvpEngine.loadOrnaments] instead.
   QvpOrnaments.fromHandle(this.engine, this._backend, this._handle, this.list)
     : count = list.length;
 
+  /// The engine that loaded the set.
   final QvpEngine engine;
   final QvpBackend _backend;
   OrnamentsHandle? _handle;
@@ -20,6 +22,7 @@ class QvpOrnaments {
   OrnamentsHandle get handle =>
       _handle ?? (throw StateError('QvpOrnaments is disposed'));
 
+  /// True after [free] or [dispose].
   bool get isDisposed => _handle == null;
 
   /// Frees backend set memory. A second call does nothing. A page dressed from the set
@@ -32,6 +35,7 @@ class QvpOrnaments {
     }
   }
 
+  /// The same as [free].
   void dispose() => free();
 
   /// The ornament of [kind] in [style], or null.

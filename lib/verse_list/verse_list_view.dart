@@ -160,7 +160,8 @@ class VerseListViewState extends State<VerseListView>
 
     if (QuranAudioService.instance.isSingleWordMode) return;
 
-    if (isPlaying && ayah != null) {
+    if (isPlaying && ayah != null && ayah != _lastAyah) {
+      _lastAyah = ayah;
       final int targetSurah = audioSurah ?? widget.controller.targetSurah;
       AppState.instance.saveLastPosition(targetSurah, ayah);
       if (audioSurah != null && audioSurah != widget.controller.targetSurah) {
@@ -177,10 +178,11 @@ class VerseListViewState extends State<VerseListView>
   // ── Safe Viewport Calculation ──────────────────────────────────────────────
   ({double upperSafeY, double lowerSafeY, double screenHeight})
       _getSafeViewportBounds() {
-    final mediaQuery = MediaQuery.of(context);
-    final double screenHeight = mediaQuery.size.height;
-    final double topPadding = mediaQuery.padding.top;
-    final double bottomPadding = mediaQuery.padding.bottom;
+    final Size size = MediaQuery.sizeOf(context);
+    final EdgeInsets padding = MediaQuery.paddingOf(context);
+    final double screenHeight = size.height;
+    final double topPadding = padding.top;
+    final double bottomPadding = padding.bottom;
     final bool isFullscreenMode = widget.isRecording || _isAutoScrolling;
 
     final double topObstruction =
@@ -514,7 +516,6 @@ class VerseListViewState extends State<VerseListView>
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: _isAutoScrolling ? stopAutoScrolling : null,
-        onDoubleTap: toggleAutoScroll,
         child: CustomScrollView(
           controller: _scroll,
           physics: _isAutoScrolling
@@ -548,9 +549,7 @@ class VerseListViewState extends State<VerseListView>
                       isRecording: widget.isRecording,
                       isAutoScrolling: _isAutoScrolling,
                       onTap: () {
-                        widget.controller.setManualAyah(v.surah, v.ayah);
                         _lastAyah = v.ayah;
-                        AppState.instance.saveLastPosition(v.surah, v.ayah);
                         final mapped = MushafProvider.instance
                             .getPageForAyah(v.surah, v.ayah);
                         if (mapped != null) {

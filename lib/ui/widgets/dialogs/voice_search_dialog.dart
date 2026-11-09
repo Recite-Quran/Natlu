@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../../core/app_state.dart';
-import '../../../mushaf/mushaf_ayah_preview.dart';
 import '../../../mushaf/mushaf_provider.dart';
 
 /// Production-ready Voice Search modal dialog for reciting any Ayah across the Quran.
@@ -747,16 +746,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                 ),
               ),
               const SizedBox(height: 4),
-              MushafAyahPreview(
-                surah: match.surah,
-                ayah: match.ayah,
-                startAyah: match.startAyah,
-                endAyah: match.endAyah,
-                color: c.text.withValues(alpha: 0.92),
-                highlightStartWord: match.startWordIdx,
-                highlightEndWord: match.endWordIdx,
-                highlightColor: c.green,
-              ),
+              // Preview bypassed for now
+              const SizedBox.shrink(),
             ],
           ),
         ),

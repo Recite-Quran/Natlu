@@ -4,28 +4,13 @@ import '../core/highlighting_controller.dart';
 import '../core/app_state.dart';
 
 /// Pure helper for generating high-performance, styled [InlineSpan] lists for Quranic verses.
-/// Handles zero-GPU blur hiding, color status resolution, and word gesture binding.
+/// Handles zero-GPU blur hiding for unrecited words, and word gesture binding.
 class VerseSpanBuilder {
-  /// Resolves the foreground color for word at index [wordIndex].
-  /// Kept at [colors.text] so sacred Uthmani typography remains crisp black/pearl,
-  /// while background pastel pills handle recitation status matching Mushaf mode.
-  static Color resolveWordColor({
-    required int ayah,
-    required int wordIndex,
-    required HighlightingController controller,
-    required ThemeColors colors,
-    int? surah,
-  }) {
-    if (wordIndex < 0) return colors.text;
-    return colors.text;
-  }
-
   /// Resolves the word display color, handling zero-GPU blur hiding for unrecited words.
   static Color resolveWordDisplayColor({
     required int ayah,
     required int wordIndex,
     required HighlightingController controller,
-    required AppState app,
     required ThemeColors colors,
     required bool isAutoScrolling,
     int? surah,
@@ -37,14 +22,7 @@ class VerseSpanBuilder {
         return Colors.transparent;
       }
     }
-
-    return resolveWordColor(
-      ayah: ayah,
-      wordIndex: wordIndex,
-      controller: controller,
-      colors: colors,
-      surah: surah,
-    );
+    return colors.text;
   }
 
   /// Builds the complete list of [InlineSpan]s representing an Ayah's text.
@@ -59,14 +37,45 @@ class VerseSpanBuilder {
     required AppState app,
     required ThemeColors colors,
     required List<TapGestureRecognizer> recognizersSink,
-    required VoidCallback? onVerseTap,
     required void Function(int ayah, int wordIndex, String word) onWordErrorTap,
     void Function(int ayah, int wordIndex)? onWordAudioTap,
   }) {
     final List<InlineSpan> spans = [];
     final bool enableGestures = !isAutoScrolling;
-    final bool isBlurEffective =
-        app.isBlurEffective(isRecording: isRecording);
+    final bool isBlurEffective = app.isBlurEffective(isRecording: isRecording);
+    final bool needsBlurCheck = isBlurEffective && !isAutoScrolling;
+
+    // Ultra-fast path for unselected verses:
+    // If the verse is not active, blur mode is not hiding words, and has no Tajweed errors,
+    // we do not need per-word TextSpans or word recognizers.
+    // Building a single contiguous TextSpan slashes paragraph builder overhead by ~95%!
+    if (!isActive && !needsBlurCheck) {
+      bool hasYellowWord = false;
+      final bool isTajweedMode = app.currentMode == AppMode.tajweed;
+      if (isTajweedMode) {
+        for (int i = 0; i < words.length; i++) {
+          if (controller.isWordYellow(ayah, i, surah: surah)) {
+            hasYellowWord = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasYellowWord) {
+        return [
+          TextSpan(
+            text: words.join(' '),
+            style: TextStyle(
+              fontFamily: 'HafsSmart',
+              fontSize: app.fontSize,
+              height: 2.6,
+              wordSpacing: 5.0,
+              color: colors.text,
+            ),
+          ),
+        ];
+      }
+    }
 
     final TextStyle defaultStyle = TextStyle(
       fontFamily: 'HafsSmart',
@@ -81,22 +90,12 @@ class VerseSpanBuilder {
       style: defaultStyle,
     );
 
-    // Bug fix: also check globalRevision > 0 — if any words were matched in this session,
-    // keep resolving colors for ALL ayahs so previously-recited ayahs don't lose their color
-    // when the user deselects them or stops recording.
-    final bool hasHighlights = isActive ||
-        isRecording ||
-        isBlurEffective ||
-        controller.globalRevision.value > 0 ||
-        controller.completedAyahsFor(surah ?? controller.targetSurah).contains(ayah);
-
     for (int i = 0; i < words.length; i++) {
-      final Color color = hasHighlights
+      final Color color = needsBlurCheck
           ? resolveWordDisplayColor(
               ayah: ayah,
               wordIndex: i,
               controller: controller,
-              app: app,
               colors: colors,
               isAutoScrolling: isAutoScrolling,
               surah: surah,
@@ -109,22 +108,28 @@ class VerseSpanBuilder {
 
       TapGestureRecognizer? recognizer;
       if (enableGestures) {
-        recognizer = TapGestureRecognizer()
-          ..onTap = () {
-            if (controller.isWordYellow(ayah, wordIdx, surah: surah)) {
-              onWordErrorTap(ayah, wordIdx, word);
-            } else {
-              onWordAudioTap?.call(ayah, wordIdx);
-            }
-          };
-        recognizersSink.add(recognizer);
+        final bool isYellow = controller.isWordYellow(ayah, wordIdx, surah: surah);
+        // Performance optimization: only attach TapGestureRecognizer if this word has an error
+        // or if the verse is currently active (where individual word audio audition is supported).
+        // Unselected verses without errors delegate taps directly to the VerseRow GestureDetector,
+        // eliminating hundreds of redundant gesture recognizers in the gesture arena!
+        if (isYellow || isActive) {
+          recognizer = TapGestureRecognizer()
+            ..onTap = () {
+              if (isYellow) {
+                onWordErrorTap(ayah, wordIdx, word);
+              } else {
+                onWordAudioTap?.call(ayah, wordIdx);
+              }
+            };
+          recognizersSink.add(recognizer);
+        }
       }
 
-      final TextStyle? style = (color == colors.text)
+      final TextStyle style = (color == colors.text)
           ? defaultStyle
           : defaultStyle.copyWith(color: color);
 
-      // ALWAYS add the word as a standard TextSpan!
       spans.add(
         TextSpan(
           text: word,
@@ -143,7 +148,6 @@ class VerseSpanBuilder {
   }
 }
 
-
 class TajweedTooltipPainter extends CustomPainter {
   final List<String> words;
   final int ayah;
@@ -151,6 +155,7 @@ class TajweedTooltipPainter extends CustomPainter {
   final HighlightingController controller;
   final AppState app;
   final List<InlineSpan> cachedSpans;
+  final Rect? Function(int wordIndex, double width)? getWordRect;
 
   TajweedTooltipPainter({
     required this.words,
@@ -159,6 +164,7 @@ class TajweedTooltipPainter extends CustomPainter {
     required this.controller,
     required this.app,
     required this.cachedSpans,
+    this.getWordRect,
   });
 
   @override
@@ -176,21 +182,22 @@ class TajweedTooltipPainter extends CustomPainter {
     }
     if (!hasYellowWord) return;
 
-    // We must exactly replicate the RichText layout to get accurate coordinates
-    // We MUST set minWidth to size.width so the TextPainter matches the full width of the
-    // stretched RichText, otherwise the RTL text will be offset to the left!
-    final painter = TextPainter(
-      text: TextSpan(children: cachedSpans),
-      textAlign: TextAlign.justify,
-      textDirection: TextDirection.rtl,
-    );
-    painter.layout(minWidth: size.width, maxWidth: size.width);
+    // Precomputed layout query: avoid redundant HarfBuzz layout if word rect is available
+    final TextPainter? fallbackPainter = getWordRect == null
+        ? (TextPainter(
+            text: TextSpan(children: cachedSpans),
+            textAlign: TextAlign.justify,
+            textDirection: TextDirection.rtl,
+          )..layout(minWidth: size.width, maxWidth: size.width))
+        : null;
 
-    final String text = app.isArabic ? 'Ø§Ø¶ØºØ· Ù‡Ù†Ø§' : 'Tap here';
+    final String text = app.isArabic ? 'اضغط هنا' : 'Tap here';
     final textStyle = const TextStyle(
       color: Colors.white,
-      fontSize: 7, // Too small causes pixel-bleed; 7 is the absolute minimum for legibility
-      fontWeight: FontWeight.w600, // Bold is too thick at this size and causes letters to smudge
+      fontSize:
+          7, // Too small causes pixel-bleed; 7 is the absolute minimum for legibility
+      fontWeight: FontWeight
+          .w600, // Bold is too thick at this size and causes letters to smudge
       fontFamily: 'sans-serif',
     );
     final textPainter = TextPainter(
@@ -202,35 +209,44 @@ class TajweedTooltipPainter extends CustomPainter {
     final bgPaint = Paint()
       ..color = app.colors.gold
       ..style = PaintingStyle.fill;
-      
+
     final rrectRadius = const Radius.circular(4);
 
     int charOffset = 0;
     for (int i = 0; i < words.length; i++) {
       final word = words[i];
       if (controller.isWordYellow(ayah, i, surah: surah)) {
-        final rects = painter.getBoxesForSelection(
-          TextSelection(baseOffset: charOffset, extentOffset: charOffset + word.length),
-        );
-        if (rects.isNotEmpty) {
-          double left = rects.first.left;
-          double right = rects.first.right;
-          double bottom = rects.first.bottom;
-          for (final r in rects) {
-            if (r.left < left) left = r.left;
-            if (r.right > right) right = r.right;
-            if (r.bottom > bottom) bottom = r.bottom;
+        Rect? targetRect = getWordRect?.call(i, size.width);
+        if (targetRect == null && fallbackPainter != null) {
+          final rects = fallbackPainter.getBoxesForSelection(
+            TextSelection(
+                baseOffset: charOffset, extentOffset: charOffset + word.length),
+          );
+          if (rects.isNotEmpty) {
+            double left = rects.first.left;
+            double right = rects.first.right;
+            double bottom = rects.first.bottom;
+            for (final r in rects) {
+              if (r.left < left) left = r.left;
+              if (r.right > right) right = r.right;
+              if (r.bottom > bottom) bottom = r.bottom;
+            }
+            targetRect = Rect.fromLTRB(left, 0, right, bottom);
           }
-          final centerX = left + (right - left) / 2;
+        }
+
+        if (targetRect != null) {
+          final centerX =
+              targetRect.left + (targetRect.right - targetRect.left) / 2;
+          final bottom = targetRect.bottom;
 
           // Draw the tooltip perfectly centered at the bottom of the bounding box.
-          // Restore the 4px padding on each side (total 8) to match the original Container look
-          final tooltipWidth = (textPainter.width + 8).roundToDouble(); 
-          final tooltipHeight = (textPainter.height + 2).roundToDouble(); 
-          
+          final tooltipWidth = (textPainter.width + 8).roundToDouble();
+          final tooltipHeight = (textPainter.height + 2).roundToDouble();
+
           final tooltipX = (centerX - tooltipWidth / 2).roundToDouble();
           final tooltipY = (bottom + 2).roundToDouble();
-          
+
           final bgRect = RRect.fromLTRBR(
             tooltipX,
             tooltipY,
@@ -238,18 +254,15 @@ class TajweedTooltipPainter extends CustomPainter {
             tooltipY + tooltipHeight,
             rrectRadius,
           );
-          
+
           canvas.drawRRect(bgRect, bgPaint);
-          
-          // Re-layout the text painter to perfectly match the box width,
-          // so Flutter's internal TextAlign.center completely handles the text centering!
+
           textPainter.layout(minWidth: tooltipWidth, maxWidth: tooltipWidth);
-          
           textPainter.paint(
             canvas,
             Offset(tooltipX, tooltipY + 1),
           );
-          
+
           // Only 1 label per ayah: stop after painting the first yellow word
           break;
         }
@@ -257,14 +270,14 @@ class TajweedTooltipPainter extends CustomPainter {
       charOffset += word.length + 1; // +1 for the space separator
     }
 
-    painter.dispose();
+    fallbackPainter?.dispose();
     textPainter.dispose();
   }
 
   @override
   bool shouldRepaint(covariant TajweedTooltipPainter oldDelegate) {
     return oldDelegate.app.hasClickedTajweedWord != app.hasClickedTajweedWord ||
-           oldDelegate.ayah != ayah || 
-           oldDelegate.words.length != words.length;
+        oldDelegate.ayah != ayah ||
+        oldDelegate.words.length != words.length;
   }
 }

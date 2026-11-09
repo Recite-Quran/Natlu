@@ -1,182 +1,18 @@
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import '../core/highlighting_controller.dart';
 import '../core/app_state.dart';
+import '../core/highlighting_controller.dart';
 
-class _HeaderGeometry {
-  final Rect rect;
-  final Offset p1Top;
-  final Offset p2Top;
-  final Offset p1Bottom;
-  final Offset p2Bottom;
-  const _HeaderGeometry({
-    required this.rect,
-    required this.p1Top,
-    required this.p2Top,
-    required this.p1Bottom,
-    required this.p2Bottom,
-  });
-}
+/// Ultra-lightweight, zero-allocation single-pass overlay/underlay painters
+/// for Surah headers, Ayah audio indicators, and Tajweed tutorial tooltips.
+class MushafOverlays {
+  MushafOverlays._();
 
-class _PageHeaderGeometries {
-  final Object layout;
-  final List<_HeaderGeometry> headers;
-  const _PageHeaderGeometries(this.layout, this.headers);
-}
-
-/// Modern flat card behind the Surah title calligraphy.
-/// Uses exact viewport coordinates from [page.surahHeadersView()].
-class SurahHeaderPainter extends CustomPainter {
-  final QvpPage page;
-  final bool isDark;
-  final ThemeColors colors;
-
-  static final Expando<_PageHeaderGeometries> _headerCache =
-      Expando<_PageHeaderGeometries>();
-
-  SurahHeaderPainter({
-    required this.page,
-    required this.isDark,
-    required this.colors,
-    Listenable? repaintListenable,
-  }) : super(repaint: repaintListenable);
-
-  static final Paint _fillPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _borderPaint = Paint()
+  static final Paint _headerFillPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _headerBorderPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 0.8;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (page.isDisposed) return;
-    final headers = page.surahHeadersView();
-    if (headers.isEmpty) return;
-
-    final layout = page.readLayout() ?? page.currentLayout;
-    if (layout == null) return;
-
-    final cached = _headerCache[page];
-    final List<_HeaderGeometry> list;
-    if (cached != null && identical(cached.layout, layout)) {
-      list = cached.headers;
-    } else {
-      final double fitScale = layout.fitScale;
-      final double fitX = layout.fitX;
-      final double fitY = layout.fitY;
-      final double contentW = layout.contentW;
-
-      final computed = <_HeaderGeometry>[];
-      for (final h in headers) {
-        final double rawTop = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
-        final double rawBottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
-        final double top = fitY + fitScale * rawTop;
-        final double bottom = fitY + fitScale * rawBottom;
-        if (bottom <= top) continue;
-
-        final double left = fitX + fitScale * (h.x1 > h.x0 ? h.x0 : 0.0);
-        final double right = fitX + fitScale * (h.x1 > h.x0 ? h.x1 : contentW);
-
-        computed.add(_HeaderGeometry(
-          rect: Rect.fromLTRB(left, top, right, bottom),
-          p1Top: Offset(left, top),
-          p2Top: Offset(right, top),
-          p1Bottom: Offset(left, bottom),
-          p2Bottom: Offset(right, bottom),
-        ));
-      }
-      list = computed;
-      _headerCache[page] = _PageHeaderGeometries(layout, list);
-    }
-
-    final boxFillColor = isDark
-        ? const Color(0xFF1E252D).withValues(alpha: 0.75)
-        : const Color(0xFFF7F4EB);
-
-    final borderLineColor = isDark
-        ? colors.gold.withValues(alpha: 0.20)
-        : colors.gold.withValues(alpha: 0.30);
-
-    _fillPaint.color = boxFillColor;
-    _borderPaint.color = borderLineColor;
-
-    for (final g in list) {
-      canvas.drawRect(g.rect, _fillPaint);
-      canvas.drawLine(g.p1Top, g.p2Top, _borderPaint);
-      canvas.drawLine(g.p1Bottom, g.p2Bottom, _borderPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(SurahHeaderPainter old) =>
-      old.page != page || old.isDark != isDark || old.colors != colors;
-}
-
-class _CachedMarkGeometry {
-  final int surah;
-  final int ayah;
-  final Offset center;
-  final double customR;
-  final Rect spinRect;
-  final double spinnerStrokeWidth;
-  final RRect stopRRect;
-
-  const _CachedMarkGeometry({
-    required this.surah,
-    required this.ayah,
-    required this.center,
-    required this.customR,
-    required this.spinRect,
-    required this.spinnerStrokeWidth,
-    required this.stopRRect,
-  });
-}
-
-class _PageMarkGeometries {
-  final Object layout;
-  final List<_CachedMarkGeometry> marks;
-  const _PageMarkGeometries(this.layout, this.marks);
-}
-
-/// Minimalist vector circle around the Ayah numeral:
-/// - Idle: Subtle neutral ring with generous clearance from adjacent words.
-/// - Buffering: Gold spinning vector loader arc over a highlight-matched mask.
-/// - Playing: Gold rounded stop icon.
-/// - Stopped: Clean return to neutral ring with the native numeral showing through.
-class AyahMarkPainter extends CustomPainter {
-  final QvpPage page;
-  final AppState app;
-  final Animation<double> spinnerAnimation;
-  final Color surfaceColor;
-  final Color goldColor;
-  final Color neutralRingColor;
-  final Color ayahHighlightColor;
-  final HighlightingController? controller;
-
-  static final Expando<_PageMarkGeometries> _marksCache =
-      Expando<_PageMarkGeometries>();
-
-  AyahMarkPainter({
-    required this.page,
-    required this.app,
-    required this.spinnerAnimation,
-    required this.surfaceColor,
-    required this.goldColor,
-    required this.neutralRingColor,
-    required this.ayahHighlightColor,
-    this.controller,
-    Listenable? repaintListenable,
-  }) : super(
-          repaint: repaintListenable ??
-              Listenable.merge([
-                spinnerAnimation,
-                app.activeAudioAyah,
-                app.activeAudioSurah,
-                app.isAudioBuffering,
-                app.isAudioPlaying,
-              ]),
-        );
 
   static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
@@ -185,75 +21,114 @@ class AyahMarkPainter extends CustomPainter {
     ..style = PaintingStyle.stroke
     ..strokeCap = StrokeCap.round;
 
-  List<_CachedMarkGeometry> _computeGeometries(
-      dynamic layout, List<QvpAyahMark> marks) {
-    final ls = layout.scale as double;
-    final fitScale = layout.fitScale as double;
-    final fitX = layout.fitX as double;
-    final fitY = layout.fitY as double;
-    final lineDy = layout.lineDy as List<double>;
+  static final Paint _tooltipBgPaint = Paint()..style = PaintingStyle.fill;
+  static const Radius _tooltipRadius = Radius.circular(4);
+  static const TextStyle _tooltipTextStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 7,
+    fontWeight: FontWeight.w600,
+    fontFamily: 'sans-serif',
+  );
 
-    final result = <_CachedMarkGeometry>[];
-    for (final m in marks) {
-      final lineOffset =
-          (m.line >= 0 && m.line < lineDy.length) ? lineDy[m.line] : 0.0;
-      final double vx = layout.offsetX + m.cx * ls;
-      final double vy = layout.offsetY + (m.cy + lineOffset) * ls;
-      final double vr = m.r * ls;
+  static TextPainter? _cachedPainterAr;
+  static TextPainter? _cachedPainterEn;
 
-      final double sx = fitX + fitScale * vx;
-      final double sy = fitY + fitScale * vy;
-      final double sr = fitScale * vr;
-
-      // 0.80 radius ratio leaves 3-5px breathing space so words never touch the ring
-      final double customR = sr * 0.80;
-      final center = Offset(sx, sy);
-
-      final double spinRadius = customR * 0.58;
-      final double strokeW = math.max(customR * 0.18, 1.4);
-      final spinRect = Rect.fromCircle(center: center, radius: spinRadius);
-
-      final double stopHalf = customR * 0.32;
-      final stopRect = Rect.fromCenter(
-        center: center,
-        width: stopHalf * 2,
-        height: stopHalf * 2,
-      );
-      final stopRRect = RRect.fromRectAndRadius(
-        stopRect,
-        Radius.circular(stopHalf * 0.25),
-      );
-
-      result.add(_CachedMarkGeometry(
-        surah: m.surah,
-        ayah: m.ayah,
-        center: center,
-        customR: customR,
-        spinRect: spinRect,
-        spinnerStrokeWidth: strokeW,
-        stopRRect: stopRRect,
-      ));
+  static TextPainter _getTooltipTextPainter(bool isArabic) {
+    if (isArabic) {
+      if (_cachedPainterAr == null) {
+        _cachedPainterAr = TextPainter(
+          text: const TextSpan(text: 'اضغط هنا', style: _tooltipTextStyle),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.rtl,
+        )..layout();
+        final w = (_cachedPainterAr!.width + 8).roundToDouble();
+        _cachedPainterAr!.layout(minWidth: w, maxWidth: w);
+      }
+      return _cachedPainterAr!;
+    } else {
+      if (_cachedPainterEn == null) {
+        _cachedPainterEn = TextPainter(
+          text: const TextSpan(text: 'Tap here', style: _tooltipTextStyle),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final w = (_cachedPainterEn!.width + 8).roundToDouble();
+        _cachedPainterEn!.layout(minWidth: w, maxWidth: w);
+      }
+      return _cachedPainterEn!;
     }
-    return result;
   }
 
-  @override
-  void paint(Canvas canvas, Size size) {
+  /// Single-pass underlay: Paints elegant modern cards behind Surah titles.
+  static void paintSurahHeaders(
+    Canvas canvas,
+    QvpPage page,
+    QvpLayout? layout, {
+    required bool isDark,
+    required ThemeColors colors,
+  }) {
     if (page.isDisposed) return;
-    final layout = page.currentLayout;
-    if (layout == null) return;
+    final headers = page.surahHeadersView();
+    if (headers.isEmpty) return;
 
-    final cached = _marksCache[page];
-    final List<_CachedMarkGeometry> cachedMarks;
-    if (cached != null && identical(cached.layout, layout)) {
-      cachedMarks = cached.marks;
-    } else {
-      final marks = page.ayahMarks();
-      if (marks.isEmpty) return;
-      cachedMarks = _computeGeometries(layout, marks);
-      _marksCache[page] = _PageMarkGeometries(layout, cachedMarks);
+    final l = layout ?? page.readLayout() ?? page.currentLayout;
+    if (l == null) return;
+
+    final double fitScale = l.fitScale;
+    final double fitX = l.fitX;
+    final double fitY = l.fitY;
+    final double contentW = l.contentW;
+
+    _headerFillPaint.color = isDark
+        ? const Color(0xFF1E252D).withValues(alpha: 0.75)
+        : const Color(0xFFF7F4EB);
+
+    _headerBorderPaint.color = isDark
+        ? colors.gold.withValues(alpha: 0.20)
+        : colors.gold.withValues(alpha: 0.30);
+
+    for (final h in headers) {
+      final double rawTop = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
+      final double rawBottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
+      final double top = fitY + fitScale * rawTop;
+      final double bottom = fitY + fitScale * rawBottom;
+      if (bottom <= top) continue;
+
+      final double left = fitX + fitScale * (h.x1 > h.x0 ? h.x0 : 0.0);
+      final double right = fitX + fitScale * (h.x1 > h.x0 ? h.x1 : contentW);
+
+      final rect = Rect.fromLTRB(left, top, right, bottom);
+      canvas.drawRect(rect, _headerFillPaint);
+      canvas.drawLine(Offset(left, top), Offset(right, top), _headerBorderPaint);
+      canvas.drawLine(Offset(left, bottom), Offset(right, bottom), _headerBorderPaint);
     }
-    if (cachedMarks.isEmpty) return;
+  }
+
+  /// Single-pass overlay: Paints Ayah rings, live audio loading spinner arc, and stop icon.
+  static void paintAyahMarks(
+    Canvas canvas,
+    QvpPage page,
+    QvpLayout? layout, {
+    required AppState app,
+    required double spinnerProgress,
+    required Color surfaceColor,
+    required Color goldColor,
+    required Color neutralRingColor,
+    required Color ayahHighlightColor,
+    HighlightingController? controller,
+  }) {
+    if (page.isDisposed) return;
+    final l = layout ?? page.currentLayout;
+    if (l == null) return;
+
+    final marks = page.ayahMarks();
+    if (marks.isEmpty) return;
+
+    final ls = l.scale;
+    final fitScale = l.fitScale;
+    final fitX = l.fitX;
+    final fitY = l.fitY;
+    final lineDy = l.lineDy;
 
     final int? audioSurah = app.activeAudioSurah.value;
     final int? audioAyah = app.activeAudioAyah.value;
@@ -266,52 +141,66 @@ class AyahMarkPainter extends CustomPainter {
     _goldPaint.color = goldColor;
     _spinnerPaint.color = goldColor;
 
-    final Map<int, Set<int>> completedBySurah = {};
-    Set<int> getCompleted(int surah) =>
-        completedBySurah.putIfAbsent(surah, () => controller?.completedAyahsFor(surah) ?? const {});
+    for (final m in marks) {
+      final lineOffset =
+          (m.line >= 0 && m.line < lineDy.length) ? lineDy[m.line] : 0.0;
+      final double vx = l.offsetX + m.cx * ls;
+      final double vy = l.offsetY + (m.cy + lineOffset) * ls;
+      final double vr = m.r * ls;
 
-    for (final m in cachedMarks) {
+      final double sx = fitX + fitScale * vx;
+      final double sy = fitY + fitScale * vy;
+      final double sr = fitScale * vr;
+      final double customR = sr * 0.80;
+      final center = Offset(sx, sy);
+
       final bool isThisBuffering =
           isBuffering && audioSurah == m.surah && audioAyah == m.ayah;
       final bool isThisPlaying =
           isPlaying && audioSurah == m.surah && audioAyah == m.ayah;
 
       if (isThisBuffering) {
-        // Mask numeral seamlessly matching background + ayah highlight
         _bgPaint.color = blendedMaskColor;
-        canvas.drawCircle(m.center, m.customR, _bgPaint);
+        canvas.drawCircle(center, customR, _bgPaint);
 
-        // Gold active ring
         _ringPaint.color = goldColor;
         _ringPaint.strokeWidth = 1.2;
-        canvas.drawCircle(m.center, m.customR, _ringPaint);
+        canvas.drawCircle(center, customR, _ringPaint);
 
-        // Rotating gold loader arc
-        _spinnerPaint.strokeWidth = m.spinnerStrokeWidth;
-        final double startAngle = spinnerAnimation.value * 2 * math.pi;
+        final double spinRadius = customR * 0.58;
+        final double strokeW = math.max(customR * 0.18, 1.4);
+        _spinnerPaint.strokeWidth = strokeW;
+        final double startAngle = spinnerProgress * 2 * math.pi;
         canvas.drawArc(
-          m.spinRect,
+          Rect.fromCircle(center: center, radius: spinRadius),
           startAngle,
           2.4,
           false,
           _spinnerPaint,
         );
       } else if (isThisPlaying) {
-        // Mask numeral seamlessly matching background + ayah highlight
         _bgPaint.color = blendedMaskColor;
-        canvas.drawCircle(m.center, m.customR, _bgPaint);
+        canvas.drawCircle(center, customR, _bgPaint);
 
-        // Gold active ring
         _ringPaint.color = goldColor;
         _ringPaint.strokeWidth = 1.2;
-        canvas.drawCircle(m.center, m.customR, _ringPaint);
+        canvas.drawCircle(center, customR, _ringPaint);
 
-        // Rounded gold stop square
-        canvas.drawRRect(m.stopRRect, _goldPaint);
+        final double stopHalf = customR * 0.32;
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: center,
+              width: stopHalf * 2,
+              height: stopHalf * 2,
+            ),
+            Radius.circular(stopHalf * 0.25),
+          ),
+          _goldPaint,
+        );
       } else {
-        // Idle state: Subtle neutral ring or elegant warm gold completed ring
         final bool isCompleted = controller != null &&
-            getCompleted(m.surah).contains(m.ayah);
+            controller.completedAyahsFor(m.surah).contains(m.ayah);
         if (isCompleted) {
           _ringPaint.color = goldColor.withValues(alpha: 0.65);
           _ringPaint.strokeWidth = 1.2;
@@ -319,140 +208,43 @@ class AyahMarkPainter extends CustomPainter {
           _ringPaint.color = neutralRingColor;
           _ringPaint.strokeWidth = 1.0;
         }
-        canvas.drawCircle(m.center, m.customR, _ringPaint);
+        canvas.drawCircle(center, customR, _ringPaint);
       }
     }
   }
 
-  @override
-  bool shouldRepaint(AyahMarkPainter old) =>
-      old.page != page ||
-      old.surfaceColor != surfaceColor ||
-      old.goldColor != goldColor ||
-      old.neutralRingColor != neutralRingColor ||
-      old.ayahHighlightColor != ayahHighlightColor ||
-      old.controller != controller;
-}
-
-/// Minimalist Tajweed tutorial tooltip ("اضغط هنا" / "Tap here")
-/// painted directly beneath yellow Tajweed error words on the Mushaf vector page.
-///
-/// Performance & UI invariants:
-/// - Only active in Tajweed mode during onboarding (!hasClickedTajweedWord).
-/// - Positioned strictly DOWN underneath the word ink baseline using exact layout math.
-/// - Anti-collision: concurrent/adjacent yellow words share a single clean badge (never collapses/overlaps).
-/// - Instant O(1) exit if no words on this page are yellow.
-/// - Zero impact on non-Tajweed modes or once onboarding clicks reach 10.
-class MushafTajweedTooltipPainter extends CustomPainter {
-  final QvpPage page;
-  final HighlightingController controller;
-  final AppState app;
-  final Color goldColor;
-  final List<int>? explicitYellowWords;
-
-  MushafTajweedTooltipPainter({
-    required this.page,
-    required this.controller,
-    required this.app,
-    required this.goldColor,
-    this.explicitYellowWords,
-    Listenable? repaintListenable,
-  }) : super(
-          repaint: repaintListenable ??
-              Listenable.merge([
-                page,
-                app,
-                app.modeNotifier,
-              ]),
-        );
-
-  static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
-  static const Radius _rrectRadius = Radius.circular(4);
-  static const TextStyle _textStyle = TextStyle(
-    color: Colors.white,
-    fontSize: 7,
-    fontWeight: FontWeight.w600,
-    fontFamily: 'sans-serif',
-  );
-
-  static TextPainter? _cachedPainterAr;
-  static TextPainter? _cachedPainterEn;
-
-  static TextPainter _getTextPainter(bool isArabic) {
-    if (isArabic) {
-      if (_cachedPainterAr == null) {
-        _cachedPainterAr = TextPainter(
-          text: const TextSpan(text: 'اضغط هنا', style: _textStyle),
-          textAlign: TextAlign.center,
-          textDirection: TextDirection.rtl,
-        )..layout();
-        final w = (_cachedPainterAr!.width + 8).roundToDouble();
-        _cachedPainterAr!.layout(minWidth: w, maxWidth: w);
-      }
-      return _cachedPainterAr!;
-    } else {
-      if (_cachedPainterEn == null) {
-        _cachedPainterEn = TextPainter(
-          text: const TextSpan(text: 'Tap here', style: _textStyle),
-          textAlign: TextAlign.center,
-          textDirection: TextDirection.ltr,
-        )..layout();
-        final w = (_cachedPainterEn!.width + 8).roundToDouble();
-        _cachedPainterEn!.layout(minWidth: w, maxWidth: w);
-      }
-      return _cachedPainterEn!;
-    }
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
+  /// Single-pass overlay: Paints onboarding Tajweed tutorial tooltip ("اضغط هنا") beneath yellow words.
+  static void paintTajweedTooltip(
+    Canvas canvas,
+    Size size,
+    QvpPage page,
+    QvpLayout? layout, {
+    required AppState app,
+    required Color goldColor,
+    required List<int> yellowWords,
+  }) {
     if (app.hasClickedTajweedWord ||
         app.currentMode != AppMode.tajweed ||
-        page.isDisposed) {
+        page.isDisposed ||
+        yellowWords.isEmpty) {
       return;
     }
 
-    final List<int> yellowWords;
-    if (explicitYellowWords != null) {
-      if (explicitYellowWords!.isEmpty) return;
-      yellowWords = explicitYellowWords!;
-    } else {
-      bool isWordYellow(int a, int w0, int s) =>
-          controller.isWordYellow(a, w0, surah: s);
+    final l = layout ?? page.readLayout() ?? page.currentLayout;
+    if (l == null) return;
 
-      final collected = <int>[];
-      final seenAyahs = <int>{};
-      for (int i = 0; i < page.words.length; i++) {
-        final w = page.words[i];
-        final ayahKey = (w.surah << 16) | w.ayah;
-        if (seenAyahs.contains(ayahKey)) continue;
-        final w0 = w.word - 1;
-        if (isWordYellow(w.ayah, w0, w.surah)) {
-          collected.add(i);
-          seenAyahs.add(ayahKey);
-        }
-      }
-      if (collected.isEmpty) return;
-      yellowWords = collected;
-    }
-
-    final layout = page.readLayout() ?? page.currentLayout;
-    if (layout == null) return;
-
-    final textPainter = _getTextPainter(app.isArabic);
+    final textPainter = _getTooltipTextPainter(app.isArabic);
     final tooltipWidth = textPainter.width;
     final tooltipHeight = (textPainter.height + 2).roundToDouble();
 
-    _bgPaint.color = goldColor;
+    _tooltipBgPaint.color = goldColor;
 
-    final double ls = layout.scale;
-    final double fitScale = layout.fitScale;
-    final double fitX = layout.fitX;
-    final double fitY = layout.fitY;
-    final List<double> lineDy = layout.lineDy;
+    final double ls = l.scale;
+    final double fitScale = l.fitScale;
+    final double fitX = l.fitX;
+    final double fitY = l.fitY;
+    final List<double> lineDy = l.lineDy;
 
-    // Group yellow words by line so concurrent/adjacent words on the same line
-    // can each have their own badge without overlapping or collapsing.
     final Map<int, List<int>> wordsByLine = {};
     for (final wordIdx in yellowWords) {
       if (wordIdx < 0 || wordIdx >= page.words.length) continue;
@@ -464,16 +256,16 @@ class MushafTajweedTooltipPainter extends CustomPainter {
 
     for (final entry in wordsByLine.entries) {
       final wordsOnLine = entry.value;
+      final List<_BadgePosition> lineBadges = [];
 
-      final List<_MushafBadgeItem> lineBadges = [];
       for (final wordIdx in wordsOnLine) {
         final w = page.words[wordIdx];
         final double lineOffset =
             (w.line >= 0 && w.line < lineDy.length) ? lineDy[w.line] : 0.0;
-        final double vx0 = layout.offsetX + w.x0 * ls;
-        final double vx1 = layout.offsetX + w.x1 * ls;
-        final double vy0 = layout.offsetY + (w.y0 + lineOffset) * ls;
-        final double vy1 = layout.offsetY + (w.y1 + lineOffset) * ls;
+        final double vx0 = l.offsetX + w.x0 * ls;
+        final double vx1 = l.offsetX + w.x1 * ls;
+        final double vy0 = l.offsetY + (w.y0 + lineOffset) * ls;
+        final double vy1 = l.offsetY + (w.y1 + lineOffset) * ls;
 
         final double left = fitX + fitScale * math.min(vx0, vx1);
         final double right = fitX + fitScale * math.max(vx0, vx1);
@@ -481,17 +273,14 @@ class MushafTajweedTooltipPainter extends CustomPainter {
         final double centerX = (left + right) / 2.0;
 
         final double idealX = centerX - tooltipWidth / 2.0;
-        // Positioned closer to the word from down, tucked snugly beneath the baseline
         final double tooltipY = (bottom - 4.0).roundToDouble();
 
-        lineBadges.add(_MushafBadgeItem(x: idealX, y: tooltipY));
+        lineBadges.add(_BadgePosition(x: idealX, y: tooltipY));
       }
 
       if (lineBadges.length > 1) {
-        // Sort left-to-right
         lineBadges.sort((a, b) => a.x.compareTo(b.x));
 
-        // Push overlapping adjacent badges apart so both words get their own distinct badge
         for (int i = 0; i < lineBadges.length - 1; i++) {
           final cur = lineBadges[i];
           final next = lineBadges[i + 1];
@@ -502,14 +291,12 @@ class MushafTajweedTooltipPainter extends CustomPainter {
           }
         }
 
-        // Enforce strictly non-overlapping positions
         for (int i = 1; i < lineBadges.length; i++) {
           if (lineBadges[i].x < lineBadges[i - 1].x + tooltipWidth + minGap) {
             lineBadges[i].x = lineBadges[i - 1].x + tooltipWidth + minGap;
           }
         }
 
-        // Clamp group within screen boundaries
         if (lineBadges.last.x + tooltipWidth > size.width - 4.0) {
           final shift = (lineBadges.last.x + tooltipWidth) - (size.width - 4.0);
           for (final b in lineBadges) {
@@ -528,7 +315,6 @@ class MushafTajweedTooltipPainter extends CustomPainter {
             .roundToDouble();
       }
 
-      // Paint all badges on this line
       for (final badge in lineBadges) {
         final double bx = badge.x.roundToDouble();
         final double by = badge.y;
@@ -538,29 +324,95 @@ class MushafTajweedTooltipPainter extends CustomPainter {
           by,
           bx + tooltipWidth,
           by + tooltipHeight,
-          _rrectRadius,
+          _tooltipRadius,
         );
 
-        canvas.drawRRect(bgRect, _bgPaint);
+        canvas.drawRRect(bgRect, _tooltipBgPaint);
         textPainter.paint(canvas, Offset(bx, by + 1.0));
       }
     }
   }
-
-  @override
-  bool shouldRepaint(MushafTajweedTooltipPainter oldDelegate) =>
-      oldDelegate.page != page ||
-      oldDelegate.goldColor != goldColor ||
-      oldDelegate.app.isArabic != app.isArabic ||
-      oldDelegate.app.hasClickedTajweedWord != app.hasClickedTajweedWord ||
-      oldDelegate.app.currentMode != app.currentMode ||
-      !listEquals(oldDelegate.explicitYellowWords, explicitYellowWords);
 }
 
-class _MushafBadgeItem {
+class _BadgePosition {
   double x;
   final double y;
-  _MushafBadgeItem({required this.x, required this.y});
+  _BadgePosition({required this.x, required this.y});
 }
 
+/// Backward compatibility class adapters
+class SurahHeaderPainter extends CustomPainter {
+  final QvpPage page;
+  final bool isDark;
+  final ThemeColors colors;
+  SurahHeaderPainter({required this.page, required this.isDark, required this.colors, Listenable? repaintListenable}) : super(repaint: repaintListenable);
+  @override
+  void paint(Canvas canvas, Size size) => MushafOverlays.paintSurahHeaders(canvas, page, page.currentLayout, isDark: isDark, colors: colors);
+  @override
+  bool shouldRepaint(SurahHeaderPainter old) => old.page != page || old.isDark != isDark || old.colors != colors;
+}
 
+class AyahMarkPainter extends CustomPainter {
+  final QvpPage page;
+  final AppState app;
+  final Animation<double> spinnerAnimation;
+  final Color surfaceColor;
+  final Color goldColor;
+  final Color neutralRingColor;
+  final Color ayahHighlightColor;
+  final HighlightingController? controller;
+  AyahMarkPainter({
+    required this.page,
+    required this.app,
+    required this.spinnerAnimation,
+    required this.surfaceColor,
+    required this.goldColor,
+    required this.neutralRingColor,
+    required this.ayahHighlightColor,
+    this.controller,
+    Listenable? repaintListenable,
+  }) : super(repaint: repaintListenable);
+  @override
+  void paint(Canvas canvas, Size size) => MushafOverlays.paintAyahMarks(
+        canvas,
+        page,
+        page.currentLayout,
+        app: app,
+        spinnerProgress: spinnerAnimation.value,
+        surfaceColor: surfaceColor,
+        goldColor: goldColor,
+        neutralRingColor: neutralRingColor,
+        ayahHighlightColor: ayahHighlightColor,
+        controller: controller,
+      );
+  @override
+  bool shouldRepaint(AyahMarkPainter old) => true;
+}
+
+class MushafTajweedTooltipPainter extends CustomPainter {
+  final QvpPage page;
+  final HighlightingController controller;
+  final AppState app;
+  final Color goldColor;
+  final List<int>? explicitYellowWords;
+  MushafTajweedTooltipPainter({
+    required this.page,
+    required this.controller,
+    required this.app,
+    required this.goldColor,
+    this.explicitYellowWords,
+    Listenable? repaintListenable,
+  }) : super(repaint: repaintListenable);
+  @override
+  void paint(Canvas canvas, Size size) => MushafOverlays.paintTajweedTooltip(
+        canvas,
+        size,
+        page,
+        page.currentLayout,
+        app: app,
+        goldColor: goldColor,
+        yellowWords: explicitYellowWords ?? const [],
+      );
+  @override
+  bool shouldRepaint(MushafTajweedTooltipPainter old) => true;
+}

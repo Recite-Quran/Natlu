@@ -58,6 +58,7 @@ class QvpPassage {
     return pages.first.engine;
   }
 
+  /// The engine of the pages the passage was loaded from.
   final QvpEngine engine;
   final QvpBackend _backend;
   PassageHandle? _handle;
@@ -75,6 +76,7 @@ class QvpPassage {
   PassageHandle get handle =>
       _handle ?? (throw StateError('QvpPassage is disposed'));
 
+  /// True after [close] or [dispose].
   bool get isDisposed => _handle == null;
 
   /// Frees backend passage memory. A second call does nothing.
@@ -86,6 +88,7 @@ class QvpPassage {
     }
   }
 
+  /// The same as [close].
   void dispose() => close();
 
   /// Lays the passage out. Null when spec is out of range.
