@@ -118,15 +118,16 @@ class MushafOverlays {
     required bool isRecording,
   }) {
     if (page.isDisposed) return;
-    final wordBoxes = page.wordBoxesView();
-    if (wordBoxes.isEmpty) return;
 
     final isDark = app.isDarkMode;
     final palette =
         QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
 
     // 1. Resolve Active Ayah Coordinate (surah, ayah)
-    final coord = controller.activeAyahCoordinate;
+    final coord = controller.activeAyahCoordinate ??
+        (app.lastSurah != 0 && app.lastAyah != 0
+            ? (app.lastSurah, app.lastAyah)
+            : null);
 
     final int activeSurah = coord?.$1 ?? 0;
     final int activeAyah = coord?.$2 ?? 0;
@@ -175,6 +176,9 @@ class MushafOverlays {
     }
 
     if (ayahsToPaint.isEmpty) return;
+
+    final wordBoxes = page.wordBoxesView();
+    if (wordBoxes.isEmpty) return;
 
     // 4. Render continuous line boxes for each ayah
     for (final (s, a) in ayahsToPaint) {
@@ -337,16 +341,10 @@ class MushafOverlays {
       final center = Offset(m.cx, m.cy);
       final double customR = m.r * 0.80;
 
-      final bool isThisBuffering = controller != null
-          ? controller.isAyahAudioBuffering(m.surah, m.ayah)
-          : (app.isAudioBuffering.value &&
-              app.activeAudioSurah.value == m.surah &&
-              app.activeAudioAyah.value == m.ayah);
-      final bool isThisPlaying = controller != null
-          ? controller.isAyahAudioPlaying(m.surah, m.ayah)
-          : (app.isAudioPlaying.value &&
-              app.activeAudioSurah.value == m.surah &&
-              app.activeAudioAyah.value == m.ayah);
+      final bool isThisBuffering = controller != null &&
+          controller.isAyahAudioBuffering(m.surah, m.ayah);
+      final bool isThisPlaying = controller != null &&
+          controller.isAyahAudioPlaying(m.surah, m.ayah);
 
       if (isThisBuffering) {
         _bgPaint.color = surfaceColor;

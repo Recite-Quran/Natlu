@@ -67,12 +67,11 @@ class VerseListViewState extends State<VerseListView>
     super.initState();
     _autoScrollTicker = createTicker(_onAutoScrollTick);
     _lastSurah = widget.controller.targetSurah;
-    _lastAyah = widget.controller.activeAyah.value ?? AppState.instance.lastAyah;
+    _lastAyah =
+        widget.controller.activeAyah.value ?? AppState.instance.lastAyah;
 
     widget.controller.addListener(_onControllerUpdate);
     widget.controller.activeAyah.addListener(_onActiveAyahChanged);
-    AppState.instance.activeAudioAyah.addListener(_onActiveAudioAyahChanged);
-    AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
 
     // Initial position alignment
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,8 +93,6 @@ class VerseListViewState extends State<VerseListView>
     _keys.clear();
     widget.controller.removeListener(_onControllerUpdate);
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
-    AppState.instance.activeAudioAyah.removeListener(_onActiveAudioAyahChanged);
-    AppState.instance.isAudioPlaying.removeListener(_onActiveAudioAyahChanged);
     super.dispose();
   }
 
@@ -148,28 +145,6 @@ class VerseListViewState extends State<VerseListView>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _ensureAyahVisibleSmart(active);
-        }
-      });
-    }
-  }
-
-  void _onActiveAudioAyahChanged() {
-    final isPlaying = AppState.instance.isAudioPlaying.value;
-    final ayah = AppState.instance.activeAudioAyah.value;
-    final int? audioSurah = AppState.instance.activeAudioSurah.value;
-
-    if (QuranAudioService.instance.isSingleWordMode) return;
-
-    if (isPlaying && ayah != null && ayah != _lastAyah) {
-      _lastAyah = ayah;
-      final int targetSurah = audioSurah ?? widget.controller.targetSurah;
-      AppState.instance.saveLastPosition(targetSurah, ayah);
-      if (audioSurah != null && audioSurah != widget.controller.targetSurah) {
-        widget.controller.setTargetSurah(audioSurah);
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.controller.targetSurah == targetSurah) {
-          _ensureAyahVisibleSmart(ayah);
         }
       });
     }
@@ -308,11 +283,7 @@ class VerseListViewState extends State<VerseListView>
       return;
     }
 
-    final bool isAudio = AppState.instance.isAudioPlaying.value;
-    final int? activeAyah = isAudio
-        ? (AppState.instance.activeAudioAyah.value ??
-            widget.controller.activeAyah.value)
-        : widget.controller.activeAyah.value;
+    final int? activeAyah = widget.controller.activeAyah.value;
     if (activeAyah == null || ayah != activeAyah) {
       return;
     }
@@ -579,8 +550,9 @@ class VerseListViewState extends State<VerseListView>
     final bool isAr = app.isArabic;
     final bool isDark = app.isDarkMode;
 
-    final Color cardBg =
-        isDark ? c.surfaceHigh.withValues(alpha: 0.75) : Colors.white.withValues(alpha: 0.92);
+    final Color cardBg = isDark
+        ? c.surfaceHigh.withValues(alpha: 0.75)
+        : Colors.white.withValues(alpha: 0.92);
 
     return Padding(
       padding: const EdgeInsets.only(top: 24.0, bottom: 8.0),
@@ -753,4 +725,3 @@ class _TactileScaleButtonState extends State<_TactileScaleButton> {
     );
   }
 }
-

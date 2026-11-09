@@ -191,7 +191,7 @@ class VerseAudioPlayer {
   AudioPlayer? _player;
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<PlayerState>? _playerStateSub;
-  StreamSubscription<int?>? _currentIndexSub;
+  StreamSubscription<SequenceState?>? _sequenceSub;
 
   int _sessionId = 0;
   int? _currentSurah;
@@ -204,6 +204,7 @@ class VerseAudioPlayer {
   // Gapless continuous playlist state
   List<int> _playlistAyahs = [];
   int? _playlistSurah;
+  bool _isPreparingNewTrack = false;
 
   // Single word auditioning mode state
   bool _isSingleWordMode = false;
@@ -423,8 +424,8 @@ class VerseAudioPlayer {
     _positionSub = null;
     _playerStateSub?.cancel();
     _playerStateSub = null;
-    _currentIndexSub?.cancel();
-    _currentIndexSub = null;
+    _sequenceSub?.cancel();
+    _sequenceSub = null;
   }
 
   /// Explicitly configures and activates the native media audio session (STREAM_MUSIC)
@@ -462,7 +463,10 @@ class VerseAudioPlayer {
           maxPeriod: const Duration(milliseconds: 40),
         )
         .listen(_handlePosition);
-    _currentIndexSub ??= p.currentIndexStream.listen(_handleIndexChanged);
+    _sequenceSub ??= p.sequenceStateStream.listen((seqState) {
+      if (_isSingleWordMode || _isPaused) return;
+      _handleIndexChanged(seqState.currentIndex);
+    });
 
     _playerStateSub ??= p.playerStateStream.listen((state) {
       final isBuffering = state.processingState == ProcessingState.buffering ||
@@ -472,7 +476,7 @@ class VerseAudioPlayer {
       if (state.processingState == ProcessingState.completed) {
         _handleTrackComplete();
       } else if (state.processingState == ProcessingState.idle) {
-        if (!_isAdvancingSurah) {
+        if (!_isAdvancingSurah && !_isPreparingNewTrack) {
           _resetStopped();
         }
       } else if (state.playing) {
@@ -485,7 +489,7 @@ class VerseAudioPlayer {
         } else if (_activeWordIndex == null) {
           _setWordIndex(0);
         }
-      } else if (!state.playing && !isBuffering && !_isAdvancingSurah) {
+      } else if (!state.playing && !isBuffering && !_isAdvancingSurah && !_isPreparingNewTrack) {
         _setPlaying(false);
       }
     });
@@ -528,6 +532,7 @@ class VerseAudioPlayer {
   }) async {
     final int session = ++_sessionId;
 
+    _isPreparingNewTrack = true;
     _isSingleWordMode = true;
     _isPaused = false;
     _currentSurah = surah;
@@ -546,7 +551,10 @@ class VerseAudioPlayer {
       // 1. Ensure timings are loaded from Quran.com / disk cache
       final surahTiming =
           await QuranTimingService.instance.ensureSurahLoaded(surah);
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       final ayahTiming = surahTiming?.getAyah(ayah);
       WordTiming? targetWord;
@@ -569,11 +577,17 @@ class VerseAudioPlayer {
 
       // Ensure local file is on disk for instant 0ms auditioning
       await ensureAyahDownloaded(surah, ayah);
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       // 2. Fetch/resolve cached 64kbps Ayah file AudioSource
       final source = await createAyahAudioSource(surah, ayah);
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       int startMs = 0;
       int endMs = 2000;
@@ -595,7 +609,10 @@ class VerseAudioPlayer {
       try {
         await player.stop();
       } catch (_) {}
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       AudioSource wordSource = source;
       if (source is UriAudioSource) {
@@ -608,20 +625,26 @@ class VerseAudioPlayer {
       }
 
       await player.setAudioSources([wordSource]);
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
+      _isPreparingNewTrack = false;
       _setBuffering(false);
       _setPlaying(true);
       _setWordIndex(wordIndex);
 
       await player.play();
     } on PlatformException catch (e, stack) {
+      _isPreparingNewTrack = false;
       if (session == _sessionId) {
         log('PlatformException in playWord: ${e.message}',
             name: 'VerseAudioPlayer', error: e, stackTrace: stack);
         _resetStopped(triggerError: true);
       }
     } catch (e, stack) {
+      _isPreparingNewTrack = false;
       if (session == _sessionId) {
         log('Error playing word $surah:$ayah:$wordIndex: $e',
             name: 'VerseAudioPlayer', error: e, stackTrace: stack);
@@ -639,9 +662,7 @@ class VerseAudioPlayer {
   }) async {
     final int session = ++_sessionId;
 
-    // Immediately clear active playlist before stopping or preparing next track.
-    // This strictly prevents stale callbacks from the previous track leaking old
-    // ayah numbers to AppState and causing momentary page navigation bounce.
+    _isPreparingNewTrack = true;
     _playlistAyahs = [];
 
     // Synchronously stop any active audio immediately so no old playback or
@@ -658,6 +679,7 @@ class VerseAudioPlayer {
         _player!.processingState == ProcessingState.ready &&
         !_player!.playing) {
       _isContinuous = continuous;
+      _isPreparingNewTrack = false;
       await resume();
       return;
     }
@@ -686,7 +708,10 @@ class VerseAudioPlayer {
 
       // Ensure current Ayah audio is cached
       await ensureAyahDownloaded(surah, ayah);
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       // In continuous mode, build playlist starting directly at [ayah] through the rest of the Surah.
       // Index 0 is always the requested Ayah, preventing any spurious playback jumps to Ayah 1 or Page 2.
@@ -698,12 +723,18 @@ class VerseAudioPlayer {
       final sources = await Future.wait(
         _playlistAyahs.map((a) => createAyahAudioSource(surah, a)),
       );
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       try {
         await player.stop();
       } catch (_) {}
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
       await player.setAudioSources(
         sources,
@@ -713,8 +744,12 @@ class VerseAudioPlayer {
       await player.setShuffleModeEnabled(false);
       await player.setLoopMode(LoopMode.off);
 
-      if (session != _sessionId) return;
+      if (session != _sessionId) {
+        _isPreparingNewTrack = false;
+        return;
+      }
 
+      _isPreparingNewTrack = false;
       _setBuffering(false);
       _setPlaying(true);
       _setWordIndex(0); // Highlight first word as sound starts
@@ -727,6 +762,7 @@ class VerseAudioPlayer {
 
       await player.play();
     } catch (e, stack) {
+      _isPreparingNewTrack = false;
       if (session == _sessionId) {
         log('Error playing $surah:$ayah: $e',
             name: 'VerseAudioPlayer', error: e, stackTrace: stack);

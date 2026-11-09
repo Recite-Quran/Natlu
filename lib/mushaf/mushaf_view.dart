@@ -169,21 +169,16 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final app = AppState.instance;
     _combinedRepaintListenable = Listenable.merge([
       _spinnerController,
-      app.activeAudioAyah,
-      app.activeAudioSurah,
-      app.isAudioBuffering,
-      app.isAudioPlaying,
+      widget.controller,
+      widget.controller.activeAyah,
       app.modeNotifier,
       app.blurModeNotifier,
       app.hasClickedTajweedNotifier,
-      widget.controller.activeAyah,
-      widget.controller,
       _yellowWordsNotifier,
     ]);
 
     widget.controller.addListener(_onControllerProgress);
-    app.activeAudioAyah.addListener(_onAudioAyahChanged);
-    app.activeAudioSurah.addListener(_onAudioAyahChanged);
+    widget.controller.activeAyah.addListener(_onActiveAyahChanged);
     app.currentMushafPage.addListener(_onExternalPageChanged);
     app.themeNotifier.addListener(_syncVisuals);
     app.blurModeNotifier.addListener(_syncVisuals);
@@ -230,7 +225,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller.removeListener(_onControllerProgress);
+      oldWidget.controller.activeAyah.removeListener(_onActiveAyahChanged);
       widget.controller.addListener(_onControllerProgress);
+      widget.controller.activeAyah.addListener(_onActiveAyahChanged);
       _syncVisuals();
     }
     if (!oldWidget.isRecording && widget.isRecording) {
@@ -322,9 +319,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
     widget.controller.removeListener(_onControllerProgress);
+    widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
     final app = AppState.instance;
-    app.activeAudioAyah.removeListener(_onAudioAyahChanged);
-    app.activeAudioSurah.removeListener(_onAudioAyahChanged);
     app.currentMushafPage.removeListener(_onExternalPageChanged);
     app.themeNotifier.removeListener(_syncVisuals);
     app.blurModeNotifier.removeListener(_syncVisuals);
@@ -474,6 +470,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onExternalPageChanged() {
     if (!mounted) return;
+    if (widget.controller.isAudioActive) return;
     final targetPage = AppState.instance.currentMushafPage.value;
     if (targetPage > 0 &&
         targetPage != _currentPage &&
@@ -482,32 +479,44 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
   }
 
-  void _onAudioAyahChanged() {
+  int? _lastHandledAyah;
+  int? _lastHandledSurah;
+
+  void _onActiveAyahChanged() {
     if (!mounted) return;
-    final audioSurah = widget.controller.audioSurah;
-    final audioAyah = widget.controller.audioAyah;
     _checkSpinnerAnimation();
 
-    if (audioSurah == null || audioAyah == null) {
+    final activeAyah = widget.controller.activeAyah.value;
+    final activeSurah = widget.controller.targetSurah;
+
+    if (activeAyah == null || activeSurah == 0) {
+      _lastHandledAyah = null;
+      _lastHandledSurah = null;
+      _requestSyncVisuals();
       return;
     }
+
+    if (_lastHandledAyah == activeAyah && _lastHandledSurah == activeSurah) {
+      _requestSyncVisuals();
+      return;
+    }
+
+    _lastHandledAyah = activeAyah;
+    _lastHandledSurah = activeSurah;
 
     final provider = MushafProvider.instance;
-
-    // Never navigate away if the audio ayah is already on the current page!
-    if (provider.isAyahOnPage(
+    if (!provider.isAyahOnPage(
       pageNumber: _currentPage,
-      surah: audioSurah,
-      ayah: audioAyah,
+      surah: activeSurah,
+      ayah: activeAyah,
     )) {
-      return;
+      final page = provider.getPageForAyah(activeSurah, activeAyah);
+      if (page != null && page != _currentPage) {
+        _navigationTargetAyah = (activeSurah, activeAyah);
+        _goToPage(page, animated: true);
+      }
     }
-
-    final page = provider.getPageForAyah(audioSurah, audioAyah);
-    if (page != null && page != _currentPage) {
-      _navigationTargetAyah = (audioSurah, audioAyah);
-      _goToPage(page, animated: true);
-    }
+    _requestSyncVisuals();
   }
 
   void _checkSpinnerAnimation() {
@@ -548,9 +557,16 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         ayah: target.$2,
       )) {
         _navigationTargetAyah = null;
-        widget.controller.setManualAyah(target.$1, target.$2);
+        if (!widget.controller.isAudioActive) {
+          widget.controller.setManualAyah(target.$1, target.$2);
+        }
         return;
       }
+    }
+
+    if (widget.controller.isAudioActive) {
+      _debouncedSavePosition(pageNum);
+      return;
     }
 
     if (widget.isRecording) {
@@ -577,8 +593,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
 
     // When NOT recording (idle reading / shifting pages):
-    // Do NOT auto-select the first ayah. Clear any manual ayah selection.
-    widget.controller.clearManualAyah();
+    // Preserve any existing selected ayah and save the page position.
     _debouncedSavePosition(pageNum);
   }
 
@@ -739,7 +754,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       wordIndex: wordIndex0,
       wordText: w.text,
       controller: widget.controller,
-      playWordDirectly: true,
+      playWordDirectly: false,
     );
   }
 
@@ -895,16 +910,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                   final double offsetFraction =
                                       (1.0 - progress) *
                                           (-_activeSlideDir * 0.16);
-                                  final double alpha = 0.55 + 0.45 * progress;
                                   return Transform.translate(
                                     offset: Offset(
                                       offsetFraction * pageContainerWidth,
                                       0.0,
                                     ),
-                                    child: Opacity(
-                                      opacity: alpha.clamp(0.0, 1.0),
-                                      child: child,
-                                    ),
+                                    child: child,
                                   );
                                 },
                                 child: RepaintBoundary(

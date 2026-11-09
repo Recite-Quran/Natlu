@@ -65,7 +65,6 @@ class _TrackingScreenState extends State<TrackingScreen>
   AppBannerInfo? _lastBanner;
   int? _lastAyah;
   int? _lastSurah;
-  bool _wasAudioPlaying = false;
   late final Listenable _screenThemeLanguageListenable;
   late final Listenable _bottomBarListenable;
 
@@ -93,9 +92,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
     widget.controller.addListener(_onControllerUpdate);
     widget.controller.activeAyah.addListener(_onActiveAyahChanged);
-    AppState.instance.activeAudioAyah.addListener(_onActiveAudioAyahChanged);
-    AppState.instance.activeAudioSurah.addListener(_onActiveAudioAyahChanged);
-    AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
     AppState.instance.mushafModeNotifier.addListener(_onMushafModeChanged);
     AppState.instance.currentMushafPage.addListener(_onMushafPageChanged);
 
@@ -105,28 +101,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     if (!PlatformCapabilities.isWeb) {
       unawaited(QuranAudioService.ensureAyahDownloaded(
           widget.controller.targetSurah, 1));
-    }
-  }
-
-  void _onActiveAudioAyahChanged() {
-    final isPlaying = AppState.instance.isAudioPlaying.value;
-    final ayah = AppState.instance.activeAudioAyah.value;
-    final int? audioSurah = AppState.instance.activeAudioSurah.value;
-
-    if (QuranAudioService.instance.isSingleWordMode) {
-      _lastAyah = ayah;
-      return;
-    }
-
-    if (isPlaying && ayah != null) {
-      _wasAudioPlaying = true;
-      final int targetSurah = audioSurah ?? widget.controller.targetSurah;
-      AppState.instance.saveLastPosition(targetSurah, ayah);
-      _lastAyah = ayah;
-    } else if (!isPlaying &&
-        _wasAudioPlaying &&
-        !QuranAudioService.instance.isPaused) {
-      _wasAudioPlaying = false;
     }
   }
 
@@ -168,9 +142,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
     widget.controller.removeListener(_onControllerUpdate);
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
-    AppState.instance.activeAudioAyah.removeListener(_onActiveAudioAyahChanged);
-    AppState.instance.activeAudioSurah.removeListener(_onActiveAudioAyahChanged);
-    AppState.instance.isAudioPlaying.removeListener(_onActiveAudioAyahChanged);
     AppState.instance.mushafModeNotifier.removeListener(_onMushafModeChanged);
     AppState.instance.currentMushafPage.removeListener(_onMushafPageChanged);
     _voiceSearchNotifier.dispose();

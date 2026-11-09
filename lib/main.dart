@@ -290,13 +290,6 @@ class _OrchestratorState extends State<_Orchestrator>
       required bool isBuffering,
       bool? isPaused,
     }) {
-      AppState.instance.updateAudioState(
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex,
-        isPlaying: isPlaying,
-        isBuffering: isBuffering,
-      );
       _ctrl?.applyAudioProgress(
         surah: surah,
         ayah: ayah,
@@ -304,6 +297,13 @@ class _OrchestratorState extends State<_Orchestrator>
         isPlaying: isPlaying,
         isBuffering: isBuffering,
         isPaused: isPaused,
+      );
+      AppState.instance.updateAudioState(
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+        isPlaying: isPlaying,
+        isBuffering: isBuffering,
       );
     };
     QuranAudioService.instance.onPlayingChanged = _onVerseAudioPlayingChanged;

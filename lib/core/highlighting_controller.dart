@@ -418,6 +418,18 @@ class HighlightingController extends rq.HighlightingController {
 
     if (super.targetSurah == surah) {
       super.setManualAyah(surah, ayah);
+    } else {
+      super.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      ).then((_) {
+        _manualTargetSurah = surah;
+        activeAyah.value = ayah;
+        super.setManualAyah(surah, ayah);
+        globalRevision.value++;
+        notifyListeners();
+      }).catchError((_) {});
     }
 
     globalRevision.value++;
@@ -679,9 +691,22 @@ class HighlightingController extends rq.HighlightingController {
       changed = true;
     }
 
+    // Align base controller targetSurah and activeAyah with audio playback verse
+    if (surah != null && surah != 0 && _manualTargetSurah != surah) {
+      _manualTargetSurah = surah;
+      changed = true;
+    }
+    if (ayah != null && ayah != 0 && activeAyah.value != ayah) {
+      activeAyah.value = ayah;
+      changed = true;
+    }
+
     if (changed) {
-      if (_isAudioPlaying && _audioSurah != null && _audioAyah != null) {
+      if ((_isAudioPlaying || _isAudioBuffering) &&
+          _audioSurah != null &&
+          _audioAyah != null) {
         onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
+        AppState.instance.saveLastPosition(_audioSurah!, _audioAyah!);
       }
       globalRevision.value++;
       notifyListeners();
