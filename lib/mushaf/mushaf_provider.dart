@@ -57,6 +57,7 @@ class MushafProvider {
   static const int _maxCachedPages = 16;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
+  Timer? _preloadTimer;
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
@@ -68,8 +69,10 @@ class MushafProvider {
     final targetSize = size ?? lastViewportSize;
     if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
 
-    // Immediate microtask to warm adjacent pages before any swipe gesture starts
-    scheduleMicrotask(() async {
+    // Debounce preloading until after any page turn slide animation (150ms) finishes,
+    // freeing the UI thread completely for 60/120fps smooth vector transitions.
+    _preloadTimer?.cancel();
+    _preloadTimer = Timer(const Duration(milliseconds: 180), () async {
       if (_preloadingTargetPage != pageNumber) return;
 
       // Forward adjacent page has highest priority for recitation and reading continuity

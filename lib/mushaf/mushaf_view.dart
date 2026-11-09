@@ -168,7 +168,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _combinedRepaintListenable = Listenable.merge([
       _spinnerController,
       widget.controller,
-      widget.controller.activeAyah,
       app.modeNotifier,
       app.blurModeNotifier,
       app.hasClickedTajweedNotifier,
@@ -414,11 +413,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     if (!widget.isRecording) return;
 
-    // Unhide recited words live as each word is recited
-    if (AppState.instance.isBlurEffective(isRecording: widget.isRecording)) {
-      _syncVisuals();
-    }
-
     final ctrl = widget.controller;
     final int activeSurah =
         ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
@@ -442,6 +436,11 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _lastProgressAyah = activeAyah;
     _lastProgressWord = activeWord;
     _lastProgressRev = rev;
+
+    // Unhide recited words live as each word is recited
+    if (AppState.instance.isBlurEffective(isRecording: widget.isRecording)) {
+      _syncVisuals();
+    }
 
     // 1. Hands-free recitation flow across Surahs (only when reciting the final ayah of the surah)
     final bool isOnLastAyahOfSurah = activeAyah != null &&
@@ -481,7 +480,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     if (!mounted) return;
 
     final activeAyah = widget.controller.activeAyah.value;
-    final activeSurah = widget.controller.targetSurah;
+    final int activeSurah = widget.controller.targetSurah != 0
+        ? widget.controller.targetSurah
+        : AppState.instance.lastSurah;
 
     // Guard: skip all work if coord hasn't changed.
     // This prevents redundant FFI calls and word loops on every ASR phoneme tick.
@@ -507,6 +508,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         if (targetPage != null && targetPage != _currentPage) {
           _navigationTargetAyah = (activeSurah, activeAyah);
           _goToPage(targetPage, animated: true);
+          return;
         }
       }
     }

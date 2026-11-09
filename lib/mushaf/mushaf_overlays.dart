@@ -131,26 +131,39 @@ class MushafOverlays {
     final int activeSurah = coord?.$1 ?? 0;
     final int activeAyah = coord?.$2 ?? 0;
 
+    // Cache completed ayahs per unique surah on the page (1-3 surahs max),
+    // eliminating hundreds of Set allocations per frame.
+    final completedAyahsCache = <int, Set<int>>{};
+    Set<int> getCompletedAyahs(int surah) =>
+        completedAyahsCache.putIfAbsent(surah, () => controller.completedAyahsFor(surah));
+
+    // Pre-group words by (surah, ayah) in a single O(N) pass
+    final wordsByAyah = <(int, int), List<QvpWordInfo>>{};
+    for (final w in page.words) {
+      (wordsByAyah[(w.surah, w.ayah)] ??= []).add(w);
+    }
+
     // 2. Resolve Active / Waited Lead Word on this page
     int? activeWordPageIdx;
     if (activeSurah != 0 && activeAyah != 0) {
-      int maxWordOnPage = 0;
-      for (final w in page.words) {
-        if (w.surah == activeSurah &&
-            w.ayah == activeAyah &&
-            w.word > maxWordOnPage) {
-          maxWordOnPage = w.word;
+      final activeAyahWords = wordsByAyah[(activeSurah, activeAyah)];
+      if (activeAyahWords != null && activeAyahWords.isNotEmpty) {
+        int maxWordOnPage = 0;
+        for (final w in activeAyahWords) {
+          if (w.word > maxWordOnPage) {
+            maxWordOnPage = w.word;
+          }
         }
-      }
-      final leadW0 = controller.getLeadWordIndex(
-        surah: activeSurah,
-        ayah: activeAyah,
-        totalWords: maxWordOnPage,
-        isRecording: isRecording,
-      );
-      if (leadW0 != null) {
-        final idx = page.findWord(activeSurah, activeAyah, leadW0 + 1);
-        if (idx >= 0) activeWordPageIdx = idx;
+        final leadW0 = controller.getLeadWordIndex(
+          surah: activeSurah,
+          ayah: activeAyah,
+          totalWords: maxWordOnPage,
+          isRecording: isRecording,
+        );
+        if (leadW0 != null) {
+          final idx = page.findWord(activeSurah, activeAyah, leadW0 + 1);
+          if (idx >= 0) activeWordPageIdx = idx;
+        }
       }
     }
 
@@ -159,18 +172,27 @@ class MushafOverlays {
     //    b) Completed ayahs for surahs on this page
     //    c) Any ayah with stored highlights (evaluated words)
     final ayahsToPaint = <(int, int)>{};
-    if (activeSurah != 0 && activeAyah != 0) {
+    if (activeSurah != 0 && activeAyah != 0 && wordsByAyah.containsKey((activeSurah, activeAyah))) {
       ayahsToPaint.add((activeSurah, activeAyah));
     }
 
-    for (final w in page.words) {
-      final key = (w.surah, w.ayah);
+    for (final entry in wordsByAyah.entries) {
+      final key = entry.key;
       if (ayahsToPaint.contains(key)) continue;
+      final s = key.$1;
+      final a = key.$2;
 
-      if (controller.completedAyahsFor(w.surah).contains(w.ayah) ||
-          controller.hasAyahHighlights(w.surah, w.ayah) ||
-          controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah) != null) {
+      if (getCompletedAyahs(s).contains(a) ||
+          controller.hasAyahHighlights(s, a)) {
         ayahsToPaint.add(key);
+        continue;
+      }
+
+      for (final w in entry.value) {
+        if (controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah) != null) {
+          ayahsToPaint.add(key);
+          break;
+        }
       }
     }
 
@@ -182,14 +204,8 @@ class MushafOverlays {
     // 4. Render continuous line boxes for each ayah
     for (final (s, a) in ayahsToPaint) {
       final bool isActiveAyah = (s == activeSurah && a == activeAyah);
-
-      final wordsInAyah = <QvpWordInfo>[];
-      for (final w in page.words) {
-        if (w.surah == s && w.ayah == a) {
-          wordsInAyah.add(w);
-        }
-      }
-      if (wordsInAyah.isEmpty) continue;
+      final wordsInAyah = wordsByAyah[(s, a)];
+      if (wordsInAyah == null || wordsInAyah.isEmpty) continue;
 
       // Group words by line
       final wordsByLine = <int, List<QvpWordInfo>>{};
@@ -260,6 +276,7 @@ class MushafOverlays {
             activeWordPageIdx: activeWordPageIdx,
             controller: controller,
             palette: palette,
+            getCompletedAyahs: getCompletedAyahs,
           );
 
           if (color.a > 0) {
@@ -279,6 +296,7 @@ class MushafOverlays {
     required int? activeWordPageIdx,
     required HighlightingController controller,
     required QuranHighlightPalette palette,
+    required Set<int> Function(int surah) getCompletedAyahs,
   }) {
     // 1. Current active / waited word -> Neon
     if (activeWordPageIdx != null && w.index == activeWordPageIdx) {
@@ -290,7 +308,7 @@ class MushafOverlays {
 
     // Completed ayah words are treated as green
     if ((status == null || status == 0) &&
-        controller.completedAyahsFor(w.surah).contains(w.ayah)) {
+        getCompletedAyahs(w.surah).contains(w.ayah)) {
       status = 1;
     }
 
