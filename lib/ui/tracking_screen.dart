@@ -466,8 +466,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                       AnimatedPositioned(
                         duration: const Duration(milliseconds: 280),
                         curve: Curves.easeOutCubic,
-                        left: pageLabelLeft,
-                        bottom: isAutoScrolling ? (bottom + 18.0) : (bottom + 60.0),
+                        left: pageLabelLeft - 9.0,
+                        bottom: isAutoScrolling ? (bottom + 18.0 - 9.0) : (bottom + 60.0 - 9.0),
                         child: _AutoScrollFloatingButton(
                           isAutoScrolling: isAutoScrolling,
                           c: c,
@@ -765,35 +765,23 @@ class _AutoScrollFloatingButtonState extends State<_AutoScrollFloatingButton> {
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.c;
     final isDark = widget.app.isDarkMode;
     final isScroll = widget.isAutoScrolling;
 
+    // Matches the styling and color semantics of the mic bar buttons (like community/maglis button)
     final Color bgColor = isScroll
-        ? (isDark
-            ? const Color(0x661B2430)
-            : const Color(0x99F1F5F9))
-        : (isDark
-            ? const Color(0xF40F151D)
-            : const Color(0xFAFFFFFF));
+        ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.22 : 0.15)
+        : (isDark ? const Color(0xFF1B2430) : const Color(0xFFF1F5F9));
 
     final Color borderColor = isScroll
-        ? (isDark
-            ? Colors.white.withValues(alpha: 0.08)
-            : Colors.black.withValues(alpha: 0.06))
+        ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.75 : 0.60)
         : (isDark
-            ? Colors.white.withValues(alpha: 0.12)
+            ? Colors.white.withValues(alpha: 0.10)
             : Colors.black.withValues(alpha: 0.08));
 
     final Color iconColor = isScroll
-        ? c.textSecondary.withValues(alpha: 0.85)
-        : (isDark
-            ? const Color(0xFF34D399)
-            : const Color(0xFF059669));
-
-    final double targetOpacity = isScroll
-        ? (_isDown ? 0.75 : 0.38)
-        : 1.0;
+        ? (isDark ? const Color(0xFF34D399) : const Color(0xFF059699))
+        : (isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B));
 
     return GestureDetector(
       onTapDown: (_) => setState(() => _isDown = true),
@@ -808,39 +796,34 @@ class _AutoScrollFloatingButtonState extends State<_AutoScrollFloatingButton> {
         widget.onLongPress();
       },
       behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _isDown ? 0.90 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOutCubic,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 240),
+      child: Container(
+        width: 48,
+        height: 48,
+        color: Colors.transparent,
+        alignment: Alignment.center,
+        child: AnimatedScale(
+          scale: _isDown ? 0.90 : 1.0,
+          duration: const Duration(milliseconds: 100),
           curve: Curves.easeOutCubic,
-          opacity: targetOpacity,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 240),
+            duration: const Duration(milliseconds: 200),
             curve: Curves.easeOutCubic,
-            width: 36,
-            height: 36,
+            width: 30,
+            height: 30,
             decoration: BoxDecoration(
               color: bgColor,
-              borderRadius: BorderRadius.circular(11),
-              border: Border.all(color: borderColor, width: 1.0),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(
-                    alpha: isScroll ? (isDark ? 0.12 : 0.02) : (isDark ? 0.32 : 0.06),
-                  ),
-                  blurRadius: isScroll ? 3 : 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: borderColor,
+                width: isScroll ? 1.2 : 1.0,
+              ),
             ),
             alignment: Alignment.center,
             child: Icon(
               isScroll
                   ? Icons.pause_rounded
                   : Icons.keyboard_double_arrow_down_rounded,
-              size: 20,
+              size: 16.5,
               color: iconColor,
             ),
           ),

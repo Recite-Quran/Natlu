@@ -139,7 +139,7 @@ class VerseRow extends StatefulWidget {
         onExplicitToggle: onExplicitToggle,
       );
 
-  /// Generates the active Ayah gold border and subtle grey background band.
+  /// Generates the active Ayah gold border without background band.
   static BoxDecoration activeAyahBorderDecoration({
     required bool isActive,
     required AppState app,
@@ -155,7 +155,6 @@ class VerseRow extends StatefulWidget {
         color: isActive ? palette.activeAyahBorder : Colors.transparent,
         width: 1.0,
       ),
-      color: isActive ? palette.activeAyahBand : Colors.transparent,
     );
   }
 

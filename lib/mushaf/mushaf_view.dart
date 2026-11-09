@@ -179,6 +179,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.currentMushafPage.addListener(_onExternalPageChanged);
     app.themeNotifier.addListener(_syncVisuals);
     app.blurModeNotifier.addListener(_syncVisuals);
+    app.modeNotifier.addListener(_syncVisuals);
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
@@ -320,6 +321,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.currentMushafPage.removeListener(_onExternalPageChanged);
     app.themeNotifier.removeListener(_syncVisuals);
     app.blurModeNotifier.removeListener(_syncVisuals);
+    app.modeNotifier.removeListener(_syncVisuals);
     _focusNode.dispose();
     _clearPageVisuals(_currentPageObject);
     super.dispose();
@@ -411,8 +413,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       return;
     }
 
-    if (!widget.isRecording) return;
-
     final ctrl = widget.controller;
     final int activeSurah =
         ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
@@ -437,10 +437,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _lastProgressWord = activeWord;
     _lastProgressRev = rev;
 
-    // Unhide recited words live as each word is recited
-    if (AppState.instance.isBlurEffective(isRecording: widget.isRecording)) {
-      _syncVisuals();
-    }
+    // Visual synchronization (Unhide recited words live AND update yellow words for Tajweed tooltips)
+    _syncVisuals();
+
+    if (!widget.isRecording) return;
 
     // 1. Hands-free recitation flow across Surahs (only when reciting the final ayah of the surah)
     final bool isOnLastAyahOfSurah = activeAyah != null &&
@@ -672,17 +672,31 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final ctrl = widget.controller;
     final bool isBlurEffective =
         app.isBlurEffective(isRecording: widget.isRecording);
+    final bool needsTajweedTooltip =
+        !app.hasClickedTajweedWord && app.currentMode == AppMode.tajweed;
+
+    if (!isBlurEffective &&
+        !needsTajweedTooltip &&
+        !_hasMasks &&
+        _yellowWordsNotifier.value.isEmpty) {
+      return;
+    }
+
     final int wordCount = page.words.length;
     final List<int> yellowWords = [];
     final List<int> hiddenWords = [];
+    final Set<int> seenAyahsWithYellow = {};
 
     for (int i = 0; i < wordCount; i++) {
       final w = page.words[i];
       final int state =
           ctrl.getWordStatus(w.ayah, w.word - 1, surah: w.surah) ?? 0;
 
-      if (state == 2) {
-        yellowWords.add(i);
+      if (needsTajweedTooltip && state == 2) {
+        final ayahKey = QuranCoordinate.packAyahKey(w.surah, w.ayah);
+        if (seenAyahsWithYellow.add(ayahKey)) {
+          yellowWords.add(i);
+        }
       } else if (isBlurEffective && state == 0) {
         hiddenWords.add(i);
       }

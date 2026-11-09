@@ -484,14 +484,11 @@ class VerseListViewState extends State<VerseListView>
         }
         return false;
       },
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: _isAutoScrolling ? stopAutoScrolling : null,
-        child: CustomScrollView(
-          controller: _scroll,
-          physics: _isAutoScrolling
-              ? const NeverScrollableScrollPhysics()
-              : const AlwaysScrollableScrollPhysics(),
+      child: CustomScrollView(
+        controller: _scroll,
+        physics: _isAutoScrolling
+            ? const NeverScrollableScrollPhysics()
+            : const AlwaysScrollableScrollPhysics(),
           slivers: [
             SuperSliverList(
               listController: _listController,
@@ -538,8 +535,7 @@ class VerseListViewState extends State<VerseListView>
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 
   // ── End of Surah Navigation Section ────────────────────────────────────────

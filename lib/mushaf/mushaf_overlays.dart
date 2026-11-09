@@ -15,7 +15,6 @@ class MushafOverlays {
     ..strokeWidth = 0.8;
   static final Paint _highlightFillPaint = Paint()..style = PaintingStyle.fill;
 
-  static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
   static final Paint _goldPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _spinnerPaint = Paint()
@@ -346,8 +345,7 @@ class MushafOverlays {
     final marks = page.ayahMarksView();
     if (marks.isEmpty) return;
 
-    _goldPaint.color = goldColor;
-    _spinnerPaint.color = goldColor;
+    final Color greenBtnColor = app.colors.primary;
 
     final ringColor = neutralRingColor ??
         (app.isDarkMode
@@ -364,15 +362,13 @@ class MushafOverlays {
           controller.isAyahAudioPlaying(m.surah, m.ayah);
 
       if (isThisBuffering) {
-        _bgPaint.color = surfaceColor;
-        canvas.drawCircle(center, customR, _bgPaint);
-
-        _ringPaint.color = goldColor;
+        _ringPaint.color = greenBtnColor;
         _ringPaint.strokeWidth = 1.2;
         canvas.drawCircle(center, customR, _ringPaint);
 
         final double spinRadius = customR * 0.58;
         final double strokeW = math.max(customR * 0.18, 1.4);
+        _spinnerPaint.color = greenBtnColor;
         _spinnerPaint.strokeWidth = strokeW;
         final double startAngle = spinnerProgress * 2 * math.pi;
         canvas.drawArc(
@@ -383,14 +379,12 @@ class MushafOverlays {
           _spinnerPaint,
         );
       } else if (isThisPlaying) {
-        _bgPaint.color = surfaceColor;
-        canvas.drawCircle(center, customR, _bgPaint);
-
-        _ringPaint.color = goldColor;
+        _ringPaint.color = greenBtnColor;
         _ringPaint.strokeWidth = 1.2;
         canvas.drawCircle(center, customR, _ringPaint);
 
         final double stopHalf = customR * 0.32;
+        _goldPaint.color = greenBtnColor;
         canvas.drawRRect(
           RRect.fromRectAndRadius(
             Rect.fromCenter(
@@ -438,11 +432,16 @@ class MushafOverlays {
 
     _tooltipBgPaint.color = goldColor;
 
+    final Set<int> seenAyahs = {};
     final Map<int, List<int>> wordsByLine = {};
     for (final wordIdx in yellowWords) {
       if (wordIdx < 0 || wordIdx >= page.words.length) continue;
-      final line = page.words[wordIdx].line;
-      (wordsByLine[line] ??= []).add(wordIdx);
+      final w = page.words[wordIdx];
+      final ayahKey = QuranCoordinate.packAyahKey(w.surah, w.ayah);
+      if (seenAyahs.add(ayahKey)) {
+        final line = w.line;
+        (wordsByLine[line] ??= []).add(wordIdx);
+      }
     }
 
     const double minGap = 2.0;
