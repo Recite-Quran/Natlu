@@ -582,35 +582,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    if (widget.controller.isAudioActive) {
-      _debouncedSavePosition(pageNum);
-      return;
-    }
-
-    if (widget.isRecording) {
-      // If activeAyah is already on this new page, keep it!
-      final activeAyah = widget.controller.activeAyah.value;
-      final currentSurah = widget.controller.targetSurah;
-      if (activeAyah != null &&
-          currentSurah != 0 &&
-          provider.isAyahOnPage(
-            pageNumber: pageNum,
-            surah: currentSurah,
-            ayah: activeAyah,
-          )) {
-        _debouncedSavePosition(pageNum, currentSurah, activeAyah);
-        return;
-      }
-
-      // Default to the first ayah on this new page while recording so ASR is locked on
-      final first = provider.getFirstAyahOnPage(pageNum);
-      if (first != null) {
-        widget.controller.setManualAyah(first.$1, first.$2);
-      }
-      return;
-    }
-
-    // When NOT recording (idle reading / shifting pages):
     // Preserve any existing selected ayah and save the page position.
     _debouncedSavePosition(pageNum);
   }
