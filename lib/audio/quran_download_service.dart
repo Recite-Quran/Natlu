@@ -274,13 +274,15 @@ class QuranDownloadService {
     }
   }
 
-  /// Downloads a single Ayah audio file with retries and atomic file write.
+  /// Downloads a single Ayah audio file with robust retries, backoff, and atomic file write.
+  /// Handles low internet speed, socket disconnections, and network drops seamlessly.
   Future<bool> _downloadAyahWithRetry(int surah, int ayah) async {
     if (kIsWeb) return true;
     final file = await VerseAudioPlayer.getLocalAyahFile(surah, ayah);
     final url = VerseAudioPlayer.getAyahAudioUrl(surah, ayah);
 
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    const int maxAttempts = 5;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       if (_isCancelled) return false;
 
       // Handle pause during retry loop
@@ -295,7 +297,7 @@ class QuranDownloadService {
         request.headers['User-Agent'] = 'Flutter/Natlu';
 
         final streamedResponse = await client.send(request).timeout(
-              const Duration(seconds: 25),
+              const Duration(seconds: 40),
             );
 
         if (streamedResponse.statusCode == 200) {
@@ -334,10 +336,10 @@ class QuranDownloadService {
       } catch (e) {
         log('Attempt $attempt failed for $surah:$ayah: $e',
             name: 'QuranDownloadService');
-        if (attempt < 3 && !_isCancelled) {
+        if (attempt < maxAttempts && !_isCancelled) {
           statusMessage.value =
-              'ضعف في الاتصال بالإنترنت، جاري إعادة المحاولة ($attempt/3)...';
-          await Future.delayed(Duration(milliseconds: 1000 * attempt));
+              'ضعف أو انقطاع في الاتصال، جاري إعادة المحاولة ($attempt/$maxAttempts)...';
+          await Future.delayed(Duration(milliseconds: 1500 * attempt));
         }
       }
     }

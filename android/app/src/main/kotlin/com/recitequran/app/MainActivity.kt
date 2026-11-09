@@ -62,12 +62,6 @@ class MainActivity : AudioServiceActivity() {
         registerReceiver(screenReceiver, filter)
     }
 
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        isUserLeaving = true
-        lifecycleChannel?.invokeMethod("onUserLeaveHome", null)
-    }
-
     override fun onResume() {
         super.onResume()
         isUserLeaving = false

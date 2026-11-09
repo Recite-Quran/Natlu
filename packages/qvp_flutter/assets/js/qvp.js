@@ -5,6 +5,7 @@
 (function (global) {
   'use strict';
 
+  /** The absent index of the C ABI (QVP_NONE). */
   const NONE = 0xffffffff;
   const ORNAMENT_KIND = ['ayah_mark', 'surah_header', 'page_frame'];
   const LINEAGE = ['scan', 'font'];
@@ -15,34 +16,53 @@ const ZOOM_MODE = { stepped: 0, continuous: 1, magnify: 2 };
 const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
   /** The defaults every wrapper shares (QVP_DEFAULT_* in qvp.h; the parity check compares them). */
   const DEFAULTS = { INK: 0x231f20ff, HIGHLIGHT_INK: 0x1a73e8ff, HIGHLIGHT_BAND: 0xd6a3264d, HIGHLIGHT_PAD_X: 1.2, HIGHLIGHT_PAD_Y: 0, HIGHLIGHT_SEAM: 0.25,
-    SELECTION_BAND: 0x2d6fd640, GAP_BIAS: 0.6, TAP_DISTANCE: 6, GRID_LINES: 15, ASPECT_SLACK: 1.15, MASK_BLOCK: 0xd9d4c8ff, MASK_PAD: 0.6, MASK_RADIUS: 0.8,
+    SELECTION_BAND: 0x2d6fd640, SELECTION_PAD_X: 0.6, GAP_BIAS: 0.6, TAP_DISTANCE: 6, GRID_LINES: 15, ASPECT_SLACK: 1.15, MASK_BLOCK: 0xd9d4c8ff, MASK_PAD: 0.6, MASK_RADIUS: 0.8,
     REVEAL_LIT: 1, REVEAL_GREY: 0xc9c4b8ff, CROP_PAD: 2, AYAH_MARK_SCALE_SCAN: 1.5,
     MIN_ZOOM: 0.5, MAX_ZOOM: 12, ZOOMED_THRESHOLD: 1.02, SWIPE_AXIS_RATIO: 1.5, SWIPE_DISTANCE: 40, SWIPE_VELOCITY: 500,
-    ZOOM_SNAP_HYSTERESIS: 0.03, ZOOM_QUANTUM: 0.01 };
+    ZOOM_SNAP_HYSTERESIS: 0.03, ZOOM_QUANTUM: 0.01, REFLOW_RELAX: 0.5, REFLOW_MAX_STRETCH: 2, MAX_INK_HEIGHT: 4096 };
+  /** The path kinds (QVP_KIND_*): what a path draws. */
   const KIND = { BODY: 0, MARK: 1, AYAH_NUMBER: 2, AYAH_MARK_ORNAMENT: 3, HEADER_INK: 4, ORNAMENT: 5, PAGE_NUMBER: 6, RUNNING_HEAD: 7, OTHER: 255 };
+  /** The mark families (QVP_FAMILY_*) that a theme colours as one. */
   const FAMILY = { NONE: 0, DIACRITIC: 1, TANWIN: 2, DOTS: 3, WAQF: 4, SIFR: 5, SAJDAH: 6, READING_SIGN: 7 };
+  /** The mark categories (QVP_CATEGORY_*). `engine.markCategory(mark)` gives a mark's. */
   const CATEGORY = { NONE: 0, HARAKAH: 1, TANWIN: 2, LETTER_DOT: 3, ORTHOGRAPHIC: 4, DABT: 5, WAQF: 6, READING_SIGN: 7, STANDALONE: 8 };
+  /** The decoration kinds (QVP_DECORATION_*): the page's ornaments and furniture. */
   const DECORATION = { AYAH_MARK: 0, SURAH_NAME: 1, BASMALAH: 2, DIVISION_MARK: 3, SAJDAH_MARK: 4, PAGE_NUMBER: 5, RUNNING_HEAD: 6, OTHER: 255 };
+  /** The text forms (QVP_FORM_*). Every form but `rasm_uthmani` needs the words sidecar. */
   const FORM = { rasm_uthmani: 0, rasm_imlai: 1, qpc: 2, rasm: 3, search: 4 };
+  /** The style layers (QVP_LAYER_*). A rule on a higher layer wins over one below it. */
   const LAYER = { BASE: 0, THEME: 10, HIGHLIGHT: 50, SELECTION: 60, TOP: 100 };
-  // The engine's name tables (QVP_NAMES_*), read from the engine when it is initialised.
+  /** The engine's name tables (QVP_NAMES_*), by key. The names come from the engine when it is initialised. */
   const NAMES_TABLE = { mark: 0, kind: 1, family: 2, category: 3, decoration: 4, division: 5, place: 6 };
   let NAMES = null;
   const names = table => { if (!NAMES) throw new Error('QvpEngine.init() first: names come from the engine'); return NAMES[table]; };
   const idOf = (table, v) => { if (typeof v !== 'string') return v; const i = names(table).indexOf(v); return i < 0 ? 255 : i; };
 
-  // colours: numbers are 0xRRGGBBAA; strings '#rgb', '#rrggbb', '#rrggbbaa'
+  // 0..1 → 0..255, rounded to the nearest step, as in every wrapper. NaN and out-of-range values
+  // clamp first, so a bad alpha is 0 or 255.
+  const alpha8 = a => Math.round((Number.isNaN(a) ? 0 : Math.min(Math.max(a, 0), 1)) * 255);
+  /**
+   * Get a colour as 0xRRGGBBAA. A number passes through. A string is '#rgb', '#rgba', '#rrggbb' or
+   * '#rrggbbaa'; `alpha` (0 to 1) applies to the forms without one, which are opaque without it.
+   * Any other string gives a colour that is not defined: pass one of these forms. A value that
+   * is neither a number nor a string is 0.
+   */
   function rgba(c, alpha) {
     if (typeof c === 'number') return c >>> 0;
     if (typeof c !== 'string') return 0;
     let h = c.trim().replace('#', '');
     if (h.length === 3 || h.length === 4) h = [...h].map(x => x + x).join('');
-    if (h.length === 6) h += alpha !== undefined ? Math.round(alpha * 255).toString(16).padStart(2, '0') : 'ff';
+    if (h.length === 6) h += alpha !== undefined ? alpha8(alpha).toString(16).padStart(2, '0') : 'ff';
     return parseInt(h, 16) >>> 0;
   }
+  /** Get a 0xRRGGBBAA colour as a CSS `rgba()` string. */
   const css = c => `rgba(${(c >>> 24) & 255},${(c >>> 16) & 255},${(c >>> 8) & 255},${(c & 255) / 255})`;
 
-  // Selectors (what a style rule applies to)
+  /**
+   * Make a selector: what a style rule applies to (QVP_SELECTOR_*). A word, a path and a
+   * `decorationIndex` are indices on the page, and a line is its printed number from 1. A mark,
+   * a category, a family, a kind and a `decoration` kind are each an id or a name.
+   */
   const Sel = {
     page: () => ({ selector: 0 }),
     path: i => ({ selector: 1, a: i }),
@@ -63,7 +83,10 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
   };
   const markId = m => idOf('mark', m);
 
-  // Targets (what resolves to a word list). Strings: 'page', '2:255', '2:255:3', '2:255-257', 'line:7', 'surah:2'
+  /**
+   * Make a target: what resolves to a word list (QVP_TARGET_*). Every call that takes one also takes
+   * a string: 'page', '2:255', '2:255:3', '2:255-257', 'line:7' or 'surah:2'.
+   */
   const T = {
     page: () => ({ target: 0 }),
     word: i => ({ target: 1, a: i }),
@@ -75,29 +98,65 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     range: (a, b) => ({ target: 7, a, b }),
   };
 
+  // The inputs of one call go in scratch2 (64 KB). A struct has its own offset, written where
+  // it is used. The inputs that vary in length have these regions, [offset, capacity in bytes]:
+  // one that outgrows its region goes in a block from the engine's allocator for the length
+  // of the call (`_input`, `_withInputs`).
+  const SCRATCH = 1 << 16;
+  const IN = { STRING: [0, 1024], WORDS: [1024, 3072], PAIRS: [20480, 4096], LINE_SEP: [45056, 1024], TRIPLES: [49152, 4096] };
+  /** the error for an engine record call that answered 0 for an index below the count */
+  const refused = (call, i, of) => new Error(`${call}(${i}) returned 0 on ${of}`);
+
+  /**
+   * The engine: one instance of `qvp_ffi.wasm`. It loads pages, atlases, ornament sets and
+   * passages, and owns them until each is freed. Make one with `QvpEngine.init`.
+   */
   class QvpEngine {
+    /** Instantiate the engine from the bytes of `qvp_ffi.wasm` and read its name tables. */
     static async init(wasmBytes) {
       const { instance } = await WebAssembly.instantiate(wasmBytes, {});
       return new QvpEngine(instance);
     }
     constructor(instance) {
-      this.ex = instance.exports;
+      this._ex = instance.exports;
       this.mem = this.ex.memory;
-      this.scratch = this.ex.qvp_alloc(1 << 16);   // 64 KB for outputs
-      this.scratch2 = this.ex.qvp_alloc(1 << 16);  // 64 KB for inputs
+      this.scratch = this.ex.qvp_alloc(SCRATCH);   // 64 KB for outputs
+      this.scratch2 = this.ex.qvp_alloc(SCRATCH);  // 64 KB for inputs
       this._buf = 0; this._bufLen = 0;             // grown on demand for the bigger reads
+      this._spill = [];                            // the blocks the call in hand took for inputs that outgrew their region
+      this._live = new Set();                      // the pages, atlases, ornament sets and passages not freed yet
       this.td = new TextDecoder();
       this.te = new TextEncoder();
       // Load every name table from the engine once; Sel and markId read them.
       NAMES = Object.fromEntries(Object.entries(NAMES_TABLE).map(([k, t]) => [k, this.names(t)]));
     }
+    /** the wasm exports every call goes through; a freed engine has none */
+    get ex() { if (!this._ex) throw new Error('QvpEngine was freed'); return this._ex; }
+    /** Free every page, atlas, ornament set and passage still open, then the engine's scratch
+     * memory. After this, every call that reaches the engine throws, and `free()` on an object
+     * it owned does nothing. Safe to call more than once. */
+    free() {
+      const ex = this._ex;
+      if (!ex) return;
+      for (const o of [...this._live]) o.free();
+      ex.qvp_dealloc(this.scratch, SCRATCH); ex.qvp_dealloc(this.scratch2, SCRATCH);
+      if (this._buf) ex.qvp_dealloc(this._buf, this._bufLen);
+      for (const b of this._spill) ex.qvp_dealloc(b.p, b.len);
+      this._spill.length = 0; this._buf = 0; this._bufLen = 0; this.scratch = 0; this.scratch2 = 0; this._ex = null;
+    }
     /** All names of a table (QVP_NAMES_* id or key), index = id. */
     names(table) { const t = typeof table === 'string' ? NAMES_TABLE[table] : table; const n = this.ex.qvp_name_count(t); return Array.from({ length: n }, (_, i) => this.name(t, i)); }
+    /** Get how many ids a name table (QVP_NAMES_* id or key) has. */
     nameCount(table) { return this.ex.qvp_name_count(typeof table === 'string' ? NAMES_TABLE[table] : table); }
+    /** Get the name of an id in a table; empty outside the table. */
     name(table, id) { this.ex.qvp_name(typeof table === 'string' ? NAMES_TABLE[table] : table, id, this.scratch); return this.qstr(this.scratch); }
-    nameId(table, s) { const [p, n] = this.putStr(s); return this.ex.qvp_name_id(typeof table === 'string' ? NAMES_TABLE[table] : table, p, n); }
+    /** Get the id of a name in a table; 255 when the table has no such name. */
+    nameId(table, s) { return this._withInputs(() => { const [p, n] = this.putStr(s); return this.ex.qvp_name_id(typeof table === 'string' ? NAMES_TABLE[table] : table, p, n); }); }
+    /** Get a fresh view of wasm memory. Take a new one after any call that can grow the memory. */
     dv() { return new DataView(this.mem.buffer); }
+    /** Decode `len` bytes of UTF-8 at `ptr` in wasm memory. */
     str(ptr, len) { return this.td.decode(new Uint8Array(this.mem.buffer, ptr, len)); }
+    /** Decode the QvpStr {ptr, len} at `at`. It stays valid only until the next call that returns a string. */
     qstr(at) { const d = this.dv(); return this.str(d.getUint32(at, true), d.getUint32(at + 4, true)); }
     /** the reader's pan and zoom: {scale, offsetX, offsetY} in, the same out. The engine owns
      * the arithmetic so every platform pinches alike; the host owns only the gesture. */
@@ -127,38 +186,78 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       const v = this._putView(view, this.scratch2 + 42000);
       return !!this.ex.qvp_zoom_is_zoomed(z, v, fitScale);
     }
-    /** a scratch buffer of at least `len` bytes, kept between calls */
-    buf(len) { if (len > this._bufLen) { this._buf = this.ex.qvp_alloc(len); this._bufLen = len; } return this._buf; }
-    /** write a JS string into scratch2 at offset; returns [ptr, len] */
-    putStr(s, off = 0) { const b = this.te.encode(s); new Uint8Array(this.mem.buffer, this.scratch2 + off, b.length).set(b); return [this.scratch2 + off, b.length]; }
-    putU32(arr, off = 0) { const p = this.scratch2 + off; new Uint32Array(this.mem.buffer, p, arr.length).set(arr); return p; }
+    /** a scratch buffer of at least `len` bytes, kept between calls; a bigger ask replaces it,
+     * so read one ask out before the next */
+    buf(len) { if (len > this._bufLen) { if (this._buf) this.ex.qvp_dealloc(this._buf, this._bufLen); this._buf = this.ex.qvp_alloc(len); this._bufLen = len; } return this._buf; }
+    /** Call an `(out, cap) → total` getter, `call(out, cap)`, into the scratch first and again
+     * into a buffer of the total's size when the scratch was too small, so no array is ever
+     * cut short. `size` is one record's bytes. Returns [at, n]: where the records are and how
+     * many; read them out before the next engine call. */
+    collect(size, call) {
+      const cap = Math.floor(SCRATCH / size), n = call(this.scratch, cap);
+      if (n <= cap) return [this.scratch, n];
+      const at = this.buf(n * size);
+      return [at, Math.min(call(at, n), n)];
+    }
+    /** `len` bytes for an input: its region of scratch2 when it fits, else a block from the
+     * engine's allocator that lives until the `_withInputs` around the call returns. A new
+     * block can grow the memory, so take a DataView after this call, never before it. */
+    _input([off, cap], len) {
+      if (len <= cap) return this.scratch2 + off;
+      const b = { p: this.ex.qvp_alloc(len), len };
+      this._spill.push(b);
+      return b.p;
+    }
+    /** Run `fn`, an engine call with inputs that may outgrow their regions, then free the
+     * blocks it took. Nests: an inner call frees its own blocks only. */
+    _withInputs(fn) {
+      const from = this._spill.length;
+      try { return fn(); } finally { while (this._spill.length > from) { const b = this._spill.pop(); this.ex.qvp_dealloc(b.p, b.len); } }
+    }
+    /** write a JS string into its input region; returns [ptr, len] */
+    putStr(s, region = IN.STRING) { const b = this.te.encode(s), p = this._input(region, b.length); new Uint8Array(this.mem.buffer, p, b.length).set(b); return [p, b.length]; }
+    /** write a list of uint32 into its input region; returns ptr */
+    putU32(arr, region = IN.WORDS) { const p = this._input(region, arr.length * 4); new Uint32Array(this.mem.buffer, p, arr.length).set(arr); return p; }
+    /** Call the name getter `fn` for an id and decode the name. */
     nameOf(fn, v) { this.ex[fn](v, this.scratch); return this.qstr(this.scratch); }
+    /** Get a mark's name by its id. */
     markName(m) { return this.nameOf('qvp_mark_name', m); }
+    /** Get a mark family's name by its id. */
     familyName(f) { return this.nameOf('qvp_family_name', f); }
+    /** Get a path kind's name by its id. */
     kindName(k) { return this.nameOf('qvp_kind_name', k); }
+    /** Get a mark category's name by its id. */
     categoryName(c) { return this.nameOf('qvp_category_name', c); }
+    /** Get the category a mark belongs to. The mark is an id or a name. */
     markCategory(m) { return this.ex.qvp_mark_category(markId(m)); }
-    markFromName(s) { const [p, n] = this.putStr(s); return this.ex.qvp_mark_from_name(p, n); }
+    /** Get a mark's id by its name; 255 when the engine has no such mark. */
+    markFromName(s) { return this._withInputs(() => { const [p, n] = this.putStr(s); return this.ex.qvp_mark_from_name(p, n); }); }
     /** The engine version, e.g. '0.2.0'. */
     version() { this.ex.qvp_version(this.scratch); return this.qstr(this.scratch); }
     /** The page format version the engine reads. */
     formatVersion() { return this.ex.qvp_format_version(); }
     /** The engine's name, `qvp` (a NUL-terminated C string in wasm memory). */
     engineName() { const p = this.ex.qvp_engine_name(), u = new Uint8Array(this.mem.buffer); let n = 0; while (u[p + n]) n++; return this.str(p, n); }
-    /** Arabic text tools */
+    /** Remove every Arabic mark (harakah, tatweel, waqf signs and the like) and keep the letters. */
     strip(s) { return this._arabic(0, s); }
+    /** Fold the letter forms that search treats as one: أإآٱ to ا, ىئ to ي, ؤ to و, ة to ه, and Arabic-Indic digits to ASCII. */
     fold(s) { return this._arabic(1, s); }
+    /** Strip, fold and collapse the spaces, as search does to both the query and the page. */
     normalize(s) { return this._arabic(2, s); }
+    /** Normalise, then drop bare alif and hamzah: the key of the loose second search pass, so a typed `الرحمان` finds `الرحمن`. */
     looseKey(s) { return this._arabic(3, s); }
-    _arabic(op, s) { const [p, n] = this.putStr(s); this.ex.qvp_arabic(op, p, n, this.scratch); return this.qstr(this.scratch); }
+    _arabic(op, s) { this._withInputs(() => { const [p, n] = this.putStr(s); this.ex.qvp_arabic(op, p, n, this.scratch); }); return this.qstr(this.scratch); }
+    /** Load a page from the bytes of an `NNN.qvp` file; the engine copies them. Throws on a malformed page. */
     loadPage(bytes) {
       const p = this.ex.qvp_alloc(bytes.length);
       new Uint8Array(this.mem.buffer, p, bytes.length).set(bytes);
       const h = this.ex.qvp_page_load(p, bytes.length);
       this.ex.qvp_dealloc(p, bytes.length);
       if (!h) throw new Error('qvp_page_load failed');
-      return new QvpPage(this, h);
+      // a page the engine loaded but refuses to describe is freed, not leaked
+      try { return new QvpPage(this, h); } catch (e) { this.ex.qvp_page_free(h); throw e; }
     }
+    /** Load the atlas (`atlas.qva`) for cross-page lookup; the engine copies the bytes. Throws on a malformed file. */
     loadAtlas(bytes) {
       const p = this.ex.qvp_alloc(bytes.length);
       new Uint8Array(this.mem.buffer, p, bytes.length).set(bytes);
@@ -174,7 +273,8 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       const h = this.ex.qvp_ornaments_load(p, bytes.length);
       this.ex.qvp_dealloc(p, bytes.length);
       if (!h) throw new Error('qvp_ornaments_load failed');
-      return new QvpOrnaments(this, h);
+      // a set the engine loaded but refuses to describe is freed, not leaked
+      try { return new QvpOrnaments(this, h); } catch (e) { this.ex.qvp_ornaments_free(h); throw e; }
     }
     /** Load the ayahs `from` to `to` of `surah` from the pages that print them, in any order.
      * The passage copies what it needs, so the pages can be freed after this. Throws when an
@@ -194,10 +294,10 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       if (!h) throw new Error('qvp_passage_load_basmalah failed');
       return new QvpPassage(this, h, surah, 1);
     }
-    /** the pages' handles as an array in wasm memory: [ptr, count]. A freed page traps in the
-     * engine, so this refuses one. */
+    /** the pages' handles as an array in wasm memory: [ptr, count]. A freed page throws here
+     * (`page.h`), so none reaches the engine, where it would trap. */
     _pageHandles(pages) {
-      if (!pages.length || pages.some(p => !p.h)) throw new Error('a passage needs open pages');
+      if (!pages.length) throw new Error('a passage needs at least one page');
       return [this.putU32(Uint32Array.from(pages, p => p.h)), pages.length];
     }
   }
@@ -205,13 +305,17 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
   // struct writers (wasm32 layouts, see qvp.h)
   function writeTarget(e, at, t) {
     if (typeof t === 'string') t = parseTarget(t);
+    // the word list first: a long one takes a new block, which can move the memory
+    const wp = t.words ? e.putU32(Uint32Array.from(t.words)) : 0, wn = t.words ? t.words.length : 0;
     const d = e.dv();
     d.setUint8(at, t.target); d.setUint32(at + 4, t.a >>> 0 || 0, true); d.setUint32(at + 8, t.b >>> 0 || 0, true); d.setUint32(at + 12, t.c >>> 0 || 0, true);
-    let wp = 0, wn = 0;
-    if (t.words) { wp = e.putU32(Uint32Array.from(t.words), 1024); wn = t.words.length; }
     d.setUint32(at + 16, wp, true); d.setUint32(at + 20, wn, true);
     return at;
   }
+  /**
+   * Parse a target string ('page', '2:255', '2:255:3', '2:255-257', 'line:7', 'surah:2'). A word
+   * key needs the page to find its index, so it comes back as `wordKey`. Throws on any other string.
+   */
   function parseTarget(s) {
     if (s === 'page') return T.page();
     let m;
@@ -243,9 +347,14 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     return out;
   }
 
+  /**
+   * One loaded page: its records, its geometry, and the engine state that goes with it (layout,
+   * styles, highlights, selection, mask, dress). Coordinates are page units unless a name ends in
+   * `View`, which means viewport px through the current layout. Make one with `engine.loadPage`.
+   */
   class QvpPage {
     constructor(engine, handle) {
-      this.e = engine; this.h = handle;
+      this.e = engine; this._h = handle;
       const ex = engine.ex, s = engine.scratch;
       ex.qvp_page_info(handle, s);
       let d = engine.dv();
@@ -266,8 +375,13 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       this.lineSpacing = ex.qvp_page_line_spacing(handle);
       this.currentLayout = null;
       this._defaultInk = DEFAULTS.INK;
+      engine._live.add(this);   // last: a page the engine refuses to describe is freed by loadPage, not by engine.free
     }
-    free() { this.e.ex.qvp_page_free(this.h); this.h = 0; }
+    /** the engine's handle; a freed page has none */
+    get h() { if (!this._h) throw new Error('QvpPage was freed'); return this._h; }
+    /** Free the engine's page. Safe to call more than once; every call that reaches the engine
+     * after it throws. Does nothing after `engine.free()`, which freed the page. */
+    free() { if (this._h) { this.e.ex.qvp_page_free(this._h); this._h = 0; this.e._live.delete(this); } }
     // ── dress: another mushaf's ornaments ──
     /**
      * Put other ornaments on the page: up to one per kind. `style` names a mushaf and
@@ -301,18 +415,20 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
         if (typeof v === 'string') { const o = set.find(kind, v); return o ? o.index : NONE; }
         return ornamentIndex(v, key);
       };
-      // Resolve every name first: a string lookup writes into scratch2, where the spec goes.
       const ayah = index(ayahMark, 'ayah_mark', 'ayahMark'), header = index(surahHeader, 'surah_header', 'surahHeader'), frame = index(pageFrame, 'page_frame', 'pageFrame');
       const triples = [];
       colors.forEach(([o, part, colour], k) => triples.push(ornamentIndex(o, `colors[${k}]`), part, rgba(colour)));
-      const cp = triples.length ? this.e.putU32(Uint32Array.from(triples), 2048) : 0;
-      const s = this.e.scratch2, d = this.e.dv();
-      d.setUint32(s, ayah, true); d.setUint32(s + 4, header, true); d.setUint32(s + 8, frame, true);
       const lineMask = lineArt === true ? 7 : Array.isArray(lineArt) ? lineArt.reduce((m, k) => m | (1 << ORNAMENT_KIND.indexOf(k)), 0) : 0;
-      d.setFloat32(s + 12, gap, true); d.setFloat32(s + 16, bandGap, true); d.setFloat32(s + 20, ayahMarkScale, true); d.setFloat32(s + 24, pageFrameScale, true); d.setUint32(s + 28, lineMask, true);
-      d.setUint32(s + 32, cp, true); d.setUint32(s + 36, triples.length / 3, true);
       this.ornaments = null;
-      const ok = this.e.ex.qvp_dress(this.h, set.h, s);
+      const ok = this.e._withInputs(() => {
+        // the colour triples first: a long list takes a new block, which can move the memory
+        const cp = triples.length ? this.e.putU32(Uint32Array.from(triples), IN.TRIPLES) : 0;
+        const s = this.e.scratch2 + 36864, d = this.e.dv();   // the dress spec (QvpDressSpec, 40 bytes)
+        d.setUint32(s, ayah, true); d.setUint32(s + 4, header, true); d.setUint32(s + 8, frame, true);
+        d.setFloat32(s + 12, gap, true); d.setFloat32(s + 16, bandGap, true); d.setFloat32(s + 20, ayahMarkScale, true); d.setFloat32(s + 24, pageFrameScale, true); d.setUint32(s + 28, lineMask, true);
+        d.setUint32(s + 32, cp, true); d.setUint32(s + 36, triples.length / 3, true);
+        return this.e.ex.qvp_dress(this.h, set.h, s);
+      });
       // the engine refits the current layout to the border (or back without it)
       if (this.currentLayout) this.layoutCurrent();
       return ok ? this.dressInfo() : null;
@@ -341,7 +457,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     /** The readout, or null when the page is not dressed: {ayahMark, surahHeader, pageFrame,
      * ayahMarks, surahHeaders, frameRepeats, frameStretched, draws, revision, viewBox,
      * overflow}. `viewBox` is [x, y, w, h] in page units; a border grows it. `overflow` is
-     * [left, top, right, bottom] in viewport px. The layout's `fitScale`, `fitX` and `fitY`
+     * [left, top, right, bottom] in layout px. The layout's `fitScale`, `fitX` and `fitY`
      * already fit the content plus this overflow, and `dressClamp` clamps to it. */
     dressInfo() {
       const s = this.e.scratch;
@@ -425,26 +541,29 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     }
 
     // ── info records ──
+    // The engine answers 0 for an index it has no record of. Every index below the page's
+    // counts has one, so a 0 here is the engine refusing the page, and the load fails.
+    _refused(call, i) { return refused(call, i, `page ${this.page}`); }
     _word(i) {
-      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_word_info(this.h, i, s)) return null;
+      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_word_info(this.h, i, s)) throw this._refused('qvp_word_info', i);
       const d = this.e.dv();
       return { index: i, surah: d.getUint16(s, true), ayah: d.getUint16(s + 2, true), word: d.getUint16(s + 4, true), line: d.getUint16(s + 6, true), ayahIndex: d.getUint32(s + 8, true), lineIndex: d.getUint32(s + 12, true),
         x0: d.getFloat32(s + 16, true), y0: d.getFloat32(s + 20, true), x1: d.getFloat32(s + 24, true), y1: d.getFloat32(s + 28, true), text: this.e.qstr(s + 32), firstPath: d.getUint32(s + 40, true), nPaths: d.getUint32(s + 44, true) };
     }
     _ayah(i) {
-      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_ayah_info(this.h, i, s)) return null;
+      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_ayah_info(this.h, i, s)) throw this._refused('qvp_ayah_info', i);
       const d = this.e.dv();
       return { index: i, surah: d.getUint16(s, true), ayah: d.getUint16(s + 2, true), fragment: d.getUint8(s + 4), fragments: d.getUint8(s + 5), flags: d.getUint8(s + 6), rubuAlHizb: d.getUint16(s + 8, true),
         firstWord: d.getUint32(s + 12, true), nWords: d.getUint32(s + 16, true), ayahMarkDecoration: d.getUint32(s + 20, true), x0: d.getFloat32(s + 24, true), y0: d.getFloat32(s + 28, true), x1: d.getFloat32(s + 32, true), y1: d.getFloat32(s + 36, true) };
     }
     _line(i) {
-      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_line_info(this.h, i, s)) return null;
+      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_line_info(this.h, i, s)) throw this._refused('qvp_line_info', i);
       const d = this.e.dv();
       return { index: i, lineNumber: d.getUint8(s), isHeader: !!d.getUint8(s + 1), firstWord: d.getUint32(s + 4, true), nWords: d.getUint32(s + 8, true), x0: d.getFloat32(s + 12, true), y0: d.getFloat32(s + 16, true), x1: d.getFloat32(s + 20, true), y1: d.getFloat32(s + 24, true),
         bandY0: d.getFloat32(s + 28, true), bandY1: d.getFloat32(s + 32, true), centre: d.getFloat32(s + 36, true) };
     }
     _deco(i) {
-      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_decoration_info(this.h, i, s)) return null;
+      const ex = this.e.ex, s = this.e.scratch; if (!ex.qvp_decoration_info(this.h, i, s)) throw this._refused('qvp_decoration_info', i);
       const d = this.e.dv();
       return { index: i, decoration: d.getUint8(s), surah: d.getUint16(s + 2, true), ayah: d.getUint16(s + 4, true), line: d.getUint32(s + 8, true), x0: d.getFloat32(s + 12, true), y0: d.getFloat32(s + 16, true), x1: d.getFloat32(s + 20, true), y1: d.getFloat32(s + 24, true),
         text: this.e.qstr(s + 28), firstPath: d.getUint32(s + 36, true), nPaths: d.getUint32(s + 40, true) };
@@ -457,7 +576,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       if (t instanceof Array) t = T.words(t);
       return writeTarget(this.e, this.e.scratch2 + 4096, t);
     }
-    targetWords(t) { const n = this.e.ex.qvp_target_words(this.h, this._target(t), this.e.scratch, 16384); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 16384))); }
+    targetWords(t) { const [at, n] = this.e._withInputs(() => { const tp = this._target(t); return this.e.collect(4, (o, c) => this.e.ex.qvp_target_words(this.h, tp, o, c)); }); return Array.from(new Uint32Array(this.e.mem.buffer, at, n)); }
 
     // ── metadata ──
     surahs() {
@@ -467,103 +586,115 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       return out;
     }
     divisions() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_divisions(this.h, s, 64), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 64); i++) { const o = s + i * 12; out.push({ division: names('division')[d.getUint8(o)], line: d.getUint8(o + 1), number: d.getUint16(o + 2, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), ayahIndex: d.getUint32(o + 8, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(12, (o, c) => ex.qvp_divisions(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 12; out.push({ division: names('division')[d.getUint8(o)], line: d.getUint8(o + 1), number: d.getUint16(o + 2, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), ayahIndex: d.getUint32(o + 8, true) }); }
       return out;
     }
     /** the surah headings in page units: the box a frame fills, and the title ink in it */
     surahHeaders() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_surah_headers(this.h, s, 32), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 32); i++) { const o = s + i * 44; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), line: d.getUint32(o + 8, true), x0: d.getFloat32(o + 12, true), y0: d.getFloat32(o + 16, true), x1: d.getFloat32(o + 20, true), y1: d.getFloat32(o + 24, true), titleX0: d.getFloat32(o + 28, true), titleY0: d.getFloat32(o + 32, true), titleX1: d.getFloat32(o + 36, true), titleY1: d.getFloat32(o + 40, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(44, (o, c) => ex.qvp_surah_headers(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 44; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), line: d.getUint32(o + 8, true), x0: d.getFloat32(o + 12, true), y0: d.getFloat32(o + 16, true), x1: d.getFloat32(o + 20, true), y1: d.getFloat32(o + 24, true), titleX0: d.getFloat32(o + 28, true), titleY0: d.getFloat32(o + 32, true), titleX1: d.getFloat32(o + 36, true), titleY1: d.getFloat32(o + 40, true) }); }
       return out;
     }
     /** the same, in viewport px through the current layout: what a host draws its own frame around */
     surahHeadersView() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_surah_headers_view(this.h, s, 32), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 32); i++) { const o = s + i * 44; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), line: d.getUint32(o + 8, true), x0: d.getFloat32(o + 12, true), y0: d.getFloat32(o + 16, true), x1: d.getFloat32(o + 20, true), y1: d.getFloat32(o + 24, true), titleX0: d.getFloat32(o + 28, true), titleY0: d.getFloat32(o + 32, true), titleX1: d.getFloat32(o + 36, true), titleY1: d.getFloat32(o + 40, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(44, (o, c) => ex.qvp_surah_headers_view(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 44; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), line: d.getUint32(o + 8, true), x0: d.getFloat32(o + 12, true), y0: d.getFloat32(o + 16, true), x1: d.getFloat32(o + 20, true), y1: d.getFloat32(o + 24, true), titleX0: d.getFloat32(o + 28, true), titleY0: d.getFloat32(o + 32, true), titleX1: d.getFloat32(o + 36, true), titleY1: d.getFloat32(o + 40, true) }); }
       return out;
     }
     ayahMarks() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_ayah_marks(this.h, s, 128), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 128); i++) { const o = s + i * 32; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), line: d.getUint32(o + 8, true), cx: d.getFloat32(o + 12, true), cy: d.getFloat32(o + 16, true), r: d.getFloat32(o + 20, true), ornamentPath: d.getUint32(o + 24, true), numeralPath: d.getUint32(o + 28, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(32, (o, c) => ex.qvp_ayah_marks(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 32; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), line: d.getUint32(o + 8, true), cx: d.getFloat32(o + 12, true), cy: d.getFloat32(o + 16, true), r: d.getFloat32(o + 20, true), ornamentPath: d.getUint32(o + 24, true), numeralPath: d.getUint32(o + 28, true) }); }
       return out;
     }
     /** the ayah medallions in viewport px through the current layout: where each is drawn */
     ayahMarksView() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_ayah_marks_view(this.h, s, 128), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 128); i++) { const o = s + i * 32; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), line: d.getUint32(o + 8, true), cx: d.getFloat32(o + 12, true), cy: d.getFloat32(o + 16, true), r: d.getFloat32(o + 20, true), ornamentPath: d.getUint32(o + 24, true), numeralPath: d.getUint32(o + 28, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(32, (o, c) => ex.qvp_ayah_marks_view(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 32; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), line: d.getUint32(o + 8, true), cx: d.getFloat32(o + 12, true), cy: d.getFloat32(o + 16, true), r: d.getFloat32(o + 20, true), ornamentPath: d.getUint32(o + 24, true), numeralPath: d.getUint32(o + 28, true) }); }
       return out;
     }
     rosettes() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_rosettes(this.h, s, 32), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 32); i++) { const o = s + i * 20; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), juz: d.getUint16(o + 8, true), hizb: d.getUint16(o + 10, true), nisf: d.getUint16(o + 12, true), rubuAlHizb: d.getUint16(o + 14, true), rubuAlHizbInHizb: d.getUint16(o + 16, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(20, (o, c) => ex.qvp_rosettes(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 20; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), juz: d.getUint16(o + 8, true), hizb: d.getUint16(o + 10, true), nisf: d.getUint16(o + 12, true), rubuAlHizb: d.getUint16(o + 14, true), rubuAlHizbInHizb: d.getUint16(o + 16, true) }); }
       return out;
     }
     sajdahs() {
-      const ex = this.e.ex, s = this.e.scratch, n = ex.qvp_sajdahs(this.h, s, 16), d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 16); i++) { const o = s + i * 12; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), signPath: d.getUint32(o + 8, true) }); }
+      const ex = this.e.ex, [s, n] = this.e.collect(12, (o, c) => ex.qvp_sajdahs(this.h, o, c)), d = this.e.dv(), out = [];
+      for (let i = 0; i < n; i++) { const o = s + i * 12; out.push({ decoration: d.getUint32(o, true), surah: d.getUint16(o + 4, true), ayah: d.getUint16(o + 6, true), signPath: d.getUint32(o + 8, true) }); }
       return out;
     }
-    ayahKeys() { const n = this.e.ex.qvp_ayah_keys(this.h, this.e.scratch, 256); const v = new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 256)); return Array.from(v, k => [k >>> 16, k & 0xffff]); }
+    ayahKeys() { const [at, n] = this.e.collect(4, (o, c) => this.e.ex.qvp_ayah_keys(this.h, o, c)); const v = new Uint32Array(this.e.mem.buffer, at, n); return Array.from(v, k => [k >>> 16, k & 0xffff]); }
     ayahWordCount(surah, ayah) { const n = this.e.ex.qvp_ayah_word_count(this.h, surah, ayah, this.e.scratch); return { count: n, isComplete: !!this.e.dv().getUint8(this.e.scratch) }; }
     /** words for n recitation segments, or null when the counts disagree (follow the ayah whole) */
-    reciteMap(surah, ayah, nSegments) { const n = this.e.ex.qvp_recite_map(this.h, surah, ayah, nSegments, this.e.scratch, 4096); return n < 0 ? null : Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, n)); }
+    reciteMap(surah, ayah, nSegments) {
+      // -1 is a mismatch; any other answer is the total, read in full
+      if (this.e.ex.qvp_recite_map(this.h, surah, ayah, nSegments, 0, 0) < 0) return null;
+      const [at, n] = this.e.collect(4, (o, c) => this.e.ex.qvp_recite_map(this.h, surah, ayah, nSegments, o, c));
+      return Array.from(new Uint32Array(this.e.mem.buffer, at, n));
+    }
     wordLabel(i) { this.e.ex.qvp_word_label(this.h, i, this.e.scratch); return this.e.qstr(this.e.scratch); }
     ayahLabel(i) { this.e.ex.qvp_ayah_label(this.h, i, this.e.scratch); return this.e.qstr(this.e.scratch); }
 
     // ── text & search ──
     text(target = 'page', { form = 'rasm_uthmani', wordSep = ' ', lineSep = '\n' } = {}) {
-      const [wp, wn] = this.e.putStr(wordSep, 0), [lp, ln] = this.e.putStr(lineSep, 256);
-      this.e.ex.qvp_text(this.h, this._target(target), FORM[form] ?? 0, wp, wn, lp, ln, this.e.scratch);
+      this.e._withInputs(() => {
+        const [wp, wn] = this.e.putStr(wordSep), [lp, ln] = this.e.putStr(lineSep, IN.LINE_SEP);
+        this.e.ex.qvp_text(this.h, this._target(target), FORM[form] ?? 0, wp, wn, lp, ln, this.e.scratch);
+      });
       return this.e.qstr(this.e.scratch);
     }
     search(query, { form = 'search', mode = 'includes', normalize = true, looseMatch = true, limit = 0 } = {}) {
-      const [qp, qn] = this.e.putStr(query);
-      const n = this.e.ex.qvp_search(this.h, qp, qn, FORM[form] ?? 4, { includes: 0, exact: 1, prefix: 2 }[mode] ?? 0, normalize ? 1 : 0, looseMatch ? 1 : 0, limit, this.e.scratch, 1024);
+      const [at, n] = this.e._withInputs(() => { const [qp, qn] = this.e.putStr(query); return this.e.collect(12, (o, c) => this.e.ex.qvp_search(this.h, qp, qn, FORM[form] ?? 4, { includes: 0, exact: 1, prefix: 2 }[mode] ?? 0, normalize ? 1 : 0, looseMatch ? 1 : 0, limit, o, c)); });
       const d = this.e.dv(), out = [];
-      for (let i = 0; i < Math.min(n, 1024); i++) { const o = this.e.scratch + i * 12; const w = d.getUint32(o, true); out.push({ word: w, index: d.getUint32(o + 4, true), isLooseMatch: !!d.getUint8(o + 8), wordKey: this.wordKey(w), text: this.words[w].text }); }
+      for (let i = 0; i < n; i++) { const o = at + i * 12; const w = d.getUint32(o, true); out.push({ word: w, index: d.getUint32(o + 4, true), isLooseMatch: !!d.getUint8(o + 8), wordKey: this.wordKey(w), text: this.words[w].text }); }
       return out;
     }
     wordKey(i) { const w = this.words[i]; return `${w.surah}:${w.ayah}:${w.word}`; }
     /** attach a words sidecar (object or JSON string/bytes); returns words updated */
     attachWords(sidecar) { const s = typeof sidecar === 'string' ? sidecar : sidecar instanceof Uint8Array ? this.e.td.decode(sidecar) : JSON.stringify(sidecar); const b = this.e.te.encode(s); const p = this.e.ex.qvp_alloc(b.length); new Uint8Array(this.e.mem.buffer, p, b.length).set(b); const n = this.e.ex.qvp_attach_words(this.h, p, b.length); this.e.ex.qvp_dealloc(p, b.length); return n; }
     hasForm(form) { return !!this.e.ex.qvp_has_form(this.h, FORM[form] ?? 0); }
-    citation(words) { const p = this.e.putU32(Uint32Array.from(words)); this.e.ex.qvp_citation(this.h, p, words.length, this.e.scratch); return this.e.qstr(this.e.scratch); }
+    citation(words) { this.e._withInputs(() => this.e.ex.qvp_citation(this.h, this.e.putU32(Uint32Array.from(words)), words.length, this.e.scratch)); return this.e.qstr(this.e.scratch); }
 
     // ── hit testing ──
     hitTestExact(x, y) { return this.e.ex.qvp_hit_test_exact(this.h, x, y, this.e.scratch) ? this._hit(this.e.scratch) : null; }
     hitTestExactView(viewX, viewY) { return this.e.ex.qvp_hit_test_exact_view(this.h, viewX, viewY, this.e.scratch) ? this._hit(this.e.scratch) : null; }
-    _hitOpt(o) { const d = this.e.dv(), at = this.e.scratch2 + 8192; d.setFloat32(at, o.maxDistance ?? 0, true); d.setFloat32(at + 4, o.gapBias ?? 0.6, true); d.setUint8(at + 8, o.preferExact === false ? 0 : 1); return at; }
-    /** the one hit shape for every hit test; the exact variants report distance 0 and isExact */
+    // The engine owns maxDistance through its sentinel: 0 is unlimited. Gap bias has no sentinel, so DEFAULTS.GAP_BIAS (the engine's own number) fills it.
+    _hitOpt(o) { const d = this.e.dv(), at = this.e.scratch2 + 8192; d.setFloat32(at, o?.maxDistance ?? 0, true); d.setFloat32(at + 4, o?.gapBias ?? DEFAULTS.GAP_BIAS, true); d.setUint8(at + 8, o?.preferExact === false ? 0 : 1); return at; }
+    /** the one hit shape for every hit test; the exact variants report distance 0, and isExact is true only when the point is inside an outline */
     _hit(s) { const d = this.e.dv(); const f = v => (v === NONE ? -1 : v); const h = { word: f(d.getUint32(s, true)), path: f(d.getUint32(s + 4, true)), decoration: f(d.getUint32(s + 8, true)), line: f(d.getUint32(s + 12, true)), distance: d.getFloat32(s + 16, true), isExact: !!d.getUint8(s + 20) }; if (h.word >= 0) { h.wordKey = this.wordKey(h.word); const w = this.words[h.word]; h.ayahKey = `${w.surah}:${w.ayah}`; } return h; }
     /** gap-aware: every point on a printed line resolves to the word the user meant */
     hitTest(x, y, opt = {}) { return this.e.ex.qvp_hit_test(this.h, x, y, this._hitOpt(opt), this.e.scratch) ? this._hit(this.e.scratch) : null; }
     hitTestView(viewX, viewY, opt = {}) { return this.e.ex.qvp_hit_test_view(this.h, viewX, viewY, this._hitOpt(opt), this.e.scratch) ? this._hit(this.e.scratch) : null; }
     /** the hit boxes in viewport px through the current layout: what a tap is resolved with */
-    hitAreasView(gapBias = DEFAULTS.GAP_BIAS) { const n = this.e.ex.qvp_hit_areas_view(this.h, gapBias, this.e.scratch, 1024), d = this.e.dv(), out = []; for (let i = 0; i < Math.min(n, 1024); i++) { const o = this.e.scratch + i * 40; out.push({ word: d.getUint32(o, true), line: d.getUint32(o + 4, true), x0: d.getFloat32(o + 8, true), y0: d.getFloat32(o + 12, true), x1: d.getFloat32(o + 16, true), y1: d.getFloat32(o + 20, true), inkX0: d.getFloat32(o + 24, true), inkY0: d.getFloat32(o + 28, true), inkX1: d.getFloat32(o + 32, true), inkY1: d.getFloat32(o + 36, true) }); } return out; }
-    lineBands() { const n = this.e.ex.qvp_line_bands(this.h, this.e.scratch, 64), d = this.e.dv(), out = []; for (let i = 0; i < Math.min(n, 64); i++) { const o = this.e.scratch + i * 28; out.push({ line: d.getUint32(o, true), lineNumber: d.getUint32(o + 4, true), y0: d.getFloat32(o + 8, true), y1: d.getFloat32(o + 12, true), mid: d.getFloat32(o + 16, true), inkY0: d.getFloat32(o + 20, true), inkY1: d.getFloat32(o + 24, true) }); } return out; }
-    hitAreas(gapBias = DEFAULTS.GAP_BIAS) { const n = this.e.ex.qvp_hit_areas(this.h, gapBias, this.e.scratch, 1024), d = this.e.dv(), out = []; for (let i = 0; i < Math.min(n, 1024); i++) { const o = this.e.scratch + i * 40; out.push({ word: d.getUint32(o, true), line: d.getUint32(o + 4, true), x0: d.getFloat32(o + 8, true), y0: d.getFloat32(o + 12, true), x1: d.getFloat32(o + 16, true), y1: d.getFloat32(o + 20, true), inkX0: d.getFloat32(o + 24, true), inkY0: d.getFloat32(o + 28, true), inkX1: d.getFloat32(o + 32, true), inkY1: d.getFloat32(o + 36, true) }); } return out; }
+    hitAreasView(gapBias = DEFAULTS.GAP_BIAS) { const [at, n] = this.e.collect(40, (o, c) => this.e.ex.qvp_hit_areas_view(this.h, gapBias, o, c)), d = this.e.dv(), out = []; for (let i = 0; i < n; i++) { const o = at + i * 40; out.push({ word: d.getUint32(o, true), line: d.getUint32(o + 4, true), x0: d.getFloat32(o + 8, true), y0: d.getFloat32(o + 12, true), x1: d.getFloat32(o + 16, true), y1: d.getFloat32(o + 20, true), inkX0: d.getFloat32(o + 24, true), inkY0: d.getFloat32(o + 28, true), inkX1: d.getFloat32(o + 32, true), inkY1: d.getFloat32(o + 36, true) }); } return out; }
+    lineBands() { const [at, n] = this.e.collect(28, (o, c) => this.e.ex.qvp_line_bands(this.h, o, c)), d = this.e.dv(), out = []; for (let i = 0; i < n; i++) { const o = at + i * 28; out.push({ line: d.getUint32(o, true), lineNumber: d.getUint32(o + 4, true), y0: d.getFloat32(o + 8, true), y1: d.getFloat32(o + 12, true), mid: d.getFloat32(o + 16, true), inkY0: d.getFloat32(o + 20, true), inkY1: d.getFloat32(o + 24, true) }); } return out; }
+    hitAreas(gapBias = DEFAULTS.GAP_BIAS) { const [at, n] = this.e.collect(40, (o, c) => this.e.ex.qvp_hit_areas(this.h, gapBias, o, c)), d = this.e.dv(), out = []; for (let i = 0; i < n; i++) { const o = at + i * 40; out.push({ word: d.getUint32(o, true), line: d.getUint32(o + 4, true), x0: d.getFloat32(o + 8, true), y0: d.getFloat32(o + 12, true), x1: d.getFloat32(o + 16, true), y1: d.getFloat32(o + 20, true), inkX0: d.getFloat32(o + 24, true), inkY0: d.getFloat32(o + 28, true), inkX1: d.getFloat32(o + 32, true), inkY1: d.getFloat32(o + 36, true) }); } return out; }
 
     // ── layout ──
     /** Write a layout spec (QvpLayoutSpec, 76 bytes) at scratch offset `s`. */
     _writeLayoutSpec(spec, s) {
+      // The engine lays out whatever numbers it gets and cannot refuse a spec, so a field that
+      // is not a finite number is refused here by name, before anything of the page changes.
+      // A field left out (undefined or null) takes its default; the viewport has none.
+      const number = (o, key, fallback, prefix = '') => { const v = o[key] ?? fallback; if (!Number.isFinite(v)) throw new TypeError(`layout: ${prefix}${key} must be a finite number`); return v; };
+      const n = (key, fallback) => number(spec, key, fallback);
+      const r = spec.reflow, rn = (key, fallback) => number(r, key, fallback, 'reflow.');
       const d = this.e.dv();
-      d.setFloat32(s, spec.viewportW, true); d.setFloat32(s + 4, spec.viewportH, true); d.setFloat32(s + 8, spec.padTop || 0, true); d.setFloat32(s + 12, spec.padBottom || 0, true);
-      d.setFloat32(s + 16, spec.padLeft || 0, true); d.setFloat32(s + 20, spec.padRight || 0, true); d.setFloat32(s + 24, spec.lineSpacing ?? 1, true);
-      d.setUint8(s + 28, spec.fillHeight ? 1 : 0); d.setUint32(s + 32, spec.gridLines || 0, true);
-      d.setFloat32(s + 36, spec.cropLeft || 0, true); d.setFloat32(s + 40, spec.cropRight || 0, true); d.setFloat32(s + 44, spec.maxAspectSlack || 0, true);
-      const r = spec.reflow;
-      d.setFloat32(s + 48, r ? (r.zoom ?? 1) : 0, true);
+      d.setFloat32(s, n('viewportW'), true); d.setFloat32(s + 4, n('viewportH'), true); d.setFloat32(s + 8, n('padTop', 0), true); d.setFloat32(s + 12, n('padBottom', 0), true);
+      d.setFloat32(s + 16, n('padLeft', 0), true); d.setFloat32(s + 20, n('padRight', 0), true); d.setFloat32(s + 24, n('lineSpacing', 1), true);
+      d.setUint8(s + 28, spec.fillHeight ? 1 : 0); d.setUint32(s + 32, n('gridLines', 0), true);
+      d.setFloat32(s + 36, n('cropLeft', 0), true); d.setFloat32(s + 40, n('cropRight', 0), true); d.setFloat32(s + 44, n('maxAspectSlack', 0), true);
+      d.setFloat32(s + 48, r ? rn('zoom', 1) : 0, true);
       // 255 asks the engine for its own default
       const fill = { ragged: 0, justified: 1, centred: 2, centered: 2 }[r && r.fill] ?? 255;
       const breaks = { greedy: 0, even: 1, fitted: 2, printed: 3 }[r && r.breaks] ?? 255;
       d.setUint8(s + 52, fill); d.setUint8(s + 53, breaks); d.setUint8(s + 54, r && r.gaps === 'printed' ? 0 : 1);
-      d.setFloat32(s + 56, r ? (r.wordGap ?? 1) : 1, true);
-      d.setFloat32(s + 60, r ? (r.maxStretch ?? 0) : 0, true);
-      d.setFloat32(s + 64, r && r.relax !== undefined ? r.relax : -1, true);
+      d.setFloat32(s + 56, r ? rn('wordGap', 1) : 1, true);
+      d.setFloat32(s + 60, r ? rn('maxStretch', 0) : 0, true);
+      d.setFloat32(s + 64, r ? rn('relax', -1) : -1, true);
       // bannerZoom: how big a surah name or basmalah may get against its printed size as the
       // reader zooms; 0 lets it grow with the page until it fills the row.
-      d.setFloat32(s + 68, spec.bannerZoom ?? 0, true);
+      d.setFloat32(s + 68, n('bannerZoom', 0), true);
       // Native frames preserve the printed page by default; a host may supply its own.
       d.setUint8(s + 72, spec.surahFrames === false ? 0 : 1);
     }
@@ -654,11 +785,11 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       const s = this.e.scratch2 + 40960; this._writeLayoutSpec(spec, s);
       const z = this._putZoom(zoom, this.e.scratch2 + 41984);
       this.e.ex.qvp_zoom_spec(this.h, s, z, this.e.scratch);
-      const at = this.e.scratch + 48;
-      const v = this.e.dv().getFloat32(at, true);
-      // The control owns the zoom alone. The host's other reflow knobs come back as it set
-      // them, on the printed page too, where the zoom is 0: dropping them there would leave the
-      // pinch that leaves the printed page to lay it out with the engine's defaults.
+      const v = this.e.dv().getFloat32(this.e.scratch + 48, true);
+      // The control owns the reflow zoom alone, and the engine hands every other field back as
+      // the host set it. So the host's own spec carries every knob, and only the zoom is read
+      // back. On the printed page the zoom is 0 and the knobs stay: dropping them there would
+      // leave the pinch that leaves the printed page to lay it out with the engine's defaults.
       if (v > 0 || spec.reflow) return { ...spec, reflow: { ...(spec.reflow || {}), zoom: v } };
       return { ...spec, reflow: null };
     }
@@ -716,9 +847,9 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     zoomLevels(spec, nominals, band) {
       const s = this.e.scratch; this._writeLayoutSpec(spec, s);
       const k = nominals ? nominals.length : 0;
-      const np = k ? this.e.buf(k * 4) : 0;
+      // one block, two halves: a second `buf` could replace the first and free the nominals
+      const b = this.e.buf((k + 8) * 4), np = k ? b : 0, out = b + k * 4;
       if (k) new Float32Array(this.e.mem.buffer, np, k).set(nominals);
-      const out = this.e.buf(8 * 4);
       const n = this.e.ex.qvp_zoom_levels(this.h, s, np, k, band || 0, out, 8);
       return Array.from(new Float32Array(this.e.mem.buffer, out, n));
     }
@@ -732,7 +863,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     /** every zoom the search weighs for one step of a zoom control, with its cost */
     zoomLevelCandidates(spec, nominal, band, floor) {
       const s = this.e.scratch; this._writeLayoutSpec(spec, s);
-      // one block, two halves: `buf` hands back the same scratch every time
+      // one block, two halves: a second `buf` could replace the first and free it
       const N = 64, z = this.e.buf(N * 8), c = z + N * 4;
       const n = this.e.ex.qvp_zoom_level_candidates(this.h, s, nominal, band || 0, floor || 0, z, c, N);
       const zs = new Float32Array(this.e.mem.buffer, z, n), cs = new Float32Array(this.e.mem.buffer, c, n);
@@ -754,6 +885,18 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       this.e.ex.qvp_view_anchor(this.h, i, word, nx, ny, toX, toY, viewportW, viewportH, this.e.scratch);
       return this.e._getView(this.e.scratch);
     }
+    /** Which band of the current layout to keep drawn, `{top, height}` in layout px: the whole
+     * page when it fits, otherwise two screens around the reader. The top moves in steps, so a
+     * pan inside one step redraws nothing; pass `top` and `top + height` to `layoutDrawList`.
+     * `maxHeight` is the tallest band the host can draw and `maxPixels` the pixels it keeps for
+     * one, both in viewport px; 0 takes `MAX_INK_HEIGHT` and no pixel limit. The pixel limit
+     * never takes the band below one screen. */
+    layoutInkBand(view, viewportW, viewportH, { maxHeight = 0, maxPixels = 0 } = {}) {
+      const i = this.e._putView(view, this.e.scratch2 + 32768);
+      this.e.ex.qvp_layout_ink_band(this.h, i, viewportW, viewportH, maxHeight, maxPixels, this.e.scratch);
+      const f = new Float32Array(this.e.mem.buffer, this.e.scratch, 2);
+      return { top: f[0], height: f[1] };
+    }
     /** where a viewport point lands in the laid-out page, for turning a touch into a hit test */
     viewToLayout(view, vx, vy) {
       const i = this.e._putView(view, this.e.scratch2 + 32768);
@@ -765,7 +908,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
 
     // ── styles (handles undo exactly) ──
     style(sel, color, { ms = 0, layer = LAYER.BASE } = {}) { return this.e.ex.qvp_style_add(this.h, layer, writeSel(this.e, this.e.scratch2 + 12288, sel), rgba(color), ms); }
-    styleTarget(target, color, { ms = 0, layer = LAYER.BASE } = {}) { return this.e.ex.qvp_style_add_target(this.h, layer, this._target(target), rgba(color), ms); }
+    styleTarget(target, color, { ms = 0, layer = LAYER.BASE } = {}) { return this.e._withInputs(() => this.e.ex.qvp_style_add_target(this.h, layer, this._target(target), rgba(color), ms)); }
     removeStyle(handle) { return this.e.ex.qvp_style_remove(this.h, handle); }
     recolorStyle(handle, color, ms = 0) { return this.e.ex.qvp_style_recolor(this.h, handle, rgba(color), ms); }
     hide(sel) { return this.e.ex.qvp_style_hide(this.h, writeSel(this.e, this.e.scratch2 + 12288, sel)); }
@@ -775,15 +918,20 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     get defaultInk() { return this._defaultInk; }
     /** {ink, diacritics, dots, waqf, sifr, ayahMark, numeral, headers, marks: {name: colour}, ms} → handle */
     theme(t) {
-      const d = this.e.dv(), at = this.e.scratch2 + 16384, c = v => (v === undefined || v === null ? 0 : rgba(v));
-      ['ink', 'diacritics', 'dots', 'waqf', 'sifr', 'ayahMark', 'numeral', 'headers'].forEach((k, i) => d.setUint32(at + i * 4, c(t[k]), true));
-      d.setUint32(at + 32, t.ms || 0, true);
       const pairs = Object.entries(t.marks || {}).flatMap(([m, col]) => [markId(m), rgba(col)]);
-      const mp = pairs.length ? this.e.putU32(Uint32Array.from(pairs), 20480) : 0;
-      d.setUint32(at + 36, mp, true); d.setUint32(at + 40, pairs.length / 2, true);
-      return this.e.ex.qvp_theme(this.h, at);
+      return this.e._withInputs(() => {
+        // the pairs first: a long list takes a new block, which can move the memory
+        const mp = pairs.length ? this.e.putU32(Uint32Array.from(pairs), IN.PAIRS) : 0;
+        const d = this.e.dv(), at = this.e.scratch2 + 16384, c = v => (v === undefined || v === null ? 0 : rgba(v));
+        ['ink', 'diacritics', 'dots', 'waqf', 'sifr', 'ayahMark', 'numeral', 'headers'].forEach((k, i) => d.setUint32(at + i * 4, c(t[k]), true));
+        d.setUint32(at + 32, t.ms || 0, true);
+        d.setUint32(at + 36, mp, true); d.setUint32(at + 40, pairs.length / 2, true);
+        return this.e.ex.qvp_theme(this.h, at);
+      });
     }
-    styleHandles() { const n = this.e.ex.qvp_style_handles(this.h, this.e.scratch, 4096); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 4096))); }
+    styleHandles() { return this._u32s((o, c) => this.e.ex.qvp_style_handles(this.h, o, c)); }
+    /** every value of a `uint32_t` array getter, however many */
+    _u32s(call) { const [at, n] = this.e.collect(4, call); return Array.from(new Uint32Array(this.e.mem.buffer, at, n)); }
 
     // ── clock & display list ──
     /** advance animations; returns true while something is still moving */
@@ -799,25 +947,25 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
 
     // ── highlights ──
     /** style: {mode:'ink'|'band'|'both', height:'lineSpacing'|'ink', ink, band, padX, padY, radius, seam, ms, layer} */
-    highlight(target, style = {}) { return this.e.ex.qvp_highlight_add(this.h, this._target(target), writeHl(this.e, this.e.scratch2 + 24576, style)); }
-    moveHighlight(handle, target) { return !!this.e.ex.qvp_highlight_move(this.h, handle, this._target(target)); }
+    highlight(target, style = {}) { return this.e._withInputs(() => this.e.ex.qvp_highlight_add(this.h, this._target(target), writeHl(this.e, this.e.scratch2 + 24576, style))); }
+    moveHighlight(handle, target) { return !!this.e._withInputs(() => this.e.ex.qvp_highlight_move(this.h, handle, this._target(target))); }
     restyleHighlight(handle, style) { return !!this.e.ex.qvp_highlight_restyle(this.h, handle, writeHl(this.e, this.e.scratch2 + 24576, style)); }
     removeHighlight(handle) { return !!this.e.ex.qvp_highlight_remove(this.h, handle); }
     clearHighlights() { this.e.ex.qvp_highlight_clear(this.h); }
-    highlightHandles() { const n = this.e.ex.qvp_highlight_handles(this.h, this.e.scratch, 1024); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 1024))); }
-    highlightWords(h) { const n = this.e.ex.qvp_highlight_words(this.h, h, this.e.scratch, 4096); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 4096))); }
+    highlightHandles() { return this._u32s((o, c) => this.e.ex.qvp_highlight_handles(this.h, o, c)); }
+    highlightWords(h) { return this._u32s((o, c) => this.e.ex.qvp_highlight_words(this.h, h, o, c)); }
     /** animated band boxes in viewport px; draw each id as one nonzero path behind the ink */
-    highlightBoxesView() { const n = this.e.ex.qvp_highlight_boxes_view(this.h, this.e.scratch, 1024); return readBoxes(this.e, this.e.scratch, Math.min(n, 1024)); }
-    wordBands(words, { height = 'lineSpacing', padX = DEFAULTS.HIGHLIGHT_PAD_X, padY = DEFAULTS.HIGHLIGHT_PAD_Y } = {}) { const p = this.e.putU32(Uint32Array.from(words)); const n = this.e.ex.qvp_word_bands(this.h, p, words.length, height === 'ink' ? 1 : 0, padX, padY, this.e.scratch, 64); return readBoxes(this.e, this.e.scratch, Math.min(n, 64)); }
+    highlightBoxesView() { const [at, n] = this.e.collect(32, (o, c) => this.e.ex.qvp_highlight_boxes_view(this.h, o, c)); return readBoxes(this.e, at, n); }
+    wordBands(words, { height = 'lineSpacing', padX = DEFAULTS.HIGHLIGHT_PAD_X, padY = DEFAULTS.HIGHLIGHT_PAD_Y } = {}) { const [at, n] = this.e._withInputs(() => { const wp = this.e.putU32(Uint32Array.from(words)); return this.e.collect(32, (o, c) => this.e.ex.qvp_word_bands(this.h, wp, words.length, height === 'ink' ? 1 : 0, padX, padY, o, c)); }); return readBoxes(this.e, at, n); }
 
     // ── selection ──
     select(anchor, focus = anchor) { this.e.ex.qvp_select(this.h, anchor < 0 ? NONE : anchor, focus < 0 ? NONE : focus); }
     clearSelection() { this.e.ex.qvp_select(this.h, NONE, NONE); }
-    selection() { const n = this.e.ex.qvp_selection(this.h, this.e.scratch, 4096); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 4096))); }
+    selection() { return this._u32s((o, c) => this.e.ex.qvp_selection(this.h, o, c)); }
     selectionText(form = 'rasm_uthmani', includeCitation = false) { this.e.ex.qvp_selection_text(this.h, FORM[form] ?? 0, includeCitation ? 1 : 0, this.e.scratch); return this.e.qstr(this.e.scratch); }
 
     // ── memorisation ──
-    mask(target, mode = 'hide') { this.e.ex.qvp_mask(this.h, this._target(target), { hide: 0, block: 1, blur: 2 }[mode] ?? 0); }
+    mask(target, mode = 'hide') { this.e._withInputs(() => this.e.ex.qvp_mask(this.h, this._target(target), { hide: 0, block: 1, blur: 2 }[mode] ?? 0)); }
     maskFrom(i, mode = 'hide') { this.e.ex.qvp_mask_from(this.h, i, { hide: 0, block: 1, blur: 2 }[mode] ?? 0); }
     maskOptions({ blockColor = DEFAULTS.MASK_BLOCK, padX = DEFAULTS.MASK_PAD, padY = DEFAULTS.MASK_PAD, radius = DEFAULTS.MASK_RADIUS, reverse = false } = {}) { this.e.ex.qvp_mask_options(this.h, rgba(blockColor), padX, padY, radius, reverse ? 1 : 0); }
     unmaskNext(n = 1) { return this.e.ex.qvp_unmask_next(this.h, n); }
@@ -827,11 +975,11 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     unmaskAll() { this.e.ex.qvp_unmask_all(this.h); }
     maskAll() { this.e.ex.qvp_mask_all(this.h); }
     unmask() { this.e.ex.qvp_unmask(this.h); }
-    maskHidden() { const n = this.e.ex.qvp_mask_hidden(this.h, this.e.scratch, 4096); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 4096))); }
-    maskWords() { const n = this.e.ex.qvp_mask_words(this.h, this.e.scratch, 4096); return Array.from(new Uint32Array(this.e.mem.buffer, this.e.scratch, Math.min(n, 4096))); }
+    maskHidden() { return this._u32s((o, c) => this.e.ex.qvp_mask_hidden(this.h, o, c)); }
+    maskWords() { return this._u32s((o, c) => this.e.ex.qvp_mask_words(this.h, o, c)); }
     /** band boxes for a word list in viewport px through the current layout */
-    wordBandsView(words, { height = 'lineSpacing', padX = DEFAULTS.HIGHLIGHT_PAD_X, padY = DEFAULTS.HIGHLIGHT_PAD_Y } = {}) { const p = this.e.putU32(Uint32Array.from(words)); const n = this.e.ex.qvp_word_bands_view(this.h, p, words.length, height === 'ink' ? 1 : 0, padX, padY, this.e.scratch, 64); return readBoxes(this.e, this.e.scratch, Math.min(n, 64)); }
-    maskBoxesView() { const n = this.e.ex.qvp_mask_boxes_view(this.h, this.e.scratch, 1024); return readBoxes(this.e, this.e.scratch, Math.min(n, 1024)); }
+    wordBandsView(words, { height = 'lineSpacing', padX = DEFAULTS.HIGHLIGHT_PAD_X, padY = DEFAULTS.HIGHLIGHT_PAD_Y } = {}) { const [at, n] = this.e._withInputs(() => { const wp = this.e.putU32(Uint32Array.from(words)); return this.e.collect(32, (o, c) => this.e.ex.qvp_word_bands_view(this.h, wp, words.length, height === 'ink' ? 1 : 0, padX, padY, o, c)); }); return readBoxes(this.e, at, n); }
+    maskBoxesView() { const [at, n] = this.e.collect(32, (o, c) => this.e.ex.qvp_mask_boxes_view(this.h, o, c)); return readBoxes(this.e, at, n); }
     /** greyed page with a lit window: {lit, byAyah, grey, ink, ayahMarks, ms} → steps */
     revealStart({ lit = DEFAULTS.REVEAL_LIT, byAyah = false, grey = DEFAULTS.REVEAL_GREY, ink = DEFAULTS.INK, ayahMarks = true, ms = 0 } = {}) { return this.e.ex.qvp_reveal_start(this.h, lit, byAyah ? 1 : 0, rgba(grey), rgba(ink), ayahMarks ? 1 : 0, ms); }
     revealGoto(at) { return !!this.e.ex.qvp_reveal_goto(this.h, BigInt(at)); }
@@ -841,13 +989,18 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     revealStop() { this.e.ex.qvp_reveal_stop(this.h); }
 
     // ── crop ──
-    cropBounds(target, { pad = DEFAULTS.CROP_PAD, keepAyahMarks = true } = {}) { if (!this.e.ex.qvp_crop_bounds(this.h, this._target(target), pad, keepAyahMarks ? 1 : 0, this.e.scratch)) return null; const d = this.e.dv(), s = this.e.scratch; return { x0: d.getFloat32(s, true), y0: d.getFloat32(s + 4, true), x1: d.getFloat32(s + 8, true), y1: d.getFloat32(s + 12, true), nWords: d.getUint32(s + 16, true), ayahMarkDecoration: d.getUint32(s + 20, true) }; }
-    cropSvg(target, { pad = DEFAULTS.CROP_PAD, keepAyahMarks = true, background = null } = {}) { if (!this.e.ex.qvp_crop_svg(this.h, this._target(target), pad, keepAyahMarks ? 1 : 0, background ? rgba(background) : 0, this.e.scratch)) return null; return this.e.qstr(this.e.scratch); }
+    cropBounds(target, { pad = DEFAULTS.CROP_PAD, keepAyahMarks = true } = {}) { if (!this.e._withInputs(() => this.e.ex.qvp_crop_bounds(this.h, this._target(target), pad, keepAyahMarks ? 1 : 0, this.e.scratch))) return null; const d = this.e.dv(), s = this.e.scratch; return { x0: d.getFloat32(s, true), y0: d.getFloat32(s + 4, true), x1: d.getFloat32(s + 8, true), y1: d.getFloat32(s + 12, true), nWords: d.getUint32(s + 16, true), ayahMarkDecoration: d.getUint32(s + 20, true) }; }
+    cropSvg(target, { pad = DEFAULTS.CROP_PAD, keepAyahMarks = true, background = null } = {}) { if (!this.e._withInputs(() => this.e.ex.qvp_crop_svg(this.h, this._target(target), pad, keepAyahMarks ? 1 : 0, background ? rgba(background) : 0, this.e.scratch))) return null; return this.e.qstr(this.e.scratch); }
   }
 
+  /** The cross-page lookup: which page an ayah, a surah or a division is on. Make one with `engine.loadAtlas`. */
   class QvpAtlas {
-    constructor(engine, handle) { this.e = engine; this.h = handle; }
-    free() { this.e.ex.qvp_atlas_free(this.h); this.h = 0; }
+    constructor(engine, handle) { this.e = engine; this._h = handle; engine._live.add(this); }
+    /** the engine's handle; a freed atlas has none */
+    get h() { if (!this._h) throw new Error('QvpAtlas was freed'); return this._h; }
+    /** Free the engine's atlas. Safe to call more than once; every call that reaches the engine
+     * after it throws. Does nothing after `engine.free()`, which freed the atlas. */
+    free() { if (this._h) { this.e.ex.qvp_atlas_free(this._h); this._h = 0; this.e._live.delete(this); } }
     pageOf(surah, ayah) { const p = this.e.ex.qvp_atlas_page_of(this.h, surah, ayah); return p < 0 ? null : p; }
     pageRange(page) { if (!this.e.ex.qvp_atlas_page_range(this.h, page, this.e.scratch)) return null; const v = new Uint16Array(this.e.mem.buffer, this.e.scratch, 4); return { first: [v[0], v[1]], last: [v[2], v[3]] }; }
     _surah(s) { const d = this.e.dv(); return { number: d.getUint16(s, true), page: d.getUint16(s + 2, true), ayahCount: d.getUint16(s + 4, true), place: names('place')[d.getUint8(s + 6)] || '', arabic: this.e.qstr(s + 8), latin: this.e.qstr(s + 16), english: this.e.qstr(s + 24) }; }
@@ -865,7 +1018,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     divisionOf(kind, surah, ayah) { const v = this.e.ex.qvp_atlas_division_of(this.h, { juz: 0, hizb: 1, nisf: 2, rubu_al_hizb: 3 }[kind], surah, ayah); return v < 0 ? null : v; }
     juzOf(surah, ayah) { return this.divisionOf('juz', surah, ayah); }
     pagesOfJuz(n) { if (!this.e.ex.qvp_atlas_pages_of_juz(this.h, n, this.e.scratch)) return null; const v = new Uint16Array(this.e.mem.buffer, this.e.scratch, 2); return [v[0], v[1]]; }
-    searchSurahs(text) { const [p, n] = this.e.putStr(text); const c = this.e.ex.qvp_atlas_search_surahs(this.h, p, n, this.e.scratch, 128); return Array.from(new Uint16Array(this.e.mem.buffer, this.e.scratch, Math.min(c, 128))).map(k => this.surah(k)); }
+    searchSurahs(text) { const [at, c] = this.e._withInputs(() => { const [p, n] = this.e.putStr(text); return this.e.collect(2, (o, cap) => this.e.ex.qvp_atlas_search_surahs(this.h, p, n, o, cap)); }); return Array.from(new Uint16Array(this.e.mem.buffer, at, c)).map(k => this.surah(k)); }
   }
 
   // where the rows of a passage start (QVP_ALIGN_*)
@@ -879,7 +1032,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
    */
   class QvpPassage {
     constructor(engine, handle, surah, from) {
-      this.e = engine; this.h = handle;
+      this.e = engine; this._h = handle;
       const ex = engine.ex, s = engine.scratch;
       /** the ayahs in reading order, each with its text from the page's own word records */
       this.ayahs = Array.from({ length: ex.qvp_passage_ayah_count(handle) }, (_, i) => { ex.qvp_passage_ayah_text(handle, i, s); return { surah, ayah: from + i, text: engine.qstr(s) }; });
@@ -887,9 +1040,13 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       this.lineSpacing = ex.qvp_passage_line_spacing(handle);
       /** the last layout */
       this.currentLayout = null;
+      engine._live.add(this);
     }
-    /** Free the engine's passage. Safe to call more than once. */
-    free() { if (this.h) { this.e.ex.qvp_passage_free(this.h); this.h = 0; } }
+    /** the engine's handle; a freed passage has none */
+    get h() { if (!this._h) throw new Error('QvpPassage was freed'); return this._h; }
+    /** Free the engine's passage. Safe to call more than once; every call that reaches the
+     * engine after it throws. Does nothing after `engine.free()`, which freed the passage. */
+    free() { if (this._h) { this.e.ex.qvp_passage_free(this._h); this._h = 0; this.e._live.delete(this); } }
     /** Write a passage spec (QvpPassageSpec, 32 bytes) at `at`. A knob left out takes the
      * engine's default, and so does `maxStretch` 0. */
     _writeSpec(spec, at) {
@@ -944,15 +1101,21 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
    */
   class QvpOrnaments {
     constructor(engine, handle) {
-      this.e = engine; this.h = handle;
+      this.e = engine; this._h = handle;
       this.count = engine.ex.qvp_ornament_count(handle);
       /** every ornament: {index, kind, lineage, style, riwayah, hasSlices, licence, parts} */
       this.list = Array.from({ length: this.count }, (_, i) => this._ornament(i));
+      engine._live.add(this);   // last: a set the engine refuses to describe is freed by loadOrnaments, not by engine.free
     }
-    free() { this.e.ex.qvp_ornaments_free(this.h); this.h = 0; }
+    /** the engine's handle; a freed set has none */
+    get h() { if (!this._h) throw new Error('QvpOrnaments was freed'); return this._h; }
+    /** Free the engine's ornament set. Safe to call more than once; every call that reaches the
+     * engine after it throws. Does nothing after `engine.free()`, which freed the set. */
+    free() { if (this._h) { this.e.ex.qvp_ornaments_free(this._h); this._h = 0; this.e._live.delete(this); } }
+    // Every index below the set's counts has a record; a 0 is the engine refusing the set, and the load fails.
     _ornament(i) {
       const s = this.e.scratch;
-      if (!this.e.ex.qvp_ornament_info(this.h, i, s)) return null;
+      if (!this.e.ex.qvp_ornament_info(this.h, i, s)) throw refused('qvp_ornament_info', i, 'the ornament set');
       const d = this.e.dv(), u = k => d.getUint32(s + k * 4, true);
       return {
         index: i, kind: ORNAMENT_KIND[u(0)], lineage: LINEAGE[u(1)], style: this.e.qstr(s + 24), riwayah: this.e.qstr(s + 32), hasSlices: !!u(3),
@@ -963,20 +1126,19 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
     }
     _part(i, k) {
       const s = this.e.scratch2 + 4096;   // not `scratch`: an ornament is being read out of it
-      if (!this.e.ex.qvp_ornament_part(this.h, i, k, s)) return null;
+      if (!this.e.ex.qvp_ornament_part(this.h, i, k, s)) throw refused('qvp_ornament_part', `${i}, ${k}`, 'the ornament set');
       const d = this.e.dv();
       return { index: k, color: d.getUint32(s, true), stroke: !!d.getUint32(s + 4, true), name: this.e.qstr(s + 8) };
     }
     /** the ornament of `kind` ('ayah_mark' | 'surah_header' | 'page_frame') in `style`, or null */
-    find(kind, style) { const i = this.e.ex.qvp_ornament_find(this.h, ORNAMENT_KIND.indexOf(kind), ...this.e.putStr(style)); return i < 0 ? null : this.list[i]; }
+    find(kind, style) { const i = this.e._withInputs(() => this.e.ex.qvp_ornament_find(this.h, ORNAMENT_KIND.indexOf(kind), ...this.e.putStr(style))); return i < 0 ? null : this.list[i]; }
     /** the ornaments of one kind */
-    ofKind(kind) { return this.list.filter(o => o && o.kind === kind); }
+    ofKind(kind) { return this.list.filter(o => o.kind === kind); }
     /** every style in the set, with the ornament it has of each kind or null:
      * [{style, riwayah, lineage, ayahMark, surahHeader, pageFrame}], in the set's order */
     styles() {
       const out = [];
       for (const o of this.list) {
-        if (!o) continue;
         let s = out.find(x => x.style === o.style);
         if (!s) { s = { style: o.style, riwayah: o.riwayah, lineage: o.lineage, ayahMark: null, surahHeader: null, pageFrame: null }; out.push(s); }
         s[{ ayah_mark: 'ayahMark', surah_header: 'surahHeader', page_frame: 'pageFrame' }[o.kind]] = o;
@@ -1008,25 +1170,26 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
      * border carries none and sits in layout space. Rasterised once per band, like the
      * base ink, so a scroll inside the band is one blit: a tiled border is hundreds of
      * outlines and nothing about it changes while a highlight animates or the reader
-     * scrolls. A border stands past the content's top and bottom, so the band grows by
-     * the dress overflow. A new layout redraws it, as it moves the placements.
+     * scrolls. The engine's band of a dressed page holds every part of the border on the
+     * screen, except under a screen taller than the tallest band, where the band keeps the
+     * page's ink and the top of the border can be clipped. So the layer is the band, the same
+     * rows as the base ink. A new layout
+     * redraws it, as it moves the placements.
      */
     drawOrnaments(c, page, view, dpr, bandTop, bandH, bandView) {
       const info = page.dressInfo();
       if (!info) { this.ornamentLayer = null; this.ornamentKey = ''; this.ornamentFor = null; return; }
-      const scale = view.scale || 1;
-      const padTop = Math.ceil(info.overflow[1] * scale), padBottom = Math.ceil(info.overflow[3] * scale);
-      const top = bandTop - padTop;   // view px; a clamped canvas (H) keeps this top and loses its bottom edge
-      const W = this.canvas.width, H = Math.min(MAX_CANVAS_PX, Math.ceil((bandH + padTop + padBottom) * dpr));
+      // the band, held to the tallest canvas a browser makes, which the band reaches only by rounding
+      const W = this.canvas.width, H = Math.min(MAX_CANVAS_PX, Math.max(1, Math.ceil(bandH * dpr)));
       const L = page.currentLayout;
       // `page.h` is the page's engine handle, unique while the page is open: two dressed pages
       // drawn by one renderer with no layout would otherwise share a revision and a raster
-      const key = `${page.h}|${view.scale.toFixed(4)}|${view.offsetX.toFixed(1)}|${top.toFixed(1)}|${dpr}|${info.revision}|${W}x${H}`;
+      const key = `${page.h}|${view.scale.toFixed(4)}|${view.offsetX.toFixed(1)}|${bandTop.toFixed(1)}|${dpr}|${info.revision}|${W}x${H}`;
       if (!this.ornamentLayer || key !== this.ornamentKey || this.ornamentFor !== L) {
         if (!this.ornamentLayer) this.ornamentLayer = document.createElement('canvas');
         this.ornamentLayer.width = W; this.ornamentLayer.height = H;
         const b = this.ornamentLayer.getContext('2d');
-        const v = { ...bandView, offsetY: bandView.offsetY + padTop };
+        const v = bandView;
         let cur = -2;
         for (const o of page.dressGeometry()) {
           if (o.placement !== cur) {
@@ -1040,7 +1203,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
         this.ornamentKey = key; this.ornamentFor = L;
       }
       c.setTransform(1, 0, 0, 1, 0, 0);
-      c.drawImage(this.ornamentLayer, 0, Math.round(dpr * (view.offsetY + top)));
+      c.drawImage(this.ornamentLayer, 0, Math.round(dpr * (view.offsetY + bandTop)));
     }
     /** transform of one group of paths: a point p is drawn at (kx·p.x + dx, ky·p.y + dy), page units */
     groupTransform(page, view, group, dpr) {
@@ -1056,6 +1219,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       const s = dpr * view.scale * L.scale;
       return [s * p.kx, s * p.ky, dpr * (view.offsetX + view.scale * (L.offsetX + p.dx * L.scale)), dpr * (view.offsetY + view.scale * (L.offsetY + p.dy * L.scale))];
     }
+    /** Get the transform of one printed line as [scale, tx, ty], for a host overlay on that line. */
     lineTransform(page, view, line, dpr) { const [a, , tx, ty] = this.groupTransform(page, view, line, dpr); return [a, tx, ty]; }
     /** Draw a passage layout into a context, its top left at (x, y) in CSS px: every draw under
      * its placement, with the path from the page the draw names. `pages` maps a page number to
@@ -1092,6 +1256,10 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       }
       flush();
     }
+    /**
+     * Draw one frame of the page into the canvas: the view's pan and zoom on top of the current
+     * layout, at `dpr` device px per CSS px. The base ink is cached between frames.
+     */
     draw(page, view, dpr) {
       const paths = page.buildPaths();
       const styled = page.styledPaths();
@@ -1100,20 +1268,16 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
       const ink = page.defaultInk;
       const W = this.canvas.width, H = this.canvas.height;
       // The cached ink is a band of the page, not the screen, so scrolling inside it is one
-      // blit and nothing is drawn again. A page that is several screens of ink used to redraw
-      // every path on every frame of a drag, because the cache was keyed on where the reader
-      // had scrolled to. The band is rebuilt only when the drag has travelled half a screen.
-      const viewH = H / dpr, slack = viewH / 2, step = viewH / 2;
+      // blit and nothing is drawn again. The engine picks the band: the whole page when it
+      // fits, otherwise two screens around the reader, with a top that moves in steps. It is
+      // asked in device px, so its limits are the canvas's own: the tallest canvas a browser
+      // makes, and the ink budget at four bytes a pixel.
       const scale = view.scale || 1;
-      // A page that fits the ink budget is drawn once, the parts past both ends of the screen
-      // included, and then scrolling draws nothing at all. A taller one keeps a band of itself,
-      // two screens tall, redrawn when the reader scrolls out of it.
-      const contentH = (L.contentH || 0) * scale;
-      const whole = contentH > 0 && W * contentH * dpr * 4 <= this.inkBudget && contentH * dpr <= MAX_CANVAS_PX;
-      const bandTop = whole ? 0 : Math.floor((-view.offsetY - slack) / step) * step;   // view px
-      const bandH = whole ? contentH : viewH + 2 * slack;
+      const band = page.layoutInkBand({ scale: scale * dpr, offsetX: view.offsetX * dpr, offsetY: view.offsetY * dpr }, W, H,
+        { maxHeight: MAX_CANVAS_PX, maxPixels: this.inkBudget / 4 });
       // the ink drawn into the band, in layout px: what the engine is asked for
-      const cullTop = bandTop / scale, cullBottom = (bandTop + bandH) / scale;
+      const cullTop = band.top, cullBottom = band.top + band.height;
+      const bandTop = band.top * scale, bandH = band.height * scale;   // view px
       // the view the band is rendered under: the reader's, less where the band starts
       const bandView = { ...view, offsetY: -bandTop };
       const key = `${view.scale.toFixed(4)}|${view.offsetX.toFixed(1)}|${bandTop.toFixed(1)}|${dpr}|${ink}|${L.scale}|${L.lineSpacing}|${L.lineDy ? L.lineDy[0] : ''}|${L.groups ? L.groups.length + ':' + L.groups[1] : ''}|${(L.repeats || []).length}|${L.omitted ? L.omitted.size : 0}|${[...styledSet].sort((a, b) => a - b).join(',')}`;
@@ -1131,7 +1295,7 @@ const ZOOM_MODE_NAME = ['stepped', 'continuous', 'magnify'];
         const [a, d, tx, ty] = this.placementTransform(page, v, { dx: places[g * 4], dy: places[g * 4 + 1], kx: places[g * 4 + 2], ky: places[g * 4 + 3] }, dpr);
         c.setTransform(a, 0, 0, d, tx, ty);
       };
-      const baseH = Math.ceil(bandH * dpr);
+      const baseH = Math.max(1, Math.ceil(bandH * dpr));
       if (key !== this.baseKey || this.base.width !== W || this.base.height !== baseH) {
         const t0 = performance.now();
         this.base.width = W; this.base.height = baseH;

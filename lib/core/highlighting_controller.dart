@@ -937,17 +937,23 @@ abstract final class QuranTypography {
     return i.toString().split('').map((e) => digits[int.parse(e)]).join('');
   });
 
-  /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
-  static String toArabicDigits(int number) {
-    if (number >= 0 && number < _arabicDigitsCache.length) {
-      return _arabicDigitsCache[number];
+  /// Converts an integer, double, or numeric string to Eastern Arabic numeral glyphs (e.g. 1 -> '١', '1.5' -> '١.٥').
+  static String toArabicDigits(Object value) {
+    if (value is int && value >= 0 && value < _arabicDigitsCache.length) {
+      return _arabicDigitsCache[value];
     }
     const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    return number
-        .toString()
-        .split('')
-        .map((e) => digits[int.parse(e)])
-        .join('');
+    final s = value.toString();
+    final buffer = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      final code = s.codeUnitAt(i);
+      if (code >= 48 && code <= 57) {
+        buffer.write(digits[code - 48]);
+      } else {
+        buffer.writeCharCode(code);
+      }
+    }
+    return buffer.toString();
   }
 
   /// Converts any Eastern Arabic numeral glyphs (٠-٩) in [input] to standard ASCII digits (0-9).

@@ -40,7 +40,7 @@ class VerseRow extends StatefulWidget {
   });
 
   /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
-  static String toArabicDigits(int number) =>
+  static String toArabicDigits(Object number) =>
       QuranTypography.toArabicDigits(number);
 
   /// Checks if audio is currently actively playing or buffering on this Ayah.

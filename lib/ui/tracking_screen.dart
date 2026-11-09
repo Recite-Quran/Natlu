@@ -611,9 +611,10 @@ class _TrackingScreenState extends State<TrackingScreen>
                       const SizedBox(width: 10),
                       Text(
                         isAr
-                            ? 'جاري تحميل التلاوة: $percent%'
+                            ? 'جاري تحميل التلاوة: ${QuranTypography.toArabicDigits(percent)}٪'
                             : 'Downloading Audio: $percent%',
                         style: TextStyle(
+                          fontFamily: 'cairo',
                           color: c.text,
                           fontSize: 13,
                           fontWeight: FontWeight.bold,

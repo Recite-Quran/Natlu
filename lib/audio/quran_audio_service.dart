@@ -316,13 +316,15 @@ class VerseAudioPlayer {
   }
 
   /// Creates MediaItem metadata for background notification and lock screen controls.
+  /// Shows strictly the Surah name and Ayah number as required for minimal, elegant playback display.
   static MediaItem createMediaItem(int surah, int ayah) {
     final surahName = QuranMetadata.getSurahNameArabic(surah);
+    final ayahStr = QuranTypography.toArabicDigits(ayah);
     return MediaItem(
       id: '$surah:$ayah',
       album: 'سورة $surahName',
-      title: 'سورة $surahName - الآية $ayah',
-      artist: 'الشيخ محمود خليل الحصري',
+      title: 'سورة $surahName',
+      artist: 'الآية $ayahStr',
       artUri: Uri.parse('asset:///assets/icon/app_icon.png'),
     );
   }
@@ -439,7 +441,7 @@ class VerseAudioPlayer {
     if (_player == null) {
       final p = AudioPlayer(
         handleInterruptions: true,
-        handleAudioSessionActivation: false,
+        handleAudioSessionActivation: true,
       );
       _player = p;
       _ensureSubscriptions(p);
@@ -465,6 +467,10 @@ class VerseAudioPlayer {
 
       if (state.processingState == ProcessingState.completed) {
         _handleTrackComplete();
+      } else if (state.processingState == ProcessingState.idle) {
+        if (!_isAdvancingSurah) {
+          _resetStopped();
+        }
       } else if (state.playing) {
         _setPlaying(true);
         // When audio officially begins playing, activate target word or word 0

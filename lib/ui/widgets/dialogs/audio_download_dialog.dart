@@ -307,11 +307,12 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
                     _isCalculating
                         ? '...'
                         : (isAr
-                            ? '${_remainingSizeMb.toStringAsFixed(1)} ميجابايت (${_totalSizeMb.toStringAsFixed(1)} الإجمالي)'
+                            ? '${QuranTypography.toArabicDigits(_remainingSizeMb.toStringAsFixed(1))} ميجابايت (الإجمالي ${QuranTypography.toArabicDigits(_totalSizeMb.toStringAsFixed(1))})'
                             : '${_remainingSizeMb.toStringAsFixed(1)} MB (${_totalSizeMb.toStringAsFixed(1)} total)'),
                     style: TextStyle(
+                      fontFamily: 'cairo',
                       color: c.primary,
-                      fontSize: 13.5,
+                      fontSize: 13,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -396,26 +397,36 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
         children: [
           // Search & Quick actions bar
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
             child: Row(
               children: [
                 Expanded(
                   child: SizedBox(
-                    height: 34,
+                    height: 36,
                     child: TextField(
                       controller: _searchController,
-                      style: TextStyle(color: c.text, fontSize: 13),
+                      style: TextStyle(fontFamily: 'cairo', color: c.text, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: isAr ? 'ابحث باسم السورة أو رقمها...' : 'Search surah...',
-                        hintStyle: TextStyle(color: c.muted, fontSize: 12),
+                        hintStyle: TextStyle(fontFamily: 'cairo', color: c.muted, fontSize: 12),
                         prefixIcon: Icon(Icons.search_rounded, size: 18, color: c.muted),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded, size: 16),
+                                color: c.muted,
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
                         contentPadding: EdgeInsets.zero,
                         filled: true,
                         fillColor: isDark
                             ? Colors.white.withValues(alpha: 0.06)
                             : Colors.black.withValues(alpha: 0.04),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                           borderSide: BorderSide.none,
                         ),
                       ),
@@ -423,41 +434,50 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 TextButton(
                   onPressed: _onSelectAll,
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
                     isAr ? 'الكل' : 'All',
-                    style: TextStyle(fontSize: 12, color: c.primary, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontFamily: 'cairo',
+                      fontSize: 12.5,
+                      color: c.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 TextButton(
                   onPressed: _onDeselectAll,
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     minimumSize: Size.zero,
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
                     isAr ? 'إلغاء' : 'None',
-                    style: TextStyle(fontSize: 12, color: c.muted),
+                    style: TextStyle(
+                      fontFamily: 'cairo',
+                      fontSize: 12.5,
+                      color: c.muted,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: c.border.withValues(alpha: 0.3)),
           // Surahs Scroll List
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
               itemCount: filtered.length,
-              itemExtent: 44,
+              itemExtent: 46,
               itemBuilder: (context, idx) {
                 final surah = filtered[idx];
                 final isSelected = _selectedSurahs.contains(surah);
@@ -471,7 +491,7 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
                   child: InkWell(
                     onTap: () => _onToggleSurah(surah),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Row(
                         children: [
                           Icon(
@@ -479,53 +499,95 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
                                 ? Icons.check_box_rounded
                                 : Icons.check_box_outline_blank_rounded,
                             size: 20,
-                            color: isSelected ? c.primary : c.muted,
+                            color: isSelected ? c.primary : c.muted.withValues(alpha: 0.7),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
+                          // Surah number avatar
                           Container(
-                            width: 24,
+                            width: 28,
+                            height: 28,
                             alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? c.primary.withValues(alpha: isDark ? 0.22 : 0.12)
+                                  : c.surface,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected
+                                    ? c.primary.withValues(alpha: 0.45)
+                                    : c.border.withValues(alpha: 0.4),
+                                width: 1,
+                              ),
+                            ),
                             child: Text(
                               isAr ? QuranTypography.toArabicDigits(surah) : '$surah',
                               style: TextStyle(
-                                color: c.muted,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
+                                fontFamily: 'cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? c.primary : c.textSecondary,
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 10),
                           Expanded(
-                            child: Text(
-                              'سورة $surahName',
-                              style: TextStyle(
-                                color: c.text,
-                                fontSize: 13.5,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  'سورة $surahName',
+                                  style: TextStyle(
+                                    fontFamily: 'cairo',
+                                    color: c.text,
+                                    fontSize: 13.5,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '(${isAr ? QuranTypography.toArabicDigits(ayahs) : ayahs} ${isAr ? "آية" : "ayahs"})',
+                                  style: TextStyle(
+                                    fontFamily: 'cairo',
+                                    color: c.muted,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           if (isDownloaded) ...[
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                               decoration: BoxDecoration(
                                 color: const Color(0xFF10B981).withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: Text(
-                                isAr ? 'محمّلة' : 'Cached',
-                                style: const TextStyle(
-                                  color: Color(0xFF10B981),
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF10B981)),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    isAr ? 'محمّلة' : 'Cached',
+                                    style: const TextStyle(
+                                      fontFamily: 'cairo',
+                                      color: Color(0xFF10B981),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 6),
                           ],
                           Text(
-                            '$sizeMb MB',
-                            style: TextStyle(color: c.muted, fontSize: 11),
+                            isAr ? '${QuranTypography.toArabicDigits(sizeMb)} م.ب' : '$sizeMb MB',
+                            style: TextStyle(
+                              fontFamily: 'cairo',
+                              color: c.muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ],
                       ),
@@ -568,8 +630,9 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
             Row(
               children: [
                 Text(
-                  '$percent%',
+                  isAr ? '${QuranTypography.toArabicDigits(percent)}٪' : '$percent%',
                   style: TextStyle(
+                    fontFamily: 'cairo',
                     color: c.primary,
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
@@ -585,8 +648,9 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      isAr ? 'متوقف' : 'Paused',
+                      isAr ? 'متوقف مؤقتاً' : 'Paused',
                       style: const TextStyle(
+                        fontFamily: 'cairo',
                         color: Color(0xFFF59E0B),
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
@@ -597,8 +661,11 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
               ],
             ),
             Text(
-              '${downloadedMb.toStringAsFixed(1)} / ${totalMb.toStringAsFixed(1)} MB',
+              isAr
+                  ? '${QuranTypography.toArabicDigits(downloadedMb.toStringAsFixed(1))} / ${QuranTypography.toArabicDigits(totalMb.toStringAsFixed(1))} م.ب'
+                  : '${downloadedMb.toStringAsFixed(1)} / ${totalMb.toStringAsFixed(1)} MB',
               style: TextStyle(
+                fontFamily: 'cairo',
                 color: c.muted,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -607,7 +674,7 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
           ],
         ),
 
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
 
         // ── Smooth Modern Progress Bar ──
         Container(
@@ -641,13 +708,25 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
                 msg.isNotEmpty ? msg : (isAr ? 'جاري التحميل...' : 'Downloading...'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: c.text, fontSize: 12.5, fontWeight: FontWeight.w500),
+                style: TextStyle(
+                  fontFamily: 'cairo',
+                  color: c.text,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
             const SizedBox(width: 8),
             Text(
-              '$completed / $total',
-              style: TextStyle(color: c.muted, fontSize: 11.5, fontWeight: FontWeight.w600),
+              isAr
+                  ? '${QuranTypography.toArabicDigits(completed)} / ${QuranTypography.toArabicDigits(total)}'
+                  : '$completed / $total',
+              style: TextStyle(
+                fontFamily: 'cairo',
+                color: c.muted,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),

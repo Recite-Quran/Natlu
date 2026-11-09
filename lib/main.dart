@@ -64,17 +64,7 @@ void main() async {
         try {
           final session = await AudioSession.instance;
           await session.configure(
-            const AudioSessionConfiguration(
-              avAudioSessionCategory: AVAudioSessionCategory.playback,
-              avAudioSessionCategoryOptions:
-                  AVAudioSessionCategoryOptions.duckOthers,
-              avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-              androidAudioAttributes: AndroidAudioAttributes(
-                contentType: AndroidAudioContentType.music,
-                usage: AndroidAudioUsage.media,
-              ),
-              androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-            ),
+            const AudioSessionConfiguration.music(),
           );
         } catch (e) {
           DebugLogger.logSimple(
@@ -86,7 +76,7 @@ void main() async {
         try {
           await JustAudioBackground.init(
             androidNotificationChannelId: 'com.recitequran.app.audio',
-            androidNotificationChannelName: 'Quran Recitation',
+            androidNotificationChannelName: 'تلاوة القرآن الكريم',
             androidNotificationOngoing: true,
             androidStopForegroundOnPause: true,
             androidNotificationIcon: 'mipmap/ic_launcher',

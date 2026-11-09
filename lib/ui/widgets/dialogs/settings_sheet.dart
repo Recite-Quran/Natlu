@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../audio/quran_download_service.dart';
 import '../../../core/app_state.dart';
+import '../../../core/highlighting_controller.dart';
 import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
@@ -165,7 +166,7 @@ class QuranDownloadTile extends StatelessWidget {
 
         return SettingTile(
           icon: Icons.cloud_download_rounded,
-          title: isAr ? 'تحميل التلاوة (بدون إنترنت)' : 'Download Audio (Offline)',
+          title: isAr ? 'تحميل التلاوة والتظليل (بدون إنترنت)' : 'Download Audio & Highlighting (Offline)',
           c: c,
           onTap: () {
             Navigator.of(context).pop();
@@ -196,8 +197,9 @@ class QuranDownloadTile extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        '$percent%',
+                        isAr ? '${QuranTypography.toArabicDigits(percent)}٪' : '$percent%',
                         style: TextStyle(
+                          fontFamily: 'cairo',
                           color: c.primary,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
@@ -219,6 +221,7 @@ class QuranDownloadTile extends StatelessWidget {
                   child: Text(
                     isAr ? 'تحميل' : 'Download',
                     style: TextStyle(
+                      fontFamily: 'cairo',
                       color: c.primary,
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
