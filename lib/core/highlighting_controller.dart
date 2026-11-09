@@ -302,11 +302,11 @@ class HighlightingController extends rq.HighlightingController {
     if (_isRemoteReciting && _remoteTargetSurah != 0) {
       return _remoteTargetSurah;
     }
-    if (isAudioActive && _audioSurah != null && _audioSurah != 0) {
-      return _audioSurah!;
-    }
     if (_manualTargetSurah != 0) {
       return _manualTargetSurah;
+    }
+    if (isAudioActive && _audioSurah != null && _audioSurah != 0) {
+      return _audioSurah!;
     }
     return super.targetSurah;
   }
@@ -354,20 +354,20 @@ class HighlightingController extends rq.HighlightingController {
   void Function(int nextSurah, int nextAyah)? onSurahAutoAdvanced;
 
   /// Advances to next Surah in sequence, preserving previous Surah highlights for continuous reading.
-  Future<bool> advanceToNextSurah({bool isRecording = false}) async {
-    final int nextSurah = targetSurah + 1;
-    if (!QuranMetadata.isValidSurah(nextSurah)) return false;
+  Future<bool> advanceToNextSurah({int? nextSurah, bool isRecording = false}) async {
+    final int next = nextSurah ?? (targetSurah + 1);
+    if (!QuranMetadata.isValidSurah(next)) return false;
 
     await setTargetSurah(
-      nextSurah,
+      next,
       preserveOtherSurahStates: true,
       clearTargetSurah: false,
     );
-    setManualAyah(nextSurah, 1);
+    setManualAyah(next, 1);
     if (isRecording) {
       startRecordingSession();
     }
-    onSurahAutoAdvanced?.call(nextSurah, 1);
+    onSurahAutoAdvanced?.call(next, 1);
     return true;
   }
 
@@ -413,6 +413,13 @@ class HighlightingController extends rq.HighlightingController {
   void setManualAyah(int surah, int ayah) {
     _manualTargetSurah = surah;
     activeAyah.value = ayah;
+    if (_audioSurah != null || _audioAyah != null) {
+      _audioSurah = null;
+      _audioAyah = null;
+      _audioWordIndex = null;
+      _isAudioPlaying = false;
+      _isAudioBuffering = false;
+    }
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
@@ -1084,6 +1091,10 @@ abstract final class QuranInteractionService {
     VoidCallback? onTap,
   }) async {
     AppHaptics.lightImpact();
+    if (controller.isAudioActive) {
+      QuranAudioService.instance.stop();
+      controller.clearAudio();
+    }
     controller.setManualAyah(surah, ayah);
     onTap?.call();
   }

@@ -351,28 +351,18 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     try {
       AppHaptics.mediumImpact();
       final provider = MushafProvider.instance;
+      const int nextAyah = 1;
 
-      // Find which page nextSurah:1 lives on.
-      final targetPage = provider.getPageForAyah(nextSurah, 1);
-
-      // The selection target is always the FIRST AYAH ON THAT PAGE,
-      // not necessarily nextSurah:1 (the next surah may start mid-page).
-      final firstOnPage = targetPage != null
-          ? provider.getFirstAyahOnPage(targetPage)
-          : null;
-      final selSurah = firstOnPage?.$1 ?? nextSurah;
-      final selAyah = firstOnPage?.$2 ?? 1;
-
+      final targetPage = provider.getPageForAyah(nextSurah, nextAyah);
       if (targetPage != null && targetPage != _currentPage) {
-        _navigationTargetAyah = (selSurah, selAyah);
+        _navigationTargetAyah = (nextSurah, nextAyah);
         _goToPage(targetPage, animated: true);
       }
 
       await widget.controller.advanceToNextSurah(
+        nextSurah: nextSurah,
         isRecording: widget.isRecording,
       );
-      // Override the ayah the controller set to the true first ayah on the page.
-      widget.controller.setManualAyah(selSurah, selAyah);
       _requestSyncVisuals();
     } catch (e) {
       debugPrint('Error advancing to next surah: $e');
@@ -512,13 +502,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _checkSpinnerAnimation();
 
     if (activeAyah == null || activeSurah == 0) {
-      _requestSyncVisuals();
-      return;
-    }
-
-    // When audio is active, page navigation is handled by the audio listener.
-    // Manual taps while audio plays must NOT trigger page jumps.
-    if (widget.controller.isAudioActive) {
       _requestSyncVisuals();
       return;
     }
