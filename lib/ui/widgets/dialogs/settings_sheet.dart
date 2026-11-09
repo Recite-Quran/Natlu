@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../audio/quran_download_service.dart';
 import '../../../core/app_state.dart';
+import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -35,6 +37,7 @@ class SettingTile extends StatelessWidget {
   final Widget? bottom;
   final Widget? badge;
   final double? trailingWidth;
+  final VoidCallback? onTap;
 
   const SettingTile({
     super.key,
@@ -45,13 +48,14 @@ class SettingTile extends StatelessWidget {
     this.bottom,
     this.badge,
     this.trailingWidth,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = AppState.instance.isDarkMode;
 
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsetsDirectional.symmetric(horizontal: 16, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -118,6 +122,111 @@ class SettingTile extends StatelessWidget {
           ],
         ],
       ),
+    );
+
+    if (onTap != null) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: content,
+        ),
+      );
+    }
+    return content;
+  }
+}
+
+/// Offline Quran Recitation & Timings download tile for settings.
+class QuranDownloadTile extends StatelessWidget {
+  final ThemeColors c;
+  final bool isAr;
+  final bool isDark;
+
+  const QuranDownloadTile({
+    super.key,
+    required this.c,
+    required this.isAr,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        QuranDownloadService.instance.isDownloading,
+        QuranDownloadService.instance.progress,
+      ]),
+      builder: (context, _) {
+        final isDownloading = QuranDownloadService.instance.isDownloading.value;
+        final progress = QuranDownloadService.instance.progress.value;
+        final percent = (progress * 100).toInt();
+
+        return SettingTile(
+          icon: Icons.cloud_download_rounded,
+          title: isAr ? 'تحميل التلاوة (بدون إنترنت)' : 'Download Audio (Offline)',
+          c: c,
+          onTap: () {
+            Navigator.of(context).pop();
+            AudioDownloadDialog.show(context);
+          },
+          trailing: isDownloading
+              ? Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: c.primary.withValues(alpha: isDark ? 0.20 : 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: c.primary.withValues(alpha: isDark ? 0.40 : 0.25),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          value: progress.clamp(0.0, 1.0),
+                          valueColor: AlwaysStoppedAnimation<Color>(c.primary),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$percent%',
+                        style: TextStyle(
+                          color: c.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: c.primary.withValues(alpha: isDark ? 0.16 : 0.10),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: c.primary.withValues(alpha: isDark ? 0.35 : 0.22),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    isAr ? 'تحميل' : 'Download',
+                    style: TextStyle(
+                      color: c.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+        );
+      },
     );
   }
 }
@@ -238,6 +347,10 @@ class SettingsSheet extends StatelessWidget {
                               app.setTheme(AppTheme.values[i]),
                         ),
                       ),
+                      SettingDivider(c: c),
+
+                      // 3. Offline Audio & Timing Download
+                      QuranDownloadTile(c: c, isAr: isAr, isDark: isDark),
 
                       // 3. Sliders in reading mode
                       if (!app.isMushafMode) ...[

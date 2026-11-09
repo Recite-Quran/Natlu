@@ -40,8 +40,10 @@ import 'mushaf/web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'audio/quran_audio_service.dart';
+import 'audio/quran_download_service.dart';
 import 'ui/widgets/dialogs/dialog_service.dart';
 
 void main() async {
@@ -80,7 +82,24 @@ void main() async {
             'Failed to configure AudioSession: $e',
           );
         }
+
+        try {
+          await JustAudioBackground.init(
+            androidNotificationChannelId: 'com.recitequran.app.audio',
+            androidNotificationChannelName: 'Quran Recitation',
+            androidNotificationOngoing: true,
+            androidStopForegroundOnPause: true,
+            androidNotificationIcon: 'mipmap/ic_launcher',
+          );
+        } catch (e) {
+          DebugLogger.logSimple(
+            'JustAudioBackground',
+            'Failed to configure JustAudioBackground: $e',
+          );
+        }
       }
+
+      unawaited(QuranDownloadService.instance.init());
 
       if (kReleaseMode) {
         debugPrint = (String? message, {int? wrapWidth}) {
@@ -477,11 +496,6 @@ class _OrchestratorState extends State<_Orchestrator>
           _onMaglisSessionChangedForIdleTimer();
         }
       }
-    }
-
-    if (QuranAudioService.instance.isSingleWordMode &&
-        state == AppLifecycleState.resumed) {
-      QuranAudioService.instance.stop();
     }
   }
 

@@ -89,8 +89,8 @@ class MushafOverlays {
       final double bottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
       if (bottom <= top) continue;
 
-      final double left = h.x1 > h.x0 ? h.x0 : 0.0;
-      final double right = h.x1 > h.x0 ? h.x1 : contentW;
+      final double left = (h.x1 > h.x0 && h.x0 >= 0) ? h.x0 : 0.0;
+      final double right = (h.x1 > h.x0 && h.x1 <= contentW) ? h.x1 : contentW;
 
       final rect = Rect.fromLTRB(left, top, right, bottom);
       canvas.drawRect(rect, _headerFillPaint);
@@ -122,6 +122,11 @@ class MushafOverlays {
 
     _goldPaint.color = goldColor;
     _spinnerPaint.color = goldColor;
+
+    final ringColor = neutralRingColor ??
+        (app.isDarkMode
+            ? Colors.white.withValues(alpha: 0.25)
+            : const Color(0xFF64748B).withValues(alpha: 0.35));
 
     for (final m in marks) {
       final center = Offset(m.cx, m.cy);
@@ -178,18 +183,10 @@ class MushafOverlays {
           _goldPaint,
         );
       } else {
-        final bool isCompleted = controller != null &&
-            controller.completedAyahsFor(m.surah).contains(m.ayah);
-        if (isCompleted) {
-          _ringPaint.color = goldColor.withValues(alpha: 0.65);
-          _ringPaint.strokeWidth = 1.2;
-        } else {
-          _ringPaint.color = neutralRingColor ??
-              (app.isDarkMode
-                  ? Colors.white.withValues(alpha: 0.25)
-                  : const Color(0xFF64748B).withValues(alpha: 0.35));
-          _ringPaint.strokeWidth = 1.0;
-        }
+        // Normal state: ring color stays strictly consistent and neutral.
+        // It NEVER changes color on completion or during recitation highlighting.
+        _ringPaint.color = ringColor;
+        _ringPaint.strokeWidth = 1.0;
         canvas.drawCircle(center, customR, _ringPaint);
       }
     }

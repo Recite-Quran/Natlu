@@ -83,8 +83,10 @@ class MushafProvider {
         if (!QuranMetadata.isValidPage(p)) continue;
         final cached = getCachedPage(p);
         if (cached != null && !cached.isDisposed) {
-          if (cached.currentLayout == null ||
-              (cached.currentLayout!.contentW - targetSize.width).abs() > 1) {
+          final cl = cached.currentLayout;
+          if (cl == null ||
+              (cl.contentW - targetSize.width).abs() > 0.5 ||
+              (cl.contentH - targetSize.height).abs() > 0.5) {
             cached.layout(const QvpViewLayout(
               padTop: 0,
               padBottom: 0,
@@ -111,8 +113,10 @@ class MushafProvider {
           if (page != null &&
               !page.isDisposed &&
               _preloadingTargetPage == pageNumber) {
-            if (page.currentLayout == null ||
-                (page.currentLayout!.contentW - targetSize.width).abs() > 1) {
+            final pl = page.currentLayout;
+            if (pl == null ||
+                (pl.contentW - targetSize.width).abs() > 0.5 ||
+                (pl.contentH - targetSize.height).abs() > 0.5) {
               page.layout(const QvpViewLayout(
                 padTop: 0,
                 padBottom: 0,

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../core/highlighting_controller.dart';
 import '../audio/quran_timing_service.dart';
 import '../audio/quran_audio_service.dart';
+import '../audio/quran_download_service.dart';
 import '../core/platform_utils.dart';
 import 'widgets/dialogs/dialog_service.dart';
 import '../core/app_state.dart';
@@ -61,9 +62,6 @@ class _TrackingScreenState extends State<TrackingScreen>
   final ValueNotifier<bool> _isAutoScrolling = ValueNotifier<bool>(false);
   late final ValueNotifier<int> _surahNotifier;
 
-  static const MethodChannel _lifecycleChannel =
-      MethodChannel('com.recitequran.app/audio_lifecycle');
-
   AppBannerInfo? _lastBanner;
   int? _lastAyah;
   int? _lastSurah;
@@ -101,15 +99,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     AppState.instance.isAudioPlaying.addListener(_onActiveAudioAyahChanged);
     AppState.instance.mushafModeNotifier.addListener(_onMushafModeChanged);
     AppState.instance.currentMushafPage.addListener(_onMushafPageChanged);
-
-    // Listen for explicit native user leave hint (Home button pressed or app switched)
-    if (!PlatformCapabilities.isWeb) {
-      _lifecycleChannel.setMethodCallHandler((call) async {
-        if (call.method == 'onUserLeaveHome') {
-          AppState.instance.stopVerseAudio();
-        }
-      });
-    }
 
     // Warm up Surah timings and Ayah 1 audio in memory/disk in the background for zero-latency instant play
     unawaited(QuranTimingService.instance
@@ -177,20 +166,9 @@ class _TrackingScreenState extends State<TrackingScreen>
       if (state == AppLifecycleState.paused ||
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
-        if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
-          QuranAudioService.instance.stop();
-        } else if (PlatformCapabilities.isAndroid) {
-          _checkAndStopIfBackgrounded();
-        } else if (!PlatformCapabilities.isIOS) {
-          QuranAudioService.instance.stop();
-        }
-        // On iOS, continuous verse recitation remains playing across lock screen
-        // and background to satisfy UIBackgroundModes: ["audio"] (App Store Guideline 2.5.4).
-      }
-
-      if (state == AppLifecycleState.paused ||
-          state == AppLifecycleState.inactive ||
-          state == AppLifecycleState.hidden) {
+        // Continuous Quran audio recitation remains playing continuously across
+        // background, lock screen, and minimization via MediaPlayback service.
+        // Microphone recording and voice search are suspended.
         if (widget.isRecording) {
           widget.onToggleRecord();
         }
@@ -198,18 +176,6 @@ class _TrackingScreenState extends State<TrackingScreen>
           widget.onVoiceSearchToggle();
         }
       }
-    }
-  }
-
-  Future<void> _checkAndStopIfBackgrounded() async {
-    try {
-      final isOffOrLocked =
-          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ?? false;
-      if (!isOffOrLocked) {
-        QuranAudioService.instance.stop();
-      }
-    } catch (_) {
-      QuranAudioService.instance.stop();
     }
   }
 
@@ -567,9 +533,99 @@ class _TrackingScreenState extends State<TrackingScreen>
                       builder: (context, activeBanner, _) =>
                           _buildModernBottomBanner(c, app, bottom, activeBanner),
                     ),
+
+                    // Floating Download Progress Pill (appears when download dialog is minimized)
+                    _buildMinimizedDownloadPill(c, app, bottom),
                   ],
                 );
               },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Floating pill shown when Quran audio download is minimized.
+  Widget _buildMinimizedDownloadPill(
+      ThemeColors c, AppState app, double bottom) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        QuranDownloadService.instance.isDownloading,
+        QuranDownloadService.instance.isMinimized,
+        QuranDownloadService.instance.progress,
+      ]),
+      builder: (context, _) {
+        final isDownloading = QuranDownloadService.instance.isDownloading.value;
+        final isMinimized = QuranDownloadService.instance.isMinimized.value;
+        if (!isDownloading || !isMinimized) {
+          return const SizedBox.shrink();
+        }
+
+        final progress = QuranDownloadService.instance.progress.value;
+        final percent = (progress * 100).toInt();
+        final isAr = app.isArabic;
+        final isDark = app.isDarkMode;
+
+        return Positioned(
+          bottom: bottom + 12,
+          left: 16,
+          right: 16,
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => AudioDownloadDialog.show(context),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: c.primary.withValues(alpha: isDark ? 0.40 : 0.25),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black
+                            .withValues(alpha: isDark ? 0.35 : 0.12),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          value: progress.clamp(0.0, 1.0),
+                          valueColor: AlwaysStoppedAnimation<Color>(c.primary),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        isAr
+                            ? 'جاري تحميل التلاوة: $percent%'
+                            : 'Downloading Audio: $percent%',
+                        style: TextStyle(
+                          color: c.text,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(Icons.open_in_full_rounded,
+                          size: 14, color: c.muted),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         );

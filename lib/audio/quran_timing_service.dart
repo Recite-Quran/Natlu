@@ -163,6 +163,9 @@ class QuranTimingService {
 
   static String? _cachedTimingsDirPath;
 
+  /// Returns the persistent local disk cache file for a Surah's timing JSON.
+  Future<File?> getDiskCacheFileForSurah(int surah) async => _getDiskCacheFile(surah);
+
   Future<File?> _getDiskCacheFile(int surah) async {
     if (kIsWeb) return null;
     try {

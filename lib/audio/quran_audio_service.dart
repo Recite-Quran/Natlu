@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:developer' show log;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
@@ -104,6 +105,16 @@ class QuranAudioService {
   /// Completely stops playback and resets state.
   Future<void> stop() async {
     await _player.stop();
+  }
+
+  /// Skips to the next Ayah in the Surah or subsequent Surah.
+  Future<void> skipToNextAyah() async {
+    await _player.skipToNextAyah();
+  }
+
+  /// Skips to the previous Ayah in the Surah or prior Surah.
+  Future<void> skipToPreviousAyah() async {
+    await _player.skipToPreviousAyah();
   }
 
   /// Releases all player resources.
@@ -304,21 +315,34 @@ class VerseAudioPlayer {
     return File('$_cachedAudioDirPath/${formatAyahAudioFileName(surah, ayah)}');
   }
 
+  /// Creates MediaItem metadata for background notification and lock screen controls.
+  static MediaItem createMediaItem(int surah, int ayah) {
+    final surahName = QuranMetadata.getSurahNameArabic(surah);
+    return MediaItem(
+      id: '$surah:$ayah',
+      album: 'سورة $surahName',
+      title: 'سورة $surahName - الآية $ayah',
+      artist: 'الشيخ محمود خليل الحصري',
+      artUri: Uri.parse('asset:///assets/icon/app_icon.png'),
+    );
+  }
+
   /// Creates an AudioSource for an Ayah, utilizing local cached file if present,
-  /// or progressive streaming URL.
+  /// or progressive streaming URL, tagged with MediaItem for background notification.
   static Future<AudioSource> createAyahAudioSource(int surah, int ayah) async {
     final url = getAyahAudioUrl(surah, ayah);
+    final mediaItem = createMediaItem(surah, ayah);
     if (kIsWeb) {
-      return AudioSource.uri(Uri.parse(url));
+      return AudioSource.uri(Uri.parse(url), tag: mediaItem);
     }
     try {
       final file = await getLocalAyahFile(surah, ayah);
       if (file.existsSync() && file.lengthSync() > 1024) {
-        return AudioSource.file(file.path);
+        return AudioSource.file(file.path, tag: mediaItem);
       }
-      return AudioSource.uri(Uri.parse(url));
+      return AudioSource.uri(Uri.parse(url), tag: mediaItem);
     } catch (_) {
-      return AudioSource.uri(Uri.parse(url));
+      return AudioSource.uri(Uri.parse(url), tag: mediaItem);
     }
   }
 
@@ -644,10 +668,13 @@ class VerseAudioPlayer {
       await ensureAyahDownloaded(surah, ayah);
       if (session != _sessionId) return;
 
-      // In continuous mode, build full remaining playlist for the Surah:
-      // from [ayah] to [maxAyahs]! Zero dynamic additions needed later!
-      final int endAyah = continuous ? maxAyahs : ayah;
-      _playlistAyahs = [for (int a = ayah; a <= endAyah; a++) a];
+      // In continuous mode, build full playlist for the Surah (1 to maxAyahs)
+      // with initialIndex pointing to [ayah - 1]. This enables previous/next buttons
+      // on the lock screen and notification media controls across the entire Surah!
+      final int startIndex = continuous ? (ayah - 1).clamp(0, maxAyahs - 1) : 0;
+      _playlistAyahs = continuous
+          ? [for (int a = 1; a <= maxAyahs; a++) a]
+          : [ayah];
       _playlistSurah = surah;
 
       final sources = await Future.wait(
@@ -662,7 +689,7 @@ class VerseAudioPlayer {
 
       await player.setAudioSources(
         sources,
-        initialIndex: 0,
+        initialIndex: startIndex,
         initialPosition: Duration.zero,
       );
       await player.setShuffleModeEnabled(false);
@@ -671,7 +698,7 @@ class VerseAudioPlayer {
       if (session != _sessionId) return;
 
       try {
-        await player.seek(Duration.zero, index: 0);
+        await player.seek(Duration.zero, index: startIndex);
       } catch (_) {}
       if (session != _sessionId) return;
 
@@ -906,6 +933,40 @@ class VerseAudioPlayer {
     if (triggerError) {
       AppState.instance
           .triggerAudioError(QuranTimingService.instance.lastFailureReason);
+    }
+  }
+
+  /// Skips to the next Ayah in the Surah or subsequent Surah.
+  Future<void> skipToNextAyah() async {
+    final player = _player;
+    if (player == null) return;
+    if (player.hasNext) {
+      await player.seekToNext();
+    } else {
+      final s = _currentSurah;
+      final a = _currentAyah;
+      if (s != null && a != null) {
+        final next = QuranMetadata.getNextAyah(s, a);
+        if (next != null) {
+          await play(surah: next.$1, ayah: next.$2, continuous: true);
+        }
+      }
+    }
+  }
+
+  /// Skips to the previous Ayah in the Surah or prior Surah.
+  Future<void> skipToPreviousAyah() async {
+    final player = _player;
+    if (player == null) return;
+    if (player.hasPrevious) {
+      await player.seekToPrevious();
+    } else {
+      final s = _currentSurah;
+      if (s != null && s > 1) {
+        final prevSurah = s - 1;
+        final prevMax = QuranMetadata.getAyahCount(prevSurah);
+        await play(surah: prevSurah, ayah: prevMax, continuous: true);
+      }
     }
   }
 

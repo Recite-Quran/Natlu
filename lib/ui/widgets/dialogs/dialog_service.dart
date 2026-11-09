@@ -9,10 +9,12 @@ import 'voice_search_dialog.dart';
 import 'maglis_entry_dialog.dart';
 import 'settings_sheet.dart';
 import 'surah_picker_sheet.dart';
+import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
 export 'app_alert_dialogs.dart' show PermissionReason;
 export 'package:recite_quran/recite_quran.dart' show VoiceSearchResult;
+export 'audio_download_dialog.dart' show AudioDownloadDialog;
 export 'dialog_base.dart';
 
 /// Centralized Dialog Service facade.
@@ -75,6 +77,11 @@ abstract final class DialogService {
       barrierDismissible: barrierDismissible,
       builder: (ctx) => ThemeSelectionDialog(onThemeSelected: onThemeSelected),
     );
+  }
+
+  /// Displays the Quran Audio Download & Offline Caching modal dialog.
+  static Future<void> showAudioDownload(BuildContext context) {
+    return AudioDownloadDialog.show(context);
   }
 
   /// Displays the Sherpa-ONNX model download modal dialog.

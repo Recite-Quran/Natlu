@@ -113,6 +113,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   int _hlYellow = 0;
   int _hlNeon = 0;
 
+  List<int> _lastGreyWords = const [];
+  List<int> _lastGreenWords = const [];
+  List<int> _lastYellowWords = const [];
+  List<int> _lastRedWords = const [];
+  List<int> _lastNeonWords = const [];
+  List<int> _lastHiddenWords = const [];
+
   bool? _lastIsDark;
   bool _hasMasks = false;
 
@@ -667,6 +674,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _hasMasks = false;
       }
     });
+    _lastGreyWords = const [];
+    _lastGreenWords = const [];
+    _lastYellowWords = const [];
+    _lastRedWords = const [];
+    _lastNeonWords = const [];
+    _lastHiddenWords = const [];
     _yellowWordsNotifier.value = const [];
   }
 
@@ -823,9 +836,19 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         ms: 0,
       );
 
-      int syncGroup(int handle, List<int> words, QvpHighlightStyle style) {
+      int syncGroup(
+        int handle,
+        List<int> words,
+        List<int> lastWords,
+        QvpHighlightStyle style,
+        void Function(List<int>) updateLast,
+      ) {
         if (words.isNotEmpty) {
+          if (handle != 0 && !themeChanged && listEquals(words, lastWords)) {
+            return handle; // Identical word set and theme unchanged: 0 allocations, 0 FFI calls
+          }
           final target = T.words(words);
+          updateLast(List<int>.from(words));
           if (handle != 0 && !themeChanged) {
             page.moveHighlight(handle, target);
             return handle;
@@ -834,16 +857,47 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
             return page.highlight(target, style);
           }
         } else {
+          updateLast(const []);
           if (handle != 0) page.removeHighlight(handle);
           return 0;
         }
       }
 
-      _hlGrey = syncGroup(_hlGrey, greyWords, styleGrey);
-      _hlGreen = syncGroup(_hlGreen, greenWords, styleGreen);
-      _hlYellow = syncGroup(_hlYellow, yellowWords, styleYellow);
-      _hlRed = syncGroup(_hlRed, redWords, styleRed);
-      _hlNeon = syncGroup(_hlNeon, neonWords, styleNeon);
+      _hlGrey = syncGroup(
+        _hlGrey,
+        greyWords,
+        _lastGreyWords,
+        styleGrey,
+        (w) => _lastGreyWords = w,
+      );
+      _hlGreen = syncGroup(
+        _hlGreen,
+        greenWords,
+        _lastGreenWords,
+        styleGreen,
+        (w) => _lastGreenWords = w,
+      );
+      _hlYellow = syncGroup(
+        _hlYellow,
+        yellowWords,
+        _lastYellowWords,
+        styleYellow,
+        (w) => _lastYellowWords = w,
+      );
+      _hlRed = syncGroup(
+        _hlRed,
+        redWords,
+        _lastRedWords,
+        styleRed,
+        (w) => _lastRedWords = w,
+      );
+      _hlNeon = syncGroup(
+        _hlNeon,
+        neonWords,
+        _lastNeonWords,
+        styleNeon,
+        (w) => _lastNeonWords = w,
+      );
 
       // Notify Tajweed tooltips
       if (!listEquals(_yellowWordsNotifier.value, yellowWords)) {
@@ -852,11 +906,15 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
       // Hifz Concealing masks (Native vector invisible ink)
       if (hiddenWords.isNotEmpty) {
-        page.mask(T.words(hiddenWords), 'hide');
-        _hasMasks = true;
+        if (!listEquals(_lastHiddenWords, hiddenWords) || !_hasMasks) {
+          page.mask(T.words(hiddenWords), 'hide');
+          _hasMasks = true;
+          _lastHiddenWords = List<int>.from(hiddenWords);
+        }
       } else if (_hasMasks) {
         page.unmask();
         _hasMasks = false;
+        _lastHiddenWords = const [];
       }
 
       _lastIsDark = isDark;
