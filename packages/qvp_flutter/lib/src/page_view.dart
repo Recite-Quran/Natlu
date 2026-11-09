@@ -1106,17 +1106,14 @@ class _BoxLayer {
     return _paths[i];
   }
 
-  void draw(ui.Canvas c, ui.Paint paint, QvpViewController view, [ui.Path? clip]) {
+  void draw(ui.Canvas c, ui.Paint paint, QvpViewController view) {
     if (_groups == 0) return;
     c.save();
     c.translate(view.offsetX, view.offsetY);
     c.scale(view.scale);
     for (var i = 0; i < _groups; i++) {
       paint.color = _colors[i];
-      final p = clip != null
-          ? ui.Path.combine(ui.PathOperation.difference, _paths[i], clip)
-          : _paths[i];
-      c.drawPath(p, paint);
+      c.drawPath(_paths[i], paint);
     }
     c.restore();
   }
@@ -1699,22 +1696,8 @@ class _QvpPainter extends CustomPainter {
     _drawOrnaments(canvas, l, dress);
 
     // 1. highlight bands (behind the ink)
-    // Clip out the ayah mark medallions so that word highlight bands NEVER overlap or bleed
-    // into the ayah numeral/marker circles!
     if (cache.bands.boxes > 0) {
-      ui.Path? markClip;
-      final marks = page.ayahMarksView();
-      if (marks.isNotEmpty) {
-        markClip = ui.Path();
-        for (var i = 0; i < marks.length; i++) {
-          final m = marks[i];
-          markClip.addOval(Rect.fromCircle(
-            center: Offset(m.cx, m.cy),
-            radius: m.r + 0.5,
-          ));
-        }
-      }
-      cache.bands.draw(canvas, _boxPaint, view, markClip);
+      cache.bands.draw(canvas, _boxPaint, view);
     }
 
     // 2. base ink: GPU hardware picture playback (0.05ms)

@@ -169,6 +169,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     _slideController = AnimationController(
       vsync: this,
+      value: 1.0,
       duration: const Duration(milliseconds: 150),
     );
     _slideAnimation = CurvedAnimation(
@@ -998,15 +999,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _paintUnderlay(
       ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
     if (page.isDisposed) return;
-    if (page.surahHeaders().isNotEmpty) {
-      MushafOverlays.paintSurahHeaders(
-        canvas,
-        page,
-        layout,
-        isDark: AppState.instance.isDarkMode,
-        colors: AppState.instance.colors,
-      );
-    }
+    MushafOverlays.paintSurahHeaders(
+      canvas,
+      page,
+      layout,
+      isDark: AppState.instance.isDarkMode,
+      colors: AppState.instance.colors,
+    );
   }
 
   void _paintOverlay(

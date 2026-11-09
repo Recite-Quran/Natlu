@@ -123,6 +123,8 @@ class QvpPage extends ChangeNotifier {
 
   void _touch() {
     _cachedAyahMarks = null;
+    _cachedAyahMarksView = null;
+    _cachedSurahHeadersView = null;
     if (_batchDepth > 0) {
       _needsNotify = true;
       return;
@@ -259,11 +261,14 @@ class QvpPage extends ChangeNotifier {
   List<QvpSurahHeader> surahHeaders() =>
       _backend.surahHeaders(handle, view: false);
 
+  List<QvpSurahHeader>? _cachedSurahHeadersView;
+
   /// The surah headings in viewport px through current layout.
   List<QvpSurahHeader> surahHeadersView() =>
-      _backend.surahHeaders(handle, view: true);
+      _cachedSurahHeadersView ??= _backend.surahHeaders(handle, view: true);
 
   List<QvpAyahMark>? _cachedAyahMarks;
+  List<QvpAyahMark>? _cachedAyahMarksView;
 
   /// Ayah medallions on the page. Held until the next mutation, because a dressed page asks
   /// for them on every frame.
@@ -272,7 +277,8 @@ class QvpPage extends ChangeNotifier {
 
   /// The same marks in viewport px through the current layout: where a reflowed page put
   /// them.
-  List<QvpAyahMark> ayahMarksView() => _backend.ayahMarks(handle, view: true);
+  List<QvpAyahMark> ayahMarksView() =>
+      _cachedAyahMarksView ??= _backend.ayahMarks(handle, view: true);
 
   /// Drawn hizb rosettes.
   List<QvpRosette> rosettes() => _backend.rosettes(handle);
