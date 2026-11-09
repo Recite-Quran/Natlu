@@ -188,6 +188,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     widget.controller.addListener(_requestSyncVisuals);
     app.activeAudioAyah.addListener(_onAudioAyahChanged);
     app.activeAudioSurah.addListener(_onAudioAyahChanged);
+    app.currentMushafPage.addListener(_onExternalPageChanged);
     app.themeNotifier.addListener(_requestSyncVisuals);
     app.blurModeNotifier.addListener(_requestSyncVisuals);
     MaglisController.instance.sessionListenable
@@ -332,6 +333,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final app = AppState.instance;
     app.activeAudioAyah.removeListener(_onAudioAyahChanged);
     app.activeAudioSurah.removeListener(_onAudioAyahChanged);
+    app.currentMushafPage.removeListener(_onExternalPageChanged);
     app.themeNotifier.removeListener(_requestSyncVisuals);
     app.blurModeNotifier.removeListener(_requestSyncVisuals);
     _visualsRevision.dispose();
@@ -485,20 +487,17 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _needsSyncAfterModal = true;
       return;
     }
-    final activeAyah = widget.controller.activeAyah.value;
-    if (activeAyah == null) return;
-
-    final surah = widget.controller.targetSurah != 0
-        ? widget.controller.targetSurah
-        : AppState.instance.lastSurah;
-
-    final provider = MushafProvider.instance;
-    final page = provider.getPageForAyah(surah, activeAyah);
-    if (page != null && page != _currentPage) {
-      _navigationTargetAyah = (surah, activeAyah);
-      _goToPage(page, animated: true);
-    }
     _requestSyncVisuals();
+  }
+
+  void _onExternalPageChanged() {
+    if (!mounted) return;
+    final targetPage = AppState.instance.currentMushafPage.value;
+    if (targetPage > 0 &&
+        targetPage != _currentPage &&
+        QuranMetadata.isValidPage(targetPage)) {
+      _goToPage(targetPage, animated: true);
+    }
   }
 
   void _onAudioAyahChanged() {
@@ -513,6 +512,17 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
 
     final provider = MushafProvider.instance;
+
+    // Never navigate away if the audio ayah is already on the current page!
+    if (provider.isAyahOnPage(
+      pageNumber: _currentPage,
+      surah: audioSurah,
+      ayah: audioAyah,
+    )) {
+      _requestSyncVisuals();
+      return;
+    }
+
     final page = provider.getPageForAyah(audioSurah, audioAyah);
     if (page != null && page != _currentPage) {
       _navigationTargetAyah = (audioSurah, audioAyah);
@@ -559,17 +569,30 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         ayah: target.$2,
       )) {
         _navigationTargetAyah = null;
-        _debouncedSavePosition(pageNum, target.$1, target.$2);
+        widget.controller.setManualAyah(target.$1, target.$2);
         return;
       }
     }
 
+    // If activeAyah is already on this new page, keep it!
+    final activeAyah = widget.controller.activeAyah.value;
+    final currentSurah = widget.controller.targetSurah;
+    if (activeAyah != null &&
+        currentSurah != 0 &&
+        provider.isAyahOnPage(
+          pageNumber: pageNum,
+          surah: currentSurah,
+          ayah: activeAyah,
+        )) {
+      _debouncedSavePosition(pageNum, currentSurah, activeAyah);
+      return;
+    }
+
+    // Otherwise, default to the first ayah on this new page so controller is in sync!
     final first = provider.getFirstAyahOnPage(pageNum);
-    _debouncedSavePosition(
-      pageNum,
-      first?.$1 ?? AppState.instance.lastSurah,
-      first?.$2 ?? AppState.instance.lastAyah,
-    );
+    if (first != null) {
+      widget.controller.setManualAyah(first.$1, first.$2);
+    }
   }
 
   void _stepPage(int dir) {
@@ -596,7 +619,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _turnDir = clamped > _currentPage ? 1 : -1;
     }
     _currentPage = clamped;
-    AppState.instance.currentMushafPage.value = clamped;
+    if (AppState.instance.currentMushafPage.value != clamped) {
+      AppState.instance.currentMushafPage.value = clamped;
+    }
     _syncPageSelection(clamped);
     _loadCurrentPage(clamped, triggerSlide: animated);
   }
@@ -611,6 +636,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _syncVisuals();
       if (triggerSlide && _turnDir != 0) {
         _triggerSlide();
+      } else {
+        _turnDir = 0;
       }
       if (mounted) setState(() {});
     } else {
@@ -622,6 +649,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _syncVisuals();
       if (triggerSlide && _turnDir != 0) {
         _triggerSlide();
+      } else {
+        _turnDir = 0;
       }
       if (mounted) setState(() {});
     }
@@ -708,45 +737,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onWordTap(BuildContext context, QvpPage page, int wordIndex) {
     if (wordIndex < 0 || wordIndex >= page.words.length) return;
-    int effectiveIndex = wordIndex;
-    var w = page.words[effectiveIndex];
-    var surah = w.surah;
-    var ayah = w.ayah;
-    var wordIndex0 = w.word - 1;
+    final w = page.words[wordIndex];
+    final surah = w.surah;
+    final ayah = w.ayah;
+    final wordIndex0 = w.word - 1;
 
     final maglis = MaglisController.instance;
-
-    bool isWordYellow(int a, int w0, int s) =>
-        widget.controller.isWordYellow(a, w0, surah: s);
-
-    if (!isWordYellow(ayah, wordIndex0, surah)) {
-      if (effectiveIndex > 0 &&
-          page.words[effectiveIndex - 1].line == w.line &&
-          isWordYellow(
-            page.words[effectiveIndex - 1].ayah,
-            page.words[effectiveIndex - 1].word - 1,
-            page.words[effectiveIndex - 1].surah,
-          )) {
-        effectiveIndex = effectiveIndex - 1;
-        w = page.words[effectiveIndex];
-        surah = w.surah;
-        ayah = w.ayah;
-        wordIndex0 = w.word - 1;
-      } else if (effectiveIndex + 1 < page.words.length &&
-          page.words[effectiveIndex + 1].line == w.line &&
-          isWordYellow(
-            page.words[effectiveIndex + 1].ayah,
-            page.words[effectiveIndex + 1].word - 1,
-            page.words[effectiveIndex + 1].surah,
-          )) {
-        effectiveIndex = effectiveIndex + 1;
-        w = page.words[effectiveIndex];
-        surah = w.surah;
-        ayah = w.ayah;
-        wordIndex0 = w.word - 1;
-      }
-    }
-
     if (maglis.inSession && maglis.isRemoteReciting) {
       return;
     }
@@ -758,6 +754,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       wordIndex: wordIndex0,
       wordText: w.text,
       controller: widget.controller,
+      playWordDirectly: true,
       onAyahTap: () => setState(() {}),
     );
   }

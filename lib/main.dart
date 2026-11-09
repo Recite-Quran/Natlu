@@ -288,6 +288,7 @@ class _OrchestratorState extends State<_Orchestrator>
       int? wordIndex,
       required bool isPlaying,
       required bool isBuffering,
+      bool? isPaused,
     }) {
       AppState.instance.updateAudioState(
         surah: surah,
@@ -302,6 +303,7 @@ class _OrchestratorState extends State<_Orchestrator>
         wordIndex: wordIndex,
         isPlaying: isPlaying,
         isBuffering: isBuffering,
+        isPaused: isPaused,
       );
     };
     QuranAudioService.instance.onPlayingChanged = _onVerseAudioPlayingChanged;

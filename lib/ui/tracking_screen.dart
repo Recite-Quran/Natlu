@@ -66,7 +66,6 @@ class _TrackingScreenState extends State<TrackingScreen>
   int? _lastAyah;
   int? _lastSurah;
   bool _wasAudioPlaying = false;
-  bool _audioAyahPostFrameScheduled = false;
   late final Listenable _screenThemeLanguageListenable;
   late final Listenable _bottomBarListenable;
 
@@ -123,25 +122,7 @@ class _TrackingScreenState extends State<TrackingScreen>
       _wasAudioPlaying = true;
       final int targetSurah = audioSurah ?? widget.controller.targetSurah;
       AppState.instance.saveLastPosition(targetSurah, ayah);
-      if (_audioAyahPostFrameScheduled) return;
-      _audioAyahPostFrameScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        _audioAyahPostFrameScheduled = false;
-        if (!mounted) return;
-        final currentAyah = AppState.instance.activeAudioAyah.value;
-        final currentSurah =
-            AppState.instance.activeAudioSurah.value ?? widget.controller.targetSurah;
-        if (currentAyah == null) return;
-        if (widget.controller.targetSurah != currentSurah) {
-          await widget.controller.setTargetSurah(
-            currentSurah,
-            preserveOtherSurahStates: true,
-            clearTargetSurah: false,
-          );
-        }
-        widget.controller.setManualAyah(currentSurah, currentAyah);
-        _lastAyah = currentAyah;
-      });
+      _lastAyah = ayah;
     } else if (!isPlaying &&
         _wasAudioPlaying &&
         !QuranAudioService.instance.isPaused) {

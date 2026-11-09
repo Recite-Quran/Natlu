@@ -208,12 +208,16 @@ class HighlightingController extends rq.HighlightingController {
   int? _remoteActiveWord;
   bool _isRemoteReciting = false;
 
+  // Manual selection state
+  int _manualTargetSurah = 0;
+
   // Audio Playback state
   int? _audioSurah;
   int? _audioAyah;
   int? _audioWordIndex;
   bool _isAudioPlaying = false;
   bool _isAudioBuffering = false;
+  bool _isAudioPaused = false;
 
   HighlightingController({
     required super.repository,
@@ -249,8 +253,7 @@ class HighlightingController extends rq.HighlightingController {
   bool get isAudioPlaying => _isAudioPlaying;
   bool get isAudioBuffering => _isAudioBuffering;
   bool get isAudioPaused =>
-      !_isAudioPlaying &&
-      !_isAudioBuffering &&
+      _isAudioPaused &&
       _audioSurah != null &&
       _audioAyah != null;
   int? get audioSurah => _audioSurah;
@@ -302,6 +305,9 @@ class HighlightingController extends rq.HighlightingController {
     if (isAudioActive && _audioSurah != null && _audioSurah != 0) {
       return _audioSurah!;
     }
+    if (_manualTargetSurah != 0) {
+      return _manualTargetSurah;
+    }
     return super.targetSurah;
   }
 
@@ -314,6 +320,7 @@ class HighlightingController extends rq.HighlightingController {
     bool preserveOtherSurahStates = false,
     bool clearTargetSurah = true,
   }) async {
+    _manualTargetSurah = surah;
     if (!preserveOtherSurahStates) {
       _store.clearAllExceptSurah(surah);
     }
@@ -404,14 +411,41 @@ class HighlightingController extends rq.HighlightingController {
 
   @override
   void setManualAyah(int surah, int ayah) {
-    super.setManualAyah(surah, ayah);
+    _manualTargetSurah = surah;
+    activeAyah.value = ayah;
     onAutoSavePosition?.call(surah, ayah);
+    AppState.instance.saveLastPosition(surah, ayah);
+
+    if (super.targetSurah == surah) {
+      super.setManualAyah(surah, ayah);
+    } else {
+      super.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      ).then((_) {
+        _manualTargetSurah = surah;
+        activeAyah.value = ayah;
+        super.setManualAyah(surah, ayah);
+        globalRevision.value++;
+        notifyListeners();
+      }).catchError((_) {});
+    }
+
+    globalRevision.value++;
+    notifyListeners();
   }
 
   @override
   rq.VerseMatch? get currentMatchedVerse {
     if (_isRemoteReciting && _remoteTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_remoteTargetSurah, activeAyah.value!);
+      if (v != null) {
+        return rq.VerseMatch(verse: v, score: 1.0);
+      }
+    }
+    if (_manualTargetSurah != 0 && activeAyah.value != null) {
+      final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
       if (v != null) {
         return rq.VerseMatch(verse: v, score: 1.0);
       }
@@ -618,18 +652,29 @@ class HighlightingController extends rq.HighlightingController {
     int? wordIndex,
     bool? isPlaying,
     bool? isBuffering,
+    bool? isPaused,
   }) {
+    // If playback completely stopped or was reset to idle:
+    if (isPlaying == false &&
+        isBuffering == false &&
+        isPaused != true &&
+        surah == null &&
+        ayah == null) {
+      clearAudio();
+      return;
+    }
+
     bool changed = false;
 
-    if (surah != null && _audioSurah != surah) {
+    if (_audioSurah != surah) {
       _audioSurah = surah;
       changed = true;
     }
-    if (ayah != null && _audioAyah != ayah) {
+    if (_audioAyah != ayah) {
       _audioAyah = ayah;
       changed = true;
     }
-    if (wordIndex != null && _audioWordIndex != wordIndex) {
+    if (_audioWordIndex != wordIndex) {
       _audioWordIndex = wordIndex;
       changed = true;
     }
@@ -639,6 +684,10 @@ class HighlightingController extends rq.HighlightingController {
     }
     if (isBuffering != null && _isAudioBuffering != isBuffering) {
       _isAudioBuffering = isBuffering;
+      changed = true;
+    }
+    if (isPaused != null && _isAudioPaused != isPaused) {
+      _isAudioPaused = isPaused;
       changed = true;
     }
 
@@ -657,12 +706,14 @@ class HighlightingController extends rq.HighlightingController {
         _audioAyah != null ||
         _audioWordIndex != null ||
         _isAudioPlaying ||
-        _isAudioBuffering) {
+        _isAudioBuffering ||
+        _isAudioPaused) {
       _audioSurah = null;
       _audioAyah = null;
       _audioWordIndex = null;
       _isAudioPlaying = false;
       _isAudioBuffering = false;
+      _isAudioPaused = false;
       globalRevision.value++;
       notifyListeners();
     }
@@ -742,6 +793,7 @@ class HighlightingController extends rq.HighlightingController {
   void clearHighlights() {
     _store.clearAll();
     _remoteActiveWord = null;
+    _manualTargetSurah = 0;
     super.clearHighlights();
     globalRevision.value++;
     notifyListeners();
@@ -1009,15 +1061,7 @@ abstract final class QuranInteractionService {
     VoidCallback? onTap,
   }) async {
     AppHaptics.lightImpact();
-    if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
-      );
-    }
     controller.setManualAyah(surah, ayah);
-    AppState.instance.saveLastPosition(surah, ayah);
     onTap?.call();
   }
 
@@ -1091,15 +1135,7 @@ abstract final class QuranInteractionService {
       return;
     }
     AppHaptics.selectionClick();
-    if (controller.targetSurah != surah) {
-      await controller.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
-      );
-    }
     controller.setManualAyah(surah, ayah);
-    AppState.instance.saveLastPosition(surah, ayah);
     onTap?.call();
     if (onExplicitToggle != null) {
       onExplicitToggle();

@@ -463,18 +463,7 @@ class MushafProvider {
       if (first != null) {
         isSyncingSurah = true;
         try {
-          if (controller.targetSurah != first.$1) {
-            await controller.setTargetSurah(
-              first.$1,
-              preserveOtherSurahStates: true,
-              clearTargetSurah: false,
-            );
-          }
-          if (controller.activeAyah.value == first.$2) {
-            controller.activeAyah.value = null;
-          }
           controller.setManualAyah(first.$1, first.$2);
-          controller.globalRevision.value++;
           AppState.instance.saveLastPosition(first.$1, first.$2);
         } finally {
           isSyncingSurah = false;

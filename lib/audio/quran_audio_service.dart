@@ -28,6 +28,7 @@ class QuranAudioService {
       int? wordIndex,
       required bool isPlaying,
       required bool isBuffering,
+      bool? isPaused,
     }) {
       onAudioProgress?.call(
         surah: surah,
@@ -35,6 +36,7 @@ class QuranAudioService {
         wordIndex: wordIndex,
         isPlaying: isPlaying,
         isBuffering: isBuffering,
+        isPaused: isPaused,
       );
     };
     _player.onPlayingChanged = (playing) {
@@ -176,6 +178,7 @@ typedef AudioProgressCallback = void Function({
   int? wordIndex,
   required bool isPlaying,
   required bool isBuffering,
+  bool? isPaused,
 });
 
 class VerseAudioPlayer {
@@ -242,6 +245,7 @@ class VerseAudioPlayer {
       wordIndex: _activeWordIndex,
       isPlaying: _isPlaying,
       isBuffering: _isBuffering,
+      isPaused: _isPaused,
     );
   }
 
@@ -572,10 +576,18 @@ class VerseAudioPlayer {
       if (session != _sessionId) return;
 
       int startMs = 0;
-      int endMs = 999999;
+      int endMs = 2000;
       if (targetWord != null) {
         startMs = targetWord.startMs;
         endMs = targetWord.endMs;
+      } else if (ayahTiming != null && ayahTiming.words.isNotEmpty) {
+        final last = ayahTiming.words.last;
+        startMs = last.startMs;
+        endMs = last.endMs;
+      } else {
+        // Fallback: estimate bounded word slice
+        startMs = (wordIndex * 600).clamp(0, 30000);
+        endMs = startMs + 800;
       }
 
       _targetWordEndMs = endMs;
@@ -585,15 +597,17 @@ class VerseAudioPlayer {
       } catch (_) {}
       if (session != _sessionId) return;
 
-      await player.setAudioSources(
-        [source],
-        initialPosition: Duration(milliseconds: startMs),
-      );
-      if (session != _sessionId) return;
+      AudioSource wordSource = source;
+      if (source is UriAudioSource) {
+        wordSource = ClippingAudioSource(
+          child: source,
+          start: Duration(milliseconds: startMs),
+          end: Duration(milliseconds: endMs),
+          tag: createMediaItem(surah, ayah),
+        );
+      }
 
-      try {
-        await player.seek(Duration(milliseconds: startMs));
-      } catch (_) {}
+      await player.setAudioSources([wordSource]);
       if (session != _sessionId) return;
 
       _setBuffering(false);
@@ -674,12 +688,10 @@ class VerseAudioPlayer {
       await ensureAyahDownloaded(surah, ayah);
       if (session != _sessionId) return;
 
-      // In continuous mode, build full playlist for the Surah (1 to maxAyahs)
-      // with initialIndex pointing to [ayah - 1]. This enables previous/next buttons
-      // on the lock screen and notification media controls across the entire Surah!
-      final int startIndex = continuous ? (ayah - 1).clamp(0, maxAyahs - 1) : 0;
+      // In continuous mode, build playlist starting directly at [ayah] through the rest of the Surah.
+      // Index 0 is always the requested Ayah, preventing any spurious playback jumps to Ayah 1 or Page 2.
       _playlistAyahs = continuous
-          ? [for (int a = 1; a <= maxAyahs; a++) a]
+          ? [for (int a = ayah; a <= maxAyahs; a++) a]
           : [ayah];
       _playlistSurah = surah;
 
@@ -695,17 +707,12 @@ class VerseAudioPlayer {
 
       await player.setAudioSources(
         sources,
-        initialIndex: startIndex,
+        initialIndex: 0,
         initialPosition: Duration.zero,
       );
       await player.setShuffleModeEnabled(false);
       await player.setLoopMode(LoopMode.off);
 
-      if (session != _sessionId) return;
-
-      try {
-        await player.seek(Duration.zero, index: startIndex);
-      } catch (_) {}
       if (session != _sessionId) return;
 
       _setBuffering(false);
@@ -764,17 +771,6 @@ class VerseAudioPlayer {
 
     final int posMs = pos.inMilliseconds;
 
-    // Ignore stale late position spikes during track start transition
-    if (posMs > 2500 && _activeWordIndex == 0) {
-      final ayahTiming = QuranTimingService.instance
-          .getCachedAyahTiming(playingSurah, playingAyah);
-      if (ayahTiming != null &&
-          ayahTiming.words.isNotEmpty &&
-          posMs > ayahTiming.words.last.endMs + 500) {
-        return;
-      }
-    }
-
     // Single-ayah mode (e.g. record mode):
     // Stop immediately when the reciter finishes the last word (no trailing silence delay)
     if (!_isContinuous) {
@@ -797,21 +793,23 @@ class VerseAudioPlayer {
     );
 
     // Fallback if timing data is still downloading or offline:
-    // Estimate word index proportionally from track duration and word count
+    // Estimate word index proportionally from track duration or safe average
     if (activeIdx == null) {
       if (QuranTimingService.instance.getSurahTiming(playingSurah) == null) {
         unawaited(QuranTimingService.instance.ensureSurahLoaded(playingSurah));
       }
       final duration = _player?.duration;
-      if (duration != null && duration.inMilliseconds > 0) {
-        final totalMs = duration.inMilliseconds;
-        final ayahTiming = QuranTimingService.instance
-            .getCachedAyahTiming(playingSurah, playingAyah);
-        final int wordCount = ayahTiming?.words.length ?? 8;
-        if (wordCount > 0) {
-          activeIdx =
-              ((posMs / totalMs) * wordCount).floor().clamp(0, wordCount - 1);
-        }
+      final ayahTiming = QuranTimingService.instance
+          .getCachedAyahTiming(playingSurah, playingAyah);
+      final int wordCount = (ayahTiming != null && ayahTiming.words.isNotEmpty)
+          ? ayahTiming.words.length
+          : 8;
+      final int totalMs = (duration != null && duration.inMilliseconds > 0)
+          ? duration.inMilliseconds
+          : (wordCount * 600);
+      if (totalMs > 0 && wordCount > 0) {
+        activeIdx =
+            ((posMs / totalMs) * wordCount).floor().clamp(0, wordCount - 1);
       }
     }
 
