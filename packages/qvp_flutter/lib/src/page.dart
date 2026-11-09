@@ -125,6 +125,7 @@ class QvpPage extends ChangeNotifier {
     _cachedAyahMarks = null;
     _cachedAyahMarksView = null;
     _cachedSurahHeadersView = null;
+    _cachedWordBoxesView = null;
     if (_batchDepth > 0) {
       _needsNotify = true;
       return;
@@ -510,7 +511,10 @@ class QvpPage extends ChangeNotifier {
   /// call lays the page out again, so this is how a host reads what it must now draw.
   QvpLayout? readLayout() {
     final l = _backend.readLayout(handle);
-    if (l != null) currentLayout = l;
+    if (l != null && l != currentLayout) {
+      currentLayout = l;
+      _touch();
+    }
     return l;
   }
 
@@ -791,6 +795,24 @@ class QvpPage extends ChangeNotifier {
     padX: padX,
     padY: padY,
   );
+
+  Map<int, QvpBox>? _cachedWordBoxesView;
+
+  /// Cached band boxes in layout viewport px for each word on the page with zero padding.
+  /// Computed once per layout and cached until the next mutation or layout change.
+  Map<int, QvpBox> wordBoxesView() {
+    if (isDisposed) return const {};
+    if (_cachedWordBoxesView != null) return _cachedWordBoxesView!;
+    final map = <int, QvpBox>{};
+    final n = words.length;
+    for (var i = 0; i < n; i++) {
+      final boxes = wordBandsView([i], padX: 0.0, padY: 0.0);
+      if (boxes.isNotEmpty) {
+        map[i] = boxes.first;
+      }
+    }
+    return _cachedWordBoxesView = map;
+  }
 
   // ── Selection ──
 

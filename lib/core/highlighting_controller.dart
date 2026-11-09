@@ -766,14 +766,14 @@ class QuranHighlightPalette {
     required bool isDark,
   }) {
     return QuranHighlightPalette(
-      greenBand: colors.green.withValues(alpha: isDark ? 0.22 : 0.15),
-      yellowBand: colors.warning.withValues(alpha: isDark ? 0.24 : 0.18),
-      redBand: colors.red.withValues(alpha: isDark ? 0.22 : 0.14),
-      leadWordBand: colors.wordHighlight.withValues(alpha: isDark ? 0.24 : 0.16),
+      greenBand: colors.green.withValues(alpha: isDark ? 0.28 : 0.20),
+      yellowBand: colors.warning.withValues(alpha: isDark ? 0.30 : 0.22),
+      redBand: colors.red.withValues(alpha: isDark ? 0.28 : 0.20),
+      leadWordBand: colors.wordHighlight.withValues(alpha: isDark ? 0.38 : 0.28),
       activeAyahBorder: colors.gold.withValues(alpha: isDark ? 0.70 : 0.60),
       activeAyahBand: isDark
-          ? Colors.white.withValues(alpha: 0.10)
-          : const Color(0xFF64748B).withValues(alpha: 0.09),
+          ? Colors.white.withValues(alpha: 0.12)
+          : const Color(0xFF64748B).withValues(alpha: 0.11),
     );
   }
 

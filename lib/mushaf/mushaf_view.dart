@@ -105,22 +105,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       ValueNotifier<List<int>>(const []);
   final ValueNotifier<int> _visualsRevision = ValueNotifier<int>(0);
 
-  // Persistent highlight handles on the single active QvpPage
-  // 5 discrete states: grey (selected ayah), green (correct), red (wrong), yellow (tajweed), neon (active/waited/audio)
-  int _hlGrey = 0;
-  int _hlGreen = 0;
-  int _hlRed = 0;
-  int _hlYellow = 0;
-  int _hlNeon = 0;
-
-  List<int> _lastGreyWords = const [];
-  List<int> _lastGreenWords = const [];
-  List<int> _lastYellowWords = const [];
-  List<int> _lastRedWords = const [];
-  List<int> _lastNeonWords = const [];
   List<int> _lastHiddenWords = const [];
-
-  bool? _lastIsDark;
   bool _hasMasks = false;
 
   // Keyboard navigation: Left = Next page (+1 in RTL), Right = Prev page (-1 in RTL)
@@ -194,6 +179,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       app.blurModeNotifier,
       app.hasClickedTajweedNotifier,
       widget.controller.activeAyah,
+      widget.controller,
       _yellowWordsNotifier,
     ]);
 
@@ -484,7 +470,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _lastAutoAdvancedFromPage = null;
       }
     }
-    _requestSyncVisuals();
   }
 
   void _onActiveAyahChanged() {
@@ -649,37 +634,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _clearPageVisuals(QvpPage? page) {
     if (page == null || page.isDisposed) return;
-    page.batch(() {
-      if (_hlGrey != 0) {
-        page.removeHighlight(_hlGrey);
-        _hlGrey = 0;
-      }
-      if (_hlGreen != 0) {
-        page.removeHighlight(_hlGreen);
-        _hlGreen = 0;
-      }
-      if (_hlYellow != 0) {
-        page.removeHighlight(_hlYellow);
-        _hlYellow = 0;
-      }
-      if (_hlRed != 0) {
-        page.removeHighlight(_hlRed);
-        _hlRed = 0;
-      }
-      if (_hlNeon != 0) {
-        page.removeHighlight(_hlNeon);
-        _hlNeon = 0;
-      }
-      if (_hasMasks) {
-        page.unmask();
-        _hasMasks = false;
-      }
-    });
-    _lastGreyWords = const [];
-    _lastGreenWords = const [];
-    _lastYellowWords = const [];
-    _lastRedWords = const [];
-    _lastNeonWords = const [];
+    if (_hasMasks) {
+      page.unmask();
+      _hasMasks = false;
+    }
     _lastHiddenWords = const [];
     _yellowWordsNotifier.value = const [];
   }
@@ -703,10 +661,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final app = AppState.instance;
     final ctrl = widget.controller;
     final provider = MushafProvider.instance;
-    final isDark = app.isDarkMode;
-    final bool themeChanged = (_lastIsDark != isDark);
-    final palette =
-        QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
 
     // 1. Resolve Active Ayah Coordinate (surah, ayah)
     final coord = ctrl.activeAyahCoordinate ??
@@ -723,7 +677,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     // 2. Resolve Active / Waited Lead Word Index on this page
     int? activeWordPageIdx;
-    int? leadW0;
     if (coord != null && hasAyahOnPage) {
       final int s = coord.$1;
       final int a = coord.$2;
@@ -733,7 +686,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
           maxWordOnPage = w.word;
         }
       }
-      leadW0 = ctrl.getLeadWordIndex(
+      final leadW0 = ctrl.getLeadWordIndex(
         surah: s,
         ayah: a,
         totalWords: maxWordOnPage,
@@ -745,181 +698,49 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    page.batch(() {
-      // ── Clean Single-Layer Discrete Word States ──
-      // Every word on the page belongs to AT MOST ONE discrete bucket:
-      // - Neon: Active waited word or current audio playback word
-      // - Green: Recited correctly or completed ayah
-      // - Yellow: Tajweed notice
-      // - Red: Mispronounced word
-      // - Hidden: Words masked by Hifz hide mode (vector invisible ink - ALL unrecited verses)
-      // - Grey: Selected/active ayah unrecited words (when hide mode is inactive)
-      final List<int> neonWords = [];
-      final List<int> greenWords = [];
-      final List<int> yellowWords = [];
-      final List<int> redWords = [];
-      final List<int> greyWords = [];
-      final List<int> hiddenWords = [];
+    final bool isBlurEffective =
+        app.isBlurEffective(isRecording: widget.isRecording);
+    final int wordCount = page.words.length;
+    final List<int> yellowWords = [];
+    final List<int> hiddenWords = [];
 
-      final bool isBlurEffective =
-          app.isBlurEffective(isRecording: widget.isRecording);
-      final int wordCount = page.words.length;
+    for (int i = 0; i < wordCount; i++) {
+      if (i == activeWordPageIdx) continue;
 
-      for (int i = 0; i < wordCount; i++) {
-        if (i == activeWordPageIdx) {
-          neonWords.add(i);
-          continue;
-        }
+      final w = page.words[i];
+      final int w0 = w.word - 1;
+      final int s = w.surah;
+      final int a = w.ayah;
 
-        final w = page.words[i];
-        final int w0 = w.word - 1;
-        final int s = w.surah;
-        final int a = w.ayah;
-
-        int state = ctrl.getWordStatus(a, w0, surah: s) ?? 0;
-        if (state == 0 && ctrl.completedAyahsFor(s).contains(a)) {
-          state = 1; // Completed ayah words are treated as green
-        }
-
-        if (state == 1) {
-          greenWords.add(i);
-        } else if (state == 2) {
-          yellowWords.add(i);
-        } else if (state == 3) {
-          redWords.add(i);
-        } else if (isBlurEffective) {
-          // In Hifz hide mode, ALL unrecited verses on the page are concealed
-          hiddenWords.add(i);
-        } else if (hasAyahOnPage && s == coord.$1 && a == coord.$2) {
-          // When hide mode is inactive, unrecited words of active ayah are grey
-          greyWords.add(i);
-        }
+      int state = ctrl.getWordStatus(a, w0, surah: s) ?? 0;
+      if (state == 0 && ctrl.completedAyahsFor(s).contains(a)) {
+        state = 1;
       }
 
-      final styleNeon = QvpHighlightStyle(
-        mode: 'band',
-        height: 'lineSpacing',
-        band: palette.leadWordBand,
-        padX: 0.0,
-        radius: 2.0,
-        ms: 0,
-      );
-      final styleGreen = QvpHighlightStyle(
-        mode: 'band',
-        height: 'lineSpacing',
-        band: palette.greenBand,
-        padX: 0.0,
-        radius: 2.0,
-        ms: 0,
-      );
-      final styleYellow = QvpHighlightStyle(
-        mode: 'band',
-        height: 'lineSpacing',
-        band: palette.yellowBand,
-        padX: 0.0,
-        radius: 2.0,
-        ms: 0,
-      );
-      final styleRed = QvpHighlightStyle(
-        mode: 'band',
-        height: 'lineSpacing',
-        band: palette.redBand,
-        padX: 0.0,
-        radius: 2.0,
-        ms: 0,
-      );
-      final styleGrey = QvpHighlightStyle(
-        mode: 'band',
-        height: 'lineSpacing',
-        band: palette.activeAyahBand,
-        padX: 0.0,
-        radius: 2.0,
-        ms: 0,
-      );
-
-      int syncGroup(
-        int handle,
-        List<int> words,
-        List<int> lastWords,
-        QvpHighlightStyle style,
-        void Function(List<int>) updateLast,
-      ) {
-        if (words.isNotEmpty) {
-          if (handle != 0 && !themeChanged && listEquals(words, lastWords)) {
-            return handle; // Identical word set and theme unchanged: 0 allocations, 0 FFI calls
-          }
-          final target = T.words(words);
-          updateLast(List<int>.from(words));
-          if (handle != 0 && !themeChanged) {
-            page.moveHighlight(handle, target);
-            return handle;
-          } else {
-            if (handle != 0) page.removeHighlight(handle);
-            return page.highlight(target, style);
-          }
-        } else {
-          updateLast(const []);
-          if (handle != 0) page.removeHighlight(handle);
-          return 0;
-        }
+      if (state == 2) {
+        yellowWords.add(i);
+      } else if (isBlurEffective && state == 0) {
+        hiddenWords.add(i);
       }
+    }
 
-      _hlGrey = syncGroup(
-        _hlGrey,
-        greyWords,
-        _lastGreyWords,
-        styleGrey,
-        (w) => _lastGreyWords = w,
-      );
-      _hlGreen = syncGroup(
-        _hlGreen,
-        greenWords,
-        _lastGreenWords,
-        styleGreen,
-        (w) => _lastGreenWords = w,
-      );
-      _hlYellow = syncGroup(
-        _hlYellow,
-        yellowWords,
-        _lastYellowWords,
-        styleYellow,
-        (w) => _lastYellowWords = w,
-      );
-      _hlRed = syncGroup(
-        _hlRed,
-        redWords,
-        _lastRedWords,
-        styleRed,
-        (w) => _lastRedWords = w,
-      );
-      _hlNeon = syncGroup(
-        _hlNeon,
-        neonWords,
-        _lastNeonWords,
-        styleNeon,
-        (w) => _lastNeonWords = w,
-      );
-
-      // Notify Tajweed tooltips
-      if (!listEquals(_yellowWordsNotifier.value, yellowWords)) {
-        _yellowWordsNotifier.value = yellowWords;
+    // Hifz Concealing masks (Native vector invisible ink)
+    if (hiddenWords.isNotEmpty) {
+      if (!listEquals(_lastHiddenWords, hiddenWords) || !_hasMasks) {
+        page.mask(T.words(hiddenWords), 'hide');
+        _hasMasks = true;
+        _lastHiddenWords = List<int>.from(hiddenWords);
       }
+    } else if (_hasMasks) {
+      page.unmask();
+      _hasMasks = false;
+      _lastHiddenWords = const [];
+    }
 
-      // Hifz Concealing masks (Native vector invisible ink)
-      if (hiddenWords.isNotEmpty) {
-        if (!listEquals(_lastHiddenWords, hiddenWords) || !_hasMasks) {
-          page.mask(T.words(hiddenWords), 'hide');
-          _hasMasks = true;
-          _lastHiddenWords = List<int>.from(hiddenWords);
-        }
-      } else if (_hasMasks) {
-        page.unmask();
-        _hasMasks = false;
-        _lastHiddenWords = const [];
-      }
-
-      _lastIsDark = isDark;
-    });
+    // Notify Tajweed tooltips
+    if (!listEquals(_yellowWordsNotifier.value, yellowWords)) {
+      _yellowWordsNotifier.value = yellowWords;
+    }
 
     _visualsRevision.value++;
   }
@@ -1005,6 +826,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       layout,
       isDark: AppState.instance.isDarkMode,
       colors: AppState.instance.colors,
+    );
+    MushafOverlays.paintAyahHighlights(
+      canvas,
+      page,
+      layout,
+      controller: widget.controller,
+      app: AppState.instance,
+      isRecording: widget.isRecording,
     );
   }
 

@@ -3,24 +3,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/platform_utils.dart';
 import '../../../core/app_state.dart';
 import 'dialog_base.dart';
-import 'maglis_entry_dialog.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 1. WHAT'S NEW FEATURE GUIDE DIALOG
+// 1. APP GUIDE & HOW-TO DIALOG
 // ══════════════════════════════════════════════════════════════════════════════
 
-class WhatsNewDialog extends StatelessWidget {
-  const WhatsNewDialog({super.key});
+/// Ultra-lightweight, direct user guide explaining strictly how to use the app:
+/// 1. Word colors (Green: right, Yellow: Tajweed/Tashkeel & tap to see error, Red: skipped/wrong).
+/// 2. Audio on Ayah number tap & word tap.
+/// 3. Maglis live group recitation.
+/// 4. Verse list & auto-scroll.
+class AppGuideDialog extends StatelessWidget {
+  const AppGuideDialog({super.key});
 
-  /// Displays the WhatsNewDialog modal centered with zero eye strain.
+  /// Displays the AppGuideDialog modal centered with zero eye strain.
   static Future<void> show(BuildContext context) async {
     await showDialog<void>(
       context: context,
       barrierDismissible: true,
       barrierColor: DialogTokens.barrierColor,
-      builder: (_) => const WhatsNewDialog(),
+      builder: (_) => const AppGuideDialog(),
     );
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_seen_app_guide_v1', true);
     await prefs.setBool('has_seen_v1_2_maglis_whats_new', true);
   }
 
@@ -32,219 +37,166 @@ class WhatsNewDialog extends StatelessWidget {
     final isDark = app.isDarkMode;
 
     return AppDialog(
-      maxWidth: 400,
+      maxWidth: 380,
       scrollable: true,
-      topTrailing: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
-            decoration: BoxDecoration(
-              color: c.primary.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: c.primary.withValues(alpha: 0.22),
-                width: 0.8,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.groups_rounded, size: 14, color: c.primary),
-                const SizedBox(width: 5),
-                Text(
-                  isAr ? 'ميزة جديدة' : 'NEW FEATURE',
-                  style: TextStyle(
-                    color: c.primary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: isAr ? 0.0 : 0.6,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: () {
-              AppHaptics.lightImpact();
-              Navigator.of(context).pop();
-            },
-            icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            splashRadius: 18,
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+      topTrailing: IconButton(
+        onPressed: () {
+          AppHaptics.lightImpact();
+          Navigator.of(context).pop();
+        },
+        icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+        splashRadius: 16,
       ),
-      title: isAr ? 'مجلس القرآن' : 'Quran Maglis',
-      subtitle: isAr
-          ? 'اقرأ وتدارس القرآن مع إخوانك في مكالمة صوتية وتصفح مشترك للمصحف.'
-          : 'Read and practice the Quran together with live voice and shared pages.',
+      heroIcon: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.asset(
+          'assets/icon/app_icon.png',
+          width: 44,
+          height: 44,
+          fit: BoxFit.cover,
+        ),
+      ),
+      title: isAr ? 'دليل الاستخدام' : 'How to Use',
       content: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          color: c.surfaceHigh.withValues(alpha: isDark ? 0.40 : 0.65),
-          borderRadius: BorderRadius.circular(18),
+          color: c.surfaceHigh.withValues(alpha: isDark ? 0.35 : 0.55),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: c.border.withValues(alpha: isDark ? 0.25 : 0.35),
-            width: 0.9,
+            color: c.border.withValues(alpha: isDark ? 0.22 : 0.30),
+            width: 0.8,
           ),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           children: [
-            _buildPillarRow(
+            // ── 1. Recitation Colors ──
+            _buildRow(
               icon: Icons.record_voice_over_rounded,
               iconColor: c.primary,
-              title: isAr ? 'تسميع صوتي مباشر' : 'Live Voice Recitation',
-              description: isAr
-                  ? 'اتصال صوتي فوري عالي النقاء بين أفراد المجلس للتسميع والتصحيح.'
-                  : 'Crystal-clear peer audio for listening, guidance, and correction.',
+              title: isAr ? 'ألوان التسميع' : 'Recitation Colors',
               c: c,
-              isAr: isAr,
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Divider(
-                height: 1,
-                thickness: 0.8,
-                color: c.border.withValues(alpha: isDark ? 0.20 : 0.30),
-              ),
-            ),
-            _buildPillarRow(
-              icon: Icons.menu_book_rounded,
-              iconColor: isDark ? c.gold : c.primary,
-              title: isAr ? 'تزامن صفحات المصحف' : 'Synchronized Mushaf',
-              description: isAr
-                  ? 'يتابع الجميع الصفحة والآية المتلوة تلقائياً لحظة بلحظة.'
-                  : 'Page turns sync automatically to the active reader in real-time.',
-              c: c,
-              isAr: isAr,
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Divider(
-                height: 1,
-                thickness: 0.8,
-                color: c.border.withValues(alpha: isDark ? 0.20 : 0.30),
-              ),
-            ),
-            _buildPillarRow(
-              icon: Icons.lock_outline_rounded,
-              iconColor: isDark ? Colors.white70 : c.muted,
-              title: isAr ? 'مجلس خاص برمز آمن' : 'Private & Simple',
-              description: isAr
-                  ? 'رمز مكون من 5 أرقام لدخول الطلاب فوراً دون تسجيل أو حسابات.'
-                  : 'Instant 5-digit code entry with zero accounts, passwords, or setup.',
-              c: c,
-              isAr: isAr,
-            ),
-          ],
-        ),
-      ),
-      customActions: Column(
-        children: [
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                AppHaptics.mediumImpact();
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('has_seen_v1_2_maglis_whats_new', true);
-                if (context.mounted) {
-                  Navigator.of(context).pop();
-                  await MaglisEntryDialog.show(context);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: c.primary,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              body: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    isAr ? 'جرّب المجلس الآن' : 'Try Maglis Now',
-                    style: const TextStyle(
-                      fontSize: 14.8,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  _buildBullet(
+                    color: c.green,
+                    text: isAr ? 'أخضر: كلمة صحيحة' : 'Green: Correct word',
+                    c: c,
                   ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    isAr
-                        ? Icons.arrow_back_rounded
-                        : Icons.arrow_forward_rounded,
-                    size: 17,
+                  const SizedBox(height: 2),
+                  _buildBullet(
+                    color: c.warning,
+                    text: isAr
+                        ? 'أصفر: خطأ تجويد/تشكيل (اضغط لمعرفة الخطأ)'
+                        : 'Yellow: Mistake (tap to see error)',
+                    c: c,
+                    highlight: true,
+                  ),
+                  const SizedBox(height: 2),
+                  _buildBullet(
+                    color: c.red,
+                    text: isAr ? 'أحمر: كلمة متروكة أو خاطئة' : 'Red: Skipped or wrong word',
+                    c: c,
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          SizedBox(
-            width: double.infinity,
-            child: TextButton(
-              onPressed: () async {
-                AppHaptics.lightImpact();
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('has_seen_v1_2_maglis_whats_new', true);
-                if (context.mounted) {
-                  Navigator.of(context).pop();
-                }
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: c.muted,
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                visualDensity: VisualDensity.compact,
-              ),
-              child: Text(
-                isAr ? 'لاحقاً' : 'Maybe Later',
+            _buildDivider(c, isDark),
+
+            // ── 2. Audio Playback ──
+            _buildRow(
+              icon: Icons.play_circle_fill_rounded,
+              iconColor: isDark ? c.gold : const Color(0xFFD97706),
+              title: isAr ? 'تشغيل الصوت' : 'Audio Playback',
+              c: c,
+              body: Text(
+                isAr
+                    ? 'اضغط على رقم الآية ﴿١﴾ لتشغيل التلاوة، واضغط على أي كلمة لسماع نطقها.'
+                    : 'Tap Ayah number ﴿١﴾ to play recitation, or tap any word to hear it.',
                 style: TextStyle(
-                  color: c.muted,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  color: c.textSecondary,
+                  fontSize: 11.5,
+                  height: 1.35,
                 ),
               ),
             ),
-          ),
-        ],
+            _buildDivider(c, isDark),
+
+            // ── 3. Quran Maglis ──
+            _buildRow(
+              icon: Icons.groups_rounded,
+              iconColor: const Color(0xFF2563EB),
+              title: isAr ? 'مجلس القرآن' : 'Quran Maglis',
+              c: c,
+              body: Text(
+                isAr
+                    ? 'تلاوة جماعية مباشرة بمكالمة صوتية وتصفح مشترك عبر رمز (5 أرقام).'
+                    : 'Recite together live with voice call & synced pages using a 5-digit code.',
+                style: TextStyle(
+                  color: c.textSecondary,
+                  fontSize: 11.5,
+                  height: 1.35,
+                ),
+              ),
+            ),
+            _buildDivider(c, isDark),
+
+            // ── 4. Verse List ──
+            _buildRow(
+              icon: Icons.format_list_bulleted_rounded,
+              iconColor: const Color(0xFF0D9488),
+              title: isAr ? 'قائمة الآيات' : 'Verse List',
+              c: c,
+              body: Text(
+                isAr
+                    ? 'التبديل بين المصحف وقائمة الآيات مع ميزة التمرير التلقائي.'
+                    : 'Switch between Mushaf and Verse List with Auto-Scroll.',
+                style: TextStyle(
+                  color: c.textSecondary,
+                  fontSize: 11.5,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      primaryAction: AppDialogActionItem(
+        label: isAr ? 'فهمت' : 'Got it',
+        onPressed: () {
+          AppHaptics.lightImpact();
+          Navigator.of(context).pop();
+        },
       ),
     );
   }
 
-  Widget _buildPillarRow({
+  Widget _buildRow({
     required IconData icon,
     required Color iconColor,
     required String title,
-    required String description,
+    required Widget body,
     required ThemeColors c,
-    required bool isAr,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 38,
-          height: 38,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(11),
-            border: Border.all(
-              color: iconColor.withValues(alpha: 0.24),
-              width: 0.8,
-            ),
+            borderRadius: BorderRadius.circular(9),
           ),
           alignment: Alignment.center,
-          child: Icon(icon, size: 20, color: iconColor),
+          child: Icon(icon, size: 17, color: iconColor),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,28 +205,66 @@ class WhatsNewDialog extends StatelessWidget {
                 title,
                 style: TextStyle(
                   color: c.text,
-                  fontSize: 13.5,
+                  fontSize: 12.8,
                   fontWeight: FontWeight.bold,
-                  letterSpacing: isAr ? 0.0 : -0.2,
                 ),
               ),
-              const SizedBox(height: 2.5),
-              Text(
-                description,
-                style: TextStyle(
-                  color: c.textSecondary,
-                  fontSize: 12.0,
-                  fontWeight: FontWeight.w400,
-                  height: 1.40,
-                ),
-              ),
+              const SizedBox(height: 2),
+              body,
             ],
           ),
         ),
       ],
     );
   }
+
+  Widget _buildBullet({
+    required Color color,
+    required String text,
+    required ThemeColors c,
+    bool highlight = false,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              color: highlight ? c.text : c.textSecondary,
+              fontSize: 11.5,
+              fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDivider(ThemeColors c, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Divider(
+        height: 1,
+        thickness: 0.7,
+        color: c.border.withValues(alpha: isDark ? 0.16 : 0.22),
+      ),
+    );
+  }
 }
+
+/// Backward compatibility alias
+typedef WhatsNewDialog = AppGuideDialog;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 2. MAGLIS HOW-TO EXPLANATION DIALOG
@@ -416,4 +406,3 @@ class MaglisExplanationDialog extends StatelessWidget {
     );
   }
 }
-

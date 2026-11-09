@@ -107,9 +107,14 @@ abstract final class DialogService {
     );
   }
 
-  /// Displays the What's New changelog dialog.
+  /// Displays the interactive "How to Use" / App Guide modal dialog.
+  static Future<void> showAppGuide(BuildContext context) {
+    return AppGuideDialog.show(context);
+  }
+
+  /// Displays the What's New / Guide dialog (alias for [showAppGuide]).
   static void showWhatsNew(BuildContext context) {
-    WhatsNewDialog.show(context);
+    showAppGuide(context);
   }
 
   /// Opens the audio playback speed selection dialog.

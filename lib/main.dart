@@ -624,10 +624,10 @@ class _OrchestratorState extends State<_Orchestrator>
           );
           if (mounted) {
             await Future<void>.delayed(const Duration(milliseconds: 250));
-            await _checkAndShowWhatsNew();
+            await _checkAndShowAppGuide();
           }
         } else {
-          await _checkAndShowWhatsNew();
+          await _checkAndShowAppGuide();
         }
       });
     } catch (e) {
@@ -636,11 +636,11 @@ class _OrchestratorState extends State<_Orchestrator>
     }
   }
 
-  Future<void> _checkAndShowWhatsNew() async {
+  Future<void> _checkAndShowAppGuide() async {
     final prefs = await SharedPreferences.getInstance();
-    final hasSeen = prefs.getBool('has_seen_v1_2_maglis_whats_new') ?? false;
+    final hasSeen = prefs.getBool('has_seen_app_guide_v1') ?? false;
     if (!hasSeen && mounted) {
-      DialogService.showWhatsNew(context);
+      DialogService.showAppGuide(context);
     }
   }
 

@@ -13,6 +13,7 @@ class MushafOverlays {
   static final Paint _headerBorderPaint = Paint()
     ..style = PaintingStyle.stroke
     ..strokeWidth = 0.8;
+  static final Paint _highlightFillPaint = Paint()..style = PaintingStyle.fill;
 
   static final Paint _bgPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
@@ -97,6 +98,217 @@ class MushafOverlays {
       canvas.drawLine(Offset(left, top), Offset(right, top), _headerBorderPaint);
       canvas.drawLine(Offset(left, bottom), Offset(right, bottom), _headerBorderPaint);
     }
+  }
+
+  /// Single-pass underlay: Paints continuous Ayah highlight boxes and word state segments.
+  /// Renders behind the base ink:
+  /// - The selected/active ayah is ONE continuous rounded highlight box on each line.
+  /// - Unrecited words in the active ayah are grey.
+  /// - The current awaited word is neon highlighted.
+  /// - Correctly recited words seamlessly become green.
+  /// - Mispronounced words become red, Tajweed warnings yellow.
+  /// - Adjacent words on the same line meet at their midpoint with ZERO overlap and ZERO gap.
+  ///   Colors NEVER merge, blend, or darken into dark red.
+  static void paintAyahHighlights(
+    Canvas canvas,
+    QvpPage page,
+    QvpLayout? layout, {
+    required HighlightingController controller,
+    required AppState app,
+    required bool isRecording,
+  }) {
+    if (page.isDisposed) return;
+    final wordBoxes = page.wordBoxesView();
+    if (wordBoxes.isEmpty) return;
+
+    final isDark = app.isDarkMode;
+    final palette =
+        QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
+
+    // 1. Resolve Active Ayah Coordinate (surah, ayah)
+    final coord = controller.activeAyahCoordinate ??
+        (app.lastSurah != 0 && app.lastAyah != 0
+            ? (app.lastSurah, app.lastAyah)
+            : null);
+
+    final int activeSurah = coord?.$1 ?? 0;
+    final int activeAyah = coord?.$2 ?? 0;
+
+    // 2. Resolve Active / Waited Lead Word on this page
+    int? activeWordPageIdx;
+    if (activeSurah != 0 && activeAyah != 0) {
+      int maxWordOnPage = 0;
+      for (final w in page.words) {
+        if (w.surah == activeSurah &&
+            w.ayah == activeAyah &&
+            w.word > maxWordOnPage) {
+          maxWordOnPage = w.word;
+        }
+      }
+      final leadW0 = controller.getLeadWordIndex(
+        surah: activeSurah,
+        ayah: activeAyah,
+        totalWords: maxWordOnPage,
+        isRecording: isRecording,
+      );
+      if (leadW0 != null) {
+        final idx = page.findWord(activeSurah, activeAyah, leadW0 + 1);
+        if (idx >= 0) activeWordPageIdx = idx;
+      }
+    }
+
+    final bool isBlurEffective =
+        app.isBlurEffective(isRecording: isRecording);
+
+    // 3. Identify all ayahs to render on this page:
+    //    a) The active selected ayah (if present)
+    //    b) Completed ayahs for surahs on this page
+    //    c) Any ayah with stored highlights (evaluated words)
+    final ayahsToPaint = <(int, int)>{};
+    if (activeSurah != 0 && activeAyah != 0) {
+      ayahsToPaint.add((activeSurah, activeAyah));
+    }
+
+    for (final w in page.words) {
+      final key = (w.surah, w.ayah);
+      if (ayahsToPaint.contains(key)) continue;
+
+      if (controller.completedAyahsFor(w.surah).contains(w.ayah) ||
+          controller.hasAyahHighlights(w.surah, w.ayah)) {
+        ayahsToPaint.add(key);
+      }
+    }
+
+    if (ayahsToPaint.isEmpty) return;
+
+    // 4. Render continuous line boxes for each ayah
+    for (final (s, a) in ayahsToPaint) {
+      final bool isActiveAyah = (s == activeSurah && a == activeAyah);
+
+      final wordsInAyah = <QvpWordInfo>[];
+      for (final w in page.words) {
+        if (w.surah == s && w.ayah == a) {
+          wordsInAyah.add(w);
+        }
+      }
+      if (wordsInAyah.isEmpty) continue;
+
+      // Group words by line
+      final wordsByLine = <int, List<QvpWordInfo>>{};
+      for (final w in wordsInAyah) {
+        (wordsByLine[w.line] ??= []).add(w);
+      }
+
+      for (final lineWords in wordsByLine.values) {
+        if (lineWords.isEmpty) continue;
+
+        // Sort in Arabic reading order: word 1 is on the right
+        lineWords.sort((w1, w2) => w1.word.compareTo(w2.word));
+        final int k = lineWords.length;
+
+        // Find the outer bounds of this ayah on this line
+        double lineX0 = double.infinity;
+        double lineX1 = double.negativeInfinity;
+        double lineY0 = 0.0;
+        double lineY1 = 0.0;
+
+        for (var i = 0; i < k; i++) {
+          final b = wordBoxes[lineWords[i].index];
+          if (b != null) {
+            if (b.x0 < lineX0) lineX0 = b.x0;
+            if (b.x1 > lineX1) lineX1 = b.x1;
+            lineY0 = b.y0;
+            lineY1 = b.y1;
+          }
+        }
+
+        if (lineX1 <= lineX0 || lineY1 <= lineY0) continue;
+
+        // Compute non-overlapping split boundaries between adjacent words
+        // In RTL: lineWords[0] is rightmost (highest X), lineWords[k-1] is leftmost (lowest X)
+        final splitX = List<double>.filled(k > 1 ? k - 1 : 0, 0.0);
+        for (var i = 0; i < k - 1; i++) {
+          final bCurr = wordBoxes[lineWords[i].index];
+          final bNext = wordBoxes[lineWords[i + 1].index];
+          if (bCurr != null && bNext != null) {
+            // bCurr is to the right of bNext:
+            // bCurr.x0 is left edge of bCurr, bNext.x1 is right edge of bNext
+            splitX[i] = ((bCurr.x0 + bNext.x1) / 2.0).clamp(lineX0, lineX1);
+          } else {
+            splitX[i] = lineX0 + (lineX1 - lineX0) * ((k - 1 - i) / k);
+          }
+        }
+
+        final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
+        final outerRRect =
+            RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
+
+        canvas.save();
+        canvas.clipRRect(outerRRect);
+
+        for (var i = 0; i < k; i++) {
+          final w = lineWords[i];
+          final double left = (i == k - 1) ? lineX0 : splitX[i];
+          final double right = (i == 0) ? lineX1 : splitX[i - 1];
+
+          final double minX = math.min(left, right);
+          final double maxX = math.max(left, right);
+          if (maxX - minX <= 0.1) continue;
+
+          final wordRect = Rect.fromLTRB(minX, lineY0, maxX, lineY1);
+          final color = _resolveWordColor(
+            w: w,
+            isActiveAyah: isActiveAyah,
+            activeWordPageIdx: activeWordPageIdx,
+            controller: controller,
+            palette: palette,
+            isBlurEffective: isBlurEffective,
+          );
+
+          if (color.a > 0) {
+            _highlightFillPaint.color = color;
+            canvas.drawRect(wordRect, _highlightFillPaint);
+          }
+        }
+
+        canvas.restore();
+      }
+    }
+  }
+
+  static Color _resolveWordColor({
+    required QvpWordInfo w,
+    required bool isActiveAyah,
+    required int? activeWordPageIdx,
+    required HighlightingController controller,
+    required QuranHighlightPalette palette,
+    required bool isBlurEffective,
+  }) {
+    // 1. Current active / waited word -> Neon
+    if (activeWordPageIdx != null && w.index == activeWordPageIdx) {
+      return palette.leadWordBand;
+    }
+
+    final int w0 = w.word - 1;
+    int? status = controller.getWordStatus(w.ayah, w0, surah: w.surah);
+
+    // Completed ayah words are treated as green
+    if ((status == null || status == 0) &&
+        controller.completedAyahsFor(w.surah).contains(w.ayah)) {
+      status = 1;
+    }
+
+    if (status == 1) {
+      return palette.greenBand;
+    } else if (status == 2) {
+      return palette.yellowBand;
+    } else if (status == 3) {
+      return palette.redBand;
+    } else if (isActiveAyah && !isBlurEffective) {
+      // Selected/active ayah unrecited words -> Grey!
+      return palette.activeAyahBand;
+    }
+    return Colors.transparent;
   }
 
   /// Single-pass overlay: Paints Ayah audio loading spinner arc, and stop icon.
