@@ -124,10 +124,9 @@ class MushafOverlays {
         QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
 
     // 1. Resolve Active Ayah Coordinate (surah, ayah)
-    final coord = controller.activeAyahCoordinate ??
-        (app.lastSurah != 0 && app.lastAyah != 0
-            ? (app.lastSurah, app.lastAyah)
-            : null);
+    // Strictly from controller only — no fallback to app.lastSurah/lastAyah.
+    // When no ayah is selected, coord is null and we return early (no word loops, no FFI).
+    final coord = controller.activeAyahCoordinate;
 
     final int activeSurah = coord?.$1 ?? 0;
     final int activeAyah = coord?.$2 ?? 0;

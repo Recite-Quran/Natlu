@@ -484,25 +484,26 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onActiveAyahChanged() {
     if (!mounted) return;
-    _checkSpinnerAnimation();
 
     final activeAyah = widget.controller.activeAyah.value;
     final activeSurah = widget.controller.targetSurah;
 
-    if (activeAyah == null || activeSurah == 0) {
-      _lastHandledAyah = null;
-      _lastHandledSurah = null;
-      _requestSyncVisuals();
-      return;
-    }
-
+    // Guard: skip all work if coord hasn't changed.
+    // This prevents redundant FFI calls and word loops on every ASR phoneme tick.
     if (_lastHandledAyah == activeAyah && _lastHandledSurah == activeSurah) {
-      _requestSyncVisuals();
       return;
     }
 
     _lastHandledAyah = activeAyah;
     _lastHandledSurah = activeSurah;
+
+    // Check spinner only when ayah coord actually changes (not every word tick).
+    _checkSpinnerAnimation();
+
+    if (activeAyah == null || activeSurah == 0) {
+      _requestSyncVisuals();
+      return;
+    }
 
     final provider = MushafProvider.instance;
     if (!provider.isAyahOnPage(
