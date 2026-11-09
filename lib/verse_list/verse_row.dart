@@ -726,7 +726,7 @@ class _VerseRowState extends State<VerseRow> {
                               QuranTypography.toArabicDigits(widget.verse.ayah),
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: QuranTypography.quranFontFamily,
+                                fontFamily: QuranTypography.quranWordsFont,
                                 fontSize: 21.5,
                                 fontWeight: FontWeight.bold,
                                 height: 1.0,
@@ -1182,7 +1182,7 @@ class _AyahWordLayout {
     required double width,
   }) {
     final defaultStyle = TextStyle(
-      fontFamily: QuranTypography.quranFontFamily,
+      fontFamily: QuranTypography.quranWordsFont,
       fontSize: fontSize,
       height: 2.6,
       wordSpacing: 5.0,

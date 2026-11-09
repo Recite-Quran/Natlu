@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../../core/app_state.dart';
 import '../../../core/platform_utils.dart';
-import '../../../core/highlighting_controller.dart' show QuranTypography;
 import '../../../mushaf/mushaf_provider.dart';
+import '../../../verse_list/verse_span_builder.dart';
 import 'dialog_base.dart';
 
 /// Production-ready Voice Search modal dialog for reciting any Ayah across the Quran.
@@ -198,7 +198,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
 
   void _autoNavigateToTopMatch() {
     if (!mounted || _hasSelected || _isCountdownPaused) return;
-    final top = _currentResult?.topMatch ?? _currentResult?.candidates.firstOrNull;
+    final top =
+        _currentResult?.topMatch ?? _currentResult?.candidates.firstOrNull;
     if (top != null) {
       _selectCandidate(top.surah, top.ayah);
     }
@@ -229,19 +230,41 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
     final app = AppState.instance;
     final c = app.colors;
     final isAr = app.isArabic;
+    final isDark = app.isDarkMode;
     final size = MediaQuery.sizeOf(context);
 
-    return AppDialog(
-      maxWidth: 480,
-      maxHeight: size.height * 0.82,
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
-      content: widget.isLoading != null
-          ? ValueListenableBuilder<bool>(
-              valueListenable: widget.isLoading!,
-              builder: (_, loading, __) =>
-                  loading ? _buildLoadingState(c, isAr) : _buildContent(c, isAr),
-            )
-          : _buildContent(c, isAr),
+    return RepaintBoundary(
+      child: Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        insetPadding: DialogTokens.dialogInsetPadding,
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: 480,
+            maxHeight: size.height * 0.82,
+          ),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(DialogTokens.dialogRadius),
+            border: Border.fromBorderSide(DialogTokens.borderSide(c, isDark)),
+            boxShadow: DialogTokens.dialogShadow(isDark),
+          ),
+          child: Directionality(
+            textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+              child: widget.isLoading != null
+                  ? ValueListenableBuilder<bool>(
+                      valueListenable: widget.isLoading!,
+                      builder: (_, loading, __) => loading
+                          ? _buildLoadingState(c, isAr)
+                          : _buildContent(c, isAr),
+                    )
+                  : _buildContent(c, isAr),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -261,7 +284,9 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
           ),
           const SizedBox(height: 20),
           Text(
-            isAr ? 'جاري تجهيز البحث الصوتي...' : 'Preparing voice search index...',
+            isAr
+                ? 'جاري تجهيز البحث الصوتي...'
+                : 'Preparing voice search index...',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: c.text,
@@ -354,7 +379,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                           height: 88,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: c.primary.withValues(alpha: 0.06 * (1.0 - val)),
+                            color:
+                                c.primary.withValues(alpha: 0.06 * (1.0 - val)),
                           ),
                         ),
                       ),
@@ -387,7 +413,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                             width: 1.5,
                           ),
                         ),
-                        child: Icon(Icons.mic_rounded, color: c.primary, size: 28),
+                        child:
+                            Icon(Icons.mic_rounded, color: c.primary, size: 28),
                       ),
                     ],
                   );
@@ -416,7 +443,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
               Container(
                 width: 7,
                 height: 7,
-                decoration: BoxDecoration(color: c.primary, shape: BoxShape.circle),
+                decoration:
+                    BoxDecoration(color: c.primary, shape: BoxShape.circle),
               ),
               const SizedBox(width: 8),
               Text(
@@ -610,7 +638,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
             animation: _countdownCtrl,
             builder: (_, __) {
               return ClipRRect(
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(9)),
+                borderRadius:
+                    const BorderRadius.vertical(bottom: Radius.circular(9)),
                 child: LinearProgressIndicator(
                   value: (1.0 - _countdownCtrl.value).clamp(0.0, 1.0),
                   minHeight: 2,
@@ -662,7 +691,9 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
     final surahMeta = MushafProvider.instance.atlas.surah(match.surah);
     final surahTitle = isAr
         ? (surahMeta?.arabic ?? '${match.surah}')
-        : (surahMeta?.latin.isNotEmpty == true ? surahMeta!.latin : (match.surahNameEn ?? '${match.surah}'));
+        : (surahMeta?.latin.isNotEmpty == true
+            ? surahMeta!.latin
+            : (match.surahNameEn ?? '${match.surah}'));
 
     return Material(
       color: Colors.transparent,
@@ -693,7 +724,8 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 1.5),
                       decoration: BoxDecoration(
                         color: c.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(5),
@@ -726,51 +758,35 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                   ],
                 ),
               ),
-              if (match.textUthmani != null && match.textUthmani!.isNotEmpty) ...[
+              if (match.textUthmani != null &&
+                  match.textUthmani!.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                _buildVersePreview(match, c),
+                Builder(
+                  builder: (_) {
+                    final preview = VerseSpanBuilder.buildPreviewSpec(
+                      rawText: match.textUthmani!,
+                      startWord: match.startWordIdx,
+                      endWord: match.endWordIdx,
+                      startAyah: match.startAyah,
+                      endAyah: match.endAyah,
+                      currentAyah: match.ayah,
+                      defaultColor: c.text.withValues(alpha: 0.75),
+                      highlightColor: c.green,
+                    );
+                    return Text.rich(
+                      TextSpan(children: preview.spans),
+                      maxLines: preview.maxLines,
+                      overflow: TextOverflow.ellipsis,
+                      textDirection: TextDirection.rtl,
+                      textAlign: TextAlign.right,
+                    );
+                  },
+                ),
               ],
             ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildVersePreview(AyahSearchMatch match, ThemeColors c) {
-    final rawText = match.textUthmani;
-    if (rawText == null || rawText.isEmpty) return const SizedBox.shrink();
-
-    final words = rawText.trim().split(' ');
-    final start = match.startWordIdx.clamp(0, words.length);
-    final end = (match.endWordIdx + 1).clamp(start, words.length);
-
-    final spans = <InlineSpan>[];
-    for (int i = 0; i < words.length; i++) {
-      final isHighlighted = (i >= start && i < end);
-      spans.add(
-        TextSpan(
-          text: words[i],
-          style: TextStyle(
-            fontFamily: QuranTypography.quranFontFamily,
-            fontSize: 16.0,
-            height: 1.6,
-            fontWeight: isHighlighted ? FontWeight.bold : FontWeight.normal,
-            color: isHighlighted ? c.gold : c.text.withValues(alpha: 0.78),
-          ),
-        ),
-      );
-      if (i < words.length - 1) {
-        spans.add(const TextSpan(text: ' '));
-      }
-    }
-
-    return Text.rich(
-      TextSpan(children: spans),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      textDirection: TextDirection.rtl,
-      textAlign: TextAlign.right,
     );
   }
 }

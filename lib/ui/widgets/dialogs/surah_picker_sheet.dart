@@ -34,6 +34,7 @@ class SurahListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = colors;
     final isAr = isArabic;
+    final isDark = AppState.instance.isDarkMode;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 3.0),
@@ -48,13 +49,17 @@ class SurahListTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12.0),
           decoration: BoxDecoration(
             color: isSelected
-                ? c.primary.withValues(alpha: 0.12)
-                : c.surfaceHigh.withValues(alpha: 0.35),
-            borderRadius: const BorderRadius.all(Radius.circular(16.0)),
+                ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.16 : 0.10)
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.04)
+                    : Colors.black.withValues(alpha: 0.03)),
+            borderRadius: const BorderRadius.all(Radius.circular(14.0)),
             border: Border.all(
               color: isSelected
-                  ? c.primary.withValues(alpha: 0.40)
-                  : c.border.withValues(alpha: 0.30),
+                  ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.45 : 0.35)
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.black.withValues(alpha: 0.06)),
               width: 0.8,
             ),
           ),
@@ -64,12 +69,18 @@ class SurahListTile extends StatelessWidget {
                 width: 38.0,
                 height: 38.0,
                 decoration: BoxDecoration(
-                  color: isSelected ? c.primary : c.surfaceHigh,
-                  borderRadius: const BorderRadius.all(Radius.circular(12.0)),
+                  color: isSelected
+                      ? const Color(0xFF10B981)
+                      : (isDark
+                          ? Colors.white.withValues(alpha: 0.06)
+                          : Colors.white),
+                  borderRadius: const BorderRadius.all(Radius.circular(11.0)),
                   border: isSelected
                       ? null
                       : Border.all(
-                          color: c.border.withValues(alpha: 0.40),
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.10)
+                              : Colors.black.withValues(alpha: 0.08),
                           width: 0.8,
                         ),
                 ),
@@ -83,8 +94,8 @@ class SurahListTile extends StatelessWidget {
                     : Text(
                         isAr ? arabicDigits : '$surahNumber',
                         style: TextStyle(
-                          color: c.primary,
-                          fontSize: isAr ? 16.0 : 14.0,
+                          color: isDark ? Colors.white : const Color(0xFF1E293B),
+                          fontSize: isAr ? 15.5 : 13.5,
                           fontWeight: FontWeight.w700,
                           height: 1.0,
                         ),
@@ -102,7 +113,7 @@ class SurahListTile extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: isSelected ? c.primary : c.text,
+                        color: isSelected ? const Color(0xFF10B981) : c.text,
                         fontSize: 16.0,
                         fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                         height: 1.25,
@@ -126,7 +137,9 @@ class SurahListTile extends StatelessWidget {
               const SizedBox(width: 8.0),
               Icon(
                 isAr ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
-                color: isSelected ? c.primary : c.border.withValues(alpha: 0.8),
+                color: isSelected
+                    ? const Color(0xFF10B981)
+                    : c.muted.withValues(alpha: 0.6),
                 size: 20.0,
               ),
             ],
@@ -167,6 +180,8 @@ class SurahPickerSheet extends StatefulWidget {
 }
 
 class _SurahPickerSheetState extends State<SurahPickerSheet> {
+  static const double _itemExtent = 70.0;
+
   static final List<int> _allIndices =
       List<int>.generate(114, (i) => i, growable: false);
 
@@ -186,8 +201,9 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
   void initState() {
     super.initState();
     _surahs = widget.controller.repository.surahMetadata;
+    final int targetIdx = (widget.current - 1).clamp(0, 113);
     final double initialOffset =
-        ((widget.current - 1) * 70.0 - 70.0).clamp(0.0, double.infinity);
+        (targetIdx > 0 ? (targetIdx - 1) * _itemExtent : 0.0);
     _scrollCtrl = ScrollController(initialScrollOffset: initialOffset);
   }
 
@@ -264,22 +280,15 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
     }
 
     return AppBottomSheet(
-      maxHeightFactor: 0.78,
+      maxHeightFactor: 0.60,
+      isFixed: true,
       headerBuilder: (context, c, isAr, isDark) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AppModalHeader(
-            title: isAr ? 'سور القرآن الكريم' : 'The Noble Quran',
-            subtitle: isAr
-                ? 'اختر سورة للمتابعة أو ابحث بالاسم والرقم'
-                : 'Select a Surah to recite or search by name',
-            onClose: () => Navigator.of(context).pop(),
-          ),
-          const SizedBox(height: 8),
           if (!MaglisController.instance.inSession) ...[
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
               child: AppSegmentedPillSelector(
                 icons: const [
                   Icons.format_list_bulleted_rounded,
@@ -299,7 +308,6 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                 },
               ),
             ),
-            const SizedBox(height: 12),
           ],
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -307,12 +315,16 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
               children: [
                 Expanded(
                   child: Container(
-                    height: 50,
+                    height: 46,
                     decoration: BoxDecoration(
-                      color: c.surfaceHigh,
-                      borderRadius: BorderRadius.circular(18),
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : Colors.black.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(13),
                       border: Border.all(
-                        color: c.border.withValues(alpha: 0.5),
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.06),
                         width: 0.8,
                       ),
                     ),
@@ -321,7 +333,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                       onChanged: (v) => setState(() => _query = v),
                       style: TextStyle(
                         color: c.text,
-                        fontSize: 15,
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w500,
                       ),
                       decoration: InputDecoration(
@@ -332,9 +344,9 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                           color: c.textSecondary,
                           fontSize: 13,
                         ),
-                        prefixIcon: Icon(
+                        prefixIcon: const Icon(
                           Icons.search_rounded,
-                          color: c.primary,
+                          color: Color(0xFF10B981),
                           size: 20,
                         ),
                         suffixIcon: _query.isNotEmpty
@@ -350,13 +362,13 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
-                          vertical: 14,
+                          vertical: 12,
                         ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 AppScaleButton(
                   onTap: () {
                     AppHaptics.mediumImpact();
@@ -366,50 +378,38 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                     widget.onVoiceSearchToggle();
                   },
                   child: Container(
-                    height: 50,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    height: 46,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [c.primary, c.secondary],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.35),
-                        width: 0.8,
-                      ),
+                      color: const Color(0xFF10B981),
+                      borderRadius: BorderRadius.circular(13),
                       boxShadow: [
                         BoxShadow(
-                          color: c.primary
+                          color: const Color(0xFF10B981)
                               .withValues(alpha: isDark ? 0.35 : 0.22),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.graphic_eq_rounded,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.graphic_eq_rounded,
+                          color: Colors.white,
+                          size: 19,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isAr ? 'بحث صوتي' : 'Voice Search',
+                          style: TextStyle(
                             color: Colors.white,
-                            size: 19,
+                            fontSize: isAr ? 13 : 11.5,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(width: 5),
-                          Text(
-                            isAr ? 'بحث صوتي' : 'Voice Search',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: isAr ? 13 : 11,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -426,15 +426,15 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                 children: [
                   Icon(
                     Icons.search_off_rounded,
-                    size: 44,
+                    size: 40,
                     color: c.textSecondary.withValues(alpha: 0.5),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Text(
                     isAr ? 'لم يتم العثور على سور' : 'No Surahs found',
                     style: TextStyle(
                       color: c.textSecondary,
-                      fontSize: 14,
+                      fontSize: 13.5,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -443,12 +443,10 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
             )
           : ListView.builder(
               controller: _scrollCtrl,
-              physics: const ClampingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
+              physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.only(bottom: 24, top: 4),
               itemCount: items.length,
-              itemExtent: 70.0,
+              itemExtent: _itemExtent,
               addRepaintBoundaries: true,
               itemBuilder: (context, i) {
                 final int idx = items[i];

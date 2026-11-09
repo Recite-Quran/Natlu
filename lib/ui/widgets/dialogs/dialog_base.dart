@@ -258,15 +258,21 @@ class AppSegmentedPillSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppState.instance.isDarkMode;
+
     return Container(
       height: height,
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: c.surfaceHigh,
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.05)
+            : Colors.black.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(DialogTokens.pillRadius),
         border: Border.all(
-          color: c.border.withValues(alpha: 0.4),
-          width: 1,
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.black.withValues(alpha: 0.06),
+          width: 0.8,
         ),
       ),
       child: LayoutBuilder(
@@ -276,7 +282,7 @@ class AppSegmentedPillSelector extends StatelessWidget {
           return Stack(
             children: [
               AnimatedPositioned(
-                duration: const Duration(milliseconds: 250),
+                duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
                 left: Directionality.of(context) == TextDirection.ltr
                     ? selected * pillWidth
@@ -286,17 +292,19 @@ class AppSegmentedPillSelector extends StatelessWidget {
                 width: pillWidth,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: c.surface,
+                    color: isDark ? const Color(0xFF22293F) : Colors.white,
                     borderRadius: BorderRadius.circular(DialogTokens.pillRadius - 2),
                     border: Border.all(
-                      color: c.border.withValues(alpha: 0.6),
-                      width: 1,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.12)
+                          : Colors.black.withValues(alpha: 0.06),
+                      width: 0.8,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+                        color: Colors.black.withValues(alpha: isDark ? 0.30 : 0.06),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
                       ),
                     ],
                   ),
@@ -305,6 +313,10 @@ class AppSegmentedPillSelector extends StatelessWidget {
               Row(
                 children: List.generate(labels.length, (i) {
                   final isSel = i == selected;
+                  final activeColor = isDark
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFF059669);
+
                   return Expanded(
                     child: GestureDetector(
                       onTap: () {
@@ -321,14 +333,14 @@ class AppSegmentedPillSelector extends StatelessWidget {
                               Icon(
                                 icons![i],
                                 size: 16,
-                                color: isSel ? c.primary : c.textSecondary,
+                                color: isSel ? activeColor : c.muted,
                               ),
                               const SizedBox(width: 6),
                             ],
                             AnimatedDefaultTextStyle(
-                              duration: const Duration(milliseconds: 200),
+                              duration: const Duration(milliseconds: 180),
                               style: TextStyle(
-                                color: isSel ? c.primary : c.textSecondary,
+                                color: isSel ? activeColor : c.muted,
                                 fontSize: 13,
                                 fontWeight: isSel ? FontWeight.w700 : FontWeight.w500,
                               ),
@@ -744,6 +756,7 @@ class AppBottomSheet extends StatelessWidget {
   final Widget? header;
   final AppBottomSheetContentBuilder? headerBuilder;
   final double maxHeightFactor;
+  final bool isFixed;
   final bool showHandle;
   final EdgeInsetsGeometry padding;
   final Listenable? extraListenable;
@@ -755,6 +768,7 @@ class AppBottomSheet extends StatelessWidget {
     this.header,
     this.headerBuilder,
     this.maxHeightFactor = DialogTokens.defaultSheetMaxHeightFactor,
+    this.isFixed = false,
     this.showHandle = true,
     this.padding = EdgeInsets.zero,
     this.extraListenable,
@@ -792,9 +806,12 @@ class AppBottomSheet extends StatelessWidget {
                 bottom: MediaQuery.viewInsetsOf(context).bottom,
               ),
               child: Container(
-                constraints: BoxConstraints(
-                  maxHeight: screenHeight * maxHeightFactor,
-                ),
+                height: isFixed ? screenHeight * maxHeightFactor : null,
+                constraints: isFixed
+                    ? null
+                    : BoxConstraints(
+                        maxHeight: screenHeight * maxHeightFactor,
+                      ),
                 decoration: BoxDecoration(
                   color: c.surface,
                   borderRadius: const BorderRadius.vertical(
@@ -809,19 +826,32 @@ class AppBottomSheet extends StatelessWidget {
                   color: Colors.transparent,
                   child: SafeArea(
                     top: false,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (showHandle) const AppDragHandle(),
-                        if (effectiveHeader != null) effectiveHeader,
-                        Flexible(
-                          child: Padding(
-                            padding: padding,
-                            child: effectiveChild,
+                    child: isFixed
+                        ? Column(
+                            children: [
+                              if (showHandle) const AppDragHandle(),
+                              if (effectiveHeader != null) effectiveHeader,
+                              Expanded(
+                                child: Padding(
+                                  padding: padding,
+                                  child: effectiveChild,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (showHandle) const AppDragHandle(),
+                              if (effectiveHeader != null) effectiveHeader,
+                              Flexible(
+                                child: Padding(
+                                  padding: padding,
+                                  child: effectiveChild,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
               ),

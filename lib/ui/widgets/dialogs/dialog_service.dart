@@ -164,7 +164,7 @@ abstract final class DialogService {
       backgroundColor: Colors.transparent,
       barrierColor: barrierColor,
       elevation: 0,
-      enableDrag: false,
+      enableDrag: true,
       builder: (_) => SurahPickerSheet(
         current: current,
         controller: controller,

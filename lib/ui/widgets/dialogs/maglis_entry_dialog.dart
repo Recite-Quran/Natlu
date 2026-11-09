@@ -349,35 +349,18 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.05)
-                                : Colors.black.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(13),
-                            border: Border.all(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.08)
-                                  : Colors.black.withValues(alpha: 0.06),
-                              width: 0.8,
-                            ),
-                          ),
-                          child: IconButton(
-                            tooltip: isAr ? 'إرشادات المجلس' : 'How it works',
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            onPressed: () {
-                              AppHaptics.lightImpact();
-                              MaglisExplanationDialog.show(context);
-                            },
-                            icon: Icon(
-                              Icons.help_outline_rounded,
-                              color: c.muted,
-                              size: 20,
-                            ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: isAr ? 'إرشادات المجلس' : 'How it works',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () {
+                            AppHaptics.lightImpact();
+                            MaglisExplanationDialog.show(context);
+                          },
+                          icon: Icon(
+                            Icons.help_outline_rounded,
+                            color: c.muted,
+                            size: 20,
                           ),
                         ),
                       ],

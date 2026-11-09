@@ -882,8 +882,12 @@ abstract final class QuranMetadata {
 
 /// Dedicated high-performance typography formatter for Eastern Arabic numbers and Quran text.
 abstract final class QuranTypography {
-  /// Canonical Uthmani Hafs Smart Quranic font family.
-  static const String quranFontFamily = 'HafsSmart';
+  /// Canonical Uthmani Hafs Smart Quranic font family for Quran words.
+  static const String quranWordsFont = 'HafsSmart';
+
+  /// Aliases for backward compatibility and naming flexibility.
+  static const String Quranwordsfont = quranWordsFont;
+  static const String quranFontFamily = quranWordsFont;
 
   /// Standard app UI font family.
   static const String uiFontFamily = 'cairo';

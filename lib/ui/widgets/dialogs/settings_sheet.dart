@@ -15,10 +15,13 @@ class SettingDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppState.instance.isDarkMode;
     return Container(
       height: 1,
       margin: const EdgeInsetsDirectional.only(start: 56, end: 16),
-      color: c.border.withValues(alpha: 0.25),
+      color: isDark
+          ? Colors.white.withValues(alpha: 0.06)
+          : Colors.black.withValues(alpha: 0.05),
     );
   }
 }
@@ -46,6 +49,8 @@ class SettingTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppState.instance.isDarkMode;
+
     return Padding(
       padding: const EdgeInsetsDirectional.symmetric(horizontal: 16, vertical: 10),
       child: Column(
@@ -57,14 +62,16 @@ class SettingTile extends StatelessWidget {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: c.primary.withValues(alpha: 0.12),
+                  color: const Color(0xFF10B981)
+                      .withValues(alpha: isDark ? 0.14 : 0.09),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: c.primary.withValues(alpha: 0.20),
+                    color: const Color(0xFF10B981)
+                        .withValues(alpha: isDark ? 0.28 : 0.20),
                     width: 1,
                   ),
                 ),
-                child: Icon(icon, color: c.primary, size: 20),
+                child: Icon(icon, color: const Color(0xFF10B981), size: 20),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -126,47 +133,42 @@ class SettingsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppBottomSheet(
-      maxHeightFactor: 0.82,
+      maxHeightFactor: 0.75,
       extraListenable: AppState.instance.mushafModeNotifier,
-      headerBuilder: (context, c, isAr, isDark) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AppModalHeader(
-            title: isAr ? 'الإعدادات' : 'Settings',
-            subtitle: isAr
-                ? 'تخصيص المظهر والتلاوة وخيارات التطبيق'
-                : 'Customize theme, recitation & app preferences',
-            onClose: () => Navigator.of(context).pop(),
+      headerBuilder: (context, c, isAr, isDark) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF10B981)
+                .withValues(alpha: isDark ? 0.08 : 0.06),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color(0xFF10B981)
+                  .withValues(alpha: isDark ? 0.22 : 0.15),
+              width: 0.8,
+            ),
           ),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: c.primary.withValues(alpha: isDark ? 0.08 : 0.05),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: c.primary.withValues(alpha: isDark ? 0.20 : 0.12),
-                  width: 0.8,
-                ),
-              ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
               child: Text(
                 'بفضل الله وبرحمته ربنا تقبل منا إنك أنت السميع العليم',
+                maxLines: 1,
+                softWrap: false,
                 textAlign: TextAlign.center,
                 textDirection: TextDirection.rtl,
-                style: TextStyle(
-                  color: c.primary.withValues(alpha: 0.85),
+                style: const TextStyle(
+                  color: Color(0xFF10B981),
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
-                  height: 1.3,
+                  height: 1.25,
                 ),
               ),
             ),
           ),
-        ],
+        ),
       ),
       builder: (context, c, isAr, isDark) {
         final app = AppState.instance;
@@ -182,17 +184,22 @@ class SettingsSheet extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: c.surfaceHigh,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : Colors.black.withValues(alpha: 0.035),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: c.border.withValues(alpha: 0.5),
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : Colors.black.withValues(alpha: 0.06),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(
-                            alpha: app.isDarkMode ? 0.20 : 0.03),
-                        blurRadius: 10,
+                            alpha: isDark ? 0.25 : 0.03),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -251,18 +258,21 @@ class SettingsSheet extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: c.surfaceHigh,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.04)
+                        : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       color: const Color(0xFF229ED9).withValues(
-                          alpha: app.isDarkMode ? 0.35 : 0.25),
+                          alpha: isDark ? 0.35 : 0.25),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(
-                            alpha: app.isDarkMode ? 0.20 : 0.03),
+                            alpha: isDark ? 0.25 : 0.04),
                         blurRadius: 10,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -456,6 +466,7 @@ class _FontSliderTileState extends State<FontSliderTile> {
     final c = widget.c;
     final app = widget.app;
     final isAr = widget.isAr;
+    final isDark = app.isDarkMode;
 
     return SettingTile(
       icon: Icons.format_size_rounded,
@@ -481,10 +492,12 @@ class _FontSliderTileState extends State<FontSliderTile> {
                   overlayRadius: 14,
                 ),
                 trackHeight: 4,
-                activeTrackColor: c.primary,
-                inactiveTrackColor: c.border.withValues(alpha: 0.5),
-                thumbColor: c.primary,
-                overlayColor: c.primary.withValues(alpha: 0.15),
+                activeTrackColor: const Color(0xFF10B981),
+                inactiveTrackColor: isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : Colors.black.withValues(alpha: 0.08),
+                thumbColor: const Color(0xFF10B981),
+                overlayColor: const Color(0xFF10B981).withValues(alpha: 0.15),
               ),
               child: Slider(
                 value: _localSize,
@@ -544,6 +557,7 @@ class _AutoScrollSliderTileState extends State<AutoScrollSliderTile> {
     final c = widget.c;
     final app = widget.app;
     final isAr = widget.isAr;
+    final isDark = app.isDarkMode;
     final labels = AppState.speedLabels;
 
     return SettingTile(
@@ -552,8 +566,8 @@ class _AutoScrollSliderTileState extends State<AutoScrollSliderTile> {
       c: c,
       trailing: Text(
         labels[_localSpeed.toInt()],
-        style: TextStyle(
-          color: c.primary,
+        style: const TextStyle(
+          color: Color(0xFF10B981),
           fontSize: 14,
           fontWeight: FontWeight.bold,
         ),
@@ -563,13 +577,17 @@ class _AutoScrollSliderTileState extends State<AutoScrollSliderTile> {
           thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
           trackHeight: 4,
-          activeTrackColor: c.primary,
-          inactiveTrackColor: c.border.withValues(alpha: 0.5),
-          thumbColor: c.primary,
-          overlayColor: c.primary.withValues(alpha: 0.15),
+          activeTrackColor: const Color(0xFF10B981),
+          inactiveTrackColor: isDark
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.black.withValues(alpha: 0.08),
+          thumbColor: const Color(0xFF10B981),
+          overlayColor: const Color(0xFF10B981).withValues(alpha: 0.15),
           tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 2),
-          activeTickMarkColor: c.surface,
-          inactiveTickMarkColor: c.border,
+          activeTickMarkColor: Colors.white,
+          inactiveTickMarkColor: isDark
+              ? Colors.white.withValues(alpha: 0.15)
+              : Colors.black.withValues(alpha: 0.12),
         ),
         child: Slider(
           value: _localSpeed,

@@ -69,7 +69,7 @@ class VerseSpanBuilder {
           TextSpan(
             text: words.join(' '),
             style: TextStyle(
-              fontFamily: QuranTypography.quranFontFamily,
+              fontFamily: QuranTypography.quranWordsFont,
               fontSize: app.fontSize,
               height: 2.6,
               wordSpacing: 5.0,
@@ -81,7 +81,7 @@ class VerseSpanBuilder {
     }
 
     final TextStyle defaultStyle = TextStyle(
-      fontFamily: QuranTypography.quranFontFamily,
+      fontFamily: QuranTypography.quranWordsFont,
       fontSize: app.fontSize,
       height: 2.6,
       wordSpacing: 5.0,
@@ -148,6 +148,131 @@ class VerseSpanBuilder {
     }
 
     return spans;
+  }
+
+  /// High-performance adaptive verse preview for voice search candidate cards.
+  /// Dynamically scales font size (16.0 -> 12.2) and max lines (2 -> 4) based on
+  /// verse length so the entire Ayah is displayed without card bloat or tiny font.
+  static ({List<InlineSpan> spans, double fontSize, int maxLines}) buildPreviewSpec({
+    required String rawText,
+    int? startWord,
+    int? endWord,
+    int? startAyah,
+    int? endAyah,
+    int? currentAyah,
+    required Color defaultColor,
+    required Color highlightColor,
+  }) {
+    final trimmed = rawText.trim();
+    if (trimmed.isEmpty) {
+      return (spans: const <InlineSpan>[], fontSize: 16.0, maxLines: 2);
+    }
+
+    final words = trimmed.split(' ');
+    final totalWords = words.length;
+
+    // Adaptive scale & line count:
+    // - <= 12 words (short): 16.0px, max 2 lines
+    // - 13..24 words (medium): 14.5px, max 3 lines
+    // - 25..44 words (long): 13.2px, max 4 lines
+    // - > 44 words (extra long): 12.2px, max 4 lines
+    final double fontSize;
+    final int maxLines;
+    if (totalWords <= 12) {
+      fontSize = 16.0;
+      maxLines = 2;
+    } else if (totalWords <= 24) {
+      fontSize = 14.5;
+      maxLines = 3;
+    } else if (totalWords <= 44) {
+      fontSize = 13.2;
+      maxLines = 4;
+    } else {
+      fontSize = 12.2;
+      maxLines = 4;
+    }
+
+    final defaultStyle = TextStyle(
+      fontFamily: QuranTypography.quranWordsFont,
+      fontSize: fontSize,
+      height: 1.5,
+      color: defaultColor,
+    );
+
+    int s = startWord ?? 0;
+    int e = endWord ?? (totalWords - 1);
+
+    // Cross-verse match handling (e.g. prefix wasl or query span began in earlier verse):
+    if ((startAyah != null && currentAyah != null && startAyah < currentAyah) || s > e) {
+      s = 0;
+    }
+    // If query match extends into subsequent Ayahs:
+    if (endAyah != null && currentAyah != null && endAyah > currentAyah) {
+      e = totalWords - 1;
+    }
+
+    s = s.clamp(0, totalWords - 1);
+    e = e.clamp(s, totalWords - 1);
+
+    // Fast path: if the whole verse is highlighted
+    if (s == 0 && e == totalWords - 1) {
+      return (
+        spans: [
+          TextSpan(
+            text: trimmed,
+            style: defaultStyle.copyWith(
+              color: highlightColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+        fontSize: fontSize,
+        maxLines: maxLines,
+      );
+    }
+
+    final highlightStyle = defaultStyle.copyWith(
+      color: highlightColor,
+      fontWeight: FontWeight.bold,
+    );
+
+    final spans = <InlineSpan>[];
+
+    // Intelligent windowing for extra long verses where match is deep in the Ayah:
+    int windowStart = 0;
+    bool hasPrefixEllipsis = false;
+    if (totalWords > 44 && s > 20) {
+      windowStart = (s - 3).clamp(0, totalWords - 1);
+      hasPrefixEllipsis = windowStart > 0;
+    }
+
+    if (hasPrefixEllipsis) {
+      spans.add(TextSpan(text: '... ', style: defaultStyle));
+    }
+
+    // 1. Text before recited words
+    if (s > windowStart) {
+      spans.add(TextSpan(
+        text: '${words.sublist(windowStart, s).join(' ')} ',
+        style: defaultStyle,
+      ));
+    }
+
+    // 2. Recited words (colored green)
+    spans.add(TextSpan(
+      text: words.sublist(s, e + 1).join(' '),
+      style: highlightStyle,
+    ));
+
+    // 3. Text after recited words
+    if (e < totalWords - 1) {
+      spans.add(TextSpan(
+        text: ' ${words.sublist(e + 1).join(' ')}',
+        style: defaultStyle,
+      ));
+    }
+
+    return (spans: spans, fontSize: fontSize, maxLines: maxLines);
   }
 }
 

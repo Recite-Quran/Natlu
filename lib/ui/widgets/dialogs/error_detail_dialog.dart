@@ -80,25 +80,8 @@ class ErrorDetailDialog extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              if (surah != null && ayah != null && wordIndex != null) ...[
+              if (surah != null && ayah != null && wordIndex != null)
                 _buildWordAudioPlayerButton(c, isAr, isDark),
-                const SizedBox(width: 8),
-              ],
-              IconButton(
-                tooltip: isAr ? 'إغلاق' : 'Close',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
-                onPressed: () {
-                  AppHaptics.lightImpact();
-                  Navigator.of(context).pop();
-                },
-                icon: Icon(
-                  Icons.close_rounded,
-                  color: c.muted,
-                  size: 20,
-                ),
-              ),
             ],
           ),
         ),
