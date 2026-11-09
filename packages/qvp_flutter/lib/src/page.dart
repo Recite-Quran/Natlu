@@ -798,15 +798,15 @@ class QvpPage extends ChangeNotifier {
 
   Map<int, QvpBox>? _cachedWordBoxesView;
 
-  /// Cached band boxes in layout viewport px for each word on the page with zero padding.
+  /// Cached band boxes in layout viewport px for each word on the page with tight ink padding.
   /// Computed once per layout and cached until the next mutation or layout change.
-  Map<int, QvpBox> wordBoxesView() {
+  Map<int, QvpBox> wordBoxesView({String height = 'ink', double padY = 2.0}) {
     if (isDisposed) return const {};
     if (_cachedWordBoxesView != null) return _cachedWordBoxesView!;
     final map = <int, QvpBox>{};
     final n = words.length;
     for (var i = 0; i < n; i++) {
-      final boxes = wordBandsView([i], padX: 0.0, padY: 0.0);
+      final boxes = wordBandsView([i], height: height, padX: 0.0, padY: padY);
       if (boxes.isNotEmpty) {
         map[i] = boxes.first;
       }

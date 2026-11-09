@@ -49,7 +49,6 @@ class VerseListViewState extends State<VerseListView>
   double _currentAutoScrollVelocity = 0.0;
   bool _isUserDragging = false;
   DateTime? _lastScrollTime;
-  int? _lastAdvancedSurah;
 
   bool get isAutoScrolling => _isAutoScrolling;
 
@@ -115,24 +114,6 @@ class VerseListViewState extends State<VerseListView>
   }
 
   void _onControllerUpdate() {
-    final ctrl = widget.controller;
-    final activeSurah = ctrl.targetSurah;
-
-    // Automatic continuous recitation across Surahs in verse list
-    if (widget.isRecording &&
-        activeSurah < QuranMetadata.maxSurah &&
-        ctrl.isSurahFinished(activeSurah)) {
-      if (_lastAdvancedSurah != activeSurah) {
-        _lastAdvancedSurah = activeSurah;
-        ctrl.advanceToNextSurah(isRecording: widget.isRecording);
-        return;
-      }
-    } else {
-      if (_lastAdvancedSurah == activeSurah) {
-        _lastAdvancedSurah = null;
-      }
-    }
-
     if (widget.controller.targetSurah != _lastSurah) {
       void applyUpdate() {
         if (!mounted) return;

@@ -207,16 +207,16 @@ class MushafOverlays {
         // Find the outer bounds of this ayah on this line
         double lineX0 = double.infinity;
         double lineX1 = double.negativeInfinity;
-        double lineY0 = 0.0;
-        double lineY1 = 0.0;
+        double lineY0 = double.infinity;
+        double lineY1 = double.negativeInfinity;
 
         for (var i = 0; i < k; i++) {
           final b = wordBoxes[lineWords[i].index];
           if (b != null) {
             if (b.x0 < lineX0) lineX0 = b.x0;
             if (b.x1 > lineX1) lineX1 = b.x1;
-            lineY0 = b.y0;
-            lineY1 = b.y1;
+            if (b.y0 < lineY0) lineY0 = b.y0;
+            if (b.y1 > lineY1) lineY1 = b.y1;
           }
         }
 
@@ -437,17 +437,17 @@ class MushafOverlays {
 
     final double maxW = l.contentW > 0 ? l.contentW : size.width;
 
+    final wordBoxes = page.wordBoxesView();
     for (final entry in wordsByLine.entries) {
       final wordsOnLine = entry.value;
       final List<_BadgePosition> lineBadges = [];
 
       for (final wordIdx in wordsOnLine) {
-        final bands = page.wordBandsView([wordIdx]);
-        if (bands.isEmpty) continue;
-        final box = bands.first;
+        final box = wordBoxes[wordIdx];
+        if (box == null) continue;
         final double centerX = (box.x0 + box.x1) / 2.0;
         final double idealX = centerX - tooltipWidth / 2.0;
-        final double tooltipY = (box.y1 - 4.0).roundToDouble();
+        final double tooltipY = (box.y1 + 1.0).roundToDouble();
 
         lineBadges.add(_BadgePosition(x: idealX, y: tooltipY));
       }

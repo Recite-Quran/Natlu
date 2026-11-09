@@ -948,7 +948,7 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     required this.getWordLayout,
   }) : super(
             repaint:
-                (isActive || isAudioMode) ? controller.globalRevision : null);
+                (isActive || isAudioMode) ? controller : null);
 
   static final Paint _greenPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _yellowPaint = Paint()..style = PaintingStyle.fill;
@@ -1106,12 +1106,10 @@ class _ActiveWordHighlightPainter extends CustomPainter {
       final _VerseSpanItem leftSpan = (a.left <= b.left) ? a : b;
       final _VerseSpanItem rightSpan = (a.left <= b.left) ? b : a;
 
-      final bool overlapsOrTouches = leftSpan.right >= rightSpan.left - 2.5;
-
-      if (overlapsOrTouches) {
+      if (a.endWord == b.startWord || leftSpan.right >= rightSpan.left) {
         final double midX = (leftSpan.right + rightSpan.left) / 2.0;
-        leftSpan.right = midX - 0.8;
-        rightSpan.left = midX + 0.8;
+        leftSpan.right = midX;
+        rightSpan.left = midX;
         leftSpan.flatRight = true;
         rightSpan.flatLeft = true;
       }
