@@ -83,8 +83,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   Timer? _savePositionDebounce;
 
   // Auto-advance state during live recitation
-  int? _lastAutoAdvancedFromPage;
-  bool _isAutoAdvancingPage = false;
   int? _lastAdvancedSurah;
   bool _isAdvancingSurah = false;
   int? _lastProgressSurah;
@@ -253,7 +251,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _syncVisuals();
       }
     } else if (oldWidget.isRecording && !widget.isRecording) {
-      _lastAutoAdvancedFromPage = null;
       _lastAdvancedSurah = null;
       _syncVisuals();
     }
@@ -377,7 +374,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final isCoveredOrTransitioning = AppModalRouteObserver.instance.isModalOpen;
     if (!mounted ||
         isCoveredOrTransitioning ||
-        _isAutoAdvancingPage ||
         _isAdvancingSurah ||
         !provider.isReady) {
       return;
@@ -418,6 +414,11 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     if (!widget.isRecording) return;
 
+    // Unhide recited words live as each word is recited
+    if (AppState.instance.isBlurEffective(isRecording: widget.isRecording)) {
+      _syncVisuals();
+    }
+
     final ctrl = widget.controller;
     final int activeSurah =
         ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
@@ -442,8 +443,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _lastProgressWord = activeWord;
     _lastProgressRev = rev;
 
-    // 1. Hands-free recitation flow across Surahs
-    if (ctrl.isSurahFinished(activeSurah)) {
+    // 1. Hands-free recitation flow across Surahs (only when reciting the final ayah of the surah)
+    final bool isOnLastAyahOfSurah = activeAyah != null &&
+        QuranMetadata.isLastAyahInSurah(activeSurah, activeAyah);
+    final bool isLastAyahOfSurahCompleted = isOnLastAyahOfSurah &&
+        (ctrl.completedAyahsFor(activeSurah).contains(activeAyah) ||
+            ctrl.isSurahFinished(activeSurah));
+
+    if (isOnLastAyahOfSurah && isLastAyahOfSurahCompleted) {
       if (activeSurah < QuranMetadata.maxSurah &&
           _lastAdvancedSurah != activeSurah) {
         _advanceToNextSurah(activeSurah);
@@ -452,53 +459,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     } else {
       if (_lastAdvancedSurah == activeSurah) {
         _lastAdvancedSurah = null;
-      }
-    }
-
-    final lastWord = provider.getLastWordOnPage(_currentPage);
-    if (lastWord == null) return;
-
-    final isLastWordOnPageRead = ctrl
-        .isWordRead(lastWord.ayah, lastWord.wordIndex0, surah: lastWord.surah);
-    final isLastAyahOnPageCompleted =
-        ctrl.completedAyahsFor(lastWord.surah).contains(lastWord.ayah);
-
-    if (isLastWordOnPageRead || isLastAyahOnPageCompleted) {
-      if (_currentPage < QuranMetadata.maxPage &&
-          _lastAutoAdvancedFromPage != _currentPage) {
-        _isAutoAdvancingPage = true;
-        _lastAutoAdvancedFromPage = _currentPage;
-
-        AppHaptics.lightImpact();
-        final nextPage = _currentPage + 1;
-
-        final nextAyahInfo = provider.getFirstAyahOnPage(nextPage);
-        if (nextAyahInfo != null) {
-          final nextSurah = nextAyahInfo.$1;
-          final nextAyah = nextAyahInfo.$2;
-
-          _navigationTargetAyah = (nextSurah, nextAyah);
-          _goToPage(nextPage, animated: true);
-
-          if (ctrl.targetSurah != nextSurah) {
-            ctrl.setTargetSurah(
-              nextSurah,
-              preserveOtherSurahStates: true,
-              clearTargetSurah: false,
-            );
-          }
-          ctrl.setManualAyah(nextSurah, nextAyah);
-        } else {
-          _goToPage(nextPage, animated: true);
-        }
-
-        Future.delayed(const Duration(milliseconds: 600), () {
-          _isAutoAdvancingPage = false;
-        });
-      }
-    } else {
-      if (_lastAutoAdvancedFromPage == _currentPage) {
-        _lastAutoAdvancedFromPage = null;
       }
     }
   }
@@ -534,6 +494,23 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     // Check spinner only when ayah coord actually changes (not every word tick).
     _checkSpinnerAnimation();
+
+    if (activeAyah != null && activeSurah != 0) {
+      final provider = MushafProvider.instance;
+      if (provider.isReady &&
+          !provider.isAyahOnPage(
+            pageNumber: _currentPage,
+            surah: activeSurah,
+            ayah: activeAyah,
+          )) {
+        final targetPage = provider.getPageForAyah(activeSurah, activeAyah);
+        if (targetPage != null && targetPage != _currentPage) {
+          _navigationTargetAyah = (activeSurah, activeAyah);
+          _goToPage(targetPage, animated: true);
+        }
+      }
+    }
+
     _requestSyncVisuals();
   }
 
@@ -576,7 +553,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       )) {
         _navigationTargetAyah = null;
         if (!widget.controller.isAudioActive) {
-          widget.controller.setManualAyah(target.$1, target.$2);
+          if (widget.controller.activeAyah.value != target.$2 ||
+              widget.controller.targetSurah != target.$1) {
+            widget.controller.setManualAyah(target.$1, target.$2);
+          }
         }
         return;
       }
@@ -589,6 +569,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _stepPage(int dir) {
     final target = QuranMetadata.clampPage(_currentPage + dir);
     if (target == _currentPage) return;
+    _navigationTargetAyah = null;
     _turnDir = dir;
     _goToPage(target, animated: true);
   }
@@ -712,7 +693,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _hasMasks = true;
         _lastHiddenWords = List<int>.from(hiddenWords);
       }
-    } else if (_hasMasks) {
+    } else if (_hasMasks || _lastHiddenWords.isNotEmpty) {
       page.unmask();
       _hasMasks = false;
       _lastHiddenWords = const [];

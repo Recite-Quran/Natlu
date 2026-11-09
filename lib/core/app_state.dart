@@ -220,7 +220,8 @@ class AppState extends ChangeNotifier {
   final ValueNotifier<bool> blurModeNotifier = ValueNotifier<bool>(false);
 
   /// Whether blur (memorization concealing) should actively conceal unrecited words.
-  bool isBlurEffective({bool isRecording = false}) => isBlurMode;
+  /// Strictly active ONLY inside an active recording session.
+  bool isBlurEffective({bool isRecording = false}) => isBlurMode && isRecording;
 
   void toggleBlurMode() async {
     isBlurMode = !isBlurMode;
