@@ -35,7 +35,7 @@ class MaglisLinkService {
     final link = formatUrl(code);
     if (isArabic) {
       return 'سلام عليكم 🌸\n'
-          'أدعوك للانضمام إلى مجلس تلاوة القرآن العظيم وتدارسه عبر تطبيق "اتلُ".\n\n'
+          'أدعوك للانضمام إلى مجلس تلاوة القرآن العظيم وتدارسه عبر تطبيق "اتلو القران".\n\n'
           '🔗 رابط الدخول للمجلس:\n$link\n\n'
           'رمز المجلس: \u202A$code\u202C';
     } else {
@@ -64,7 +64,15 @@ class MaglisLinkService {
       }
     }
 
-    // 3. Query params: ?m=48291 or ?code=48291 or ?maglis=48291
+    // 3. Web Hash route format: #/m/48291 or #m/48291
+    if (uri.fragment.isNotEmpty) {
+      final fragmentMatch = RegExp(r'/m/(\d{5})').firstMatch(uri.fragment);
+      if (fragmentMatch != null) {
+        return fragmentMatch.group(1);
+      }
+    }
+
+    // 4. Query params fallback (if any external link passed params): ?m=48291 or ?code=48291
     final queryParam = uri.queryParameters['m'] ??
         uri.queryParameters['code'] ??
         uri.queryParameters['maglis'];

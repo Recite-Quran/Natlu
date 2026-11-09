@@ -177,6 +177,20 @@ class MushafOverlays {
           ),
           _goldPaint,
         );
+      } else {
+        final bool isCompleted = controller != null &&
+            controller.completedAyahsFor(m.surah).contains(m.ayah);
+        if (isCompleted) {
+          _ringPaint.color = goldColor.withValues(alpha: 0.65);
+          _ringPaint.strokeWidth = 1.2;
+        } else {
+          _ringPaint.color = neutralRingColor ??
+              (app.isDarkMode
+                  ? Colors.white.withValues(alpha: 0.25)
+                  : const Color(0xFF64748B).withValues(alpha: 0.35));
+          _ringPaint.strokeWidth = 1.0;
+        }
+        canvas.drawCircle(center, customR, _ringPaint);
       }
     }
   }
