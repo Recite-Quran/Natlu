@@ -281,15 +281,15 @@ class HighlightingController extends rq.HighlightingController {
 
   /// The active coordinate (surah, ayah) driving playback or recitation.
   (int surah, int ayah)? get activeAyahCoordinate {
+    if (activeAyah.value != null && targetSurah != 0) {
+      return (targetSurah, activeAyah.value!);
+    }
     if (isAudioActive && _audioSurah != null && _audioAyah != null) {
       return (_audioSurah!, _audioAyah!);
     }
     final activeMatch = currentMatchedVerse;
     if (activeMatch != null) {
       return (activeMatch.verse.surah, activeMatch.verse.ayah);
-    }
-    if (activeAyah.value != null && targetSurah != 0) {
-      return (targetSurah, activeAyah.value!);
     }
     return null;
   }
@@ -437,6 +437,7 @@ class HighlightingController extends rq.HighlightingController {
         globalRevision.value++;
         notifyListeners();
       }).catchError((_) {});
+      activeAyah.value = ayah;
     }
 
     globalRevision.value++;
@@ -698,14 +699,16 @@ class HighlightingController extends rq.HighlightingController {
       changed = true;
     }
 
-    // Align base controller targetSurah and activeAyah with audio playback verse
-    if (surah != null && surah != 0 && _manualTargetSurah != surah) {
-      _manualTargetSurah = surah;
-      changed = true;
-    }
-    if (ayah != null && ayah != 0 && activeAyah.value != ayah) {
-      activeAyah.value = ayah;
-      changed = true;
+    // Align base controller targetSurah and activeAyah with audio playback verse only when actively playing/buffering
+    if ((_isAudioPlaying || _isAudioBuffering) && surah != null && surah != 0) {
+      if (_manualTargetSurah != surah) {
+        _manualTargetSurah = surah;
+        changed = true;
+      }
+      if (ayah != null && ayah != 0 && activeAyah.value != ayah) {
+        activeAyah.value = ayah;
+        changed = true;
+      }
     }
 
     if (changed) {
@@ -1115,6 +1118,7 @@ abstract final class QuranInteractionService {
     bool playWordDirectly = false,
     List<rq.ReciterError>? overrideErrors,
   }) {
+    final bool isAudioActive = controller.isAudioActive;
     final bool isAlreadySelected =
         controller.targetSurah == surah && controller.activeAyah.value == ayah;
 
@@ -1141,7 +1145,7 @@ abstract final class QuranInteractionService {
         wordIndex: wordIndex,
       );
       onWordErrorTap?.call();
-    } else if (isAlreadySelected || playWordDirectly) {
+    } else if (!isAudioActive && (isAlreadySelected || playWordDirectly)) {
       if (MaglisController.instance.inSession) {
         return;
       }

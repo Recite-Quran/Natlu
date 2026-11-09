@@ -379,10 +379,44 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         isCoveredOrTransitioning ||
         _isAutoAdvancingPage ||
         _isAdvancingSurah ||
-        !provider.isReady ||
-        !widget.isRecording) {
+        !provider.isReady) {
       return;
     }
+
+    // Audio follow across page boundaries (when naturally listening to continuous recitation)
+    if (widget.controller.isAudioActive) {
+      final audioSurah = widget.controller.audioSurah;
+      final audioAyah = widget.controller.audioAyah;
+      if (audioSurah != null && audioAyah != null) {
+        if (_lastProgressSurah == audioSurah && _lastProgressAyah == audioAyah) {
+          return;
+        }
+        final bool wasFollowing = _lastProgressSurah != null &&
+            provider.isAyahOnPage(
+              pageNumber: _currentPage,
+              surah: _lastProgressSurah!,
+              ayah: _lastProgressAyah!,
+            );
+        _lastProgressSurah = audioSurah;
+        _lastProgressAyah = audioAyah;
+
+        if (wasFollowing &&
+            !provider.isAyahOnPage(
+              pageNumber: _currentPage,
+              surah: audioSurah,
+              ayah: audioAyah,
+            )) {
+          final nextPage = provider.getPageForAyah(audioSurah, audioAyah);
+          if (nextPage != null && nextPage != _currentPage) {
+            _navigationTargetAyah = (audioSurah, audioAyah);
+            _goToPage(nextPage, animated: true);
+          }
+        }
+      }
+      return;
+    }
+
+    if (!widget.isRecording) return;
 
     final ctrl = widget.controller;
     final int activeSurah =
@@ -500,24 +534,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     // Check spinner only when ayah coord actually changes (not every word tick).
     _checkSpinnerAnimation();
-
-    if (activeAyah == null || activeSurah == 0) {
-      _requestSyncVisuals();
-      return;
-    }
-
-    final provider = MushafProvider.instance;
-    if (!provider.isAyahOnPage(
-      pageNumber: _currentPage,
-      surah: activeSurah,
-      ayah: activeAyah,
-    )) {
-      final page = provider.getPageForAyah(activeSurah, activeAyah);
-      if (page != null && page != _currentPage) {
-        _navigationTargetAyah = (activeSurah, activeAyah);
-        _goToPage(page, animated: true);
-      }
-    }
     _requestSyncVisuals();
   }
 
