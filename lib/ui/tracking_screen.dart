@@ -11,7 +11,6 @@ import '../core/platform_utils.dart';
 import 'widgets/dialogs/dialog_service.dart';
 import '../core/app_state.dart';
 import 'widgets/mic_bar.dart';
-import 'widgets/surahs/surah_picker.dart';
 import '../mushaf/mushaf_view.dart';
 import '../verse_list/verse_list_view.dart';
 import '../maglis/maglis_controller.dart';
@@ -364,21 +363,15 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _showSurahPicker() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.54),
-      elevation: 0,
-      enableDrag: false,
-      builder: (_) => SurahPickerSheet(
-        current: _effectiveSurah,
-        controller: widget.controller,
-        isRecording: widget.isRecording,
-        isVoiceSearching: widget.isVoiceSearching,
-        onToggleRecord: widget.onToggleRecord,
-        onVoiceSearchToggle: widget.onVoiceSearchToggle,
-        onPick: (n, {ayah}) async {
+    DialogService.showSurahPicker(
+      context,
+      current: _effectiveSurah,
+      controller: widget.controller,
+      isRecording: widget.isRecording,
+      isVoiceSearching: widget.isVoiceSearching,
+      onToggleRecord: widget.onToggleRecord,
+      onVoiceSearchToggle: widget.onVoiceSearchToggle,
+      onPick: (n, {ayah}) async {
           QuranAudioService.instance.stop();
           if (widget.isRecording) {
             widget.onToggleRecord();
@@ -408,7 +401,6 @@ class _TrackingScreenState extends State<TrackingScreen>
             _lastAyah = null;
           });
         },
-      ),
     );
   }
 

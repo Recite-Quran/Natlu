@@ -1,25 +1,28 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/highlighting_controller.dart';
+import 'app_alert_dialogs.dart';
+import 'app_picker_dialogs.dart';
+import 'app_guide_dialogs.dart';
 import 'error_detail_dialog.dart';
 import 'voice_search_dialog.dart';
-import 'theme_selection_dialog.dart';
-import 'model_download_dialog.dart';
-import 'permission_dialog.dart';
-import 'whats_new_dialog.dart';
-import 'speed_selection_dialog.dart';
 import 'maglis_entry_dialog.dart';
-import 'maglis_explanation_dialog.dart';
-import '../settings/settings_dialog.dart';
+import 'settings_sheet.dart';
+import 'surah_picker_sheet.dart';
+import 'dialog_base.dart';
 
-export 'permission_dialog.dart' show PermissionReason;
+export 'app_alert_dialogs.dart' show PermissionReason;
 export 'package:recite_quran/recite_quran.dart' show VoiceSearchResult;
+export 'dialog_base.dart';
 
 /// Centralized Dialog Service facade.
 ///
 /// Prevents dialog collision, standardizes barrier dim styling,
 /// and unifies modal presentations across the application.
 abstract final class DialogService {
+  /// Standard modal barrier dimming color across all application dialogs & sheets.
+  static final Color barrierColor = DialogTokens.barrierColor;
+
   /// Opens the Tajweed Phonetic Error breakdown bottom sheet.
   static void showTajweedError(
     BuildContext context, {
@@ -68,6 +71,7 @@ abstract final class DialogService {
   }) {
     return showDialog<void>(
       context: context,
+      barrierColor: barrierColor,
       barrierDismissible: barrierDismissible,
       builder: (ctx) => ThemeSelectionDialog(onThemeSelected: onThemeSelected),
     );
@@ -77,6 +81,7 @@ abstract final class DialogService {
   static Future<bool?> showModelDownload(BuildContext context) {
     return showDialog<bool>(
       context: context,
+      barrierColor: barrierColor,
       barrierDismissible: true,
       builder: (ctx) => const ModelDownloadDialog(),
     );
@@ -89,22 +94,25 @@ abstract final class DialogService {
   }) {
     return showDialog<void>(
       context: context,
+      barrierColor: barrierColor,
+      barrierDismissible: true,
       builder: (ctx) => PermissionDialog(reason: reason),
     );
   }
 
-  /// Displays the What's New changelog bottom sheet.
+  /// Displays the What's New changelog dialog.
   static void showWhatsNew(BuildContext context) {
     WhatsNewDialog.show(context);
   }
 
-  /// Opens the audio playback speed selection bottom sheet.
+  /// Opens the audio playback speed selection dialog.
   static Future<void> showSpeedSelection(
     BuildContext context, {
     VoidCallback? onSpeedSelected,
   }) {
     return showDialog<void>(
       context: context,
+      barrierColor: barrierColor,
       barrierDismissible: true,
       builder: (ctx) => SpeedSelectionDialog(
         onSpeedSelected: () {
@@ -123,9 +131,9 @@ abstract final class DialogService {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.54),
+      barrierColor: barrierColor,
       elevation: 0,
-      builder: (_) => const SettingsDialog(),
+      builder: (_) => const SettingsSheet(),
     );
   }
 
@@ -138,5 +146,34 @@ abstract final class DialogService {
   static Future<void> showMaglisExplanation(BuildContext context) {
     return MaglisExplanationDialog.show(context);
   }
-}
 
+  /// Opens the Surah Navigator bottom sheet.
+  static Future<void> showSurahPicker(
+    BuildContext context, {
+    required int current,
+    required HighlightingController controller,
+    required bool isRecording,
+    required bool isVoiceSearching,
+    required VoidCallback onToggleRecord,
+    required VoidCallback onVoiceSearchToggle,
+    required void Function(int surah, {int? ayah}) onPick,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: barrierColor,
+      elevation: 0,
+      enableDrag: false,
+      builder: (_) => SurahPickerSheet(
+        current: current,
+        controller: controller,
+        isRecording: isRecording,
+        isVoiceSearching: isVoiceSearching,
+        onToggleRecord: onToggleRecord,
+        onVoiceSearchToggle: onVoiceSearchToggle,
+        onPick: onPick,
+      ),
+    );
+  }
+}

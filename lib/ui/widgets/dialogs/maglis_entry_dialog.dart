@@ -7,7 +7,8 @@ import '../../../core/platform_utils.dart';
 import '../../../core/app_state.dart';
 import '../../../maglis/maglis_controller.dart';
 import '../../../maglis/maglis_core.dart';
-import 'maglis_explanation_dialog.dart';
+import 'app_guide_dialogs.dart';
+import 'dialog_base.dart';
 import '../../../mushaf/mushaf_provider.dart';
 
 /// Ultra-modern, tactile modal for creating or joining a Maglis session.
@@ -268,10 +269,10 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     final c = app.colors;
     final isWide = MediaQuery.sizeOf(context).width > 600;
 
-    final Color surfaceColor = isDark ? const Color(0xFF131726) : Colors.white;
+    final Color surfaceColor = c.surface;
     final Color borderColor = isDark
         ? Colors.white.withValues(alpha: 0.12)
-        : Colors.black.withValues(alpha: 0.08);
+        : c.border.withValues(alpha: 0.35);
 
     return Directionality(
       textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
@@ -287,8 +288,8 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                 decoration: BoxDecoration(
                   color: surfaceColor,
                   borderRadius: isWide
-                      ? BorderRadius.circular(24)
-                      : const BorderRadius.vertical(top: Radius.circular(24)),
+                      ? BorderRadius.circular(26)
+                      : const BorderRadius.vertical(top: Radius.circular(28)),
                   border: Border.all(color: borderColor),
                 ),
                 padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
@@ -297,114 +298,89 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (!isWide)
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 14),
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.white24 : Colors.black12,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
+                      const AppDragHandle(padding: EdgeInsets.only(bottom: 12)),
 
-                    // 1. Clean Header (No logo; title & subtitle start on the right in Arabic, with action buttons)
+                    // Segmented Tab Picker with Hint Button Beside It
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                isAr
-                                    ? 'مجلس القرآن المجيد'
-                                    : 'The Glorious Quran Maglis',
-                                style: TextStyle(
-                                  color: c.text,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
+                          child: Container(
+                            height: 44,
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.05)
+                                  : Colors.black.withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _tabButton(
+                                    title: isAr ? 'عقد المجلس' : 'Open Maglis',
+                                    icon: Icons.meeting_room_rounded,
+                                    isSelected: _selectedTab == 1,
+                                    isDark: isDark,
+                                    c: c,
+                                    onTap: () {
+                                      if (_selectedTab != 1) {
+                                        AppHaptics.selectionClick();
+                                        setState(() => _selectedTab = 1);
+                                      }
+                                    },
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                isAr
-                                    ? 'اجتمع في مجلس لتلاوة القرآن الحكيم'
-                                    : 'Gather in a Maglis to recite the Wise Quran',
-                                style: TextStyle(
-                                  color: c.muted,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w500,
+                                Expanded(
+                                  child: _tabButton(
+                                    title: isAr ? 'دخول المجلس' : 'Join Maglis',
+                                    icon: Icons.login_rounded,
+                                    isSelected: _selectedTab == 0,
+                                    isDark: isDark,
+                                    c: c,
+                                    onTap: () {
+                                      if (_selectedTab != 0) {
+                                        AppHaptics.selectionClick();
+                                        setState(() => _selectedTab = 0);
+                                      }
+                                    },
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                        IconButton(
-                          tooltip: isAr ? 'إرشادات المجلس' : 'How it works',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () {
-                            AppHaptics.lightImpact();
-                            MaglisExplanationDialog.show(context);
-                          },
-                          icon: Icon(Icons.help_outline_rounded,
-                              color: c.muted, size: 20),
-                        ),
-                        IconButton(
-                          tooltip: isAr ? 'إغلاق' : 'Close',
-                          visualDensity: VisualDensity.compact,
-                          onPressed: () => Navigator.of(context).pop(),
-                          icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.05)
+                                : Colors.black.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(13),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : Colors.black.withValues(alpha: 0.06),
+                              width: 0.8,
+                            ),
+                          ),
+                          child: IconButton(
+                            tooltip: isAr ? 'إرشادات المجلس' : 'How it works',
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              AppHaptics.lightImpact();
+                              MaglisExplanationDialog.show(context);
+                            },
+                            icon: Icon(
+                              Icons.help_outline_rounded,
+                              color: c.muted,
+                              size: 20,
+                            ),
+                          ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // 2. Modern 44dp Segmented Tab Picker (NO plus icon, NO 'create' label!)
-                    Container(
-                      height: 44,
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.05)
-                            : Colors.black.withValues(alpha: 0.04),
-                        borderRadius: BorderRadius.circular(13),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _tabButton(
-                              title: isAr ? 'عقد المجلس' : 'Open Maglis',
-                              icon: Icons.meeting_room_rounded,
-                              isSelected: _selectedTab == 1,
-                              isDark: isDark,
-                              c: c,
-                              onTap: () {
-                                if (_selectedTab != 1) {
-                                  AppHaptics.selectionClick();
-                                  setState(() => _selectedTab = 1);
-                                }
-                              },
-                            ),
-                          ),
-                          Expanded(
-                            child: _tabButton(
-                              title: isAr ? 'دخول المجلس' : 'Join Maglis',
-                              icon: Icons.login_rounded,
-                              isSelected: _selectedTab == 0,
-                              isDark: isDark,
-                              c: c,
-                              onTap: () {
-                                if (_selectedTab != 0) {
-                                  AppHaptics.selectionClick();
-                                  setState(() => _selectedTab = 0);
-                                }
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
                     const SizedBox(height: 18),
 

@@ -10,6 +10,7 @@ import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
 
 import '../core/app_state.dart';
+import '../core/highlighting_controller.dart' show QuranMetadata;
 import 'web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart'
     as web_storage;
@@ -79,7 +80,7 @@ class MushafProvider {
           : 1.0;
 
       for (final p in neighbors) {
-        if (p < 1 || p > 604) continue;
+        if (!QuranMetadata.isValidPage(p)) continue;
         final cached = getCachedPage(p);
         if (cached != null && !cached.isDisposed) {
           if (cached.currentLayout == null ||
@@ -258,7 +259,7 @@ class MushafProvider {
 
       if (kIsWeb) {
         final initialPage =
-            AppState.instance.currentMushafPage.value.clamp(1, 604);
+            QuranMetadata.clampPage(AppState.instance.currentMushafPage.value);
         unawaited(getPage(initialPage));
         startBackgroundMushafCaching();
       }
@@ -269,8 +270,6 @@ class MushafProvider {
       _loadingCompleter?.complete();
     }
   }
-
-  String _pad(int n) => n.toString().padLeft(3, '0');
 
   Future<QvpPage?> getPage(int pageNumber) async {
     if (!_isReady) {
@@ -299,7 +298,7 @@ class MushafProvider {
     try {
       Uint8List? pageBytes;
       if (kIsWeb) {
-        final key = '${_pad(pageNumber)}.qvp';
+        final key = QuranMetadata.formatPageKey(pageNumber);
         pageBytes = await web_storage.getPageFromIndexedDb(key);
         if (pageBytes == null || pageBytes.isEmpty) {
           // Fallback check unpadded key
@@ -313,14 +312,14 @@ class MushafProvider {
         }
       } else {
         var localPage = _extractedPagesPath != null
-            ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
+            ? File('$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
             : null;
         if (localPage == null ||
             !localPage.existsSync() ||
             localPage.lengthSync() == 0) {
           await _ensureExtracted(force: true);
           localPage = _extractedPagesPath != null
-              ? File('$_extractedPagesPath/${_pad(pageNumber)}.qvp')
+              ? File('$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
               : null;
         }
         if (localPage != null &&

@@ -244,7 +244,7 @@ class AppState extends ChangeNotifier {
   void enterMaglisSession([int? mappedPage]) {
     if (!isMushafMode) {
       wasInVerseListBeforeMaglis = true;
-      if (mappedPage != null && mappedPage >= 1 && mappedPage <= 604) {
+      if (mappedPage != null && QuranMetadata.isValidPage(mappedPage)) {
         saveMushafPage(mappedPage);
       }
       setMushafMode(true);
@@ -365,7 +365,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> saveMushafPage(int page) async {
-    if (page < 1 || page > 604) return;
+    if (!QuranMetadata.isValidPage(page)) return;
     currentMushafPage.value = page;
     try {
       final prefs = await _getPrefs();
@@ -786,10 +786,10 @@ class AppState extends ChangeNotifier {
         _seenBannerIds.addAll(seenBanners);
       }
 
-      lastSurah = (prefs.getInt('last_surah') ?? 1).clamp(1, 114);
+      lastSurah = QuranMetadata.clampSurah(prefs.getInt('last_surah') ?? 1);
       lastAyah = (prefs.getInt('last_ayah') ?? 1).clamp(1, 286);
       final savedPage = prefs.getInt('last_mushaf_page');
-      if (savedPage != null && savedPage >= 1 && savedPage <= 604) {
+      if (savedPage != null && QuranMetadata.isValidPage(savedPage)) {
         currentMushafPage.value = savedPage;
       }
 

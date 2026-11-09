@@ -48,33 +48,24 @@ class VerseRow extends StatefulWidget {
     required int surah,
     required int ayah,
     required HighlightingController controller,
-  }) {
-    return (controller.isAudioPlaying || controller.isAudioBuffering) &&
-        controller.audioSurah == surah &&
-        controller.audioAyah == ayah;
-  }
+  }) =>
+      controller.isAyahAudioActive(surah, ayah);
 
   /// Checks if the audio player is currently actively playing this Ayah.
   static bool isAyahAudioPlaying({
     required int surah,
     required int ayah,
     required HighlightingController controller,
-  }) {
-    return controller.audioSurah == surah &&
-        controller.audioAyah == ayah &&
-        controller.isAudioPlaying;
-  }
+  }) =>
+      controller.isAyahAudioPlaying(surah, ayah);
 
   /// Checks if the audio player is currently buffering this Ayah.
   static bool isAyahAudioBuffering({
     required int surah,
     required int ayah,
     required HighlightingController controller,
-  }) {
-    return controller.audioSurah == surah &&
-        controller.audioAyah == ayah &&
-        controller.isAudioBuffering;
-  }
+  }) =>
+      controller.isAyahAudioBuffering(surah, ayah);
 
   /// Handles selecting/tapping an Ayah: haptic feedback, manual selection, and persisting last position.
   static Future<void> selectAyah({
@@ -551,8 +542,6 @@ class _VerseRowState extends State<VerseRow> {
     return hash;
   }
 
-  static String _toArabicDigits(int number) => VerseRow.toArabicDigits(number);
-
   @override
   Widget build(BuildContext context) {
     final int fp = _computeFingerprint();
@@ -734,10 +723,10 @@ class _VerseRowState extends State<VerseRow> {
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(
-                              _toArabicDigits(widget.verse.ayah),
+                              QuranTypography.toArabicDigits(widget.verse.ayah),
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                fontFamily: 'HafsSmart',
+                                fontFamily: QuranTypography.quranFontFamily,
                                 fontSize: 21.5,
                                 fontWeight: FontWeight.bold,
                                 height: 1.0,
@@ -1193,7 +1182,7 @@ class _AyahWordLayout {
     required double width,
   }) {
     final defaultStyle = TextStyle(
-      fontFamily: 'HafsSmart',
+      fontFamily: QuranTypography.quranFontFamily,
       fontSize: fontSize,
       height: 2.6,
       wordSpacing: 5.0,

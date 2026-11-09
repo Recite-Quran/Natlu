@@ -6,6 +6,7 @@ import '../../../mushaf/mushaf_provider.dart';
 import '../../../core/platform_utils.dart';
 import '../../../audio/quran_audio_service.dart';
 import '../../../core/app_state.dart';
+import 'dialog_base.dart';
 
 /// 2026 Tajweed & Pronunciation Breakdown Modal Bottom Sheet.
 ///
@@ -63,105 +64,56 @@ class ErrorDetailDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final app = AppState.instance;
-    return RepaintBoundary(
-      child: ListenableBuilder(
-        listenable: Listenable.merge([app.themeNotifier, app.languageNotifier]),
-        builder: (context, _) {
-          final c = app.colors;
-          final isAr = app.isArabic;
-          final isDark = app.isDarkMode;
-
-          return Directionality(
-            textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
-            child: Container(
-              constraints: BoxConstraints(
-                maxHeight: MediaQuery.sizeOf(context).height * 0.82,
-              ),
-              decoration: BoxDecoration(
-                color: c.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                border: Border.all(
-                  color: isDark
-                      ? c.border.withValues(alpha: 0.35)
-                      : c.border.withValues(alpha: 0.70),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // ── Handle Bar ──
-                      Padding(
-                        padding: const EdgeInsets.only(top: 14, bottom: 12),
-                        child: Container(
-                          width: 44,
-                          height: 4,
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? c.border.withValues(alpha: 0.8)
-                                  : c.border,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
-
-                        // ── Top Row: Word strictly on Right & Audio Player on Left (Overflow-Proof) ──
-                        Directionality(
-                          textDirection: TextDirection.rtl,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 18),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Expanded(
-                                  child: Align(
-                                    alignment: AlignmentDirectional.centerStart,
-                                    child: _buildWordDisplay(c),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                if (surah != null && ayah != null && wordIndex != null)
-                                  _buildWordAudioPlayerButton(c, isAr, isDark),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // ── Scrollable Body: 2 cards side-by-side, 3rd down ──
-                        Flexible(
-                          child: SingleChildScrollView(
-                            physics: const BouncingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 30),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: _buildErrorCardsLayout(c, isAr, isDark),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+    return AppBottomSheet(
+      maxHeightFactor: 0.82,
+      headerBuilder: (context, c, isAr, isDark) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: _buildWordDisplay(c),
                 ),
               ),
-            );
-          },
+              const SizedBox(width: 8),
+              if (surah != null && ayah != null && wordIndex != null) ...[
+                _buildWordAudioPlayerButton(c, isAr, isDark),
+                const SizedBox(width: 8),
+              ],
+              IconButton(
+                tooltip: isAr ? 'إغلاق' : 'Close',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                onPressed: () {
+                  AppHaptics.lightImpact();
+                  Navigator.of(context).pop();
+                },
+                icon: Icon(
+                  Icons.close_rounded,
+                  color: c.muted,
+                  size: 20,
+                ),
+              ),
+            ],
+          ),
         ),
-      );
-    }
+      ),
+      builder: (context, c, isAr, isDark) => SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: _buildErrorCardsLayout(c, isAr, isDark),
+        ),
+      ),
+    );
+  }
 
 
   /// Renders the target word using the authentic QVP Medina Mushaf vector glyphs

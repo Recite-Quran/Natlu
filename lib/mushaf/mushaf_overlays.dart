@@ -125,11 +125,6 @@ class MushafOverlays {
     final marks = page.ayahMarksView();
     if (marks.isEmpty) return;
 
-    final int? audioSurah = app.activeAudioSurah.value;
-    final int? audioAyah = app.activeAudioAyah.value;
-    final bool isBuffering = app.isAudioBuffering.value;
-    final bool isPlaying = app.isAudioPlaying.value;
-
     final Color blendedMaskColor =
         Color.alphaBlend(ayahHighlightColor, surfaceColor);
 
@@ -140,10 +135,16 @@ class MushafOverlays {
       final center = Offset(m.cx, m.cy);
       final double customR = m.r * 0.80;
 
-      final bool isThisBuffering =
-          isBuffering && audioSurah == m.surah && audioAyah == m.ayah;
-      final bool isThisPlaying =
-          isPlaying && audioSurah == m.surah && audioAyah == m.ayah;
+      final bool isThisBuffering = controller != null
+          ? controller.isAyahAudioBuffering(m.surah, m.ayah)
+          : (app.isAudioBuffering.value &&
+              app.activeAudioSurah.value == m.surah &&
+              app.activeAudioAyah.value == m.ayah);
+      final bool isThisPlaying = controller != null
+          ? controller.isAyahAudioPlaying(m.surah, m.ayah)
+          : (app.isAudioPlaying.value &&
+              app.activeAudioSurah.value == m.surah &&
+              app.activeAudioAyah.value == m.ayah);
 
       if (isThisBuffering) {
         _bgPaint.color = blendedMaskColor;

@@ -16,13 +16,16 @@ class VerseSpanBuilder {
     int? surah,
     bool isBlurEffective = false,
   }) {
-    if (wordIndex < 0) return colors.text;
-    if (isBlurEffective && !isAutoScrolling) {
-      if (!controller.isWordRead(ayah, wordIndex, surah: surah)) {
-        return Colors.transparent;
-      }
-    }
-    return colors.text;
+    if (isAutoScrolling) return colors.text;
+    return QuranInteractionService.resolveWordDisplayColor(
+      ayah: ayah,
+      wordIndex: wordIndex,
+      controller: controller,
+      app: AppState.instance,
+      colors: colors,
+      surah: surah,
+      isBlurEffective: isBlurEffective,
+    );
   }
 
   /// Builds the complete list of [InlineSpan]s representing an Ayah's text.
@@ -66,7 +69,7 @@ class VerseSpanBuilder {
           TextSpan(
             text: words.join(' '),
             style: TextStyle(
-              fontFamily: 'HafsSmart',
+              fontFamily: QuranTypography.quranFontFamily,
               fontSize: app.fontSize,
               height: 2.6,
               wordSpacing: 5.0,
@@ -78,7 +81,7 @@ class VerseSpanBuilder {
     }
 
     final TextStyle defaultStyle = TextStyle(
-      fontFamily: 'HafsSmart',
+      fontFamily: QuranTypography.quranFontFamily,
       fontSize: app.fontSize,
       height: 2.6,
       wordSpacing: 5.0,

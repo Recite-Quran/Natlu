@@ -83,8 +83,8 @@ class MaglisPacket {
           .values[tIdx.clamp(0, MaglisPacketType.values.length - 1)],
       seq: (m['q'] as int?) ?? 0,
       senderId: (m['u'] as String?) ?? '',
-      page: ((m['p'] as int?) ?? 1).clamp(1, 604),
-      surah: ((m['s'] as int?) ?? 1).clamp(1, 114),
+      page: QuranMetadata.clampPage((m['p'] as int?) ?? 1),
+      surah: QuranMetadata.clampSurah((m['s'] as int?) ?? 1),
       ayah: ((m['a'] as int?) ?? 1).clamp(1, 286),
       activeWord: m['w'] as int?,
       greenWords: (m['g'] as List<dynamic>?)?.map((e) => e as int).toList() ??
@@ -443,8 +443,8 @@ class MaglisBinaryPacker {
         type: type,
         seq: seq,
         senderId: senderId,
-        page: page.clamp(1, 604),
-        surah: surah.clamp(1, 114),
+        page: QuranMetadata.clampPage(page),
+        surah: QuranMetadata.clampSurah(surah),
         ayah: ayah.clamp(1, 286),
         activeWord: activeWord,
         greenWords: greenWords,
@@ -915,29 +915,14 @@ class MaglisPlatform {
 }
 
 /// Converts any Eastern Arabic digits (٠-٩) in [input] to standard ASCII digits (0-9).
-String normalizeArabicDigits(String input) {
-  const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-  String result = input;
-  for (int i = 0; i < 10; i++) {
-    result = result.replaceAll(eastern[i], i.toString());
-  }
-  return result;
-}
+String normalizeArabicDigits(String input) => QuranTypography.toWesternDigits(input);
 
 /// Formats a 5-digit room code according to locale:
 /// - If [isArabic] is true, converts to Eastern Arabic digits ('٠'-'٩').
 /// - If false, keeps ASCII digits ('0'-'9').
 /// Always maintains strict Left-to-Right reading order.
-String formatMaglisCode(String code, {required bool isArabic}) {
-  if (code.isEmpty) return code;
-  final normalized = normalizeArabicDigits(code);
-  if (!isArabic) return normalized;
-  const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-  return normalized.split('').map((char) {
-    final n = int.tryParse(char);
-    return n != null ? digits[n] : char;
-  }).join('');
-}
+String formatMaglisCode(String code, {required bool isArabic}) =>
+    QuranTypography.formatDigits(code, isArabic: isArabic);
 
 /// Connection health diagnostics model for a connected WebRTC peer (noscall pattern).
 class MaglisPeerDiagnostics {

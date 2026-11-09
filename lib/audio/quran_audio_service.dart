@@ -274,11 +274,16 @@ class VerseAudioPlayer {
     }
   }
 
-  /// Returns the per-Ayah 64kbps audio URL ( Mahmoud Khalil Al-Husary).
-  static String getAyahAudioUrl(int surah, int ayah) {
+  /// Formats the standard canonical 6-digit audio filename (e.g. 001001.mp3).
+  static String formatAyahAudioFileName(int surah, int ayah) {
     final s = surah.toString().padLeft(3, '0');
     final a = ayah.toString().padLeft(3, '0');
-    return '$everyAyahHusaryBaseUrl/$s$a.mp3';
+    return '$s$a.mp3';
+  }
+
+  /// Returns the per-Ayah 64kbps audio URL ( Mahmoud Khalil Al-Husary).
+  static String getAyahAudioUrl(int surah, int ayah) {
+    return '$everyAyahHusaryBaseUrl/${formatAyahAudioFileName(surah, ayah)}';
   }
 
   /// Backward-compatible URL helper.
@@ -296,9 +301,7 @@ class VerseAudioPlayer {
       }
       _cachedAudioDirPath = audioDir.path;
     }
-    final s = surah.toString().padLeft(3, '0');
-    final a = ayah.toString().padLeft(3, '0');
-    return File('$_cachedAudioDirPath/$s$a.mp3');
+    return File('$_cachedAudioDirPath/${formatAyahAudioFileName(surah, ayah)}');
   }
 
   /// Creates an AudioSource for an Ayah, utilizing local cached file if present,
@@ -369,7 +372,9 @@ class VerseAudioPlayer {
         await tmpFile.writeAsBytes(res.bodyBytes, flush: true);
         if (tmpFile.existsSync() && tmpFile.lengthSync() > 1024) {
           if (file.existsSync()) {
-            try { file.deleteSync(); } catch (_) {}
+            try {
+              file.deleteSync();
+            } catch (_) {}
           }
           await tmpFile.rename(file.path);
         }
@@ -397,7 +402,7 @@ class VerseAudioPlayer {
   static Future<void> ensureMediaAudioSession() async {
     if (!kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
-         defaultTargetPlatform == TargetPlatform.iOS)) {
+            defaultTargetPlatform == TargetPlatform.iOS)) {
       try {
         final session = await AudioSession.instance;
         await session.configure(const AudioSessionConfiguration.music());
@@ -764,10 +769,12 @@ class VerseAudioPlayer {
       final duration = _player?.duration;
       if (duration != null && duration.inMilliseconds > 0) {
         final totalMs = duration.inMilliseconds;
-        final ayahTiming = QuranTimingService.instance.getCachedAyahTiming(playingSurah, playingAyah);
+        final ayahTiming = QuranTimingService.instance
+            .getCachedAyahTiming(playingSurah, playingAyah);
         final int wordCount = ayahTiming?.words.length ?? 8;
         if (wordCount > 0) {
-          activeIdx = ((posMs / totalMs) * wordCount).floor().clamp(0, wordCount - 1);
+          activeIdx =
+              ((posMs / totalMs) * wordCount).floor().clamp(0, wordCount - 1);
         }
       }
     }
@@ -779,7 +786,9 @@ class VerseAudioPlayer {
 
   void _handleTrackComplete() {
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    if (_isHandlingComplete || (now - _lastCompleteTime) < 0.2 || _isAdvancingSurah) return;
+    if (_isHandlingComplete ||
+        (now - _lastCompleteTime) < 0.2 ||
+        _isAdvancingSurah) return;
     _isHandlingComplete = true;
     _lastCompleteTime = now;
 
@@ -800,14 +809,15 @@ class VerseAudioPlayer {
 
       // Verify that the Surah has TRULY reached its final Ayah before advancing.
       // This strictly prevents premature jumping between Surahs.
-      if (ayah >= maxAyahs && surah < 114) {
+      final next = QuranMetadata.getNextAyah(surah, ayah);
+      if (ayah >= maxAyahs && next != null) {
         // Entire Surah finished in playlist; roll seamlessly to next Surah Ayah 1
         _isAdvancingSurah = true;
         unawaited(() async {
           try {
             await play(
-              surah: surah + 1,
-              ayah: 1,
+              surah: next.$1,
+              ayah: next.$2,
               continuous: true,
             );
           } finally {
@@ -894,7 +904,8 @@ class VerseAudioPlayer {
     _notifyProgress();
 
     if (triggerError) {
-      AppState.instance.triggerAudioError(QuranTimingService.instance.lastFailureReason);
+      AppState.instance
+          .triggerAudioError(QuranTimingService.instance.lastFailureReason);
     }
   }
 

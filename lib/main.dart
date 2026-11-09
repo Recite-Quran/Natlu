@@ -327,6 +327,12 @@ class _OrchestratorState extends State<_Orchestrator>
 
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
+        void applyFloorClaim() {
+          _ctrl!.setManualAyah(surah, ayah);
+          _ctrl!.clearHighlightsForwardFrom(surah, ayah);
+          _ctrl!.globalRevision.value++;
+        }
+
         if (_ctrl!.targetSurah != surah) {
           _ctrl!
               .setTargetSurah(
@@ -336,21 +342,11 @@ class _OrchestratorState extends State<_Orchestrator>
           )
               .then((_) {
             if (mounted && _ctrl != null) {
-              _ctrl!.setManualAyah(surah, ayah);
-              _ctrl!.clearHighlightsFromAyah(ayah);
-              for (int s = surah + 1; s <= 114; s++) {
-                _ctrl!.clearHighlightsForSurah(s);
-              }
-              _ctrl!.globalRevision.value++;
+              applyFloorClaim();
             }
           });
         } else {
-          _ctrl!.setManualAyah(surah, ayah);
-          _ctrl!.clearHighlightsFromAyah(ayah);
-          for (int s = surah + 1; s <= 114; s++) {
-            _ctrl!.clearHighlightsForSurah(s);
-          }
-          _ctrl!.globalRevision.value++;
+          applyFloorClaim();
         }
         _stopRecordingForRemoteClaim();
       }
@@ -765,7 +761,7 @@ class _OrchestratorState extends State<_Orchestrator>
               : AppState.instance.lastSurah;
 
           int selectedSurah =
-              (activeSurah >= 1 && activeSurah <= 114) ? activeSurah : 1;
+              QuranMetadata.isValidSurah(activeSurah) ? activeSurah : 1;
           int selectedAyah = (activeAyah != null && activeAyah > 0)
               ? activeAyah
               : AppState.instance.lastAyah;
@@ -803,7 +799,7 @@ class _OrchestratorState extends State<_Orchestrator>
             // In Verse List mode:
             // Verses are chosen manually in the active surah. Do not reset to first ayah of Mushaf page!
             selectedSurah =
-                (_ctrl!.targetSurah >= 1 && _ctrl!.targetSurah <= 114)
+                QuranMetadata.isValidSurah(_ctrl!.targetSurah)
                     ? _ctrl!.targetSurah
                     : AppState.instance.lastSurah;
             selectedAyah = (activeAyah != null && activeAyah > 0)
@@ -831,10 +827,7 @@ class _OrchestratorState extends State<_Orchestrator>
           // Only clear highlighting when the reciter presses the record button:
           // The current verse and any verse coming after it clears its coloring/highlighting
           // so it can be recolored by the new record. Verses before are strictly preserved.
-          _ctrl!.clearHighlightsFromAyah(selectedAyah);
-          for (int s = selectedSurah + 1; s <= 114; s++) {
-            _ctrl!.clearHighlightsForSurah(s);
-          }
+          _ctrl!.clearHighlightsForwardFrom(selectedSurah, selectedAyah);
           MaglisController.instance
               .clearHighlightsFrom(selectedSurah, selectedAyah);
 

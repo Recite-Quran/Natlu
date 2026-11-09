@@ -250,7 +250,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     MaglisController.instance.onSyncMushafUI = (page, surah, ayah) {
       if (!mounted) return;
       _navigationTargetAyah = (surah, ayah);
-      if (page >= 1 && page <= 604) {
+      if (QuranMetadata.isValidPage(page)) {
         if (page != _currentPage) {
           _goToPage(page, animated: true);
         } else {
@@ -333,7 +333,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   int _findInitialPage() {
     final cachedPage = AppState.instance.currentMushafPage.value;
-    if (cachedPage > 1 && cachedPage <= 604) {
+    if (cachedPage > 1 && QuranMetadata.isValidPage(cachedPage)) {
       return cachedPage;
     }
     final surah = widget.controller.targetSurah != 0
@@ -344,10 +344,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final provider = MushafProvider.instance;
     final mapped = provider.getPageForAyah(surah, ayah) ??
         provider.getPageForAyah(surah, 1);
-    if (mapped != null && mapped >= 1 && mapped <= 604) {
+    if (mapped != null && QuranMetadata.isValidPage(mapped)) {
       return mapped;
     }
-    return cachedPage.clamp(1, 604);
+    return QuranMetadata.clampPage(cachedPage);
   }
 
   Future<void> _initMushafData() async {
@@ -403,21 +403,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
   }
 
-  static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};
-
-  bool _isSurahFinished(HighlightingController ctrl, int surah) {
-    if (!QuranMetadata.isValidSurah(surah)) return false;
-    final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
-      final surahWords = ctrl.repository.getSurahWords(surah);
-      if (surahWords.isEmpty) return (ayah: -1, wordInAyah: -1);
-      final last = surahWords.last;
-      return (ayah: last.ayah, wordInAyah: last.wordInAyah);
-    });
-    if (lastWord.ayah < 0) return false;
-    return ctrl.completedAyahsFor(surah).contains(lastWord.ayah) ||
-        ctrl.isWordRead(lastWord.ayah, lastWord.wordInAyah, surah: surah);
-  }
-
   Future<void> _advanceToNextSurah(int currentSurah) async {
     if (_isAdvancingSurah || !mounted || !widget.isRecording) return;
     final int nextSurah = currentSurah + 1;
@@ -429,7 +414,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     try {
       AppHaptics.mediumImpact();
       final provider = MushafProvider.instance;
-      final ctrl = widget.controller;
       const int nextAyah = 1;
 
       final targetPage = provider.getPageForAyah(nextSurah, nextAyah);
@@ -438,15 +422,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _goToPage(targetPage, animated: true);
       }
 
-      await ctrl.setTargetSurah(
-        nextSurah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
+      await widget.controller.advanceToNextSurah(
+        isRecording: widget.isRecording,
       );
-      ctrl.setManualAyah(nextSurah, nextAyah);
-      if (widget.isRecording) {
-        ctrl.startRecordingSession();
-      }
     } catch (e) {
       debugPrint('Error advancing to next surah: $e');
     } finally {
@@ -486,8 +464,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _lastProgressRev = rev;
 
     // 1. Hands-free recitation flow across Surahs
-    if (_isSurahFinished(ctrl, activeSurah)) {
-      if (activeSurah < 114 && _lastAdvancedSurah != activeSurah) {
+    if (ctrl.isSurahFinished(activeSurah)) {
+      if (activeSurah < QuranMetadata.maxSurah && _lastAdvancedSurah != activeSurah) {
         _advanceToNextSurah(activeSurah);
         return;
       }
@@ -506,7 +484,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         ctrl.completedAyahsFor(lastWord.surah).contains(lastWord.ayah);
 
     if (isLastWordOnPageRead || isLastAyahOnPageCompleted) {
-      if (_currentPage < 604 && _lastAutoAdvancedFromPage != _currentPage) {
+      if (_currentPage < QuranMetadata.maxPage && _lastAutoAdvancedFromPage != _currentPage) {
         _isAutoAdvancingPage = true;
         _lastAutoAdvancedFromPage = _currentPage;
 
@@ -568,8 +546,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onAudioAyahChanged() {
     if (!mounted) return;
-    final audioSurah = AppState.instance.activeAudioSurah.value;
-    final audioAyah = AppState.instance.activeAudioAyah.value;
+    final audioSurah = widget.controller.audioSurah;
+    final audioAyah = widget.controller.audioAyah;
     _checkSpinnerAnimation();
 
     if (audioSurah == null || audioAyah == null) {
@@ -587,10 +565,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _checkSpinnerAnimation() {
-    final app = AppState.instance;
-    final isBuffering = app.isAudioBuffering.value;
-    final surah = app.activeAudioSurah.value;
-    final ayah = app.activeAudioAyah.value;
+    final isBuffering = widget.controller.isAudioBuffering;
+    final surah = widget.controller.audioSurah;
+    final ayah = widget.controller.audioAyah;
     final page = _currentPageObject;
 
     final bool isBufferingOnThisPage = isBuffering &&
@@ -639,7 +616,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _stepPage(int dir) {
-    final target = (_currentPage + dir).clamp(1, 604);
+    final target = QuranMetadata.clampPage(_currentPage + dir);
     if (target == _currentPage) return;
     _turnDir = dir;
     _goToPage(target, animated: true);
@@ -656,7 +633,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _goToPage(int page, {bool animated = false}) {
-    final clamped = page.clamp(1, 604);
+    final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
     if (_turnDir == 0) {
       _turnDir = clamped > _currentPage ? 1 : -1;
@@ -801,7 +778,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final page = _currentPageObject;
     if (isReciting && page != null && !page.isDisposed && a > 0) {
       _ensurePageAyahsGrouped(page);
-      final ayahWords = _pageAyahWords[(s << 16) | a];
+      final ayahWords = _pageAyahWords[QuranCoordinate.packAyahKey(s, a)];
       if (ayahWords != null && ayahWords.isNotEmpty) {
         int wordHash = 17;
         for (final w in ayahWords) {
@@ -1257,7 +1234,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
 
       final w = page.words[i];
-      final int ayahKey = (w.surah << 16) | w.ayah;
+      final int ayahKey = QuranCoordinate.packAyahKey(w.surah, w.ayah);
 
       if (currentRunWords != null &&
           currentRunState == st &&
@@ -1394,50 +1371,19 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    if (isWordYellow(ayah, wordIndex0, surah)) {
-      QuranInteractionService.handleWordTap(
-        context: context,
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex0,
-        wordText: w.text,
-        controller: widget.controller,
-        onAyahTap: () => setState(() {}),
-        playWordDirectly: false,
-      );
-      return;
-    }
-
     if (maglis.inSession && maglis.isRemoteReciting) {
       return;
     }
 
-    final activeAyah = widget.controller.activeAyah.value;
-    final activeSurah = widget.controller.targetSurah != 0
-        ? widget.controller.targetSurah
-        : AppState.instance.lastSurah;
-    final isAlreadyActive = (activeSurah == surah && activeAyah == ayah);
-
-    if (isAlreadyActive) {
-      QuranInteractionService.handleWordTap(
-        context: context,
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex0,
-        wordText: w.text,
-        controller: widget.controller,
-        onAyahTap: () => setState(() {}),
-        playWordDirectly: true,
-      );
-    } else {
-      AppHaptics.lightImpact();
-      QuranInteractionService.selectAyah(
-        surah: surah,
-        ayah: ayah,
-        controller: widget.controller,
-        onTap: () => setState(() {}),
-      );
-    }
+    QuranInteractionService.handleWordTap(
+      context: context,
+      surah: surah,
+      ayah: ayah,
+      wordIndex: wordIndex0,
+      wordText: w.text,
+      controller: widget.controller,
+      onAyahTap: () => setState(() {}),
+    );
   }
 
   void _onDecorationTap(QvpDecorationInfo dec) {
@@ -1646,7 +1592,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                         color: c.textSecondary.withValues(alpha: 0.6),
                         hoverColor: c.gold.withValues(alpha: 0.15),
                         tooltip: 'الصفحة التالية • Next Page',
-                        onPressed: _currentPage < 604 ? _nextPage : null,
+                        onPressed: _currentPage < QuranMetadata.maxPage ? _nextPage : null,
                       ),
                     ),
                     // Right navigation button (Previous page in RTL reading order)

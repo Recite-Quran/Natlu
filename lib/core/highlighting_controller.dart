@@ -162,34 +162,31 @@ class HighlightStore {
   }
 
   void clearSurah(int surah) {
-    _states.removeWhere((key, _) => ((key >> 20) & 0xFF) == surah);
-    _errors.removeWhere((key, _) => ((key >> 20) & 0xFF) == surah);
+    _states.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
+    _errors.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
     _completedAyahs.remove(surah);
-    _ayahHighlightCounts.removeWhere((key, _) => (key >> 16) == surah);
+    _ayahHighlightCounts.removeWhere((key, _) => QuranCoordinate.unpackAyahKey(key).$1 == surah);
   }
 
   void clearAllExceptSurah(int keepSurah) {
-    _states.removeWhere((key, _) => ((key >> 20) & 0xFF) != keepSurah);
-    _errors.removeWhere((key, _) => ((key >> 20) & 0xFF) != keepSurah);
+    _states.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
+    _errors.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
     _completedAyahs.removeWhere((s, _) => s != keepSurah);
-    _ayahHighlightCounts.removeWhere((key, _) => (key >> 16) != keepSurah);
+    _ayahHighlightCounts.removeWhere((key, _) => QuranCoordinate.unpackAyahKey(key).$1 != keepSurah);
   }
 
   void clearSurahFromAyah(int surah, int startAyah) {
     _completedAyahs[surah]?.removeWhere((ayah) => ayah >= startAyah);
     _states.removeWhere((key, _) {
-      final s = (key >> 20) & 0xFF;
-      final a = (key >> 8) & 0xFFF;
+      final (s, a, _) = QuranCoordinate.unpackWordKey(key);
       return s > surah || (s == surah && a >= startAyah);
     });
     _errors.removeWhere((key, _) {
-      final s = (key >> 20) & 0xFF;
-      final a = (key >> 8) & 0xFFF;
+      final (s, a, _) = QuranCoordinate.unpackWordKey(key);
       return s > surah || (s == surah && a >= startAyah);
     });
     _ayahHighlightCounts.removeWhere((key, _) {
-      final s = key >> 16;
-      final a = key & 0xFFFF;
+      final (s, a) = QuranCoordinate.unpackAyahKey(key);
       return s > surah || (s == surah && a >= startAyah);
     });
   }
@@ -313,6 +310,43 @@ class HighlightingController extends rq.HighlightingController {
       preserveOtherSurahStates: preserveOtherSurahStates,
       clearTargetSurah: clearTargetSurah,
     );
+  }
+
+  static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};
+
+  /// Checks whether all words in [surah] have been completed or read.
+  bool isSurahFinished(int surah) {
+    if (!QuranMetadata.isValidSurah(surah)) return false;
+    final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
+      final surahWords = repository.getSurahWords(surah);
+      if (surahWords.isEmpty) return (ayah: -1, wordInAyah: -1);
+      final last = surahWords.last;
+      return (ayah: last.ayah, wordInAyah: last.wordInAyah);
+    });
+    if (lastWord.ayah < 0) return false;
+    return completedAyahsFor(surah).contains(lastWord.ayah) ||
+        isWordRead(lastWord.ayah, lastWord.wordInAyah, surah: surah);
+  }
+
+  /// Hook called when a continuous recitation boundary transitions to the next Surah.
+  void Function(int nextSurah, int nextAyah)? onSurahAutoAdvanced;
+
+  /// Advances to next Surah in sequence, preserving previous Surah highlights for continuous reading.
+  Future<bool> advanceToNextSurah({bool isRecording = false}) async {
+    final int nextSurah = targetSurah + 1;
+    if (!QuranMetadata.isValidSurah(nextSurah)) return false;
+
+    await setTargetSurah(
+      nextSurah,
+      preserveOtherSurahStates: true,
+      clearTargetSurah: false,
+    );
+    setManualAyah(nextSurah, 1);
+    if (isRecording) {
+      startRecordingSession();
+    }
+    onSurahAutoAdvanced?.call(nextSurah, 1);
+    return true;
   }
 
   /// Extracts classified word indices (green, yellow, red) and errors for an ayah,
@@ -472,9 +506,7 @@ class HighlightingController extends rq.HighlightingController {
         if (v < 1 || v > 3) return;
         final parsed = int.tryParse(k, radix: 16);
         if (parsed != null) {
-          final s = (parsed >> 20) & 0xFF;
-          final a = (parsed >> 8) & 0xFFF;
-          final w = parsed & 0xFF;
+          final (s, a, w) = QuranCoordinate.unpackWordKey(parsed);
           if (v == 1) {
             _store.markGreen(s, a, w);
           } else if (v == 2) {
@@ -630,6 +662,15 @@ class HighlightingController extends rq.HighlightingController {
     notifyListeners();
   }
 
+  /// Clears highlights from [startAyah] onwards in [surah], and clears all highlights
+  /// in subsequent Surahs ([surah] + 1 .. 114). Prior verses and Surahs are strictly preserved.
+  void clearHighlightsForwardFrom(int surah, int startAyah) {
+    clearHighlightsFromAyah(startAyah, surah: surah);
+    for (int s = surah + 1; s <= QuranMetadata.maxSurah; s++) {
+      clearHighlightsForSurah(s);
+    }
+  }
+
   // ── Quran Presentation Queries ──
 
   /// Returns the 0-based lead target word index:
@@ -757,6 +798,26 @@ class WordHighlightSpan {
 
 /// Canonical Quran Metadata & Navigation arithmetic.
 abstract final class QuranMetadata {
+  static const int minSurah = 1;
+  static const int maxSurah = 114;
+  static const int minPage = 1;
+  static const int maxPage = 604;
+
+  /// Checks if [surah] is in the valid 1..114 range.
+  static bool isValidSurah(int surah) => surah >= minSurah && surah <= maxSurah;
+
+  /// Checks if [page] is in the valid 1..604 Mushaf page range.
+  static bool isValidPage(int page) => page >= minPage && page <= maxPage;
+
+  /// Clamps [surah] to the valid 1..114 range.
+  static int clampSurah(int surah) => surah.clamp(minSurah, maxSurah);
+
+  /// Clamps [page] to the valid 1..604 range.
+  static int clampPage(int page) => page.clamp(minPage, maxPage);
+
+  /// Formats the canonical 3-digit QVP page asset filename (e.g. '001.qvp').
+  static String formatPageKey(int page) => '${page.toString().padLeft(3, '0')}.qvp';
+
   /// Canonical Ayah count for Surahs 1 to 114.
   static const List<int> surahAyahCounts = [
     7, 286, 200, 176, 120, 165, 206, 75, 129, 109,
@@ -772,9 +833,6 @@ abstract final class QuranMetadata {
     11, 8, 3, 9, 5, 4, 7, 3, 6, 3,
     5, 4, 5, 6
   ];
-
-  /// Checks if [surah] is in the valid 1..114 range.
-  static bool isValidSurah(int surah) => surah >= 1 && surah <= 114;
 
   /// Returns total Ayahs for [surah], or 0 if out of range.
   static int getAyahCount(int surah) {
@@ -822,8 +880,14 @@ abstract final class QuranMetadata {
   }
 }
 
-/// Dedicated high-performance typography formatter for Eastern Arabic numbers.
+/// Dedicated high-performance typography formatter for Eastern Arabic numbers and Quran text.
 abstract final class QuranTypography {
+  /// Canonical Uthmani Hafs Smart Quranic font family.
+  static const String quranFontFamily = 'HafsSmart';
+
+  /// Standard app UI font family.
+  static const String uiFontFamily = 'cairo';
+
   static final List<String> _arabicDigitsCache =
       List<String>.generate(650, (i) {
     const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
@@ -841,6 +905,29 @@ abstract final class QuranTypography {
         .split('')
         .map((e) => digits[int.parse(e)])
         .join('');
+  }
+
+  /// Converts any Eastern Arabic numeral glyphs (٠-٩) in [input] to standard ASCII digits (0-9).
+  static String toWesternDigits(String input) {
+    const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    String result = input;
+    for (int i = 0; i < 10; i++) {
+      result = result.replaceAll(eastern[i], i.toString());
+    }
+    return result;
+  }
+
+  /// Formats an input digit string according to locale:
+  /// converts to Eastern Arabic digits (٠-٩) if [isArabic] is true, otherwise standard ASCII.
+  static String formatDigits(String input, {required bool isArabic}) {
+    if (input.isEmpty) return input;
+    final normalized = toWesternDigits(input);
+    if (!isArabic) return normalized;
+    const digits = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+    return normalized.split('').map((char) {
+      final n = int.tryParse(char);
+      return n != null ? digits[n] : char;
+    }).join('');
   }
 }
 

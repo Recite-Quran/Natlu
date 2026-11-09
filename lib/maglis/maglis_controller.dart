@@ -383,10 +383,9 @@ class MaglisController extends ChangeNotifier {
         int? w0;
         final key = int.tryParse(k, radix: 16);
         if (key != null) {
-          final sNum = (key >> 20) & 0xFF;
-          final aNum = (key >> 8) & 0xFFF;
+          final (sNum, aNum, word0) = QuranCoordinate.unpackWordKey(key);
           if (sNum == pkt.surah && aNum == pkt.ayah) {
-            w0 = key & 0xFF;
+            w0 = word0;
           }
         } else {
           w0 = int.tryParse(k);

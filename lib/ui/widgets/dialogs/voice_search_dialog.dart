@@ -3,7 +3,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../../core/app_state.dart';
+import '../../../core/platform_utils.dart';
+import '../../../core/highlighting_controller.dart' show QuranTypography;
 import '../../../mushaf/mushaf_provider.dart';
+import 'dialog_base.dart';
 
 /// Production-ready Voice Search modal dialog for reciting any Ayah across the Quran.
 ///
@@ -228,43 +231,17 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
     final isAr = app.isArabic;
     final size = MediaQuery.sizeOf(context);
 
-    return RepaintBoundary(
-      child: Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: 480,
-            maxHeight: size.height * 0.82,
-          ),
-          decoration: BoxDecoration(
-            color: c.surface,
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: c.border.withValues(alpha: 0.25), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Directionality(
-            textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
-              child: widget.isLoading != null
-                  ? ValueListenableBuilder<bool>(
-                      valueListenable: widget.isLoading!,
-                      builder: (_, loading, __) =>
-                          loading ? _buildLoadingState(c, isAr) : _buildContent(c, isAr),
-                    )
-                  : _buildContent(c, isAr),
-            ),
-          ),
-        ),
-      ),
+    return AppDialog(
+      maxWidth: 480,
+      maxHeight: size.height * 0.82,
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+      content: widget.isLoading != null
+          ? ValueListenableBuilder<bool>(
+              valueListenable: widget.isLoading!,
+              builder: (_, loading, __) =>
+                  loading ? _buildLoadingState(c, isAr) : _buildContent(c, isAr),
+            )
+          : _buildContent(c, isAr),
     );
   }
 
@@ -309,11 +286,15 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
         Align(
           alignment: AlignmentDirectional.topEnd,
           child: IconButton(
-            icon: Icon(Icons.close_rounded, color: c.muted, size: 22),
+            icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
             tooltip: isAr ? 'إلغاء' : 'Cancel',
-            onPressed: _cancelSearch,
+            visualDensity: VisualDensity.compact,
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
+            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+            onPressed: () {
+              AppHaptics.lightImpact();
+              _cancelSearch();
+            },
           ),
         ),
         const SizedBox(height: 6),
@@ -745,13 +726,51 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                   ],
                 ),
               ),
-              const SizedBox(height: 4),
-              // Preview bypassed for now
-              const SizedBox.shrink(),
+              if (match.textUthmani != null && match.textUthmani!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                _buildVersePreview(match, c),
+              ],
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildVersePreview(AyahSearchMatch match, ThemeColors c) {
+    final rawText = match.textUthmani;
+    if (rawText == null || rawText.isEmpty) return const SizedBox.shrink();
+
+    final words = rawText.trim().split(' ');
+    final start = match.startWordIdx.clamp(0, words.length);
+    final end = (match.endWordIdx + 1).clamp(start, words.length);
+
+    final spans = <InlineSpan>[];
+    for (int i = 0; i < words.length; i++) {
+      final isHighlighted = (i >= start && i < end);
+      spans.add(
+        TextSpan(
+          text: words[i],
+          style: TextStyle(
+            fontFamily: QuranTypography.quranFontFamily,
+            fontSize: 16.0,
+            height: 1.6,
+            fontWeight: isHighlighted ? FontWeight.bold : FontWeight.normal,
+            color: isHighlighted ? c.gold : c.text.withValues(alpha: 0.78),
+          ),
+        ),
+      );
+      if (i < words.length - 1) {
+        spans.add(const TextSpan(text: ' '));
+      }
+    }
+
+    return Text.rich(
+      TextSpan(children: spans),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      textDirection: TextDirection.rtl,
+      textAlign: TextAlign.right,
     );
   }
 }
