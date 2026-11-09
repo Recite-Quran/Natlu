@@ -98,6 +98,8 @@ class MushafProvider {
             inkColor: currentInkColor,
             surahFrames: false,
             dpr: dpr,
+            width: targetSize.width,
+            height: targetSize.height,
           );
           continue;
         }
@@ -124,6 +126,8 @@ class MushafProvider {
               inkColor: currentInkColor,
               surahFrames: false,
               dpr: dpr,
+              width: targetSize.width,
+              height: targetSize.height,
             );
           }
         }());
@@ -329,6 +333,8 @@ class MushafProvider {
       if (pageBytes != null && pageBytes.isNotEmpty) {
         final page = _engine!.loadPage(pageBytes);
         page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
+        final currentInkColor = AppState.instance.colors.text;
+        page.setDefaultColor(currentInkColor);
 
         if (_pageCache.length >= _maxCachedPages) {
           final currentPage = AppState.instance.currentMushafPage.value;

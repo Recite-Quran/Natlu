@@ -716,12 +716,9 @@ class _MushafViewState extends State<MushafView> {
                             child: NotificationListener<ScrollNotification>(
                               onNotification: (notification) {
                                 if (notification is ScrollStartNotification) {
-                                  MushafProvider
-                                      .instance.isPageScrolling.value = true;
-                                } else if (notification
-                                    is ScrollEndNotification) {
-                                  MushafProvider
-                                      .instance.isPageScrolling.value = false;
+                                  MushafProvider.instance.isPageScrolling.value = true;
+                                } else if (notification is ScrollEndNotification) {
+                                  MushafProvider.instance.isPageScrolling.value = false;
                                 }
                                 return false;
                               },
@@ -731,7 +728,7 @@ class _MushafViewState extends State<MushafView> {
                                 reverse: false,
                                 itemCount: 604,
                                 padEnds: false,
-                                allowImplicitScrolling: false,
+                                allowImplicitScrolling: true,
                                 physics: const PageScrollPhysics(),
                                 onPageChanged: _onPageChanged,
                                 itemBuilder: (context, index) {

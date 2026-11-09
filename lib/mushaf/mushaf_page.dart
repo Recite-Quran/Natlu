@@ -81,11 +81,12 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     _lastSyncRevision = -1;
   }
 
-  int _lastIndexedPage = -1;
+  int _lastWordsIndexedPage = -1;
+  int _lastAyahsGroupedPage = -1;
   bool _reloadScheduled = false;
 
   void _ensurePageWordsIndexed(QvpPage page) {
-    if (_lastIndexedPage == widget.pageNumber && _pageWordMap.isNotEmpty) {
+    if (_lastWordsIndexedPage == widget.pageNumber && _pageWordMap.isNotEmpty) {
       return;
     }
     final map = <int, int>{};
@@ -93,11 +94,11 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       map[MaglisController.wordKey(w.surah, w.ayah, w.word - 1)] = w.index;
     }
     _pageWordMap = map;
-    _lastIndexedPage = widget.pageNumber;
+    _lastWordsIndexedPage = widget.pageNumber;
   }
 
   void _ensurePageAyahsGrouped(QvpPage page) {
-    if (_lastIndexedPage == widget.pageNumber && _pageAyahWords.isNotEmpty) {
+    if (_lastAyahsGroupedPage == widget.pageNumber && _pageAyahWords.isNotEmpty) {
       return;
     }
     _pageAyahWords.clear();
@@ -105,6 +106,7 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       final key = (w.surah << 16) | w.ayah;
       (_pageAyahWords[key] ??= []).add(w);
     }
+    _lastAyahsGroupedPage = widget.pageNumber;
   }
 
   @override
@@ -184,7 +186,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
       _lastActiveAyah = null;
       _lastActiveWord = null;
       _lastIsDark = null;
-      _lastIndexedPage = -1;
+      _lastWordsIndexedPage = -1;
+      _lastAyahsGroupedPage = -1;
       _hasEvaluatedWords = false;
       _lastBlurEffective = null;
       _lastIsRecording = null;
@@ -772,7 +775,8 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
           recordingChanged ||
           themeChanged ||
           !_hasEvaluatedWords ||
-          _lastIndexedPage != widget.pageNumber;
+          _lastWordsIndexedPage != widget.pageNumber ||
+          _lastAyahsGroupedPage != widget.pageNumber;
 
       if (needsWordEvaluation) {
         _evalGreen.clear();
@@ -1280,88 +1284,72 @@ class _MushafPageWidgetState extends State<MushafPageWidget>
     _hasSurahHeaders ??= page.surahHeaders().isNotEmpty;
     final bool hasSurahHeaders = _hasSurahHeaders!;
 
+    final surahHeaderPainter = hasSurahHeaders
+        ? SurahHeaderPainter(
+            page: page,
+            isDark: isDark,
+            colors: c,
+          )
+        : null;
+
+    final ayahMarkPainter = AyahMarkPainter(
+      page: page,
+      app: app,
+      spinnerAnimation: _spinnerController,
+      repaintListenable: _ayahMarkRepaintListenable,
+      surfaceColor: c.surface,
+      goldColor: c.gold,
+      neutralRingColor: neutralRingColor,
+      ayahHighlightColor: isDark
+          ? Colors.white.withValues(alpha: 0.10)
+          : const Color(0xFF64748B).withValues(alpha: 0.09),
+      controller: widget.controller,
+    );
+
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (hasSurahHeaders)
-            IgnorePointer(
-              child: CustomPaint(
-                painter: SurahHeaderPainter(
-                  page: page,
-                  isDark: isDark,
-                  colors: c,
-                ),
-              ),
-            ),
-          QvpPageView(
-            key: ValueKey('qvp_page_view_${widget.pageNumber}'),
-            page: page,
-            panZoomEnabled: false,
-            selectionEnabled: false,
-            layout: const QvpViewLayout(
-              padTop: 0,
-              padBottom: 0,
-              padSide: 4,
-              lineSpacing: 1.0,
-              fillHeight: true,
-              surahFrames: false,
-            ),
-            hitMaxDistance: 28.0,
-            paper: null,
-            paperShadow: false,
-            defaultInk: c.text,
-            onWordTap: (word, _) => _onWordTap(context, page, word.index),
-            onDecorationTap: (dec, _) => _onDecorationTap(dec),
-          ),
-          IgnorePointer(
-            child: CustomPaint(
-              painter: AyahMarkPainter(
-                page: page,
-                app: app,
-                spinnerAnimation: _spinnerController,
-                repaintListenable: _ayahMarkRepaintListenable,
-                surfaceColor: c.surface,
-                goldColor: c.gold,
-                neutralRingColor: neutralRingColor,
-                ayahHighlightColor: isDark
-                    ? Colors.white.withValues(alpha: 0.10)
-                    : const Color(0xFF64748B).withValues(alpha: 0.09),
-                controller: widget.controller,
-              ),
-            ),
-          ),
-          ListenableBuilder(
-            listenable: _tajweedVisibilityListenable,
-            builder: (context, _) {
-              if (app.hasClickedTajweedWord ||
-                  app.currentMode != AppMode.tajweed) {
-                return const SizedBox.shrink();
-              }
-              return ValueListenableBuilder<List<int>>(
-                valueListenable: _yellowWordsNotifier,
-                builder: (context, yellowWords, _) {
-                  if (yellowWords.isEmpty) {
-                    return const SizedBox.shrink();
-                  }
-                  return IgnorePointer(
-                    child: CustomPaint(
-                      painter: MushafTajweedTooltipPainter(
-                        page: page,
-                        controller: widget.controller,
-                        app: app,
-                        goldColor: c.gold,
-                        explicitYellowWords: yellowWords,
-                        repaintListenable: _yellowWordsNotifier,
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ],
+      child: QvpPageView(
+        key: ValueKey('qvp_page_view_${widget.pageNumber}'),
+        page: page,
+        panZoomEnabled: false,
+        selectionEnabled: false,
+        layout: const QvpViewLayout(
+          padTop: 0,
+          padBottom: 0,
+          padSide: 4,
+          lineSpacing: 1.0,
+          fillHeight: true,
+          surahFrames: false,
+        ),
+        hitMaxDistance: 28.0,
+        paper: null,
+        paperShadow: false,
+        defaultInk: c.text,
+        onWordTap: (word, _) => _onWordTap(context, page, word.index),
+        onDecorationTap: (dec, _) => _onDecorationTap(dec),
+        underlay: (canvas, size, p, l) {
+          surahHeaderPainter?.paint(canvas, size);
+        },
+        overlay: (canvas, size, p, l) {
+          ayahMarkPainter.paint(canvas, size);
+          if (!app.hasClickedTajweedWord &&
+              app.currentMode == AppMode.tajweed &&
+              _yellowWordsNotifier.value.isNotEmpty) {
+            MushafTajweedTooltipPainter(
+              page: p,
+              controller: widget.controller,
+              app: app,
+              goldColor: c.gold,
+              explicitYellowWords: _yellowWordsNotifier.value,
+              repaintListenable: _yellowWordsNotifier,
+            ).paint(canvas, size);
+          }
+        },
+        repaintListenable: Listenable.merge([
+          _ayahMarkRepaintListenable,
+          _tajweedVisibilityListenable,
+          _yellowWordsNotifier,
+        ]),
       ),
     );
   }

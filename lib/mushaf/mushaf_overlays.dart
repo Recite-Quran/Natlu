@@ -266,6 +266,10 @@ class AyahMarkPainter extends CustomPainter {
     _goldPaint.color = goldColor;
     _spinnerPaint.color = goldColor;
 
+    final Map<int, Set<int>> completedBySurah = {};
+    Set<int> getCompleted(int surah) =>
+        completedBySurah.putIfAbsent(surah, () => controller?.completedAyahsFor(surah) ?? const {});
+
     for (final m in cachedMarks) {
       final bool isThisBuffering =
           isBuffering && audioSurah == m.surah && audioAyah == m.ayah;
@@ -307,7 +311,7 @@ class AyahMarkPainter extends CustomPainter {
       } else {
         // Idle state: Subtle neutral ring or elegant warm gold completed ring
         final bool isCompleted = controller != null &&
-            controller!.completedAyahsFor(m.surah).contains(m.ayah);
+            getCompleted(m.surah).contains(m.ayah);
         if (isCompleted) {
           _ringPaint.color = goldColor.withValues(alpha: 0.65);
           _ringPaint.strokeWidth = 1.2;
