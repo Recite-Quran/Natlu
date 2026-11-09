@@ -418,18 +418,6 @@ class HighlightingController extends rq.HighlightingController {
 
     if (super.targetSurah == surah) {
       super.setManualAyah(surah, ayah);
-    } else {
-      super.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
-      ).then((_) {
-        _manualTargetSurah = surah;
-        activeAyah.value = ayah;
-        super.setManualAyah(surah, ayah);
-        globalRevision.value++;
-        notifyListeners();
-      }).catchError((_) {});
     }
 
     globalRevision.value++;
@@ -797,6 +785,16 @@ class HighlightingController extends rq.HighlightingController {
     super.clearHighlights();
     globalRevision.value++;
     notifyListeners();
+  }
+
+  /// Clears manual Ayah selection (e.g. on idle page turn).
+  void clearManualAyah() {
+    if (_manualTargetSurah != 0 || activeAyah.value != null) {
+      _manualTargetSurah = 0;
+      activeAyah.value = null;
+      globalRevision.value++;
+      notifyListeners();
+    }
   }
 }
 

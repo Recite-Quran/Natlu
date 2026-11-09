@@ -103,7 +103,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   late final Listenable _combinedRepaintListenable;
   final ValueNotifier<List<int>> _yellowWordsNotifier =
       ValueNotifier<List<int>>(const []);
-  final ValueNotifier<int> _visualsRevision = ValueNotifier<int>(0);
 
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
@@ -170,7 +169,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final app = AppState.instance;
     _combinedRepaintListenable = Listenable.merge([
       _spinnerController,
-      _visualsRevision,
       app.activeAudioAyah,
       app.activeAudioSurah,
       app.isAudioBuffering,
@@ -183,14 +181,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _yellowWordsNotifier,
     ]);
 
-    widget.controller.activeAyah.addListener(_onActiveAyahChanged);
     widget.controller.addListener(_onControllerProgress);
-    widget.controller.addListener(_requestSyncVisuals);
     app.activeAudioAyah.addListener(_onAudioAyahChanged);
     app.activeAudioSurah.addListener(_onAudioAyahChanged);
     app.currentMushafPage.addListener(_onExternalPageChanged);
-    app.themeNotifier.addListener(_requestSyncVisuals);
-    app.blurModeNotifier.addListener(_requestSyncVisuals);
+    app.themeNotifier.addListener(_syncVisuals);
+    app.blurModeNotifier.addListener(_syncVisuals);
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
@@ -233,13 +229,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void didUpdateWidget(MushafView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller.activeAyah.removeListener(_onActiveAyahChanged);
       oldWidget.controller.removeListener(_onControllerProgress);
-      oldWidget.controller.removeListener(_requestSyncVisuals);
-      widget.controller.activeAyah.addListener(_onActiveAyahChanged);
       widget.controller.addListener(_onControllerProgress);
-      widget.controller.addListener(_requestSyncVisuals);
-      _requestSyncVisuals();
+      _syncVisuals();
     }
     if (!oldWidget.isRecording && widget.isRecording) {
       final active = widget.controller.activeAyah.value;
@@ -257,15 +249,16 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
           pageNumber: _currentPage,
         ).then((_) {
           if (mounted) {
-            _requestSyncVisuals();
-            setState(() {});
+            _syncVisuals();
           }
         });
+      } else {
+        _syncVisuals();
       }
     } else if (oldWidget.isRecording && !widget.isRecording) {
       _lastAutoAdvancedFromPage = null;
       _lastAdvancedSurah = null;
-      _requestSyncVisuals();
+      _syncVisuals();
     }
   }
 
@@ -273,8 +266,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     if (!mounted) return;
     if (!AppModalRouteObserver.instance.isModalOpen && _needsSyncAfterModal) {
       _needsSyncAfterModal = false;
-      _onActiveAyahChanged();
-      _requestSyncVisuals();
+      _syncVisuals();
     }
   }
 
@@ -308,11 +300,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
   }
 
-  void _debouncedSavePosition(int pageNum, int surah, int ayah) {
+  void _debouncedSavePosition(int pageNum, [int? surah, int? ayah]) {
     _savePositionDebounce?.cancel();
     _savePositionDebounce = Timer(const Duration(milliseconds: 400), () {
       AppState.instance.saveMushafPage(pageNum);
-      AppState.instance.saveLastPosition(surah, ayah);
+      if (surah != null && ayah != null) {
+        AppState.instance.saveLastPosition(surah, ayah);
+      }
     });
   }
 
@@ -327,16 +321,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         .removeListener(_onMaglisSessionChanged);
     MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
-    widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
     widget.controller.removeListener(_onControllerProgress);
-    widget.controller.removeListener(_requestSyncVisuals);
     final app = AppState.instance;
     app.activeAudioAyah.removeListener(_onAudioAyahChanged);
     app.activeAudioSurah.removeListener(_onAudioAyahChanged);
     app.currentMushafPage.removeListener(_onExternalPageChanged);
-    app.themeNotifier.removeListener(_requestSyncVisuals);
-    app.blurModeNotifier.removeListener(_requestSyncVisuals);
-    _visualsRevision.dispose();
+    app.themeNotifier.removeListener(_syncVisuals);
+    app.blurModeNotifier.removeListener(_syncVisuals);
     _focusNode.dispose();
     _clearPageVisuals(_currentPageObject);
     super.dispose();
@@ -481,15 +472,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
   }
 
-  void _onActiveAyahChanged() {
-    if (!mounted) return;
-    if (AppModalRouteObserver.instance.isModalOpen) {
-      _needsSyncAfterModal = true;
-      return;
-    }
-    _requestSyncVisuals();
-  }
-
   void _onExternalPageChanged() {
     if (!mounted) return;
     final targetPage = AppState.instance.currentMushafPage.value;
@@ -507,7 +489,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _checkSpinnerAnimation();
 
     if (audioSurah == null || audioAyah == null) {
-      _requestSyncVisuals();
       return;
     }
 
@@ -519,7 +500,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       surah: audioSurah,
       ayah: audioAyah,
     )) {
-      _requestSyncVisuals();
       return;
     }
 
@@ -528,7 +508,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _navigationTargetAyah = (audioSurah, audioAyah);
       _goToPage(page, animated: true);
     }
-    _requestSyncVisuals();
   }
 
   void _checkSpinnerAnimation() {
@@ -574,25 +553,33 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    // If activeAyah is already on this new page, keep it!
-    final activeAyah = widget.controller.activeAyah.value;
-    final currentSurah = widget.controller.targetSurah;
-    if (activeAyah != null &&
-        currentSurah != 0 &&
-        provider.isAyahOnPage(
-          pageNumber: pageNum,
-          surah: currentSurah,
-          ayah: activeAyah,
-        )) {
-      _debouncedSavePosition(pageNum, currentSurah, activeAyah);
+    if (widget.isRecording) {
+      // If activeAyah is already on this new page, keep it!
+      final activeAyah = widget.controller.activeAyah.value;
+      final currentSurah = widget.controller.targetSurah;
+      if (activeAyah != null &&
+          currentSurah != 0 &&
+          provider.isAyahOnPage(
+            pageNumber: pageNum,
+            surah: currentSurah,
+            ayah: activeAyah,
+          )) {
+        _debouncedSavePosition(pageNum, currentSurah, activeAyah);
+        return;
+      }
+
+      // Default to the first ayah on this new page while recording so ASR is locked on
+      final first = provider.getFirstAyahOnPage(pageNum);
+      if (first != null) {
+        widget.controller.setManualAyah(first.$1, first.$2);
+      }
       return;
     }
 
-    // Otherwise, default to the first ayah on this new page so controller is in sync!
-    final first = provider.getFirstAyahOnPage(pageNum);
-    if (first != null) {
-      widget.controller.setManualAyah(first.$1, first.$2);
-    }
+    // When NOT recording (idle reading / shifting pages):
+    // Do NOT auto-select the first ayah. Clear any manual ayah selection.
+    widget.controller.clearManualAyah();
+    _debouncedSavePosition(pageNum);
   }
 
   void _stepPage(int dir) {
@@ -731,8 +718,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     if (!listEquals(_yellowWordsNotifier.value, yellowWords)) {
       _yellowWordsNotifier.value = yellowWords;
     }
-
-    _visualsRevision.value++;
   }
 
   void _onWordTap(BuildContext context, QvpPage page, int wordIndex) {
@@ -755,7 +740,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       wordText: w.text,
       controller: widget.controller,
       playWordDirectly: true,
-      onAyahTap: () => setState(() {}),
     );
   }
 
@@ -770,7 +754,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         ayah: dec.ayah,
         controller: widget.controller,
         isRecording: widget.isRecording,
-        onTap: () => setState(() {}),
       );
     }
   }

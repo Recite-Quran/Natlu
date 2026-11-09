@@ -800,11 +800,11 @@ class _OrchestratorState extends State<_Orchestrator>
                 )) {
               selectedSurah = maglis.remoteSurah;
               selectedAyah = maglis.remoteAyah;
-            } else if (selectedAyah <= 0 ||
+            } else if (activeAyah == null ||
                 !MushafProvider.instance.isAyahOnPage(
                   pageNumber: currentPage,
                   surah: selectedSurah,
-                  ayah: selectedAyah,
+                  ayah: activeAyah,
                 )) {
               final firstOnPage =
                   MushafProvider.instance.getFirstAyahOnPage(currentPage);
@@ -812,8 +812,10 @@ class _OrchestratorState extends State<_Orchestrator>
                 selectedSurah = firstOnPage.$1;
                 selectedAyah = firstOnPage.$2;
               } else {
-                selectedAyah = selectedAyah > 0 ? selectedAyah : 1;
+                selectedAyah = 1;
               }
+            } else {
+              selectedAyah = activeAyah;
             }
           } else {
             // In Verse List mode:
