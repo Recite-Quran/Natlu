@@ -260,6 +260,18 @@ class HighlightingController extends rq.HighlightingController {
   int? get audioAyah => _audioAyah;
   int? get audioWordIndex => _audioWordIndex;
 
+  /// Checks if audio playback or buffering is currently active for [surah, ayah].
+  bool isAyahAudioActive(int surah, int ayah) =>
+      isAudioActive && _audioSurah == surah && _audioAyah == ayah;
+
+  /// Checks if audio playback is currently playing for [surah, ayah].
+  bool isAyahAudioPlaying(int surah, int ayah) =>
+      _isAudioPlaying && _audioSurah == surah && _audioAyah == ayah;
+
+  /// Checks if audio playback is currently buffering for [surah, ayah].
+  bool isAyahAudioBuffering(int surah, int ayah) =>
+      _isAudioBuffering && _audioSurah == surah && _audioAyah == ayah;
+
   /// The active recitation or audio lead word index (0-based in active ayah).
   int? get activeWordIndex {
     if (_isRemoteReciting) return _remoteActiveWord;

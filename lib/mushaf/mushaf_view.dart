@@ -242,7 +242,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.activeAudioAyah.addListener(_onAudioAyahChanged);
     app.activeAudioSurah.addListener(_onAudioAyahChanged);
     app.themeNotifier.addListener(_requestSyncVisuals);
-    MaglisController.instance.addListener(_onMaglisSessionChanged);
+    MaglisController.instance.sessionListenable
+        .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
         .addListener(_onModalStateChanged);
 
@@ -375,7 +376,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _yellowWordsNotifier.dispose();
     AppModalRouteObserver.instance.activeModalsNotifier
         .removeListener(_onModalStateChanged);
-    MaglisController.instance.removeListener(_onMaglisSessionChanged);
+    MaglisController.instance.sessionListenable
+        .removeListener(_onMaglisSessionChanged);
     MaglisController.instance.onSyncMushafUI = null;
     _savePositionDebounce?.cancel();
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);

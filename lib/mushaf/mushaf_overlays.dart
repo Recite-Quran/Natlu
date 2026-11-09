@@ -121,14 +121,9 @@ class MushafOverlays {
     final l = layout ?? page.currentLayout;
     if (l == null) return;
 
-    final marks = page.ayahMarks();
+    // Upgraded: ayahMarksView() computes exact layout/viewport coordinates directly in Rust core
+    final marks = page.ayahMarksView();
     if (marks.isEmpty) return;
-
-    final ls = l.scale;
-    final fitScale = l.fitScale;
-    final fitX = l.fitX;
-    final fitY = l.fitY;
-    final lineDy = l.lineDy;
 
     final int? audioSurah = app.activeAudioSurah.value;
     final int? audioAyah = app.activeAudioAyah.value;
@@ -142,17 +137,8 @@ class MushafOverlays {
     _spinnerPaint.color = goldColor;
 
     for (final m in marks) {
-      final lineOffset =
-          (m.line >= 0 && m.line < lineDy.length) ? lineDy[m.line] : 0.0;
-      final double vx = l.offsetX + m.cx * ls;
-      final double vy = l.offsetY + (m.cy + lineOffset) * ls;
-      final double vr = m.r * ls;
-
-      final double sx = fitX + fitScale * vx;
-      final double sy = fitY + fitScale * vy;
-      final double sr = fitScale * vr;
-      final double customR = sr * 0.80;
-      final center = Offset(sx, sy);
+      final center = Offset(m.cx, m.cy);
+      final double customR = m.r * 0.80;
 
       final bool isThisBuffering =
           isBuffering && audioSurah == m.surah && audioAyah == m.ayah;
@@ -239,12 +225,6 @@ class MushafOverlays {
 
     _tooltipBgPaint.color = goldColor;
 
-    final double ls = l.scale;
-    final double fitScale = l.fitScale;
-    final double fitX = l.fitX;
-    final double fitY = l.fitY;
-    final List<double> lineDy = l.lineDy;
-
     final Map<int, List<int>> wordsByLine = {};
     for (final wordIdx in yellowWords) {
       if (wordIdx < 0 || wordIdx >= page.words.length) continue;
@@ -259,21 +239,12 @@ class MushafOverlays {
       final List<_BadgePosition> lineBadges = [];
 
       for (final wordIdx in wordsOnLine) {
-        final w = page.words[wordIdx];
-        final double lineOffset =
-            (w.line >= 0 && w.line < lineDy.length) ? lineDy[w.line] : 0.0;
-        final double vx0 = l.offsetX + w.x0 * ls;
-        final double vx1 = l.offsetX + w.x1 * ls;
-        final double vy0 = l.offsetY + (w.y0 + lineOffset) * ls;
-        final double vy1 = l.offsetY + (w.y1 + lineOffset) * ls;
-
-        final double left = fitX + fitScale * math.min(vx0, vx1);
-        final double right = fitX + fitScale * math.max(vx0, vx1);
-        final double bottom = fitY + fitScale * math.max(vy0, vy1);
-        final double centerX = (left + right) / 2.0;
-
+        final bands = page.wordBandsView([wordIdx]);
+        if (bands.isEmpty) continue;
+        final box = bands.first;
+        final double centerX = (box.x0 + box.x1) / 2.0;
         final double idealX = centerX - tooltipWidth / 2.0;
-        final double tooltipY = (bottom - 4.0).roundToDouble();
+        final double tooltipY = (box.y1 - 4.0).roundToDouble();
 
         lineBadges.add(_BadgePosition(x: idealX, y: tooltipY));
       }

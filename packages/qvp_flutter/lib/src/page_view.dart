@@ -653,11 +653,13 @@ class QvpPageViewState extends State<QvpPageView>
       final sideways = page.sidewaysDrag(_zoom, _ctl.view, _fitScale);
       if (sideways == QvpSideways.turnPage) {
         final vx = d.velocity.pixelsPerSecond.dx;
-        int dir = 0;
-        if (vx.abs() > 180) {
-          dir = vx < 0 ? 1 : -1;
-        } else if (_swipeDx.abs() > 36.0) {
-          dir = _swipeDx < 0 ? 1 : -1;
+        int dir = page.engine.swipePages(_swipeDx, 0.0, vx, 0.0);
+        if (dir == 0) {
+          if (vx.abs() > 180) {
+            dir = vx < 0 ? 1 : -1;
+          } else if (_swipeDx.abs() > 36.0) {
+            dir = _swipeDx < 0 ? 1 : -1;
+          }
         }
         if (dir != 0) {
           widget.onSwipe!(dir);
@@ -795,11 +797,13 @@ class QvpPageViewState extends State<QvpPageView>
               onHorizontalDragEnd: (!widget.panZoomEnabled && widget.onSwipe != null)
                   ? (d) {
                       final vx = d.primaryVelocity ?? 0.0;
-                      int dir = 0;
-                      if (vx.abs() > 180) {
-                        dir = vx < 0 ? 1 : -1;
-                      } else if (_swipeDx.abs() > 36.0) {
-                        dir = _swipeDx < 0 ? 1 : -1;
+                      int dir = page.engine.swipePages(_swipeDx, 0.0, vx, 0.0);
+                      if (dir == 0) {
+                        if (vx.abs() > 180) {
+                          dir = vx < 0 ? 1 : -1;
+                        } else if (_swipeDx.abs() > 36.0) {
+                          dir = _swipeDx < 0 ? 1 : -1;
+                        }
                       }
                       if (dir != 0) {
                         widget.onSwipe!(dir);

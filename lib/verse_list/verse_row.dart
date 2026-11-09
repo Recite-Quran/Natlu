@@ -148,7 +148,7 @@ class VerseRow extends StatefulWidget {
         onExplicitToggle: onExplicitToggle,
       );
 
-  /// Generates the active Ayah gold border decoration.
+  /// Generates the active Ayah gold border and subtle grey background band.
   static BoxDecoration activeAyahBorderDecoration({
     required bool isActive,
     required AppState app,
@@ -164,7 +164,7 @@ class VerseRow extends StatefulWidget {
         color: isActive ? palette.activeAyahBorder : Colors.transparent,
         width: 1.0,
       ),
-      color: Colors.transparent,
+      color: isActive ? palette.activeAyahBand : Colors.transparent,
     );
   }
 
@@ -1028,13 +1028,14 @@ class _ActiveWordHighlightPainter extends CustomPainter {
       return s; // 1: green, 2: yellow, 3: red
     }
 
-    final bool isBlack = app.isDarkMode;
-    final c = app.colors;
-    _greenPaint.color = c.green.withValues(alpha: isBlack ? 0.22 : 0.15);
-    _yellowPaint.color = c.warning.withValues(alpha: isBlack ? 0.24 : 0.18);
-    _redPaint.color = c.red.withValues(alpha: isBlack ? 0.22 : 0.14);
-    _activePaint.color =
-        c.wordHighlight.withValues(alpha: isBlack ? 0.24 : 0.16);
+    final palette = QuranHighlightPalette.fromTheme(
+      colors: app.colors,
+      isDark: app.isDarkMode,
+    );
+    _greenPaint.color = palette.greenBand;
+    _yellowPaint.color = palette.yellowBand;
+    _redPaint.color = palette.redBand;
+    _activePaint.color = palette.leadWordBand;
 
     Paint getPaintForState(int state, bool isActiveWord) {
       if (isActiveWord) return _activePaint;
