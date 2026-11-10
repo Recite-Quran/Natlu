@@ -135,9 +135,12 @@ class QuranAudioService {
     onTap?.call();
 
     final bool isThisAyahActive =
-        (controller.isAudioPlaying || controller.isAudioBuffering) &&
-        controller.audioSurah == surah &&
-        controller.audioAyah == ayah;
+        ((controller.isAudioPlaying || controller.isAudioBuffering) &&
+            controller.audioSurah == surah &&
+            controller.audioAyah == ayah) ||
+        ((isPlaying || isBuffering) &&
+            activeSurah == surah &&
+            activeAyah == ayah);
 
     if (isThisAyahActive) {
       // STOP button pressed: stop playback completely
@@ -477,7 +480,7 @@ class VerseAudioPlayer {
       if (state.processingState == ProcessingState.completed) {
         _handleTrackComplete();
       } else if (state.processingState == ProcessingState.idle) {
-        if (!_isAdvancingSurah && !_isPreparingNewTrack) {
+        if (!_isAdvancingSurah && !_isPreparingNewTrack && !_isSingleWordMode) {
           _resetStopped();
         }
       } else if (state.playing) {
@@ -611,9 +614,6 @@ class VerseAudioPlayer {
 
       _targetWordEndMs = endMs;
 
-      try {
-        await player.stop();
-      } catch (_) {}
       if (session != _sessionId) {
         _isPreparingNewTrack = false;
         return;
@@ -946,13 +946,15 @@ class VerseAudioPlayer {
 
   /// Stops playback and clears all active audio states.
   Future<void> stop() async {
-    _sessionId++;
+    final int session = ++_sessionId;
     try {
       await _player?.stop();
     } catch (e) {
       log('Error stopping: $e', name: 'VerseAudioPlayer');
     }
-    _resetStopped();
+    if (session == _sessionId) {
+      _resetStopped();
+    }
   }
 
   void _resetStopped({bool triggerError = false}) {

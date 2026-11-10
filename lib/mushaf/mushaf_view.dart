@@ -745,8 +745,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _onDecorationTap(QvpDecorationInfo dec) {
-    if (MaglisController.instance.inSession) return;
-
     if (dec.surah > 0 && dec.ayah > 0) {
       AppHaptics.selectionClick();
       AppState.instance.markMushafAudioAyahClicked();

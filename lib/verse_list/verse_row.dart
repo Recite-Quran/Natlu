@@ -262,7 +262,8 @@ class _VerseRowState extends State<VerseRow> {
 
     // Fast check: If this verse is far away from the active ayah and was not previously active/listening,
     // skip recomputation completely.
-    final bool isNear = (myAyah >= effectiveActive - 1 && myAyah <= effectiveActive + 1);
+    final bool isNear = (myAyah >= effectiveActive - 1 && myAyah <= effectiveActive + 1) ||
+        (widget.controller.audioAyah == myAyah);
     if (!isNear && !_isListeningToController && _lastFingerprint != -1) {
       return;
     }
@@ -280,10 +281,12 @@ class _VerseRowState extends State<VerseRow> {
     final int? active = widget.controller.activeAyah.value;
     final int myAyah = widget.verse.ayah;
 
-    // Listen to highlights selectively: ONLY active, preceding, or upcoming Ayah subscribe
+    // Listen to highlights selectively: ONLY active, preceding, upcoming, or audio-playing Ayah subscribe
     bool shouldListen = false;
     final int effectiveActive = active ?? (widget.isRecording ? 1 : -999);
-    if (myAyah == effectiveActive ||
+    final int? audioAyah = widget.controller.audioAyah;
+    if (myAyah == audioAyah ||
+        myAyah == effectiveActive ||
         myAyah == effectiveActive - 1 ||
         myAyah == effectiveActive + 1) {
       shouldListen = true;
@@ -457,6 +460,10 @@ class _VerseRowState extends State<VerseRow> {
         !widget.isAutoScrolling && ctrl.activeAyah.value == ayah;
     final bool isAudioActive = VerseRow.isAyahAudioActive(
         surah: surah, ayah: ayah, controller: widget.controller);
+    final bool isAudioPlaying = VerseRow.isAyahAudioPlaying(
+        surah: surah, ayah: ayah, controller: widget.controller);
+    final bool isAudioBuffering = VerseRow.isAyahAudioBuffering(
+        surah: surah, ayah: ayah, controller: widget.controller);
     final bool isActive = VerseRow.isAyahActive(
       surah: surah,
       ayah: ayah,
@@ -469,6 +476,8 @@ class _VerseRowState extends State<VerseRow> {
     int hash = isActive ? 1 : 0;
     hash = hash * 31 + (isSelected ? 1 : 0);
     hash = hash * 31 + (isAudioActive ? 1 : 0);
+    hash = hash * 31 + (isAudioPlaying ? 1 : 0);
+    hash = hash * 31 + (isAudioBuffering ? 1 : 0);
     hash = hash * 31 + (isCompleted ? 1 : 0);
     hash = hash * 31 + (widget.isRecording ? 1 : 0);
 
@@ -554,6 +563,10 @@ class _VerseRowState extends State<VerseRow> {
     final surah = widget.verse.surah;
     final ayah = widget.verse.ayah;
     final bool isAudioActive = VerseRow.isAyahAudioActive(
+        surah: surah, ayah: ayah, controller: widget.controller);
+    final bool isAudioPlaying = VerseRow.isAyahAudioPlaying(
+        surah: surah, ayah: ayah, controller: widget.controller);
+    final bool isAudioBuffering = VerseRow.isAyahAudioBuffering(
         surah: surah, ayah: ayah, controller: widget.controller);
     final bool isActive = VerseRow.isAyahActive(
       surah: surah,
@@ -699,10 +712,8 @@ class _VerseRowState extends State<VerseRow> {
                           isRecording: widget.isRecording,
                           controller: widget.controller,
                           onTapVerse: widget.onTap,
-                          isPlaying:
-                              isAudioActive && widget.controller.isAudioPlaying,
-                          isBuffering: isAudioActive &&
-                              widget.controller.isAudioBuffering,
+                          isPlaying: isAudioPlaying,
+                          isBuffering: isAudioBuffering,
                         ),
                       ],
                       GestureDetector(

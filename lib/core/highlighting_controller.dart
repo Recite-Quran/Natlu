@@ -6,7 +6,6 @@ export 'package:recite_quran/recite_quran.dart' hide HighlightingController;
 import 'platform_utils.dart';
 import 'app_state.dart';
 import '../audio/quran_audio_service.dart';
-import '../maglis/maglis_controller.dart';
 import '../ui/widgets/dialogs/dialog_service.dart';
 
 /// Recitation & Audio playback source.
@@ -1149,15 +1148,6 @@ abstract final class QuranInteractionService {
       );
       onWordErrorTap?.call();
     } else {
-      if (MaglisController.instance.inSession) {
-        return;
-      }
-      if (controller.isAudioActive ||
-          QuranAudioService.instance.isPlaying ||
-          QuranAudioService.instance.isBuffering) {
-        QuranAudioService.instance.stop();
-        controller.clearAudio();
-      }
       QuranAudioService.instance.playWord(
         surah: surah,
         ayah: ayah,
@@ -1175,11 +1165,9 @@ abstract final class QuranInteractionService {
     VoidCallback? onTap,
     VoidCallback? onExplicitToggle,
   }) async {
-    if (MaglisController.instance.inSession) return;
     AppHaptics.selectionClick();
-    controller.setManualAyah(surah, ayah);
-    onTap?.call();
     if (onExplicitToggle != null) {
+      onTap?.call();
       onExplicitToggle();
     } else {
       await QuranAudioService.instance.toggleAyah(
@@ -1187,6 +1175,7 @@ abstract final class QuranInteractionService {
         ayah: ayah,
         controller: controller,
         continuous: !isRecording,
+        onTap: onTap,
       );
     }
   }
