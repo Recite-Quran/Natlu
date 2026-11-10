@@ -921,6 +921,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                     paper: null,
                                     paperShadow: false,
                                     defaultInk: c.text,
+                                    tashkeelInk: c.tashkeel,
                                     onWordTap: (word, _) => _onWordTap(
                                       context,
                                       _currentPageObject!,

@@ -689,6 +689,7 @@ class AppState extends ChangeNotifier {
     text:
         Color(0xFF1E293B), // Slate-800 deep charcoal (13:1 eye-gentle contrast)
     textSecondary: Color(0xFF475569), // Slate-600 secondary text
+    tashkeel: Color(0xFF64748B), // Slate-500 neutral muted (5.2:1 contrast for diacritics/waqf)
     ayahOutline: Color(0x2EB45309), // Soft warm amber outline (~18% alpha)
     ambientGlow: Color(0x18047857), // Ambient soft emerald glow
     success: Color(0xFF15803D), // Soothing botanical green success
@@ -726,6 +727,7 @@ class AppState extends ChangeNotifier {
     wordHighlight: Color(0xFF38BDF8), // Celestial Sky Azure active word highlight (distinct focal beacon, glare-free)
     text: Color(0xFFE2E8F0), // Moonlit pearl (halation-free)
     textSecondary: Color(0xFF94A3B8), // Slate-400
+    tashkeel: Color(0xFF94A3B8), // Slate-400 steel mist (5.8:1 contrast for diacritics/waqf)
     ayahOutline: Color(0x35EAB308), // Soft amber outline
     ambientGlow: Color(0x2510B981), // Gentle emerald glow
     success: Color(0xFF10B981), // Calming emerald green success
@@ -831,6 +833,7 @@ class ThemeColors {
   final Color wordHighlight;
   final Color text;
   final Color textSecondary;
+  final Color tashkeel;
   final Color ayahOutline;
   final Color ambientGlow;
   final Color success;
@@ -860,6 +863,7 @@ class ThemeColors {
     required this.wordHighlight,
     required this.text,
     required this.textSecondary,
+    required this.tashkeel,
     required this.ayahOutline,
     required this.ambientGlow,
     required this.success,

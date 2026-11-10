@@ -78,6 +78,7 @@ class MushafProvider {
       // Forward adjacent page has highest priority for recitation and reading continuity
       final neighbors = [pageNumber + 1, pageNumber - 1];
       final currentInkColor = AppState.instance.colors.text;
+      final currentTashkeelColor = AppState.instance.colors.tashkeel;
       final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
@@ -102,6 +103,7 @@ class MushafProvider {
           QvpPageView.prepare(
             cached,
             inkColor: currentInkColor,
+            tashkeelColor: currentTashkeelColor,
             surahFrames: false,
             dpr: dpr,
             width: targetSize.width,
@@ -132,6 +134,7 @@ class MushafProvider {
             QvpPageView.prepare(
               page,
               inkColor: currentInkColor,
+              tashkeelColor: currentTashkeelColor,
               surahFrames: false,
               dpr: dpr,
               width: targetSize.width,
