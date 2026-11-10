@@ -90,11 +90,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   int? _lastProgressWord;
   int? _lastProgressRev;
 
-  // Native 150ms Slide animation
-  late final AnimationController _slideController;
-  late final Animation<double> _slideAnimation;
+  // Page-flip animation matching Swift DemoModel.swift:
+  // A snapshot overlay of the page that slides away while the new page is already drawn beneath.
+  late final AnimationController _flipController;
+  late final Animation<double> _flipAnimation;
+  QvpPage? _flipPageObject;
+  int _flipDir = 0;
   int _turnDir = 0;
-  int _activeSlideDir = 0;
 
   // Audio spinner animation & overlays repaint
   late final AnimationController _spinnerController;
@@ -149,14 +151,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _currentPage = _findInitialPage();
     _isLoading = !provider.isReady;
 
-    _slideController = AnimationController(
+    _flipController = AnimationController(
       vsync: this,
       value: 1.0,
-      duration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 280),
     );
-    _slideAnimation = CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.decelerate,
+    _flipAnimation = CurvedAnimation(
+      parent: _flipController,
+      curve: Curves.easeInOut,
     );
 
     _spinnerController = AnimationController(
@@ -297,6 +299,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _debouncedSavePosition(int pageNum, [int? surah, int? ayah]) {
     _savePositionDebounce?.cancel();
     _savePositionDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted || pageNum != _currentPage) return;
       AppState.instance.saveMushafPage(pageNum);
       if (surah != null && ayah != null) {
         AppState.instance.saveLastPosition(surah, ayah);
@@ -307,7 +310,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   @override
   void dispose() {
     _clearPageVisuals(_currentPageObject);
-    _slideController.dispose();
+    _flipController.dispose();
     _spinnerController.dispose();
     _yellowWordsNotifier.dispose();
     AppModalRouteObserver.instance.activeModalsNotifier
@@ -613,35 +616,51 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _goToPage(int page, {bool animated = false}) {
     final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
-    if (_turnDir == 0) {
-      _turnDir = clamped > _currentPage ? 1 : -1;
+    final dir = _turnDir != 0 ? _turnDir : (clamped > _currentPage ? 1 : -1);
+    _turnDir = 0;
+
+    final oldPage = _currentPageObject;
+    final bool canAnimate = animated && oldPage != null && !oldPage.isDisposed;
+
+    if (canAnimate) {
+      _flipController.stop();
+      _flipPageObject = oldPage;
+      _flipDir = dir;
+      _flipController.forward(from: 0.0).then((_) {
+        if (mounted) {
+          setState(() {
+            _flipPageObject = null;
+          });
+          _syncPageSelection(_currentPage);
+          MushafProvider.instance.preloadAdjacentPages(
+            _currentPage,
+            MushafProvider.instance.lastViewportSize,
+          );
+        }
+      });
+    } else {
+      _flipPageObject = null;
+      _syncPageSelection(clamped);
+      MushafProvider.instance.preloadAdjacentPages(
+        clamped,
+        MushafProvider.instance.lastViewportSize,
+      );
     }
+
     _currentPage = clamped;
     if (AppState.instance.currentMushafPage.value != clamped) {
       AppState.instance.currentMushafPage.value = clamped;
     }
-    if (!animated) {
-      _syncPageSelection(clamped);
-    }
-    _loadCurrentPage(clamped, triggerSlide: animated);
+    _loadCurrentPage(clamped);
   }
 
-  Future<void> _loadCurrentPage(int pageNumber,
-      {bool triggerSlide = false}) async {
+  Future<void> _loadCurrentPage(int pageNumber) async {
     final cached = MushafProvider.instance.getCachedPage(pageNumber);
     if (cached != null && !cached.isDisposed) {
       _clearPageVisuals(_currentPageObject);
       _currentPageObject = cached;
       _checkSpinnerAnimation();
       _syncVisuals();
-      if (triggerSlide && _turnDir != 0) {
-        _triggerSlide();
-      } else {
-        _turnDir = 0;
-        if (triggerSlide) {
-          _syncPageSelection(pageNumber);
-        }
-      }
       if (mounted) setState(() {});
     } else {
       final p = await MushafProvider.instance.getPage(pageNumber);
@@ -650,38 +669,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _currentPageObject = p;
       _checkSpinnerAnimation();
       _syncVisuals();
-      if (triggerSlide && _turnDir != 0) {
-        _triggerSlide();
-      } else {
-        _turnDir = 0;
-        if (triggerSlide) {
-          _syncPageSelection(pageNumber);
-        }
-      }
       if (mounted) setState(() {});
     }
-    if (!triggerSlide) {
-      MushafProvider.instance.preloadAdjacentPages(
-        pageNumber,
-        MushafProvider.instance.lastViewportSize,
-      );
-    }
-  }
-
-  void _triggerSlide() {
-    final d = _turnDir;
-    _turnDir = 0;
-    if (d == 0) return;
-    _activeSlideDir = d;
-    _slideController.forward(from: 0.0).then((_) {
-      if (mounted) {
-        _syncPageSelection(_currentPage);
-        MushafProvider.instance.preloadAdjacentPages(
-          _currentPage,
-          MushafProvider.instance.lastViewportSize,
-        );
-      }
-    });
   }
 
   void _clearPageVisuals(QvpPage? page) {
@@ -984,55 +973,82 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                         height: usableHeight,
                         child: _currentPageObject == null
                             ? const SizedBox.expand()
-                            : AnimatedBuilder(
-                                animation: _slideAnimation,
-                                builder: (context, child) {
-                                  if (!_slideController.isAnimating &&
-                                      _slideAnimation.value == 1.0) {
-                                    return child!;
-                                  }
-                                  final progress = _slideAnimation.value;
-                                  final double offsetFraction =
-                                      (1.0 - progress) *
-                                          (-_activeSlideDir * 0.16);
-                                  final double alpha =
-                                      (0.55 + 0.45 * progress).clamp(0.0, 1.0);
-                                  return Opacity(
-                                    opacity: alpha,
-                                    child: Transform.translate(
-                                      offset: Offset(
-                                        offsetFraction * pageContainerWidth,
-                                        0.0,
+                            : Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  // Base layer: The current page (already drawn beneath)
+                                  RepaintBoundary(
+                                    key: const ValueKey('mushaf_single_qvp_view'),
+                                    child: QvpPageView(
+                                      page: _currentPageObject!,
+                                      panZoomEnabled: false,
+                                      selectionEnabled: false,
+                                      layout: MushafProvider.mushafLayout,
+                                      hitMaxDistance: 28.0,
+                                      paper: null,
+                                      paperShadow: false,
+                                      defaultInk: c.text,
+                                      onWordTap: (word, _) => _onWordTap(
+                                        context,
+                                        _currentPageObject!,
+                                        word.index,
                                       ),
-                                      child: child,
+                                      onDecorationTap: (dec, _) =>
+                                          _onDecorationTap(dec),
+                                      onSwipe: (pages) => _stepPage(pages),
+                                      underlay: _paintUnderlay,
+                                      overlay: _paintOverlay,
+                                      repaintListenable:
+                                          _combinedRepaintListenable,
                                     ),
-                                  );
-                                },
-                                child: RepaintBoundary(
-                                  key: const ValueKey('mushaf_single_qvp_view'),
-                                  child: QvpPageView(
-                                    page: _currentPageObject!,
-                                    panZoomEnabled: false,
-                                    selectionEnabled: false,
-                                    layout: MushafProvider.mushafLayout,
-                                    hitMaxDistance: 28.0,
-                                    paper: null,
-                                    paperShadow: false,
-                                    defaultInk: c.text,
-                                    onWordTap: (word, _) => _onWordTap(
-                                      context,
-                                      _currentPageObject!,
-                                      word.index,
-                                    ),
-                                    onDecorationTap: (dec, _) =>
-                                        _onDecorationTap(dec),
-                                    onSwipe: (pages) => _stepPage(pages),
-                                    underlay: _paintUnderlay,
-                                    overlay: _paintOverlay,
-                                    repaintListenable:
-                                        _combinedRepaintListenable,
                                   ),
-                                ),
+                                  // Swift-style flip overlay: The old page slides away with a page shadow
+                                  if (_flipPageObject != null)
+                                    AnimatedBuilder(
+                                      animation: _flipAnimation,
+                                      builder: (context, _) {
+                                        final progress = _flipAnimation.value;
+                                        final double offset =
+                                            progress * _flipDir * pageContainerWidth;
+                                        return Transform.translate(
+                                          offset: Offset(offset, 0.0),
+                                          child: Container(
+                                            width: pageContainerWidth,
+                                            height: usableHeight,
+                                            decoration: BoxDecoration(
+                                              color: c.surface,
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.22),
+                                                  blurRadius: 10.0,
+                                                  spreadRadius: 1.0,
+                                                  offset: Offset(
+                                                      _flipDir > 0 ? -4.0 : 4.0,
+                                                      0.0),
+                                                ),
+                                              ],
+                                            ),
+                                            child: IgnorePointer(
+                                              child: RepaintBoundary(
+                                                child: QvpPageView(
+                                                  page: _flipPageObject!,
+                                                  panZoomEnabled: false,
+                                                  selectionEnabled: false,
+                                                  layout: MushafProvider.mushafLayout,
+                                                  paper: null,
+                                                  paperShadow: false,
+                                                  defaultInk: c.text,
+                                                  underlay: _paintUnderlay,
+                                                  overlay: _paintOverlay,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                ],
                               ),
                       ),
                     ),

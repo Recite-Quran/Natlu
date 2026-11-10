@@ -1130,21 +1130,12 @@ abstract final class QuranInteractionService {
 
     // Tajweed warning words ALWAYS show the error detail dialog directly
     // without requiring the verse to be active or mutated.
-    if (isYellow) {
+    if (errors != null && errors.isNotEmpty) {
       AppState.instance.markTajweedWordClicked();
       DialogService.showTajweedError(
         context,
         word: wordText,
-        errors: (errors != null && errors.isNotEmpty)
-            ? errors
-            : [
-                rq.ReciterError(
-                  errorType: rq.ErrorCategory.tajweed,
-                  speechErrorType: rq.SpeechErrorType.replace,
-                  expectedPh: '',
-                  predictedPh: '',
-                ),
-              ],
+        errors: errors,
         surah: surah,
         ayah: ayah,
         wordIndex: wordIndex,

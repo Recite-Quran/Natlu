@@ -391,8 +391,9 @@ class MaglisController extends ChangeNotifier {
           w0 = int.tryParse(k);
         }
         if (w0 != null) {
-          parsedWordErrors![w0] =
-              list.map((m) => ReciterError.fromMap(m)).toList();
+          parsedWordErrors![w0] = list
+              .map((m) => MaglisPacket.decodeError(m as Map))
+              .toList();
         }
       });
     }

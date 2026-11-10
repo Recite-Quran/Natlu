@@ -144,6 +144,20 @@ class MaglisPacket {
     return m;
   }
 
+  /// Deserializes a [rq.ReciterError] ensuring nested maps are correctly typed.
+  static rq.ReciterError decodeError(Map<dynamic, dynamic> raw) {
+    final map = Map<String, dynamic>.from(raw);
+    if (map['expectedRule'] is Map) {
+      map['expectedRule'] =
+          Map<String, dynamic>.from(map['expectedRule'] as Map);
+    }
+    if (map['predictedRule'] is Map) {
+      map['predictedRule'] =
+          Map<String, dynamic>.from(map['predictedRule'] as Map);
+    }
+    return rq.ReciterError.fromMap(map);
+  }
+
   /// Serializes active errors per word into radix-16 keyed map.
   static Map<String, List<Map<String, dynamic>>>? serializeErrors(
     int surah,
