@@ -49,274 +49,337 @@ export async function onRequest(context) {
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@700;800&display=swap" rel="stylesheet">
 
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    
+    /* PURE LIGHT THEME — High-Contrast, Pristine, Balanced */
+    :root {
+      --bg: #F8FAF9;
+      --card-bg: #FFFFFF;
+      --card-border: #E8ECE8;
+      --card-shadow: 0 4px 6px -1px rgba(15, 30, 20, 0.03), 0 24px 48px -12px rgba(15, 30, 20, 0.07);
+      
+      --text-hero: #0F172A;
+      --text-sub: #475569;
+      --text-muted: #64748B;
+      
+      --ayah-color: #64748B;
+      
+      --code-bg: #F4F6F4;
+      --code-border: #E2E8E4;
+      --digit-bg: #FFFFFF;
+      --digit-border: #CBD8D0;
+      --digit-color: #047857;
+      
+      --primary: #047857;
+      --primary-hover: #065F46;
+      --primary-active: #034D37;
+      --primary-shadow: 0 8px 20px -4px rgba(4, 120, 87, 0.30);
+      
+      --btn-web-bg: #FFFFFF;
+      --btn-web-border: #CBD5E1;
+      --btn-web-text: #1E293B;
+      --btn-web-hover: #F8FAFC;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
     body {
-      background: #05070B;
-      color: #E2E8F0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      background-color: var(--bg);
+      background-image: 
+        radial-gradient(50% 40% at 50% 0%, rgba(4, 120, 87, 0.07) 0%, transparent 100%),
+        radial-gradient(40% 30% at 50% 100%, rgba(13, 148, 136, 0.04) 0%, transparent 100%);
+      color: var(--text-hero);
       min-height: 100vh;
-      padding: 24px 16px;
-      text-align: center;
-      font-family: "Cairo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      overflow-x: hidden;
-      position: relative;
-    }
-
-    /* Ambient background lighting */
-    body::before {
-      content: '';
-      position: fixed;
-      top: 15%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 500px;
-      height: 400px;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.05) 45%, transparent 70%);
-      filter: blur(60px);
-      z-index: 0;
-      pointer-events: none;
-    }
-
-    /* Ultra-premium glassmorphism card */
-    .card {
-      position: relative;
-      z-index: 1;
-      background: rgba(13, 17, 24, 0.85);
-      border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 28px;
-      padding: 30px 24px 28px;
-      max-width: 390px;
-      width: 100%;
-      box-shadow: 
-        0 30px 70px -10px rgba(0, 0, 0, 0.9),
-        0 0 1px 1px rgba(255, 255, 255, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 0.15);
-      backdrop-filter: blur(28px);
-      -webkit-backdrop-filter: blur(28px);
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      font-family: "Cairo", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
     }
 
-    /* Ayah Header */
-    .ayah {
-      font-size: 12px;
-      color: #94A3B8;
-      margin-bottom: 22px;
+    /* Floating Join Card */
+    .meet-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 28px;
+      padding: 30px 24px 26px;
+      max-width: 380px;
+      width: 100%;
+      box-shadow: var(--card-shadow);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+
+    /* 1. Top Ayah (NO BRACKETS — Clean, Serene, Centered) */
+    .ayah-text {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ayah-color);
       line-height: 1.5;
-      font-weight: 500;
+      margin-bottom: 20px;
       letter-spacing: 0.1px;
     }
 
-    /* App Logo */
-    .logo-container {
-      position: relative;
-      margin-bottom: 14px;
+    /* 2. Logo & App Identity (Centered Brand Block) */
+    .app-brand {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 16px;
     }
-    .logo-container::after {
-      content: '';
-      position: absolute;
-      inset: -4px;
-      border-radius: 22px;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.35) 0%, transparent 70%);
-      z-index: -1;
-      filter: blur(8px);
-    }
-    .logo {
-      width: 72px;
-      height: 72px;
-      border-radius: 20px;
+
+    .app-icon {
+      width: 58px;
+      height: 58px;
+      border-radius: 16px;
       background: #FFFFFF;
-      border: 1px solid rgba(255, 255, 255, 0.25);
+      border: 1.5px solid var(--card-border);
       object-fit: cover;
-      display: block;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+      margin-bottom: 8px;
     }
 
-    /* App Name */
-    .app-name {
-      font-size: 21px;
-      font-weight: 800;
-      color: #FFFFFF;
-      letter-spacing: -0.3px;
-      margin-bottom: 6px;
+    .app-name-ar {
+      font-size: 17px;
+      font-weight: 900;
+      color: var(--text-hero);
+      line-height: 1.2;
     }
 
-    /* Maglis Live Session Badge */
-    .live-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(16, 185, 129, 0.12);
-      border: 1px solid rgba(16, 185, 129, 0.30);
-      color: #34D399;
-      font-size: 13px;
+    .app-name-en {
+      font-size: 12px;
       font-weight: 700;
-      padding: 4px 14px;
-      border-radius: 20px;
-      margin-bottom: 22px;
-    }
-    .live-dot {
-      width: 7px;
-      height: 7px;
-      background: #10B981;
-      border-radius: 50%;
-      box-shadow: 0 0 8px #10B981;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
+      color: var(--text-muted);
+      letter-spacing: 0.3px;
+      margin-top: 2px;
     }
 
-    /* 5-Digit Segmented Code Card */
-    .code-card {
-      background: rgba(0, 0, 0, 0.45);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-      border-radius: 18px;
-      padding: 12px 18px;
-      display: flex;
-      gap: 8px;
-      direction: ltr;
-      margin-bottom: 24px;
-      box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6);
-    }
-    .code-digit {
-      width: 44px;
-      height: 52px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(16, 185, 129, 0.06) 100%);
-      border: 1px solid rgba(16, 185, 129, 0.45);
-      border-radius: 12px;
-      font-family: "Plus Jakarta Sans", "Cairo", monospace;
-      font-size: 27px;
-      font-weight: 800;
-      color: #34D399;
-      box-shadow: 
-        inset 0 1px 0 rgba(255, 255, 255, 0.20),
-        0 2px 6px rgba(0, 0, 0, 0.3);
-      user-select: all;
+    /* 3. Room Title */
+    .room-title {
+      font-size: 21px;
+      font-weight: 900;
+      color: var(--text-hero);
+      margin-bottom: 18px;
+      letter-spacing: -0.2px;
+      line-height: 1.3;
     }
 
-    /* Actions Box */
-    .actions {
+    /* 4. Segmented 5-Digit Room Code */
+    .code-container {
       width: 100%;
       display: flex;
       flex-direction: column;
-      gap: 11px;
+      align-items: center;
+      margin-bottom: 22px;
     }
 
-    /* 1. Primary Action Button: Open in App */
-    .btn-app {
+    .code-pill {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 16px;
+      padding: 6px 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      direction: ltr;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .code-pill:hover {
+      background: #EAF0EC;
+      border-color: #B8CDC0;
+      transform: translateY(-1px);
+    }
+
+    .code-pill:active {
+      transform: scale(0.98);
+    }
+
+    .digit {
+      width: 44px;
+      height: 50px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 9px;
-      width: 100%;
-      height: 50px;
-      background: linear-gradient(180deg, #10B981 0%, #059669 100%);
-      color: #FFFFFF;
-      font-size: 15.5px;
+      background: var(--digit-bg);
+      border: 1.5px solid var(--digit-border);
+      border-radius: 11px;
+      font-family: "Plus Jakarta Sans", monospace;
+      font-size: 25px;
       font-weight: 800;
-      text-decoration: none;
-      border-radius: 14px;
-      border: none;
+      color: var(--digit-color);
+      box-shadow: 0 1px 3px rgba(4, 120, 87, 0.05);
+      user-select: all;
+    }
+
+    .code-label {
+      margin-top: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       cursor: pointer;
-      box-shadow: 
-        inset 0 1px 0 rgba(255, 255, 255, 0.32),
-        0 8px 24px -4px rgba(16, 185, 129, 0.45);
-      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     }
-    .btn-app:hover {
-      box-shadow: 
-        inset 0 1px 0 rgba(255, 255, 255, 0.40),
-        0 10px 28px -2px rgba(16, 185, 129, 0.60);
-      transform: translateY(-1px);
-    }
-    .btn-app:active {
-      transform: scale(0.98);
-      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-    }
-    .btn-app svg {
-      width: 20px;
-      height: 20px;
+
+    .code-label svg {
+      width: 12px;
+      height: 12px;
       fill: currentColor;
     }
 
-    /* 2. Secondary Action Button: Use on Web */
-    .btn-web {
+    /* 5. Modern Action Buttons */
+    .actions-box {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    /* Primary: Open in App */
+    .btn-primary {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 9px;
+      gap: 8px;
       width: 100%;
-      height: 50px;
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
-      color: #F1F5F9;
+      height: 52px;
+      background: linear-gradient(180deg, #058560 0%, #047857 100%);
+      color: #FFFFFF;
+      font-size: 16px;
+      font-weight: 800;
+      text-decoration: none;
+      border-radius: 15px;
+      border: none;
+      box-shadow: var(--primary-shadow);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(180deg, #059669 0%, #058560 100%);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.985);
+      background: var(--primary-active);
+    }
+
+    .btn-primary svg {
+      width: 19px;
+      height: 19px;
+      fill: currentColor;
+    }
+
+    /* Secondary: Continue on Web */
+    .btn-secondary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      height: 52px;
+      background: var(--btn-web-bg);
+      color: var(--btn-web-text);
       font-size: 15px;
       font-weight: 700;
       text-decoration: none;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 15px;
+      border: 1.5px solid var(--btn-web-border);
       cursor: pointer;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .btn-web:hover {
-      background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.05) 100%);
-      border-color: rgba(255, 255, 255, 0.22);
-      transform: translateY(-1px);
-    }
-    .btn-web:active {
-      transform: scale(0.98);
-      background: rgba(255, 255, 255, 0.06);
-    }
-    .btn-web svg {
-      width: 20px;
-      height: 20px;
-      fill: #34D399;
+      transition: all 0.15s ease;
     }
 
-    /* 3. Official Store Badges: Google Play on LEFT, App Store on RIGHT */
-    .stores-row {
+    .btn-secondary:hover {
+      background: var(--btn-web-hover);
+      border-color: #94A3B8;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary:active {
+      transform: scale(0.985);
+      background: #F1F5F9;
+    }
+
+    .btn-secondary svg {
+      width: 18px;
+      height: 18px;
+      fill: #047857;
+    }
+
+    /* 6. Store Badges (Google Play LEFT, App Store RIGHT) */
+    .store-badges {
+      width: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 12px;
-      width: 100%;
-      margin-top: 6px;
-      direction: ltr; /* LTR order ensures 1st item is on LEFT, 2nd item is on RIGHT */
+      direction: ltr; /* Keeps Google Play strictly on LEFT, App Store strictly on RIGHT */
     }
-    .store-badge {
+
+    .badge-link {
       flex: 1;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       text-decoration: none;
-      transition: transform 0.12s ease, opacity 0.12s ease;
+      transition: transform 0.12s ease, opacity 0.15s ease;
     }
-    .store-badge:hover {
-      opacity: 0.95;
+
+    .badge-link:hover {
+      opacity: 0.92;
       transform: translateY(-1px);
     }
-    .store-badge:active {
+
+    .badge-link:active {
       transform: scale(0.97);
     }
-    .store-badge img {
-      height: 38px;
+
+    .badge-link img {
+      height: 40px;
       width: 100%;
-      max-width: 145px;
+      max-width: 148px;
       object-fit: contain;
       display: block;
-      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+    }
+
+    /* Toast Notification for Copy */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      background: #0F172A;
+      color: #FFFFFF;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 13.5px;
+      font-weight: 700;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 99;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
     }
   </style>
 
@@ -328,6 +391,17 @@ export async function onRequest(context) {
       window.location.href = targetUrl;
     }
 
+    function copyCode() {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText("${code}");
+      }
+      const toast = document.getElementById('toast');
+      if (toast) {
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
+      }
+    }
+
     // Immediate app launch attempt on load
     try {
       window.location.href = targetUrl;
@@ -335,63 +409,68 @@ export async function onRequest(context) {
   </script>
 </head>
 <body>
-  <div class="card">
-    <!-- Ayah Dedication -->
-    <div class="ayah">و ما اسالكم عليه من اجر ان اجري الا على رب العالمين</div>
 
-    <!-- App Logo -->
-    <div class="logo-container">
-      <img src="/icons/app_icon.png" alt="اتلو القران" class="logo">
+  <div class="meet-card">
+    <!-- 1. Top Ayah (NO BRACKETS) -->
+    <div class="ayah-text">و ما اسالكم عليه من اجر ان اجري الا على رب العالمين</div>
+
+    <!-- 2. Logo & App Branding (Clean Stacked) -->
+    <div class="app-brand">
+      <img src="/icons/app_icon.png" alt="Recite Quran" class="app-icon">
+      <div class="app-name-ar">اتلو القران</div>
+      <div class="app-name-en">Recite Quran</div>
     </div>
 
-    <!-- App Name -->
-    <div class="app-name">اتلو القران - Recite Quran</div>
+    <!-- 3. Room Title -->
+    <div class="room-title">مجلس تلاوة القران العظيم</div>
 
-    <!-- Live Maglis Room Badge -->
-    <div class="live-badge">
-      <span class="live-dot"></span>
-      <span>مجلس تلاوة القران العظيم</span>
+    <!-- 4. Segmented 5-Digit Room Code -->
+    <div class="code-container">
+      <div class="code-pill" onclick="copyCode()" title="انقر لنسخ الرمز">
+        <span class="digit">${code[0]}</span>
+        <span class="digit">${code[1]}</span>
+        <span class="digit">${code[2]}</span>
+        <span class="digit">${code[3]}</span>
+        <span class="digit">${code[4]}</span>
+      </div>
+      <div class="code-label" onclick="copyCode()">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+        <span>رمز المجلس • انقر للنسخ</span>
+      </div>
     </div>
 
-    <!-- 5-Digit Segmented Code Display -->
-    <div class="code-card">
-      <span class="code-digit">${code[0]}</span>
-      <span class="code-digit">${code[1]}</span>
-      <span class="code-digit">${code[2]}</span>
-      <span class="code-digit">${code[3]}</span>
-      <span class="code-digit">${code[4]}</span>
-    </div>
-
-    <div class="actions">
-      <!-- 1. Open in App Primary Hero Button -->
-      <a href="#" onclick="openApp(); return false;" class="btn-app">
+    <!-- 5. Modern Action Buttons -->
+    <div class="actions-box">
+      <!-- Primary: Open in App -->
+      <a href="#" onclick="openApp(); return false;" class="btn-primary">
         <svg viewBox="0 0 24 24">
-          <path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+          <path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>
         </svg>
         <span>فتح في التطبيق</span>
       </a>
 
-      <!-- 2. Continue on Web Secondary Button -->
-      <a href="${webAppUrl}" class="btn-web">
+      <!-- Secondary: Continue on Web (Matching form factor) -->
+      <a href="${webAppUrl}" class="btn-secondary">
         <svg viewBox="0 0 24 24">
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
         </svg>
         <span>المتابعة عبر الويب</span>
       </a>
+    </div>
 
-      <!-- 3. Store Badges: Google Play on LEFT, App Store on RIGHT -->
-      <div class="stores-row">
-        <!-- 1st element in LTR is on the LEFT: Google Play -->
-        <a href="${playStoreUrl}" target="_blank" class="store-badge">
-          <img src="/badges/google_play.svg" alt="Get it on Google Play">
-        </a>
-        <!-- 2nd element in LTR is on the RIGHT: App Store -->
-        <a href="${appStoreUrl}" target="_blank" class="store-badge">
-          <img src="/badges/app_store.svg" alt="Download on the App Store">
-        </a>
-      </div>
+    <!-- 6. Store Badges: Google Play on LEFT, App Store on RIGHT -->
+    <div class="store-badges">
+      <a href="${playStoreUrl}" target="_blank" class="badge-link">
+        <img src="/badges/google_play.svg" alt="Google Play">
+      </a>
+      <a href="${appStoreUrl}" target="_blank" class="badge-link">
+        <img src="/badges/app_store.svg" alt="App Store">
+      </a>
     </div>
   </div>
+
+  <div id="toast" class="toast">تم نسخ الرمز ${code}</div>
+
 </body>
 </html>`;
 
