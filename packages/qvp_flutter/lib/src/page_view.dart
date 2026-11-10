@@ -58,31 +58,30 @@ class QvpViewLayout {
     int? gridLines,
     double? maxAspectSlack,
     bool? surahFrames,
-  }) =>
-      QvpViewLayout(
-        padTop: padTop ?? this.padTop,
-        padBottom: padBottom ?? this.padBottom,
-        padSide: padSide ?? this.padSide,
-        lineSpacing: lineSpacing ?? this.lineSpacing,
-        fillHeight: fillHeight ?? this.fillHeight,
-        gridLines: gridLines ?? this.gridLines,
-        maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
-        surahFrames: surahFrames ?? this.surahFrames,
-      );
+  }) => QvpViewLayout(
+    padTop: padTop ?? this.padTop,
+    padBottom: padBottom ?? this.padBottom,
+    padSide: padSide ?? this.padSide,
+    lineSpacing: lineSpacing ?? this.lineSpacing,
+    fillHeight: fillHeight ?? this.fillHeight,
+    gridLines: gridLines ?? this.gridLines,
+    maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
+    surahFrames: surahFrames ?? this.surahFrames,
+  );
 
   QvpLayoutSpec toSpec(double viewportW, double viewportH) => QvpLayoutSpec(
-        viewportW: viewportW,
-        viewportH: viewportH,
-        padTop: padTop,
-        padBottom: padBottom,
-        padLeft: padSide,
-        padRight: padSide,
-        lineSpacing: lineSpacing,
-        fillHeight: fillHeight,
-        gridLines: gridLines,
-        maxAspectSlack: maxAspectSlack,
-        surahFrames: surahFrames,
-      );
+    viewportW: viewportW,
+    viewportH: viewportH,
+    padTop: padTop,
+    padBottom: padBottom,
+    padLeft: padSide,
+    padRight: padSide,
+    lineSpacing: lineSpacing,
+    fillHeight: fillHeight,
+    gridLines: gridLines,
+    maxAspectSlack: maxAspectSlack,
+    surahFrames: surahFrames,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -98,15 +97,15 @@ class QvpViewLayout {
 
   @override
   int get hashCode => Object.hash(
-        padTop,
-        padBottom,
-        padSide,
-        lineSpacing,
-        fillHeight,
-        gridLines,
-        maxAspectSlack,
-        surahFrames,
-      );
+    padTop,
+    padBottom,
+    padSide,
+    lineSpacing,
+    fillHeight,
+    gridLines,
+    maxAspectSlack,
+    surahFrames,
+  );
 }
 
 /// Pan / zoom on top of the engine layout. `view px = offsetX + layout px * scale`. The
@@ -115,6 +114,8 @@ class QvpViewLayout {
 /// after that view is gone. [toView] needs a view that holds the controller now, and throws a
 /// [StateError] without one. Before any [QvpPageView] has taken the controller, all three throw.
 class QvpViewController extends ChangeNotifier {
+  /// The reader's zoom and pan: a layout point `p` draws at `offset + scale · p`. Set them
+  /// with [set], which notifies the view.
   double scale = 1, offsetX = 0, offsetY = 0;
   bool _fitRequested = true;
 
@@ -218,14 +219,13 @@ typedef QvpWordTapCallback = void Function(QvpWordInfo word, QvpHit hit);
 
 /// A tap on a decoration (ayah mark, surah banner, …) that is not a word, and
 /// the hit that found it: line / distance / isExact, as for a word.
-typedef QvpDecorationTapCallback = void Function(
-  QvpDecorationInfo decoration,
-  QvpHit hit,
-);
+typedef QvpDecorationTapCallback =
+    void Function(QvpDecorationInfo decoration, QvpHit hit);
 
 /// Renders a [QvpPage] with the engine's layout, animated highlights, masks,
 /// styled paths, tap / long-press selection and pinch / pan.
 class QvpPageView extends StatefulWidget {
+  /// Shows [page]. Every other argument has a default.
   const QvpPageView({
     super.key,
     required this.page,
@@ -253,14 +253,29 @@ class QvpPageView extends StatefulWidget {
     this.onSwipe,
   });
 
+  /// The page to draw. The view lays it out, ticks it and draws it; it does not free it.
   final QvpPage page;
+
+  /// The padding, spacing and grid the view lays the page out with.
   final QvpViewLayout layout;
 
   /// Optional single-pass canvas painter drawn beneath the ink (e.g. Surah header backgrounds).
-  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? underlay;
+  final void Function(
+    ui.Canvas canvas,
+    Size size,
+    QvpPage page,
+    QvpLayout? layout,
+  )?
+  underlay;
 
   /// Optional single-pass canvas painter drawn above the ink (e.g. Ayah mark numerals, tajweed tooltips).
-  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? overlay;
+  final void Function(
+    ui.Canvas canvas,
+    Size size,
+    QvpPage page,
+    QvpLayout? layout,
+  )?
+  overlay;
 
   /// Optional listenable that requests a repaint of this view when fired (e.g. audio spinner).
   final Listenable? repaintListenable;
@@ -286,6 +301,8 @@ class QvpPageView extends StatefulWidget {
 
   /// Optional custom Tajweed palette.
   final QvpTajweedColors? tajweedColors;
+
+  /// The pan and zoom to share with the host. Null gives the view a controller of its own.
   final QvpViewController? controller;
 
   /// Tap on a word (gap-aware), with the word and its hit.
@@ -293,6 +310,8 @@ class QvpPageView extends StatefulWidget {
 
   /// Tap on a decoration that is not a word, with the decoration and its hit.
   final QvpDecorationTapCallback? onDecorationTap;
+
+  /// Tap that hits neither a word nor a decoration.
   final VoidCallback? onEmptyTap;
 
   /// Whole-word selection changed through long-press-drag (empty list = cleared).
@@ -300,6 +319,9 @@ class QvpPageView extends StatefulWidget {
 
   /// Max distance (page units) for the gap-aware tap.
   final double hitMaxDistance;
+
+  /// [selectionEnabled] turns on long-press-drag selection, [panZoomEnabled] the pinch, pan
+  /// and double-tap fit, and [paperShadow] a shadow under the paper.
   final bool selectionEnabled, panZoomEnabled, paperShadow;
 
   /// Band colour of the drag selection (0xRRGGBBAA), drawn in [QvpLayer.selection].
@@ -355,6 +377,8 @@ class QvpPageView extends StatefulWidget {
   State<QvpPageView> createState() => QvpPageViewState();
 }
 
+/// The state of a [QvpPageView]. Reach it with a `GlobalKey` to read the zoom, the render
+/// [QvpPageViewStats.stats] or the clock the view ticks the page with.
 class QvpPageViewState extends State<QvpPageView>
     with SingleTickerProviderStateMixin {
   late QvpViewController _ctl;
@@ -384,7 +408,10 @@ class QvpPageViewState extends State<QvpPageView>
   /// The scale the page was last fitted at: the floor of a magnifying pinch.
   double _fitScale = 1;
 
+  /// The controller in use: the widget's own, or the one the view made.
   QvpViewController get controller => _ctl;
+
+  /// The page the widget shows.
   QvpPage get page => widget.page;
 
   /// How far the glass is over the fitted page: the view scale over the fitted scale, 1 at rest
@@ -435,7 +462,8 @@ class QvpPageViewState extends State<QvpPageView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
       _ctl._detach(this);
-      _ctl = widget.controller ??
+      _ctl =
+          widget.controller ??
           (oldWidget.controller == null ? _ctl : QvpViewController());
       _ctl._attach(this);
     }
@@ -514,6 +542,7 @@ class QvpPageViewState extends State<QvpPageView>
     }
   }
 
+  /// Milliseconds since the view was made: the time the view passes to [QvpPage.tick].
   double get nowMs => _clock.elapsedMicroseconds / 1000;
 
   void _onTick(Duration _) {
@@ -685,19 +714,31 @@ class QvpPageViewState extends State<QvpPageView>
     _hold(page.engine.viewPan(c.view, drift.dx, drift.dy));
   }
 
+  int _resolveSwipe(double dx, double vx) {
+    // In Quran books (RTL):
+    // Swiping left (dx < 0, vx < 0) pulls the next page forward (+1).
+    // Swiping right (dx > 0, vx > 0) goes back to previous page (-1).
+    final engineDir = page.engine.swipePages(dx, 0.0, vx, 0.0);
+    if (engineDir != 0) {
+      // The engine's swipe_direction assigns +1 to dx > 0 and -1 to dx < 0.
+      // For RTL mushaf page advancing on swipe left, invert engineDir so left is +1:
+      return -engineDir;
+    }
+    if (vx.abs() > 180.0) {
+      return vx < 0 ? 1 : -1;
+    }
+    if (dx.abs() > 36.0) {
+      return dx < 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
   void _onScaleEnd(ScaleEndDetails d) {
     if (widget.onSwipe != null) {
       final sideways = page.sidewaysDrag(_zoom, _ctl.view, _fitScale);
       if (sideways == QvpSideways.turnPage) {
         final vx = d.velocity.pixelsPerSecond.dx;
-        int dir = page.engine.swipePages(_swipeDx, 0.0, vx, 0.0);
-        if (dir == 0) {
-          if (vx.abs() > 180) {
-            dir = vx < 0 ? 1 : -1;
-          } else if (_swipeDx.abs() > 36.0) {
-            dir = _swipeDx < 0 ? 1 : -1;
-          }
-        }
+        final dir = _resolveSwipe(_swipeDx, vx);
         if (dir != 0) {
           widget.onSwipe!(dir);
         }
@@ -825,33 +866,31 @@ class QvpPageViewState extends State<QvpPageView>
               onScaleStart: widget.panZoomEnabled ? _onScaleStart : null,
               onScaleUpdate: widget.panZoomEnabled ? _onScaleUpdate : null,
               onScaleEnd: widget.panZoomEnabled ? _onScaleEnd : null,
-              onHorizontalDragStart: (!widget.panZoomEnabled && widget.onSwipe != null)
+              onHorizontalDragStart:
+                  (!widget.panZoomEnabled && widget.onSwipe != null)
                   ? (_) => _swipeDx = 0.0
                   : null,
-              onHorizontalDragUpdate: (!widget.panZoomEnabled && widget.onSwipe != null)
+              onHorizontalDragUpdate:
+                  (!widget.panZoomEnabled && widget.onSwipe != null)
                   ? (d) => _swipeDx += d.primaryDelta ?? d.delta.dx
                   : null,
-              onHorizontalDragEnd: (!widget.panZoomEnabled && widget.onSwipe != null)
+              onHorizontalDragEnd:
+                  (!widget.panZoomEnabled && widget.onSwipe != null)
                   ? (d) {
                       final vx = d.primaryVelocity ?? 0.0;
-                      int dir = page.engine.swipePages(_swipeDx, 0.0, vx, 0.0);
-                      if (dir == 0) {
-                        if (vx.abs() > 180) {
-                          dir = vx < 0 ? 1 : -1;
-                        } else if (_swipeDx.abs() > 36.0) {
-                          dir = _swipeDx < 0 ? 1 : -1;
-                        }
-                      }
+                      final dir = _resolveSwipe(_swipeDx, vx);
                       if (dir != 0) {
                         widget.onSwipe!(dir);
                       }
                       _swipeDx = 0.0;
                     }
                   : null,
-              onLongPressStart:
-                  widget.selectionEnabled ? _onLongPressStart : null,
-              onLongPressMoveUpdate:
-                  widget.selectionEnabled ? _onLongPressMove : null,
+              onLongPressStart: widget.selectionEnabled
+                  ? _onLongPressStart
+                  : null,
+              onLongPressMoveUpdate: widget.selectionEnabled
+                  ? _onLongPressMove
+                  : null,
               onLongPressEnd: widget.selectionEnabled ? _onLongPressEnd : null,
               child: RepaintBoundary(
                 child: CustomPaint(
@@ -890,50 +929,55 @@ class _InkPaints {
     required int tashkeel,
     required bool tajweedColoring,
     required QvpTajweedColors? tajweedColors,
-  })  : wordPaint = (ui.Paint()
-          ..color = QvpColor.toColor(ink)
-          ..isAntiAlias = true),
-        tashkeelPaint = tashkeel != 0
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(tashkeel)
-              ..isAntiAlias = true)
-            : null,
-        isTajweed = tajweedColoring && tajweedColors != null,
-        maddPaint = (tajweedColoring && tajweedColors != null)
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(rgba(tajweedColors.madd))
-              ..isAntiAlias = true)
-            : null,
-        iqlabPaint = (tajweedColoring && tajweedColors != null)
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(rgba(tajweedColors.iqlab))
-              ..isAntiAlias = true)
-            : null,
-        waqfPaint = (tajweedColoring && tajweedColors != null)
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(rgba(tajweedColors.waqf))
-              ..isAntiAlias = true)
-            : null,
-        tanwinPaint = (tajweedColoring && tajweedColors != null)
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(rgba(tajweedColors.tanwin))
-              ..isAntiAlias = true)
-            : null,
-        harakahPaint = (tajweedColoring && tajweedColors != null)
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(rgba(tajweedColors.harakah))
-              ..isAntiAlias = true)
-            : null,
-        dabtPaint = (tajweedColoring && tajweedColors != null)
-            ? (ui.Paint()
-              ..color = QvpColor.toColor(rgba(tajweedColors.dabt))
-              ..isAntiAlias = true)
-            : null;
+  }) : wordPaint = (ui.Paint()
+         ..color = QvpColor.toColor(ink)
+         ..isAntiAlias = true),
+       tashkeelPaint = tashkeel != 0
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(tashkeel)
+               ..isAntiAlias = true)
+           : null,
+       isTajweed = tajweedColoring && tajweedColors != null,
+       maddPaint = (tajweedColoring && tajweedColors != null)
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(rgba(tajweedColors.madd))
+               ..isAntiAlias = true)
+           : null,
+       iqlabPaint = (tajweedColoring && tajweedColors != null)
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(rgba(tajweedColors.iqlab))
+               ..isAntiAlias = true)
+           : null,
+       waqfPaint = (tajweedColoring && tajweedColors != null)
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(rgba(tajweedColors.waqf))
+               ..isAntiAlias = true)
+           : null,
+       tanwinPaint = (tajweedColoring && tajweedColors != null)
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(rgba(tajweedColors.tanwin))
+               ..isAntiAlias = true)
+           : null,
+       harakahPaint = (tajweedColoring && tajweedColors != null)
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(rgba(tajweedColors.harakah))
+               ..isAntiAlias = true)
+           : null,
+       dabtPaint = (tajweedColoring && tajweedColors != null)
+           ? (ui.Paint()
+               ..color = QvpColor.toColor(rgba(tajweedColors.dabt))
+               ..isAntiAlias = true)
+           : null;
 
   final ui.Paint wordPaint;
   final ui.Paint? tashkeelPaint;
   final bool isTajweed;
-  final ui.Paint? maddPaint, iqlabPaint, waqfPaint, tanwinPaint, harakahPaint, dabtPaint;
+  final ui.Paint? maddPaint,
+      iqlabPaint,
+      waqfPaint,
+      tanwinPaint,
+      harakahPaint,
+      dabtPaint;
 
   ui.Paint resolve(QvpPage page, int path) {
     final kind = page.pathKind(path);
@@ -947,13 +991,16 @@ class _InkPaints {
     }
     final mark = page.pathMark(path);
     final category = page.pathCategory(path);
-    if (mark == 9) return maddPaint!;
-    if (mark == 27) return iqlabPaint!;
-    if (category == QvpCategory.dabt) return dabtPaint!;
-    if (category == QvpCategory.waqf || family == 4) return waqfPaint!;
-    if (category == QvpCategory.tanwin || family == 2) return tanwinPaint!;
-    if (category == QvpCategory.readingSign || family == 7) return dabtPaint!;
-    return harakahPaint!;
+    if (mark == 9) return maddPaint ?? wordPaint;
+    if (mark == 27) return iqlabPaint ?? wordPaint;
+    if (category == QvpCategory.dabt) return dabtPaint ?? wordPaint;
+    if (category == QvpCategory.waqf || family == 4)
+      return waqfPaint ?? wordPaint;
+    if (category == QvpCategory.tanwin || family == 2)
+      return tanwinPaint ?? wordPaint;
+    if (category == QvpCategory.readingSign || family == 7)
+      return dabtPaint ?? wordPaint;
+    return harakahPaint ?? wordPaint;
   }
 }
 
@@ -1025,30 +1072,29 @@ class _InkKey {
 
   @override
   int get hashCode => Object.hash(
-        page,
-        ink,
-        scale,
-        offsetX,
-        offsetY,
-        top,
-        bandH,
-        styled,
-        surahFrames,
-        tashkeelInk,
-        tajweedKey,
-      );
+    page,
+    ink,
+    scale,
+    offsetX,
+    offsetY,
+    top,
+    bandH,
+    styled,
+    surahFrames,
+    tashkeelInk,
+    tajweedKey,
+  );
 }
 
 class _PictureCacheEntry {
   final _InkKey key;
   final ui.Picture picture;
+
+  /// How many engine paths the recording draws. A replay draws all of them, so the stats of
+  /// the last frame need this on a cache hit as much as on a fresh recording.
   final int paths;
 
-  _PictureCacheEntry(
-    this.key,
-    this.picture,
-    this.paths,
-  );
+  _PictureCacheEntry(this.key, this.picture, this.paths);
 
   /// True once the cache has let the picture go. A view that holds the entry records again.
   bool disposed = false;
@@ -1067,17 +1113,17 @@ class _LruCache {
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
 
   void evictPage(int pageNumber) {
-    final keysToRemove =
-        _entries.keys.where((k) => k.page == pageNumber).toList();
+    final keysToRemove = _entries.keys
+        .where((k) => k.page == pageNumber)
+        .toList();
     for (final k in keysToRemove) {
       _entries.remove(k)?.dispose();
     }
   }
 
-  bool hasCachedInk(Object key) =>
-      key is _InkKey
-          ? _entries.containsKey(key)
-          : (key is int && _entries.keys.any((k) => k.page == key));
+  bool hasCachedInk(Object key) => key is _InkKey
+      ? _entries.containsKey(key)
+      : (key is int && _entries.keys.any((k) => k.page == key));
 
   _PictureCacheEntry? get(_InkKey key) {
     final entry = _entries.remove(key);
@@ -1088,20 +1134,12 @@ class _LruCache {
     return null;
   }
 
-  _PictureCacheEntry put(
-    _InkKey key,
-    ui.Picture pic,
-    int paths,
-  ) {
+  _PictureCacheEntry put(_InkKey key, ui.Picture pic, int paths) {
     final old = _entries.remove(key);
     if (old != null && old.picture != pic) {
       old.dispose();
     }
-    final entry = _entries[key] = _PictureCacheEntry(
-      key,
-      pic,
-      paths,
-    );
+    final entry = _entries[key] = _PictureCacheEntry(key, pic, paths);
     while (_entries.length > maxEntries) {
       final firstKey = _entries.keys.first;
       _entries.remove(firstKey)?.dispose();
@@ -1146,28 +1184,14 @@ class _DrawList {
     double bandH,
     double contentH,
     QvpLayout? l,
-  ) {
-    if (page != this.page) return false;
-    if ((top - this.top).abs() > 0.5) return false;
-    if ((bandH - this.bandH).abs() > 1.0) return false;
-    if ((contentH - this.contentH).abs() > 1.0) return false;
-    if (l?.scale != null && scale != null) {
-      if ((l!.scale - scale!).abs() > 0.001) return false;
-    } else if (l?.scale != scale) {
-      return false;
-    }
-    if (l?.offsetX != null && offsetX != null) {
-      if ((l!.offsetX - offsetX!).abs() > 0.5) return false;
-    } else if (l?.offsetX != offsetX) {
-      return false;
-    }
-    if (l?.offsetY != null && offsetY != null) {
-      if ((l!.offsetY - offsetY!).abs() > 0.5) return false;
-    } else if (l?.offsetY != offsetY) {
-      return false;
-    }
-    return true;
-  }
+  ) =>
+      page == this.page &&
+      top == this.top &&
+      bandH == this.bandH &&
+      contentH == this.contentH &&
+      l?.scale == scale &&
+      l?.offsetX == offsetX &&
+      l?.offsetY == offsetY;
 }
 
 /// Boxes the engine placed in viewport px, highlight bands or mask blocks, as one nonzero path
@@ -1242,8 +1266,7 @@ class _InkCache {
     _InkKey key,
     ui.Picture pic,
     int paths,
-  ) =>
-      _globalInkCache.put(key, pic, paths);
+  ) => _globalInkCache.put(key, pic, paths);
 
   static void prepare(
     QvpPage page, {
@@ -1270,8 +1293,9 @@ class _InkCache {
     for (var i = 0; i < styledPaths.length; i++) {
       keyVal = 31 * (31 * keyVal + styledPaths[i].path) + styledPaths[i].color;
     }
-    final tajweedKey =
-        (tajweedColoring && tajweedColors != null) ? tajweedColors.hashCode : 0;
+    final tajweedKey = (tajweedColoring && tajweedColors != null)
+        ? tajweedColors.hashCode
+        : 0;
     final key = _InkKey(
       page.page,
       ink,
@@ -1530,13 +1554,13 @@ class _QvpPainter extends CustomPainter {
     this.overlay,
     Listenable? repaintListenable,
   }) : super(
-          repaint: Listenable.merge([
-            page,
-            view,
-            frame,
-            if (repaintListenable != null) repaintListenable,
-          ]),
-        );
+         repaint: Listenable.merge([
+           page,
+           view,
+           frame,
+           if (repaintListenable != null) repaintListenable,
+         ]),
+       );
 
   final QvpPage page;
   final QvpViewController view;
@@ -1548,9 +1572,20 @@ class _QvpPainter extends CustomPainter {
   final Object? tashkeelInk;
   final bool tajweedColoring;
   final QvpTajweedColors? tajweedColors;
-  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? underlay;
-  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? overlay;
-
+  final void Function(
+    ui.Canvas canvas,
+    Size size,
+    QvpPage page,
+    QvpLayout? layout,
+  )?
+  underlay;
+  final void Function(
+    ui.Canvas canvas,
+    Size size,
+    QvpPage page,
+    QvpLayout? layout,
+  )?
+  overlay;
 
   final ui.Paint _boxPaint = ui.Paint()..isAntiAlias = true;
   final ui.Path _boxPath = ui.Path();
@@ -1716,8 +1751,9 @@ class _QvpPainter extends CustomPainter {
     final styledKey = cache.styledKey;
     final tashkeel = tashkeelInk != null ? rgba(tashkeelInk!) : 0;
     final q = cache.getDrawList(page, l, top, bandH, contentH);
-    final tajweedKey =
-        (tajweedColoring && tajweedColors != null) ? tajweedColors!.hashCode : 0;
+    final tajweedKey = (tajweedColoring && tajweedColors != null)
+        ? tajweedColors!.hashCode
+        : 0;
     final held = cache.entry;
     if (held != null &&
         !held.disposed &&
@@ -1802,11 +1838,7 @@ class _QvpPainter extends CustomPainter {
         cache.picture = pic;
         cache.basePaths = n;
         cache.baseMs = sw.elapsedMicroseconds / 1000;
-        cache.entry = _InkCache.keepGlobalInk(
-          key,
-          pic,
-          n,
-        );
+        cache.entry = _InkCache.keepGlobalInk(key, pic, n);
       }
     }
 
@@ -1899,17 +1931,21 @@ class _QvpPainter extends CustomPainter {
 
 /// Render statistics of a [QvpPageView] (base / overlay timings of the last frame).
 extension QvpPageViewStats on QvpPageViewState {
+  /// What the last frame drew. `basePaths` and `baseMs` are the cached base ink's paths and
+  /// milliseconds, `overlayPaths` and `overlayMs` the styled overlay's. `bands` counts the
+  /// highlight bands.
   ({
     int basePaths,
     double baseMs,
     int overlayPaths,
     double overlayMs,
     int bands,
-  }) get stats => (
-        basePaths: _cache.basePaths,
-        baseMs: _cache.baseMs,
-        overlayPaths: _cache.overlayPaths,
-        overlayMs: _cache.overlayMs,
-        bands: _cache.bandCount,
-      );
+  })
+  get stats => (
+    basePaths: _cache.basePaths,
+    baseMs: _cache.baseMs,
+    overlayPaths: _cache.overlayPaths,
+    overlayMs: _cache.overlayMs,
+    bands: _cache.bandCount,
+  );
 }

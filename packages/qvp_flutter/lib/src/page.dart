@@ -806,10 +806,17 @@ class QvpPage extends ChangeNotifier {
     final map = <int, QvpBox>{};
     final n = words.length;
     for (var i = 0; i < n; i++) {
-      final boxes = wordBandsView([i], height: height, padX: 0.0, padY: padY);
-      if (boxes.isNotEmpty) {
-        map[i] = boxes.first;
-      }
+      final b = wordBoundsView(i);
+      map[i] = QvpBox(
+        id: i,
+        line: words[i].line,
+        x0: b.x0,
+        y0: b.y0 - padY,
+        x1: b.x1,
+        y1: b.y1 + padY,
+        color: 0,
+        radius: 0.0,
+      );
     }
     return _cachedWordBoxesView = map;
   }
