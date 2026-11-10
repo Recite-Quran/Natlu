@@ -115,47 +115,35 @@ class MaglisPacket {
       MaglisBinaryPacker.unpack(bytes);
 
   /// Ultra-compact structured error map for minimum bandwidth over WebRTC.
+  /// Sends strictly essential integer indices and phoneme strings.
   static Map<String, dynamic> compactErrorMap(rq.ReciterError e) {
-    final m = <String, dynamic>{
+    return {
       'errorType': e.errorType.index,
       'speechErrorType': e.speechErrorType.index,
       'expectedPh': e.expectedPh,
       'predictedPh': e.predictedPh,
     };
-    if (e.durationStatus != null) {
-      m['durationStatus'] = e.durationStatus!.index;
-    }
-    if (e.expectedRule != null) {
-      m['expectedRule'] = {
-        'type': e.expectedRule.runtimeType.toString(),
-        'nameAr': e.expectedRule!.name.ar,
-        'nameEn': e.expectedRule!.name.en,
-        'goldenLen': e.expectedRule!.goldenLen,
-      };
-    }
-    if (e.expectedDuration != null) {
-      m['expectedDuration'] =
-          double.parse(e.expectedDuration!.toStringAsFixed(2));
-    }
-    if (e.actualDuration != null) {
-      m['actualDuration'] =
-          double.parse(e.actualDuration!.toStringAsFixed(2));
-    }
-    return m;
   }
 
-  /// Deserializes a [rq.ReciterError] ensuring nested maps are correctly typed.
+  /// Deserializes a [rq.ReciterError] from the compact wire payload.
   static rq.ReciterError decodeError(Map<dynamic, dynamic> raw) {
-    final map = Map<String, dynamic>.from(raw);
-    if (map['expectedRule'] is Map) {
-      map['expectedRule'] =
-          Map<String, dynamic>.from(map['expectedRule'] as Map);
-    }
-    if (map['predictedRule'] is Map) {
-      map['predictedRule'] =
-          Map<String, dynamic>.from(map['predictedRule'] as Map);
-    }
-    return rq.ReciterError.fromMap(map);
+    final int tIdx = (raw['errorType'] ?? raw['t'] ?? 0) as int;
+    final int sIdx = (raw['speechErrorType'] ?? raw['s'] ?? 2) as int;
+    final int? dIdx = (raw['durationStatus'] ?? raw['d']) as int?;
+    final String expectedPh = (raw['expectedPh'] ?? raw['e'] ?? '') as String;
+    final String predictedPh = (raw['predictedPh'] ?? raw['p'] ?? '') as String;
+    return rq.ReciterError(
+      errorType: rq.ErrorCategory.values[
+          tIdx.clamp(0, rq.ErrorCategory.values.length - 1)],
+      speechErrorType: rq.SpeechErrorType.values[
+          sIdx.clamp(0, rq.SpeechErrorType.values.length - 1)],
+      durationStatus: dIdx != null
+          ? rq.TajweedDurationStatus.values[
+              dIdx.clamp(0, rq.TajweedDurationStatus.values.length - 1)]
+          : null,
+      expectedPh: expectedPh,
+      predictedPh: predictedPh,
+    );
   }
 
   /// Serializes active errors per word into radix-16 keyed map.

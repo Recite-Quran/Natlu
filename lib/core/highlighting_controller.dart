@@ -524,8 +524,10 @@ class HighlightingController extends rq.HighlightingController {
   @override
   List<rq.ReciterError>? getWordErrors(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    return _store.errorsFor(s, ayah, wordIndex) ??
+    final list = _store.errorsFor(s, ayah, wordIndex) ??
         super.getWordErrors(ayah, wordIndex, surah: s);
+    if (list == null || list.isEmpty) return null;
+    return list.map((e) => hydrateRemoteError(s, ayah, wordIndex, e)).toList();
   }
 
   @override
@@ -620,7 +622,10 @@ class HighlightingController extends rq.HighlightingController {
     }
     for (final w in yellowWords) {
       final errList = errors?[w];
-      _store.markYellow(surah, ayah, w, errList);
+      final hydratedList = errList != null
+          ? errList.map((e) => hydrateRemoteError(surah, ayah, w, e)).toList()
+          : null;
+      _store.markYellow(surah, ayah, w, hydratedList);
       changed = true;
     }
     for (final w in redWords) {
@@ -639,6 +644,95 @@ class HighlightingController extends rq.HighlightingController {
       }
       globalRevision.value++;
       notifyListeners();
+    }
+  }
+
+  /// Hydrates a lightweight [rq.ReciterError] into a complete model with
+  /// canonical Tajweed rule metadata and guidance derived locally from [repository].
+  rq.ReciterError hydrateRemoteError(
+    int surah,
+    int ayah,
+    int wordIndex,
+    rq.ReciterError e,
+  ) {
+    if (e.expectedRule != null && e.durationStatus != null) return e;
+
+    rq.TajweedRule? rule = e.expectedRule;
+    rq.TajweedDurationStatus? durStatus = e.durationStatus;
+
+    if (e.errorType == rq.ErrorCategory.tajweed) {
+      if (rule == null) {
+        final verse = repository.getVerse(surah, ayah);
+        if (verse != null &&
+            wordIndex >= 0 &&
+            wordIndex < verse.wordRules.length) {
+          final rules = verse.wordRules[wordIndex];
+          if (rules.isNotEmpty) {
+            final rq.WordTajweedRule matchedRule = rules.firstWhere(
+              (r) => r.goldenLen == e.expectedPh.length,
+              orElse: () => rules.first,
+            );
+            rule = instantiateTajweedRule(matchedRule, config);
+          }
+        }
+      }
+
+      if (durStatus == null) {
+        if (e.expectedPh.length > e.predictedPh.length ||
+            e.predictedPh.isEmpty) {
+          durStatus = rq.TajweedDurationStatus.underheld;
+        } else if (e.predictedPh.length > e.expectedPh.length) {
+          durStatus = rq.TajweedDurationStatus.overheld;
+        } else {
+          durStatus = rq.TajweedDurationStatus.underheld;
+        }
+      }
+    }
+
+    return rq.ReciterError(
+      errorType: e.errorType,
+      speechErrorType: e.speechErrorType,
+      durationStatus: durStatus,
+      expectedPh: e.expectedPh,
+      predictedPh: e.predictedPh,
+      expectedRule: rule,
+    );
+  }
+
+  /// Instantiates a canonical [rq.TajweedRule] from a dataset [rq.WordTajweedRule]
+  /// matching the exact rule mapping used inside the `recite_quran` engine.
+  static rq.TajweedRule instantiateTajweedRule(
+    rq.WordTajweedRule wRule, [
+    rq.TrackerConfig config = const rq.TrackerConfig(),
+  ]) {
+    final speed = config.recitationSpeed;
+    switch (wRule.ruleId) {
+      case 1:
+        return const rq.NormalMaddRule();
+      case 2:
+        return rq.MonfaselMaddRule(speed.monfaselMaddHarakat);
+      case 3:
+        return rq.MottaselMaddRule(speed.mottaselMaddHarakat);
+      case 4:
+        return rq.MottaselMaddPauseRule(speed.mottaselMaddPauseHarakat);
+      case 5:
+        return rq.AaredMaddRule(speed.aaredMaddHarakat);
+      case 6:
+        return const rq.LazemMaddRule();
+      case 7:
+        return rq.LeenMaddRule(speed.leenMaddHarakat);
+      case 9:
+        return const rq.ShaddahRule();
+      case 10:
+        return rq.MushaddadGhunnahRule.withNames(
+          nameAr: wRule.nameAr,
+          nameEn: wRule.nameEn,
+        );
+      default:
+        return rq.MaddRule(
+          name: rq.LangName(ar: wRule.nameAr, en: wRule.nameEn),
+          goldenLen: wRule.goldenLen,
+        );
     }
   }
 

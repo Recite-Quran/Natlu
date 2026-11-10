@@ -697,17 +697,29 @@ class QvpPageViewState extends State<QvpPageView>
     // In Arabic Quran reading order (RTL):
     // Swiping from left to right (dx > 0, vx > 0) turns to the NEXT page (+1).
     // Swiping from right to left (dx < 0, vx < 0) turns to the PREVIOUS page (-1).
-    final engineDir = page.engine.swipePages(dx, 0.0, vx, 0.0);
-    if (engineDir != 0) {
-      return engineDir;
-    }
-    // Displacement dominates when significant (> 36px) to prevent finger lift-off micro-reversals
-    if (dx.abs() > 36.0) {
+
+    // 1. Primary rule: When physical drag distance is significant (>= 36px),
+    // displacement is absolute truth and dominates over any lift-off flick noise.
+    if (dx.abs() >= 36.0) {
       return dx > 0 ? 1 : -1;
     }
-    if (vx.abs() > 180.0 && (dx.abs() <= 12.0 || (dx > 0 == vx > 0))) {
-      return vx > 0 ? 1 : -1;
+
+    // 2. Secondary rule: Quick flick gesture (|vx| >= 350 px/s).
+    // If user flicked quickly without traveling 36px, velocity dictates the intent,
+    // provided initial touch didn't have substantial conflicting motion.
+    if (vx.abs() >= 350.0) {
+      if (dx.abs() <= 15.0 || (dx > 0 == vx > 0)) {
+        return vx > 0 ? 1 : -1;
+      }
     }
+
+    // 3. Fallback to native engine classifier only if dx and vx are non-conflicting
+    final engineDir = page.engine.swipePages(dx, 0.0, vx, 0.0);
+    if (engineDir != 0) {
+      if (engineDir > 0 && (dx > 0 || vx > 0)) return 1;
+      if (engineDir < 0 && (dx < 0 || vx < 0)) return -1;
+    }
+
     return 0;
   }
 
