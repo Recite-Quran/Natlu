@@ -620,7 +620,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     if (AppState.instance.currentMushafPage.value != clamped) {
       AppState.instance.currentMushafPage.value = clamped;
     }
-    _syncPageSelection(clamped);
+    if (!animated) {
+      _syncPageSelection(clamped);
+    }
     _loadCurrentPage(clamped, triggerSlide: animated);
   }
 
@@ -636,6 +638,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _triggerSlide();
       } else {
         _turnDir = 0;
+        if (triggerSlide) {
+          _syncPageSelection(pageNumber);
+        }
       }
       if (mounted) setState(() {});
     } else {
@@ -649,13 +654,18 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         _triggerSlide();
       } else {
         _turnDir = 0;
+        if (triggerSlide) {
+          _syncPageSelection(pageNumber);
+        }
       }
       if (mounted) setState(() {});
     }
-    MushafProvider.instance.preloadAdjacentPages(
-      pageNumber,
-      MushafProvider.instance.lastViewportSize,
-    );
+    if (!triggerSlide) {
+      MushafProvider.instance.preloadAdjacentPages(
+        pageNumber,
+        MushafProvider.instance.lastViewportSize,
+      );
+    }
   }
 
   void _triggerSlide() {
@@ -663,7 +673,15 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _turnDir = 0;
     if (d == 0) return;
     _activeSlideDir = d;
-    _slideController.forward(from: 0.0);
+    _slideController.forward(from: 0.0).then((_) {
+      if (mounted) {
+        _syncPageSelection(_currentPage);
+        MushafProvider.instance.preloadAdjacentPages(
+          _currentPage,
+          MushafProvider.instance.lastViewportSize,
+        );
+      }
+    });
   }
 
   void _clearPageVisuals(QvpPage? page) {
@@ -757,10 +775,58 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onWordTap(BuildContext context, QvpPage page, int wordIndex) {
     if (wordIndex < 0 || wordIndex >= page.words.length) return;
-    final w = page.words[wordIndex];
-    final surah = w.surah;
-    final ayah = w.ayah;
-    final wordIndex0 = w.word - 1;
+    int effectiveIndex = wordIndex;
+    var w = page.words[effectiveIndex];
+    var surah = w.surah;
+    var ayah = w.ayah;
+    var wordIndex0 = w.word - 1;
+
+    bool isWordYellow(int a, int w0, int s) =>
+        widget.controller.isWordYellow(a, w0, surah: s);
+
+    // Proximity snap: if tapped adjacent to a yellow word on the same line, snap to it.
+    if (!isWordYellow(ayah, wordIndex0, surah)) {
+      if (effectiveIndex > 0 &&
+          page.words[effectiveIndex - 1].line == w.line &&
+          isWordYellow(
+            page.words[effectiveIndex - 1].ayah,
+            page.words[effectiveIndex - 1].word - 1,
+            page.words[effectiveIndex - 1].surah,
+          )) {
+        effectiveIndex = effectiveIndex - 1;
+        w = page.words[effectiveIndex];
+        surah = w.surah;
+        ayah = w.ayah;
+        wordIndex0 = w.word - 1;
+      } else if (effectiveIndex + 1 < page.words.length &&
+          page.words[effectiveIndex + 1].line == w.line &&
+          isWordYellow(
+            page.words[effectiveIndex + 1].ayah,
+            page.words[effectiveIndex + 1].word - 1,
+            page.words[effectiveIndex + 1].surah,
+          )) {
+        effectiveIndex = effectiveIndex + 1;
+        w = page.words[effectiveIndex];
+        surah = w.surah;
+        ayah = w.ayah;
+        wordIndex0 = w.word - 1;
+      }
+    }
+
+    // Yellow Tajweed error words ALWAYS open the Tajweed detail dialog, even during remote session
+    if (isWordYellow(ayah, wordIndex0, surah)) {
+      QuranInteractionService.handleWordTap(
+        context: context,
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex0,
+        wordText: w.text,
+        controller: widget.controller,
+        onAyahTap: () => setState(() {}),
+        playWordDirectly: false,
+      );
+      return;
+    }
 
     final maglis = MaglisController.instance;
     if (maglis.inSession && maglis.isRemoteReciting) {
@@ -929,12 +995,17 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                   final double offsetFraction =
                                       (1.0 - progress) *
                                           (-_activeSlideDir * 0.16);
-                                  return Transform.translate(
-                                    offset: Offset(
-                                      offsetFraction * pageContainerWidth,
-                                      0.0,
+                                  final double alpha =
+                                      (0.55 + 0.45 * progress).clamp(0.0, 1.0);
+                                  return Opacity(
+                                    opacity: alpha,
+                                    child: Transform.translate(
+                                      offset: Offset(
+                                        offsetFraction * pageContainerWidth,
+                                        0.0,
+                                      ),
+                                      child: child,
                                     ),
-                                    child: child,
                                   );
                                 },
                                 child: RepaintBoundary(

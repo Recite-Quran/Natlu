@@ -1121,11 +1121,43 @@ abstract final class QuranInteractionService {
     bool playWordDirectly = false,
     List<rq.ReciterError>? overrideErrors,
   }) {
+    final bool isYellow =
+        controller.isWordYellow(ayah, wordIndex, surah: surah);
+    final errors = overrideErrors ??
+        (isYellow
+            ? controller.getWordErrors(ayah, wordIndex, surah: surah)
+            : null);
+
+    // Tajweed warning words ALWAYS show the error detail dialog directly
+    // without requiring the verse to be active or mutated.
+    if (isYellow) {
+      AppState.instance.markTajweedWordClicked();
+      DialogService.showTajweedError(
+        context,
+        word: wordText,
+        errors: (errors != null && errors.isNotEmpty)
+            ? errors
+            : [
+                rq.ReciterError(
+                  errorType: rq.ErrorCategory.tajweed,
+                  speechErrorType: rq.SpeechErrorType.replace,
+                  expectedPh: '',
+                  predictedPh: '',
+                ),
+              ],
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+      );
+      onWordErrorTap?.call();
+      return;
+    }
+
     final bool isAlreadySelected =
         controller.targetSurah == surah && controller.activeAyah.value == ayah;
 
-    // A word cannot be pressed, auditioned, or selected unless the ayah itself is selected first.
-    if (!isAlreadySelected) {
+    // A word cannot be auditioned or selected unless the ayah itself is selected first.
+    if (!isAlreadySelected && !playWordDirectly) {
       selectAyah(
         surah: surah,
         ayah: ayah,
@@ -1135,29 +1167,11 @@ abstract final class QuranInteractionService {
       return;
     }
 
-    final errors = overrideErrors ??
-        (controller.isWordYellow(ayah, wordIndex, surah: surah)
-            ? controller.getWordErrors(ayah, wordIndex, surah: surah)
-            : null);
-
-    if (errors != null && errors.isNotEmpty) {
-      AppState.instance.markTajweedWordClicked();
-      DialogService.showTajweedError(
-        context,
-        word: wordText,
-        errors: errors,
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex,
-      );
-      onWordErrorTap?.call();
-    } else {
-      QuranAudioService.instance.playWord(
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex,
-      );
-    }
+    QuranAudioService.instance.playWord(
+      surah: surah,
+      ayah: ayah,
+      wordIndex: wordIndex,
+    );
   }
 
   /// Toggles Ayah audio playback with haptic feedback.
