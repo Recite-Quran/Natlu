@@ -15,7 +15,7 @@ export async function onRequest(context) {
   const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.recitequran.app';
   const appStoreUrl = 'https://apps.apple.com/app/id6806614841';
   const webAppUrl = `https://natlu.pages.dev/#/${code}`;
-
+  
   // Telegram-style Android Intent URI: forces native app launch or falls back to Play Store
   const androidIntentUrl = `intent://maglis/${code}#Intent;scheme=natlu;package=com.recitequran.app;S.browser_fallback_url=https%3A%2F%2Fplay.google.com%2Fstore%2Fapps%2Fdetails%3Fid%3Dcom.recitequran.app;end`;
 
@@ -44,7 +44,9 @@ export async function onRequest(context) {
   <link rel="image_src" href="https://natlu.pages.dev/maglis-preview.png">
 
   <!-- Favicons -->
-  <link rel="icon" type="image/png" href="/icons/favicon.png?v=quran">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/Icon-192.png">
+  <link rel="icon" type="image/png" href="/icons/favicon.png">
+  <link rel="shortcut icon" href="/icons/favicon.png">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -111,7 +113,7 @@ export async function onRequest(context) {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 28px;
-      padding: 30px 24px 26px;
+      padding: 32px 24px 28px;
       max-width: 380px;
       width: 100%;
       box-shadow: var(--card-shadow);
@@ -123,7 +125,7 @@ export async function onRequest(context) {
 
     /* 1. Top Ayah (NO BRACKETS — Clean, Serene, Centered) */
     .ayah-text {
-      font-size: 13px;
+      font-size: 13.5px;
       font-weight: 600;
       color: var(--ayah-color);
       line-height: 1.5;
@@ -170,7 +172,7 @@ export async function onRequest(context) {
       font-size: 21px;
       font-weight: 900;
       color: var(--text-hero);
-      margin-bottom: 18px;
+      margin-bottom: 20px;
       letter-spacing: -0.2px;
       line-height: 1.3;
     }
@@ -179,9 +181,8 @@ export async function onRequest(context) {
     .code-container {
       width: 100%;
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-bottom: 22px;
+      justify-content: center;
+      margin-bottom: 24px;
     }
 
     .code-pill {
@@ -222,23 +223,6 @@ export async function onRequest(context) {
       color: var(--digit-color);
       box-shadow: 0 1px 3px rgba(4, 120, 87, 0.05);
       user-select: all;
-    }
-
-    .code-label {
-      margin-top: 6px;
-      font-size: 11.5px;
-      font-weight: 600;
-      color: var(--text-muted);
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      cursor: pointer;
-    }
-
-    .code-label svg {
-      width: 12px;
-      height: 12px;
-      fill: currentColor;
     }
 
     /* 5. Modern Action Buttons */
@@ -382,31 +366,6 @@ export async function onRequest(context) {
       transform: translateY(0);
     }
   </style>
-
-  <script>
-    const isAndroid = /android/i.test(navigator.userAgent);
-    const targetUrl = isAndroid ? "${androidIntentUrl}" : "${appSchemeUrl}";
-
-    function openApp() {
-      window.location.href = targetUrl;
-    }
-
-    function copyCode() {
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText("${code}");
-      }
-      const toast = document.getElementById('toast');
-      if (toast) {
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2000);
-      }
-    }
-
-    // Immediate app launch attempt on load
-    try {
-      window.location.href = targetUrl;
-    } catch (_) {}
-  </script>
 </head>
 <body>
 
@@ -432,10 +391,6 @@ export async function onRequest(context) {
         <span class="digit">${code[2]}</span>
         <span class="digit">${code[3]}</span>
         <span class="digit">${code[4]}</span>
-      </div>
-      <div class="code-label" onclick="copyCode()">
-        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-        <span>رمز المجلس • انقر للنسخ</span>
       </div>
     </div>
 
@@ -471,6 +426,25 @@ export async function onRequest(context) {
 
   <div id="toast" class="toast">تم نسخ الرمز ${code}</div>
 
+  <script>
+    const isAndroid = /android/i.test(navigator.userAgent);
+    const targetUrl = isAndroid ? "${androidIntentUrl}" : "${appSchemeUrl}";
+
+    function openApp() {
+      window.location.href = targetUrl;
+    }
+
+    function copyCode() {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText("${code}");
+      }
+      const toast = document.getElementById('toast');
+      if (toast) {
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
+      }
+    }
+  </script>
 </body>
 </html>`;
 
