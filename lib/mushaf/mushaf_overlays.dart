@@ -362,6 +362,9 @@ class MushafOverlays {
           controller.isAyahAudioPlaying(m.surah, m.ayah);
 
       if (isThisBuffering) {
+        _headerFillPaint.color = surfaceColor;
+        canvas.drawCircle(center, customR - 0.5, _headerFillPaint);
+
         _ringPaint.color = greenBtnColor;
         _ringPaint.strokeWidth = 1.2;
         canvas.drawCircle(center, customR, _ringPaint);
@@ -379,6 +382,9 @@ class MushafOverlays {
           _spinnerPaint,
         );
       } else if (isThisPlaying) {
+        _headerFillPaint.color = surfaceColor;
+        canvas.drawCircle(center, customR - 0.5, _headerFillPaint);
+
         _ringPaint.color = greenBtnColor;
         _ringPaint.strokeWidth = 1.2;
         canvas.drawCircle(center, customR, _ringPaint);
