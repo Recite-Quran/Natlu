@@ -79,7 +79,7 @@ void main() async {
             builder: () => QuranAudioHandler.instance,
             config: const AudioServiceConfig(
               androidNotificationChannelId: 'com.recitequran.app.audio',
-              androidNotificationChannelName: 'تلاوة القرآن الكريم',
+              androidNotificationChannelName: 'القرآن العظيم',
               androidNotificationOngoing: true,
               androidStopForegroundOnPause: true,
               androidNotificationIcon: 'mipmap/ic_launcher',

@@ -9,8 +9,8 @@ export async function onRequest(context) {
   }
 
   const code = rawCode;
-  const title = `مجلس تلاوة القرآن الكريم • رمز ${code}`;
-  const desc = 'انضم الآن لتدارس القرآن الكريم والتلاوة الجماعية الحية عبر تطبيق اتلو القران.';
+  const title = `مجلس تلاوة القرآن العظيم • رمز ${code}`;
+  const desc = 'انضم الآن لتدارس القرآن العظيم والتلاوة الجماعية الحية عبر تطبيق اتلو القران.';
   const appSchemeUrl = `natlu://maglis/${code}`;
   const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.recitequran.app';
   const appStoreUrl = 'https://apps.apple.com/app/id6806614841';
@@ -28,7 +28,7 @@ export async function onRequest(context) {
   
   <!-- Open Graph / WhatsApp / Telegram Preview Cards (1200x630) -->
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="اتلو القران — Natlu">
+  <meta property="og:site_name" content="اتلو القران — Recite Quran">
   <meta property="og:title" content="${title}">
   <meta property="og:description" content="${desc}">
   <meta property="og:image" content="https://natlu.pages.dev/maglis-preview.png">
@@ -323,8 +323,8 @@ export async function onRequest(context) {
     </div>
 
     <!-- App Name & Maglis Title -->
-    <div class="app-name">اتلو القران</div>
-    <div class="maglis-title">مجلس تلاوة القرآن الكريم</div>
+    <div class="app-name">اتلو القران - Recite Quran</div>
+    <div class="maglis-title">مجلس تلاوة القرآن العظيم</div>
 
     <!-- Segmented 5-Digit Code Display -->
     <div class="code-label">رمز المجلس</div>
@@ -336,15 +336,15 @@ export async function onRequest(context) {
       <span class="code-digit">${code[4]}</span>
     </div>
 
-    <p class="desc">انضم الآن إلى إخوانك في المجلس لتدارس القرآن الكريم والتلاوة التفاعلية المباشرة.</p>
+    <p class="desc">انضم الآن إلى إخوانك في المجلس لتدارس القرآن العظيم والتلاوة التفاعلية المباشرة.</p>
     
     <div class="actions-box">
-      <!-- 1. MAIN HERO BUTTON: Open in Natlu App -->
+      <!-- 1. MAIN HERO BUTTON: Open in App -->
       <a href="#" onclick="openApp(); return false;" class="btn-main">
         <svg viewBox="0 0 24 24">
           <path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
         </svg>
-        <span>فتح في تطبيق اتلو القران</span>
+        <span>فتح في تطبيق اتلو القران - Recite Quran</span>
       </a>
 
       <div class="divider">أو حمّل التطبيق مجاناً</div>
@@ -367,7 +367,7 @@ export async function onRequest(context) {
       </div>
     </div>
 
-    <div class="footer-note">إذا كان التطبيق مثبتاً ولم يفتح تلقائياً، اضغط "فتح في تطبيق اتلو القران"</div>
+    <div class="footer-note">إذا كان التطبيق مثبتاً ولم يفتح تلقائياً، اضغط "فتح في تطبيق اتلو القران - Recite Quran"</div>
   </div>
 </body>
 </html>`;
