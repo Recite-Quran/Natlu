@@ -705,6 +705,7 @@ class AppState extends ChangeNotifier {
   // BLACK THEME — Deep OLED True Black (Tahajjud Eye Comfort)
   // True black foundation (#000000) for OLED battery, paired with soft
   // moonlit pearl text (#E2E8F0) to eliminate night glare & eye fatigue.
+  // Highlighting colors optimized for eye comfort, high legibility, and zero halation.
   // ──────────────────────────────────────────────────────────────────────────
   static const ThemeColors _blackColors = ThemeColors(
     bg: Color(0xFF000000), // Pure OLED True Black
@@ -716,24 +717,20 @@ class AppState extends ChangeNotifier {
     cardBorder: Color(0xFF202736),
     primary: Color(0xFF10B981), // Serene Emerald
     onPrimary: Color(0xFF000000),
-    secondary: Color(0xFF06B6D4), // Cyan Spark
+    secondary: Color(0xFF38BDF8), // Celestial Sky Azure
     gold: Color(0xFFEAB308), // Luminous Amber Gold
-    green: Color(0xFF34D399), // Luminous Mint Sage (soothing, zero halation)
-    red:
-        Color(0xFFFB7185), // Gentle rose terracotta coral (soft, halation-free)
+    green: Color(0xFF10B981), // Tranquil Botanical Emerald (soothing, eye-comfortable, zero halation)
+    red: Color(0xFFF87171), // Warm Terracotta Crimson (softened, clear mistake detection, zero glare)
     muted: Color(0xFF64748B), // Slate-500 neutral muted
-    currentWord:
-        Color(0xFF2DD4BF), // Calming luminous mint teal active word highlight
-    wordHighlight:
-        Color(0xFF2DD4BF), // Calming luminous mint teal active word highlight
+    currentWord: Color(0xFF38BDF8), // Celestial Sky Azure active word highlight (distinct focal beacon, glare-free)
+    wordHighlight: Color(0xFF38BDF8), // Celestial Sky Azure active word highlight (distinct focal beacon, glare-free)
     text: Color(0xFFE2E8F0), // Moonlit pearl (halation-free)
     textSecondary: Color(0xFF94A3B8), // Slate-400
     ayahOutline: Color(0x35EAB308), // Soft amber outline
     ambientGlow: Color(0x2510B981), // Gentle emerald glow
-    success: Color(0xFF34D399), // Calming mint green success
-    warning: Color(
-        0xFFFBBF24), // Soothing luminous candlelight amber gold (pure warm amber, zero glare)
-    error: Color(0xFFFB7185), // Gentle rose terracotta error
+    success: Color(0xFF10B981), // Calming emerald green success
+    warning: Color(0xFFF59E0B), // Warm candlelight honey amber (pure warm amber, zero glare)
+    error: Color(0xFFF87171), // Warm Terracotta Crimson error
     info: Color(0xFF38BDF8),
     cyan: Color(0xFF06B6D4),
     indigo: Color(0xFF818CF8),

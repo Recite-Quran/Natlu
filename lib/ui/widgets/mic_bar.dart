@@ -62,7 +62,7 @@ class BottomActionBar extends StatelessWidget {
           : Colors.black.withValues(alpha: 0.08));
 
   static Color _btnFg(bool isDark, {bool isActive = false}) => isActive
-      ? (isDark ? const Color(0xFF34D399) : const Color(0xFF059699))
+      ? (isDark ? const Color(0xFF10B981) : const Color(0xFF059699))
       : (isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B));
 
   @override

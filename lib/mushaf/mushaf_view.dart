@@ -784,7 +784,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final c = app.colors;
     final isDark = app.isDarkMode;
     final neutralRingColor = isDark
-        ? Colors.white.withValues(alpha: 0.25)
+        ? const Color(0xFF94A3B8).withValues(alpha: 0.30)
         : const Color(0xFF64748B).withValues(alpha: 0.35);
 
     MushafOverlays.paintAyahMarks(
@@ -797,7 +797,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       goldColor: c.gold,
       neutralRingColor: neutralRingColor,
       ayahHighlightColor: isDark
-          ? Colors.white.withValues(alpha: 0.10)
+          ? const Color(0xFF64748B).withValues(alpha: 0.20)
           : const Color(0xFF64748B).withValues(alpha: 0.09),
       controller: widget.controller,
     );

@@ -349,7 +349,7 @@ class MushafOverlays {
 
     final ringColor = neutralRingColor ??
         (app.isDarkMode
-            ? Colors.white.withValues(alpha: 0.25)
+            ? const Color(0xFF94A3B8).withValues(alpha: 0.30)
             : const Color(0xFF64748B).withValues(alpha: 0.35));
 
     for (final m in marks) {
