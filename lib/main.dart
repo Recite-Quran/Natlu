@@ -40,7 +40,8 @@ import 'mushaf/web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:just_audio_background/just_audio_background.dart';
+import 'package:audio_service/audio_service.dart';
+import 'audio/quran_audio_handler.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'audio/quran_audio_service.dart';
 import 'audio/quran_download_service.dart';
@@ -74,17 +75,20 @@ void main() async {
         }
 
         try {
-          await JustAudioBackground.init(
-            androidNotificationChannelId: 'com.recitequran.app.audio',
-            androidNotificationChannelName: 'تلاوة القرآن الكريم',
-            androidNotificationOngoing: true,
-            androidStopForegroundOnPause: true,
-            androidNotificationIcon: 'mipmap/ic_launcher',
+          await AudioService.init(
+            builder: () => QuranAudioHandler.instance,
+            config: const AudioServiceConfig(
+              androidNotificationChannelId: 'com.recitequran.app.audio',
+              androidNotificationChannelName: 'تلاوة القرآن الكريم',
+              androidNotificationOngoing: true,
+              androidStopForegroundOnPause: true,
+              androidNotificationIcon: 'mipmap/ic_launcher',
+            ),
           );
         } catch (e) {
           DebugLogger.logSimple(
-            'JustAudioBackground',
-            'Failed to configure JustAudioBackground: $e',
+            'AudioService',
+            'Failed to configure AudioService: $e',
           );
         }
       }
