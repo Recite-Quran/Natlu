@@ -1001,123 +1001,127 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
 
                 const SizedBox(height: 10),
 
-                // Action Buttons: Copy Code & Share Link (WhatsApp)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 1. Copy Code Button
-                    InkWell(
-                      borderRadius: BorderRadius.circular(22),
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: _newCode));
-                        AppHaptics.lightImpact();
-                        AppState.instance.showBanner(AppBannerInfo(
-                          id: 'maglis_code_copied',
-                          messageAr:
-                              'تم نسخ رمز المجلس: \u202A${formatMaglisCode(_newCode, isArabic: true)}\u202C',
-                          messageEn: 'Maglis code copied: $_newCode',
-                          icon: Icons.copy_rounded,
-                          customDuration: const Duration(seconds: 2),
-                        ));
-                      },
-                      child: Container(
-                        height: 38,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.07)
-                              : Colors.black.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(
-                            color: isDark
-                                ? Colors.white.withValues(alpha: 0.14)
-                                : Colors.black.withValues(alpha: 0.10),
-                            width: 1.0,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.copy_rounded,
-                                color: Color(0xFF10B981), size: 16),
-                            const SizedBox(width: 6),
-                            Text(
-                              isAr ? 'نسخ الرمز' : 'Copy Code',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: isDark
-                                    ? const Color(0xFFCBD5E1)
-                                    : const Color(0xFF334155),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-
-                    // 2. Share Link Button (Any app via native share sheet)
-                    InkWell(
-                      borderRadius: BorderRadius.circular(22),
-                      onTap: () async {
-                        final text = MaglisLinkService.formatInviteText(
-                            _newCode,
-                            isArabic: isAr);
-                        final subject = isAr
-                            ? 'دعوة لمجلس تلاوة القرآن الكريم'
-                            : 'Quran Maglis Invitation';
-                        Rect? origin;
-                        final box = context.findRenderObject() as RenderBox?;
-                        if (box != null && box.hasSize) {
-                          origin = box.localToGlobal(Offset.zero) & box.size;
-                        }
-                        origin ??= const Rect.fromLTWH(0, 0, 100, 100);
-                        AppHaptics.lightImpact();
-                        try {
-                          await SharePlus.instance.share(ShareParams(
-                            text: text,
-                            subject: subject,
-                            title: subject,
-                            sharePositionOrigin: origin,
+                // Action Buttons: Copy Code & Send Link
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 1. Copy Code Button
+                      InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () {
+                          Clipboard.setData(ClipboardData(text: _newCode));
+                          AppHaptics.lightImpact();
+                          AppState.instance.showBanner(AppBannerInfo(
+                            id: 'maglis_code_copied',
+                            messageAr:
+                                'تم نسخ رمز المجلس: \u202A${formatMaglisCode(_newCode, isArabic: true)}\u202C',
+                            messageEn: 'Maglis code copied: $_newCode',
+                            icon: Icons.copy_rounded,
+                            customDuration: const Duration(seconds: 2),
                           ));
-                        } catch (_) {
-                          _copyShareLink();
-                        }
-                      },
-                      onLongPress: _copyShareLink,
-                      child: Container(
-                        height: 38,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF10B981)
-                              .withValues(alpha: isDark ? 0.15 : 0.10),
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(
-                            color: const Color(0xFF10B981)
-                                .withValues(alpha: isDark ? 0.35 : 0.25),
-                            width: 1.0,
+                        },
+                        child: Container(
+                          height: 34,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.07)
+                                : Colors.black.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.14)
+                                  : Colors.black.withValues(alpha: 0.10),
+                              width: 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.copy_rounded,
+                                  color: Color(0xFF10B981), size: 14),
+                              const SizedBox(width: 5),
+                              Text(
+                                isAr ? 'نسخ الرمز' : 'Copy Code',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isDark
+                                      ? const Color(0xFFCBD5E1)
+                                      : const Color(0xFF334155),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.share_rounded,
-                                color: Color(0xFF10B981), size: 16),
-                            const SizedBox(width: 6),
-                            Text(
-                              isAr ? 'مشاركة الرابط' : 'Share Link',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF10B981),
-                              ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // 2. Share / Send Link Button
+                      InkWell(
+                        borderRadius: BorderRadius.circular(18),
+                        onTap: () async {
+                          final text = MaglisLinkService.formatInviteText(
+                              _newCode,
+                              isArabic: isAr);
+                          final subject = isAr
+                              ? 'دعوة لمجلس تلاوة القرآن الكريم'
+                              : 'Quran Maglis Invitation';
+                          Rect? origin;
+                          final box = context.findRenderObject() as RenderBox?;
+                          if (box != null && box.hasSize) {
+                            origin = box.localToGlobal(Offset.zero) & box.size;
+                          }
+                          origin ??= const Rect.fromLTWH(0, 0, 100, 100);
+                          AppHaptics.lightImpact();
+                          try {
+                            await SharePlus.instance.share(ShareParams(
+                              text: text,
+                              subject: subject,
+                              title: subject,
+                              sharePositionOrigin: origin,
+                            ));
+                          } catch (_) {
+                            _copyShareLink();
+                          }
+                        },
+                        onLongPress: _copyShareLink,
+                        child: Container(
+                          height: 34,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981)
+                                .withValues(alpha: isDark ? 0.15 : 0.10),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: const Color(0xFF10B981)
+                                  .withValues(alpha: isDark ? 0.35 : 0.25),
+                              width: 1.0,
                             ),
-                          ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.share_rounded,
+                                  color: Color(0xFF10B981), size: 14),
+                              const SizedBox(width: 5),
+                              Text(
+                                isAr ? 'إرسال' : 'Send',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF10B981),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),

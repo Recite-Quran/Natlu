@@ -165,7 +165,7 @@ class QuranDownloadTile extends StatelessWidget {
 
         return SettingTile(
           icon: Icons.cloud_download_rounded,
-          title: isAr ? 'تحميل التلاوة والتظليل (بدون إنترنت)' : 'Download Audio & Highlighting (Offline)',
+          title: isAr ? 'تحميل صوت التلاوة' : 'Download Recitation Audio',
           c: c,
           onTap: () {
             Navigator.of(context).pop();
@@ -208,9 +208,7 @@ class QuranDownloadTile extends StatelessWidget {
                   ),
                 )
               : Icon(
-                  isAr
-                      ? Icons.arrow_back_ios_new_rounded
-                      : Icons.arrow_forward_ios_rounded,
+                  Icons.arrow_forward_ios_rounded,
                   size: 15,
                   color: c.muted,
                 ),

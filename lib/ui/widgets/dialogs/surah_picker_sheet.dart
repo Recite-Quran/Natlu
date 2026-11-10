@@ -134,14 +134,6 @@ class SurahListTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8.0),
-              Icon(
-                isAr ? Icons.chevron_left_rounded : Icons.chevron_right_rounded,
-                color: isSelected
-                    ? const Color(0xFF10B981)
-                    : c.muted.withValues(alpha: 0.6),
-                size: 20.0,
-              ),
             ],
           ),
         ),
