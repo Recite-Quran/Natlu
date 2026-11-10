@@ -233,9 +233,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     }
     if (!oldWidget.isRecording && widget.isRecording) {
       final active = widget.controller.activeAyah.value;
-      final int targetSurah = widget.controller.targetSurah != 0
-          ? widget.controller.targetSurah
-          : AppState.instance.lastSurah;
+      final int targetSurah = widget.controller.recitationCoordinate.$1;
       if (active == null ||
           !MushafView.isAyahOnPage(
             pageNumber: _currentPage,
@@ -272,11 +270,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     if (cachedPage > 1 && QuranMetadata.isValidPage(cachedPage)) {
       return cachedPage;
     }
-    final surah = widget.controller.targetSurah != 0
-        ? widget.controller.targetSurah
-        : AppState.instance.lastSurah;
-    final ayah =
-        widget.controller.activeAyah.value ?? AppState.instance.lastAyah;
+    final coord = widget.controller.recitationCoordinate;
+    final surah = coord.$1;
+    final ayah = coord.$2 ?? AppState.instance.lastAyah;
     final provider = MushafProvider.instance;
     final mapped = provider.getPageForAyah(surah, ayah) ??
         provider.getPageForAyah(surah, 1);
@@ -352,14 +348,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     try {
       AppHaptics.mediumImpact();
-      final provider = MushafProvider.instance;
-      const int nextAyah = 1;
-
-      final targetPage = provider.getPageForAyah(nextSurah, nextAyah);
-      if (targetPage != null && targetPage != _currentPage) {
-        _navigationTargetAyah = (nextSurah, nextAyah);
-        _goToPage(targetPage, animated: true);
-      }
+      // Same base page-sync rule as every other coordinate move.
+      _syncPageFollow(nextSurah, 1);
 
       await widget.controller.advanceToNextSurah(
         nextSurah: nextSurah,
@@ -384,50 +374,21 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       return;
     }
 
-    // Audio follow across page boundaries (when naturally listening to continuous recitation)
-    if (widget.controller.isAudioActive) {
-      final audioSurah = widget.controller.audioSurah;
-      final audioAyah = widget.controller.audioAyah;
-      if (audioSurah != null && audioAyah != null) {
-        if (_lastProgressSurah == audioSurah && _lastProgressAyah == audioAyah) {
-          return;
-        }
-        final bool wasFollowing = _lastProgressSurah != null &&
-            provider.isAyahOnPage(
-              pageNumber: _currentPage,
-              surah: _lastProgressSurah!,
-              ayah: _lastProgressAyah!,
-            );
-        _lastProgressSurah = audioSurah;
-        _lastProgressAyah = audioAyah;
-
-        if (wasFollowing &&
-            !provider.isAyahOnPage(
-              pageNumber: _currentPage,
-              surah: audioSurah,
-              ayah: audioAyah,
-            )) {
-          final nextPage = provider.getPageForAyah(audioSurah, audioAyah);
-          if (nextPage != null && nextPage != _currentPage) {
-            _navigationTargetAyah = (audioSurah, audioAyah);
-            _goToPage(nextPage, animated: true);
-          }
-        }
-      }
-      return;
-    }
+    // NOTE: Page-turn sync is unified in _onActiveAyahChanged (_syncPageFollow).
+    // Audio playback writes the same coordinate into the controller (activeAyah +
+    // targetSurah — applyAudioProgress mirrors it), so it is followed by that one
+    // rule like every other source. There is no audio-specific page branch here.
 
     final ctrl = widget.controller;
-    final int activeSurah =
-        ctrl.targetSurah != 0 ? ctrl.targetSurah : AppState.instance.lastSurah;
-    final int? activeAyah = ctrl.activeAyah.value;
-    final int? activeWord = ctrl.activeWordIndex ??
-        ctrl.getLeadWordIndex(
-          surah: activeSurah,
-          ayah: activeAyah ?? 0,
-          totalWords: 999,
-          isRecording: widget.isRecording,
-        );
+    final (int activeSurah, int? activeAyah) = ctrl.recitationCoordinate;
+    // One lead-word resolver for every source: audio cursor, peer's word, or
+    // first unread while recording — decided by source priority inside it.
+    final int? activeWord = ctrl.getLeadWordIndex(
+      surah: activeSurah,
+      ayah: activeAyah ?? 0,
+      totalWords: 999,
+      isRecording: widget.isRecording,
+    );
     final int rev = ctrl.globalRevision.value;
 
     if (activeSurah == _lastProgressSurah &&
@@ -469,7 +430,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _onExternalPageChanged() {
     if (!mounted) return;
     if (_flipController.isAnimating) return;
-    if (widget.controller.isAudioActive) return;
     final targetPage = AppState.instance.currentMushafPage.value;
     if (targetPage > 0 &&
         targetPage != _currentPage &&
@@ -484,10 +444,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   void _onActiveAyahChanged() {
     if (!mounted) return;
 
-    final activeAyah = widget.controller.activeAyah.value;
-    final int activeSurah = widget.controller.targetSurah != 0
-        ? widget.controller.targetSurah
-        : AppState.instance.lastSurah;
+    final (int activeSurah, int? activeAyah) =
+        widget.controller.recitationCoordinate;
 
     // Guard: skip all work if coord hasn't changed.
     // This prevents redundant FFI calls and word loops on every ASR phoneme tick.
@@ -501,27 +459,39 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     // Check spinner only when ayah coord actually changes (not every word tick).
     _checkSpinnerAnimation();
 
-    if (activeAyah != null && activeSurah != 0) {
-      final provider = MushafProvider.instance;
-      if (provider.isReady &&
-          !provider.isAyahOnPage(
-            pageNumber: _currentPage,
-            surah: activeSurah,
-            ayah: activeAyah,
-          )) {
-        if (widget.controller.isAudioActive ||
-            MaglisController.instance.isRemoteReciting) {
-          final targetPage = provider.getPageForAyah(activeSurah, activeAyah);
-          if (targetPage != null && targetPage != _currentPage) {
-            _navigationTargetAyah = (activeSurah, activeAyah);
-            _goToPage(targetPage, animated: true);
-            return;
-          }
-        }
-      }
-    }
+    // The one page-sync rule for every recitation source. Local ASR, audio
+    // playback and Maglis packets all write the same coordinate into the
+    // controller (activeAyah + targetSurah), so whenever that coordinate
+    // changes, the mushaf follows it — through ayahs, pages and surahs — with
+    // no per-source branch. A manual page turn never rewrites the coordinate:
+    // the newest event wins, each event only applies once, as it is received.
+    _syncPageFollow(activeSurah, activeAyah);
 
     _requestSyncVisuals();
+  }
+
+  /// Follows the controller's current coordinate to its page. This is the only
+  /// place a source (audio playback, local ASR recitation, Maglis packets)
+  /// moves the mushaf by itself: they all write (surah, ayah) into the
+  /// controller, so the rule is source-agnostic. While a slide is already in
+  /// flight the target is queued in [_navigationTargetAyah] and applied the
+  /// moment the current slide ends — one slot, which is all sequential
+  /// recitation ever needs.
+  void _syncPageFollow(int surah, int? ayah) {
+    final provider = MushafProvider.instance;
+    if (surah == 0 || ayah == null || !provider.isReady) return;
+    if (provider.isAyahOnPage(
+      pageNumber: _currentPage,
+      surah: surah,
+      ayah: ayah,
+    )) {
+      return;
+    }
+    final targetPage = provider.getPageForAyah(surah, ayah);
+    if (targetPage == null || targetPage == _currentPage) return;
+    _navigationTargetAyah = (surah, ayah);
+    if (_flipController.isAnimating) return; // applied after the slide ends
+    _goToPage(targetPage, animated: true);
   }
 
   void _checkSpinnerAnimation() {
@@ -572,37 +542,24 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    // Manual page turn (idle browsing): never auto-select the first ayah.
-    // If the previous selection is not on this page, drop it so nothing is
-    // highlighted until the user taps a word or presses record (record-time
-    // anchoring lives in didUpdateWidget → ensureActiveAyahOnCurrentPage).
-    // While a live session exists (recording / remote recitation) an anchor is
-    // kept, since the recitation highlight needs a coordinate on every page.
+    // Manual page turn: the page never rewrites the recitation coordinate.
+    // No auto ayah selection on page turns, ever — including while a session
+    // is live: if the coordinate's ayah is not on this page, the choice is
+    // dropped, and the live source (ASR, audio playback, Maglis packets —
+    // they all write the controller's coordinate) re-selects its own the
+    // moment its next word lands, which the view then follows.
     if (!widget.controller.isAudioActive) {
       final active = widget.controller.activeAyah.value;
-      final targetSurah = widget.controller.targetSurah != 0
-          ? widget.controller.targetSurah
-          : AppState.instance.lastSurah;
+      final targetSurah = widget.controller.recitationCoordinate.$1;
       if (active != null &&
           !provider.isAyahOnPage(
             pageNumber: pageNum,
             surah: targetSurah,
             ayah: active,
           )) {
-        final bool keepAnchor = widget.isRecording ||
-            MaglisController.instance.isRemoteReciting;
-        if (keepAnchor) {
-          final first = provider.getFirstAyahOnPage(pageNum);
-          if (first != null) {
-            _lastHandledAyah = first.$2;
-            _lastHandledSurah = first.$1;
-            widget.controller.setManualAyah(first.$1, first.$2);
-          }
-        } else {
-          _lastHandledAyah = null;
-          _lastHandledSurah = null;
-          widget.controller.clearManualAyah();
-        }
+        _lastHandledAyah = null;
+        _lastHandledSurah = null;
+        widget.controller.clearManualAyah();
       }
     }
 
@@ -654,6 +611,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
             _currentPage,
             MushafProvider.instance.lastViewportSize,
           );
+          // A coordinate that moved while this slide was in flight was
+          // queued; apply it now (no-op if _syncPageSelection consumed it).
+          final pending = _navigationTargetAyah;
+          if (pending != null) {
+            _syncPageFollow(pending.$1, pending.$2);
+          }
         }
       });
     } else {

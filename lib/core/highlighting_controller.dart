@@ -280,12 +280,14 @@ class HighlightingController extends rq.HighlightingController {
   }
 
   /// The active coordinate (surah, ayah) driving playback or recitation.
+  ///
+  /// Strict controller truth: the mirrored coordinate first, then the engine's
+  /// own live match. Audio has no separate branch — applyAudioProgress mirrors
+  /// the playing verse into targetSurah/activeAyah in the same event that
+  /// makes isAudioActive true.
   (int surah, int ayah)? get activeAyahCoordinate {
     if (activeAyah.value != null && targetSurah != 0) {
       return (targetSurah, activeAyah.value!);
-    }
-    if (isAudioActive && _audioSurah != null && _audioAyah != null) {
-      return (_audioSurah!, _audioAyah!);
     }
     final activeMatch = currentMatchedVerse;
     if (activeMatch != null) {
@@ -299,14 +301,11 @@ class HighlightingController extends rq.HighlightingController {
 
   @override
   int get targetSurah {
-    if (_isRemoteReciting && _remoteTargetSurah != 0) {
-      return _remoteTargetSurah;
-    }
+    // Single coordinate: every source (manual selection, ASR, audio playback,
+    // Maglis packets) mirrors into _manualTargetSurah at its merge point, so
+    // there is nothing to disambiguate here.
     if (_manualTargetSurah != 0) {
       return _manualTargetSurah;
-    }
-    if (isAudioActive && _audioSurah != null && _audioSurah != 0) {
-      return _audioSurah!;
     }
     return super.targetSurah;
   }
@@ -411,33 +410,37 @@ class HighlightingController extends rq.HighlightingController {
 
   @override
   void setManualAyah(int surah, int ayah) {
+    // Local fields are the authoritative coordinate for every reader from
+    // this moment on; a manual selection also takes the coordinate away from
+    // any running audio playback.
     _manualTargetSurah = surah;
     activeAyah.value = ayah;
-    if (_audioSurah != null || _audioAyah != null) {
-      _audioSurah = null;
-      _audioAyah = null;
-      _audioWordIndex = null;
-      _isAudioPlaying = false;
-      _isAudioBuffering = false;
-    }
+    _audioSurah = null;
+    _audioAyah = null;
+    _audioWordIndex = null;
+    _isAudioPlaying = false;
+    _isAudioBuffering = false;
+    _isAudioPaused = false;
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
     if (super.targetSurah == surah) {
       super.setManualAyah(surah, ayah);
     } else {
-      super.setTargetSurah(
-        surah,
-        preserveOtherSurahStates: true,
-        clearTargetSurah: false,
-      ).then((_) {
-        _manualTargetSurah = surah;
-        activeAyah.value = ayah;
-        super.setManualAyah(surah, ayah);
-        globalRevision.value++;
-        notifyListeners();
+      // The engine needs its target surah loaded before it can accept the
+      // ayah. Only apply if this selection is still the newest event — a
+      // rapid re-selection must never let a stale engine write land.
+      super
+          .setTargetSurah(
+            surah,
+            preserveOtherSurahStates: true,
+            clearTargetSurah: false,
+          )
+          .then((_) {
+        if (_manualTargetSurah == surah) {
+          super.setManualAyah(surah, ayah);
+        }
       }).catchError((_) {});
-      activeAyah.value = ayah;
     }
 
     globalRevision.value++;
@@ -446,12 +449,9 @@ class HighlightingController extends rq.HighlightingController {
 
   @override
   rq.VerseMatch? get currentMatchedVerse {
-    if (_isRemoteReciting && _remoteTargetSurah != 0 && activeAyah.value != null) {
-      final v = repository.getVerse(_remoteTargetSurah, activeAyah.value!);
-      if (v != null) {
-        return rq.VerseMatch(verse: v, score: 1.0);
-      }
-    }
+    // The mirrored coordinate IS the matched verse for every source (manual
+    // selection, ASR anchor, audio playback, Maglis packets). Only when no
+    // coordinate exists does the engine's own live match answer.
     if (_manualTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
       if (v != null) {
@@ -461,56 +461,17 @@ class HighlightingController extends rq.HighlightingController {
     return super.currentMatchedVerse;
   }
 
-  // ── Word Status Queries (Local ASR + Remote Maglis + Audio) ──
+  // ── Word Status Queries (one base resolution for all sources) ──
+  //
+  // Every word-state query funnels through [_resolvedWordStatus]: the flat
+  // O(1) store first — local ASR, remote Maglis and audio playback all merge
+  // into it — then a single engine consult on a store miss. The paint path
+  // calls this per word per frame, so the hit path is one map lookup and
+  // never reaches the engine.
 
-  @override
-  bool isWordGreen(int ayah, int wordIndex, {int? surah}) {
-    final s = surah ?? targetSurah;
-    final st = _store.getWordStatus(s, ayah, wordIndex);
-    if (st > 0) return st == 1;
-    return super.isWordGreen(ayah, wordIndex, surah: s);
-  }
-
-  @override
-  bool isWordYellow(int ayah, int wordIndex, {int? surah}) {
-    final s = surah ?? targetSurah;
-    final st = _store.getWordStatus(s, ayah, wordIndex);
-    if (st > 0) return st == 2;
-    return super.isWordYellow(ayah, wordIndex, surah: s);
-  }
-
-  @override
-  bool isWordRed(int ayah, int wordIndex, {int? surah}) {
-    final s = surah ?? targetSurah;
-    final st = _store.getWordStatus(s, ayah, wordIndex);
-    if (st > 0) return st == 3;
-    return super.isWordRed(ayah, wordIndex, surah: s);
-  }
-
-  @override
-  bool isWordNeutral(int ayah, int wordIndex, {int? surah}) {
-    final s = surah ?? targetSurah;
-    final st = _store.getWordStatus(s, ayah, wordIndex);
-    if (st > 0) return st == 4;
-    return super.isWordNeutral(ayah, wordIndex, surah: s);
-  }
-
-  /// Checks whether a word has any recognized recitation status (green, yellow, red, or neutral).
-  bool isWordRead(int ayah, int wordIndex, {int? surah}) {
-    final s = surah ?? targetSurah;
-    return isWordGreen(ayah, wordIndex, surah: s) ||
-        isWordYellow(ayah, wordIndex, surah: s) ||
-        isWordRed(ayah, wordIndex, surah: s) ||
-        isWordNeutral(ayah, wordIndex, surah: s);
-  }
-
-  /// Returns numeric status representation for high-speed rendering:
-  /// 1: Green (Correct)
-  /// 2: Yellow (Tajweed Rule / Warning)
-  /// 3: Red (Mispronounced)
-  /// 4: Neutral (Spoken/Passed)
-  /// null: Unread
-  int? getWordStatus(int ayah, int wordIndex, {int? surah}) {
+  /// Resolves the numeric highlight state for one word:
+  /// 1 green · 2 yellow · 3 red · 4 neutral · 0 unread.
+  int _resolvedWordStatus(int ayah, int wordIndex, int? surah) {
     final s = surah ?? targetSurah;
     final st = _store.getWordStatus(s, ayah, wordIndex);
     if (st > 0) return st;
@@ -518,7 +479,38 @@ class HighlightingController extends rq.HighlightingController {
     if (super.isWordYellow(ayah, wordIndex, surah: s)) return 2;
     if (super.isWordRed(ayah, wordIndex, surah: s)) return 3;
     if (super.isWordNeutral(ayah, wordIndex, surah: s)) return 4;
-    return null;
+    return 0;
+  }
+
+  @override
+  bool isWordGreen(int ayah, int wordIndex, {int? surah}) =>
+      _resolvedWordStatus(ayah, wordIndex, surah) == 1;
+
+  @override
+  bool isWordYellow(int ayah, int wordIndex, {int? surah}) =>
+      _resolvedWordStatus(ayah, wordIndex, surah) == 2;
+
+  @override
+  bool isWordRed(int ayah, int wordIndex, {int? surah}) =>
+      _resolvedWordStatus(ayah, wordIndex, surah) == 3;
+
+  @override
+  bool isWordNeutral(int ayah, int wordIndex, {int? surah}) =>
+      _resolvedWordStatus(ayah, wordIndex, surah) == 4;
+
+  /// Whether the word carries any recitation state (green/yellow/red/neutral).
+  bool isWordRead(int ayah, int wordIndex, {int? surah}) =>
+      _resolvedWordStatus(ayah, wordIndex, surah) != 0;
+
+  /// Numeric status representation for high-speed rendering:
+  /// 1: Green (Correct)
+  /// 2: Yellow (Tajweed Rule / Warning)
+  /// 3: Red (Mispronounced)
+  /// 4: Neutral (Spoken/Passed)
+  /// null: Unread
+  int? getWordStatus(int ayah, int wordIndex, {int? surah}) {
+    final st = _resolvedWordStatus(ayah, wordIndex, surah);
+    return st > 0 ? st : null;
   }
 
   @override
@@ -545,8 +537,8 @@ class HighlightingController extends rq.HighlightingController {
     final v = repository.getVerse(surah, ayah);
     final count = v?.uthmaniWords.length ?? 0;
     for (int i = 0; i < count; i++) {
-      if (isWordRead(ayah, i, surah: surah)) {
-        // Synchronize into store so subsequent lookups are O(1) instant
+      if (_resolvedWordStatus(ayah, i, surah) != 0) {
+        // Back-fill the store once so every later lookup is O(1) instant.
         extractAyahWordClassification(surah, ayah, count);
         return true;
       }
@@ -578,6 +570,15 @@ class HighlightingController extends rq.HighlightingController {
     _remoteActiveWord = activeWord;
 
     bool changed = recitingChanged || surahChanged || wordChanged;
+
+    // Mirror the remote surah into the base coordinate exactly like audio
+    // progress does (applyAudioProgress): every recitation source ends up in
+    // targetSurah + activeAyah, so hosts follow one coordinate. There is no
+    // maglis-specific page or highlight handling anywhere downstream.
+    if (isReciting && _manualTargetSurah != surah) {
+      _manualTargetSurah = surah;
+      changed = true;
+    }
 
     // 1. Merge snapshot or catch-up cumulative history
     if (cumulative != null && cumulative.isNotEmpty) {
@@ -869,25 +870,27 @@ class HighlightingController extends rq.HighlightingController {
 
   // ── Quran Presentation Queries ──
 
-  /// Returns the 0-based lead target word index:
-  /// - Audio mode: audioWordIndex
-  /// - Remote Maglis mode: activeWord
-  /// - Live ASR mode: first unread word (+1 anticipatory cursor)
+  /// Returns the 0-based lead ("waited") word index — the one word the
+  /// reciter is about to say, rendered as the anticipatory cursor:
+  /// - audio playback: the player's word cursor
+  /// - remote Maglis session: the peer's active word (plain source priority,
+  ///   not special handling — packets merge through the same store)
+  /// - live local ASR while recording: the first not-yet-read word
+  ///
+  /// The lead word only exists inside the live coordinate; everything outside
+  /// it renders from the store's green/red/yellow states alone.
   int? getLeadWordIndex({
     required int surah,
     required int ayah,
     required int totalWords,
     bool isRecording = false,
   }) {
-    if (isAudioActive && audioSurah == surah && audioAyah == ayah) {
-      return audioWordIndex;
+    if (activeAyah.value != ayah || (targetSurah != 0 && targetSurah != surah)) {
+      return null;
     }
-    if (isRemoteReciting && (targetSurah == 0 || targetSurah == surah) && activeAyah.value == ayah) {
-      return activeWordIndex;
-    }
-    // Live ASR recitation mode: only highlight awaited lead word in neon when recording is active.
-    // When idle (browsing / selecting), all words in the selected ayah remain neutral grey.
-    if (isRecording && activeAyah.value == ayah && (targetSurah == 0 || targetSurah == surah)) {
+    if (isAudioActive) return audioWordIndex;
+    if (isRemoteReciting) return activeWordIndex;
+    if (isRecording) {
       for (int i = 0; i < totalWords; i++) {
         if (!isWordRead(ayah, i, surah: surah)) {
           return i;
@@ -898,8 +901,9 @@ class HighlightingController extends rq.HighlightingController {
   }
 
   /// Determines if an Ayah is actively selected, reciting, or playing audio.
+  /// Audio has no separate branch — applyAudioProgress mirrors the playing
+  /// verse into the coordinate in the same event that activates it.
   bool isAyahActive(int surah, int ayah) {
-    if (isAudioActive && audioSurah == surah && audioAyah == ayah) return true;
     final activeMatch = currentMatchedVerse;
     if (activeMatch != null &&
         activeMatch.verse.surah == surah &&
@@ -907,6 +911,18 @@ class HighlightingController extends rq.HighlightingController {
       return true;
     }
     return activeAyah.value == ayah && targetSurah == surah;
+  }
+
+  /// The single coordinate every recitation source currently drives.
+  ///
+  /// Audio progress and Maglis packets are mirrored into
+  /// [targetSurah]/[activeAyah] by their merge points — the same fields live
+  /// local ASR writes — so any host that renders pages follows this one pair
+  /// to stay in sync through ayahs, pages and surahs. Surah 0 means no
+  /// coordinate exists yet (fresh app, nothing selected or recited).
+  (int surah, int? ayah) get recitationCoordinate {
+    if (targetSurah != 0) return (targetSurah, activeAyah.value);
+    return (AppState.instance.lastSurah, activeAyah.value);
   }
 
   @override

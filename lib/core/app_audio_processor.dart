@@ -8,9 +8,10 @@ import '../maglis/maglis_core.dart';
 ///
 /// Captures mic audio and delivers 16kHz Float32 PCM chunks to the Sherpa ASR engine.
 /// When in a Maglis room session, it harmonizes Android audio capture with WebRTC
-/// by using [AndroidAudioSource.voiceCommunication] and [AudioManagerMode.modeInCommunication].
+/// by using [AudioManagerMode.modeInCommunication] while preserving [AndroidAudioSource.mic]
+/// and disabling hardware AEC ([echoCancel: false]).
 /// This completely prevents the 74% audio sample drop and HAL buffer starvation
-/// that occurs when two AudioRecord instances fight over conflicting audio modes.
+/// while avoiding aggressive hardware AEC ducking and distorted Arabic phonemes.
 class AppAudioProcessor {
   static const int recordSampleRate = 16000;
   static const int numChannels = 1;
@@ -56,15 +57,13 @@ class AppAudioProcessor {
         sampleRate: recordSampleRate,
         numChannels: numChannels,
         autoGain: false,
-        echoCancel: inMaglis,
+        echoCancel: false,
         noiseSuppress: false,
         audioInterruption: inMaglis
             ? AudioInterruptionMode.none
             : AudioInterruptionMode.pause,
         androidConfig: AndroidRecordConfig(
-          audioSource: inMaglis
-              ? AndroidAudioSource.voiceRecognition
-              : AndroidAudioSource.mic,
+          audioSource: AndroidAudioSource.mic,
           audioManagerMode: inMaglis
               ? AudioManagerMode.modeInCommunication
               : AudioManagerMode.modeNormal,
