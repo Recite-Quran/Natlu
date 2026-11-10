@@ -65,6 +65,7 @@ class MushafProvider {
 
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
+  final Map<int, Size> _pageLayoutSizes = {};
   static const int _maxCachedPages = 16;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
@@ -89,18 +90,6 @@ class MushafProvider {
       // Forward adjacent page has highest priority for recitation and reading continuity
       final neighbors = [pageNumber + 1, pageNumber - 1];
       final currentInkColor = AppState.instance.colors.text;
-      final currentTashkeelColor = AppState.instance.colors.tashkeel;
-      final isTajweed = AppState.instance.isTajweedColoring;
-      final tajweedColors = isTajweed
-          ? QvpTajweedColors(
-              madd: AppState.instance.colors.tajweed.madd,
-              iqlab: AppState.instance.colors.tajweed.iqlab,
-              waqf: AppState.instance.colors.tajweed.waqf,
-              tanwin: AppState.instance.colors.tajweed.tanwin,
-              harakah: AppState.instance.colors.tajweed.harakah,
-              dabt: AppState.instance.colors.tajweed.dabt,
-            )
-          : null;
       final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
@@ -109,20 +98,15 @@ class MushafProvider {
         if (!QuranMetadata.isValidPage(p)) continue;
         final cached = getCachedPage(p);
         if (cached != null && !cached.isDisposed) {
-          final cl = cached.currentLayout;
-          if (cl == null ||
-              (cl.contentW - targetSize.width).abs() > 0.5 ||
-              (cl.contentH - targetSize.height).abs() > 0.5) {
+          if (cached.currentLayout == null || _pageLayoutSizes[p] != targetSize) {
             cached.layout(
               mushafLayout.toSpec(targetSize.width, targetSize.height),
             );
+            _pageLayoutSizes[p] = targetSize;
           }
           QvpPageView.prepare(
             cached,
             inkColor: currentInkColor,
-            tashkeelColor: currentTashkeelColor,
-            tajweedColoring: isTajweed,
-            tajweedColors: tajweedColors,
             surahFrames: false,
             dpr: dpr,
             width: targetSize.width,
@@ -137,20 +121,15 @@ class MushafProvider {
           if (page != null &&
               !page.isDisposed &&
               _preloadingTargetPage == pageNumber) {
-            final pl = page.currentLayout;
-            if (pl == null ||
-                (pl.contentW - targetSize.width).abs() > 0.5 ||
-                (pl.contentH - targetSize.height).abs() > 0.5) {
+            if (page.currentLayout == null || _pageLayoutSizes[p] != targetSize) {
               page.layout(
                 mushafLayout.toSpec(targetSize.width, targetSize.height),
               );
+              _pageLayoutSizes[p] = targetSize;
             }
             QvpPageView.prepare(
               page,
               inkColor: currentInkColor,
-              tashkeelColor: currentTashkeelColor,
-              tajweedColoring: isTajweed,
-              tajweedColors: tajweedColors,
               surahFrames: false,
               dpr: dpr,
               width: targetSize.width,
@@ -389,6 +368,7 @@ class MushafProvider {
           if (evictKey != null) {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
+            _pageLayoutSizes.remove(evictKey);
             QvpPageView.evictPage(evictKey);
           }
         }

@@ -232,9 +232,6 @@ class QvpPageView extends StatefulWidget {
     this.layout = const QvpViewLayout(),
     this.paper = const Color(0xfffffdf7),
     this.defaultInk,
-    this.tashkeelInk,
-    this.tajweedColoring = false,
-    this.tajweedColors,
     this.controller,
     this.onWordTap,
     this.onDecorationTap,
@@ -293,15 +290,6 @@ class QvpPageView extends StatefulWidget {
   /// Default ink; applied to the page with `setDefaultColor` when it changes. Anything [rgba] accepts.
   final Object? defaultInk;
 
-  /// Optional static tashkeel & waqf mark ink for eye comfort and clean word focus.
-  final Object? tashkeelInk;
-
-  /// Whether to render vector diacritics and signs in authentic static Tajweed colors.
-  final bool tajweedColoring;
-
-  /// Optional custom Tajweed palette.
-  final QvpTajweedColors? tajweedColors;
-
   /// The pan and zoom to share with the host. Null gives the view a controller of its own.
   final QvpViewController? controller;
 
@@ -340,9 +328,6 @@ class QvpPageView extends StatefulWidget {
     double scale = 1.0,
     double dpr = 1.0,
     Color? inkColor,
-    Color? tashkeelColor,
-    bool tajweedColoring = false,
-    QvpTajweedColors? tajweedColors,
     bool surahFrames = true,
     double? width,
     double? height,
@@ -350,9 +335,6 @@ class QvpPageView extends StatefulWidget {
     _InkCache.prepare(
       page,
       inkColor: inkColor,
-      tashkeelColor: tashkeelColor,
-      tajweedColoring: tajweedColoring,
-      tajweedColors: tajweedColors,
       surahFrames: surahFrames,
       dpr: dpr,
       width: width,
@@ -474,10 +456,7 @@ class QvpPageViewState extends State<QvpPageView>
     }
     if (oldWidget.defaultInk != widget.defaultInk) _applyInk();
     if (oldWidget.layout != widget.layout) _ctl._fitRequested = true;
-    if (oldWidget.defaultInk != widget.defaultInk ||
-        oldWidget.tashkeelInk != widget.tashkeelInk ||
-        oldWidget.tajweedColoring != widget.tajweedColoring ||
-        oldWidget.tajweedColors != widget.tajweedColors) {
+    if (oldWidget.defaultInk != widget.defaultInk) {
       _cache._dropPicture();
       _cache.entry = null;
       _ctl.refresh();
@@ -715,20 +694,18 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   int _resolveSwipe(double dx, double vx) {
-    // In Quran books (RTL):
-    // Swiping left (dx < 0, vx < 0) pulls the next page forward (+1).
-    // Swiping right (dx > 0, vx > 0) goes back to previous page (-1).
+    // In Arabic Quran reading order (RTL):
+    // Swiping from left to right (dx > 0, vx > 0) turns to the NEXT page (+1).
+    // Swiping from right to left (dx < 0, vx < 0) turns to the PREVIOUS page (-1).
     final engineDir = page.engine.swipePages(dx, 0.0, vx, 0.0);
     if (engineDir != 0) {
-      // The engine's swipe_direction assigns +1 to dx > 0 and -1 to dx < 0.
-      // For RTL mushaf page advancing on swipe left, invert engineDir so left is +1:
-      return -engineDir;
+      return engineDir;
     }
     if (vx.abs() > 180.0) {
-      return vx < 0 ? 1 : -1;
+      return vx > 0 ? 1 : -1;
     }
     if (dx.abs() > 36.0) {
-      return dx < 0 ? 1 : -1;
+      return dx > 0 ? 1 : -1;
     }
     return 0;
   }
@@ -906,9 +883,6 @@ class QvpPageViewState extends State<QvpPageView>
                     paper: widget.paper,
                     paperShadow: widget.paperShadow,
                     surahFrames: widget.layout.surahFrames,
-                    tashkeelInk: widget.tashkeelInk,
-                    tajweedColoring: widget.tajweedColoring,
-                    tajweedColors: widget.tajweedColors,
                     underlay: widget.underlay,
                     overlay: widget.overlay,
                     repaintListenable: widget.repaintListenable,
@@ -920,90 +894,6 @@ class QvpPageViewState extends State<QvpPageView>
         );
       },
     );
-  }
-}
-
-class _InkPaints {
-  _InkPaints({
-    required int ink,
-    required int tashkeel,
-    required bool tajweedColoring,
-    required QvpTajweedColors? tajweedColors,
-  }) : wordPaint = (ui.Paint()
-         ..color = QvpColor.toColor(ink)
-         ..isAntiAlias = true),
-       tashkeelPaint = tashkeel != 0
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(tashkeel)
-               ..isAntiAlias = true)
-           : null,
-       isTajweed = tajweedColoring && tajweedColors != null,
-       maddPaint = (tajweedColoring && tajweedColors != null)
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(rgba(tajweedColors.madd))
-               ..isAntiAlias = true)
-           : null,
-       iqlabPaint = (tajweedColoring && tajweedColors != null)
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(rgba(tajweedColors.iqlab))
-               ..isAntiAlias = true)
-           : null,
-       waqfPaint = (tajweedColoring && tajweedColors != null)
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(rgba(tajweedColors.waqf))
-               ..isAntiAlias = true)
-           : null,
-       tanwinPaint = (tajweedColoring && tajweedColors != null)
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(rgba(tajweedColors.tanwin))
-               ..isAntiAlias = true)
-           : null,
-       harakahPaint = (tajweedColoring && tajweedColors != null)
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(rgba(tajweedColors.harakah))
-               ..isAntiAlias = true)
-           : null,
-       dabtPaint = (tajweedColoring && tajweedColors != null)
-           ? (ui.Paint()
-               ..color = QvpColor.toColor(rgba(tajweedColors.dabt))
-               ..isAntiAlias = true)
-           : null;
-
-  final ui.Paint wordPaint;
-  final ui.Paint? tashkeelPaint;
-  final bool isTajweed;
-  final ui.Paint? maddPaint,
-      iqlabPaint,
-      waqfPaint,
-      tanwinPaint,
-      harakahPaint,
-      dabtPaint;
-
-  ui.Paint resolve(QvpPage page, int path) {
-    if (!isTajweed) {
-      if (tashkeelPaint == null) return wordPaint;
-      final kind = page.pathKind(path);
-      final family = page.pathFamily(path);
-      final isTashkeel = (kind == 1 && family != 3);
-      return isTashkeel ? tashkeelPaint! : wordPaint;
-    }
-    final kind = page.pathKind(path);
-    final family = page.pathFamily(path);
-    if (kind != 1 || family == 3) {
-      return wordPaint;
-    }
-    final mark = page.pathMark(path);
-    final category = page.pathCategory(path);
-    if (mark == 9) return maddPaint ?? wordPaint;
-    if (mark == 27) return iqlabPaint ?? wordPaint;
-    if (category == QvpCategory.dabt) return dabtPaint ?? wordPaint;
-    if (category == QvpCategory.waqf || family == 4)
-      return waqfPaint ?? wordPaint;
-    if (category == QvpCategory.tanwin || family == 2)
-      return tanwinPaint ?? wordPaint;
-    if (category == QvpCategory.readingSign || family == 7)
-      return dabtPaint ?? wordPaint;
-    return harakahPaint ?? wordPaint;
   }
 }
 
@@ -1021,12 +911,10 @@ class _InkKey {
     this.top,
     this.bandH,
     this.styled,
-    this.surahFrames, [
-    this.tashkeelInk = 0,
-    this.tajweedKey = 0,
-  ]);
+    this.surahFrames,
+  );
 
-  final int page, ink, bandH, styled, tashkeelInk, tajweedKey;
+  final int page, ink, bandH, styled;
   final double? scale, offsetX, offsetY;
   final double top;
   final bool surahFrames;
@@ -1040,14 +928,10 @@ class _InkKey {
     double top,
     int bandH,
     int styled,
-    bool surahFrames, [
-    int tashkeelInk = 0,
-    int tajweedKey = 0,
-  ]) {
+    bool surahFrames,
+  ) {
     if (page != this.page) return false;
     if (ink != this.ink) return false;
-    if (tashkeelInk != this.tashkeelInk) return false;
-    if (tajweedKey != this.tajweedKey) return false;
     if (styled != this.styled) return false;
     if (surahFrames != this.surahFrames) return false;
     if ((top - this.top).abs() > 0.5) return false;
@@ -1083,8 +967,6 @@ class _InkKey {
         bandH,
         styled,
         surahFrames,
-        tashkeelInk,
-        tajweedKey,
       );
 
   static int _quantize(double? v, double step) =>
@@ -1101,8 +983,6 @@ class _InkKey {
     bandH,
     styled,
     surahFrames,
-    tashkeelInk,
-    tajweedKey,
   );
 }
 
@@ -1163,8 +1043,6 @@ class _LruCache {
         key.bandH,
         key.styled,
         key.surahFrames,
-        key.tashkeelInk,
-        key.tajweedKey,
       )) {
         _entries.remove(e.key);
         _entries[key] = e.value;
@@ -1325,9 +1203,6 @@ class _InkCache {
   static void prepare(
     QvpPage page, {
     Color? inkColor,
-    Color? tashkeelColor,
-    bool tajweedColoring = false,
-    QvpTajweedColors? tajweedColors,
     bool surahFrames = true,
     double dpr = 1.0,
     double? width,
@@ -1340,7 +1215,6 @@ class _InkCache {
     final l = page.currentLayout;
     if (l == null) return;
     final ink = page.defaultInk;
-    final tashkeel = tashkeelColor != null ? rgba(tashkeelColor) : 0;
     const double top = 0.0;
     final double bandH = math.max(l.contentH, 1.0);
     final styledPaths = page.styledPaths();
@@ -1348,9 +1222,6 @@ class _InkCache {
     for (var i = 0; i < styledPaths.length; i++) {
       keyVal = 31 * (31 * keyVal + styledPaths[i].path) + styledPaths[i].color;
     }
-    final tajweedKey = (tajweedColoring && tajweedColors != null)
-        ? tajweedColors.hashCode
-        : 0;
     final key = _InkKey(
       page.page,
       ink,
@@ -1361,8 +1232,6 @@ class _InkCache {
       bandH.toInt(),
       keyVal,
       surahFrames,
-      tashkeel,
-      tajweedKey,
     );
     final existing = getGlobalInk(key);
     if (existing != null) return;
@@ -1372,12 +1241,9 @@ class _InkCache {
     if (top != 0.0) {
       c.translate(0, -top);
     }
-    final paints = _InkPaints(
-      ink: ink,
-      tashkeel: tashkeel,
-      tajweedColoring: tajweedColoring,
-      tajweedColors: tajweedColors,
-    );
+    final paint = ui.Paint()
+      ..color = QvpColor.toColor(ink)
+      ..isAntiAlias = true;
 
     final omitted = styledPaths.isEmpty
         ? null
@@ -1402,7 +1268,7 @@ class _InkCache {
         open = true;
         cur = d.placement;
       }
-      c.drawPath(page.path(d.path), paints.resolve(page, d.path));
+      c.drawPath(page.path(d.path), paint);
       n++;
     }
     if (open) c.restore();
@@ -1607,9 +1473,6 @@ class _QvpPainter extends CustomPainter {
     required this.paper,
     required this.paperShadow,
     this.surahFrames = true,
-    this.tashkeelInk,
-    this.tajweedColoring = false,
-    this.tajweedColors,
     this.underlay,
     this.overlay,
     Listenable? repaintListenable,
@@ -1629,9 +1492,6 @@ class _QvpPainter extends CustomPainter {
   final Color? paper;
   final bool paperShadow;
   final bool surahFrames;
-  final Object? tashkeelInk;
-  final bool tajweedColoring;
-  final QvpTajweedColors? tajweedColors;
   final void Function(
     ui.Canvas canvas,
     Size size,
@@ -1816,11 +1676,7 @@ class _QvpPainter extends CustomPainter {
     // are in the key: a relayout moves them and must redraw. A frame whose key matches the
     // picture in hand keeps it without asking the global cache.
     final styledKey = cache.styledKey;
-    final tashkeel = tashkeelInk != null ? rgba(tashkeelInk!) : 0;
     final q = cache.getDrawList(page, l, top, bandH, contentH);
-    final tajweedKey = (tajweedColoring && tajweedColors != null)
-        ? tajweedColors!.hashCode
-        : 0;
     final held = cache.entry;
     if (held != null &&
         !held.disposed &&
@@ -1834,8 +1690,6 @@ class _QvpPainter extends CustomPainter {
           bandH.toInt(),
           styledKey,
           surahFrames,
-          tashkeel,
-          tajweedKey,
         )) {
       cache.basePaths = held.paths;
       if (cache.picture == null) {
@@ -1852,8 +1706,6 @@ class _QvpPainter extends CustomPainter {
         bandH.toInt(),
         styledKey,
         surahFrames,
-        tashkeel,
-        tajweedKey,
       );
       final kept = _InkCache.getGlobalInk(key);
       if (kept != null) {
@@ -1868,12 +1720,9 @@ class _QvpPainter extends CustomPainter {
         if (top != 0.0) {
           c.translate(0, -top);
         }
-        final paints = _InkPaints(
-          ink: ink,
-          tashkeel: tashkeel,
-          tajweedColoring: tajweedColoring,
-          tajweedColors: tajweedColors,
-        );
+        final paint = ui.Paint()
+          ..color = QvpColor.toColor(ink)
+          ..isAntiAlias = true;
 
         final omitted = styled.isEmpty
             ? null
@@ -1895,7 +1744,7 @@ class _QvpPainter extends CustomPainter {
             open = true;
             cur = d.placement;
           }
-          c.drawPath(page.path(d.path), paints.resolve(page, d.path));
+          c.drawPath(page.path(d.path), paint);
           n++;
         }
         if (open) c.restore();
@@ -1989,9 +1838,6 @@ class _QvpPainter extends CustomPainter {
       old.paperShadow != paperShadow ||
       old.cache != cache ||
       old.surahFrames != surahFrames ||
-      old.tashkeelInk != tashkeelInk ||
-      old.tajweedColoring != tajweedColoring ||
-      old.tajweedColors != tajweedColors ||
       old.underlay != underlay ||
       old.overlay != overlay;
 }

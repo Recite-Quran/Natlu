@@ -236,10 +236,7 @@ class SettingsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppBottomSheet(
       maxHeightFactor: 0.75,
-      extraListenable: Listenable.merge([
-        AppState.instance.mushafModeNotifier,
-        AppState.instance.tajweedColoringNotifier,
-      ]),
+      extraListenable: AppState.instance.mushafModeNotifier,
       headerBuilder: (context, c, isAr, isDark) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
         child: Container(
@@ -344,25 +341,6 @@ class SettingsSheet extends StatelessWidget {
                         ),
                       ),
                       SettingDivider(c: c),
-
-                      // 3. Tajweed Colors (Mushaf layout only)
-                      if (app.isMushafMode) ...[
-                        SettingTile(
-                          icon: Icons.format_color_text_rounded,
-                          title: isAr ? 'ألوان التجويد' : 'Tajweed Colors',
-                          c: c,
-                          trailing: AppSegmentedPillSelector(
-                            labels: isAr
-                                ? const ['عادي', 'ملون']
-                                : const ['Standard', 'Colored'],
-                            selected: app.isTajweedColoring ? 1 : 0,
-                            c: c,
-                            onSelected: (i) =>
-                                app.setTajweedColoring(i == 1),
-                          ),
-                        ),
-                        SettingDivider(c: c),
-                      ],
 
                       // 4. Offline Audio & Timing Download
                       QuranDownloadTile(c: c, isAr: isAr, isDark: isDark),

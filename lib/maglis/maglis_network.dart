@@ -531,6 +531,7 @@ class MaglisNetworkEngine {
           page: sig.data['page'] as int? ?? 1,
           surah: sig.data['surah'] as int? ?? 1,
           ayah: sig.data['ayah'] as int? ?? 1,
+          activeWord: (sig.data['activeWord'] as int?) ?? 0,
           activeReciterId: remoteId,
           ts: (sig.data['ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
         );

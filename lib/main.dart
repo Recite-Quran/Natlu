@@ -267,13 +267,17 @@ class _OrchestratorState extends State<_Orchestrator>
 
   void _syncMaglisBroadcastListeners() {
     final inSession = MaglisController.instance.inSession;
-    if (inSession && !_hasAttachedMaglisBroadcast) {
+    if (inSession && !_hasAttachedMaglisBroadcast && _ctrl != null) {
       _hasAttachedMaglisBroadcast = true;
-      _ctrl?.globalRevision.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.globalRevision.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.activeAyah.addListener(_throttledBroadcastMaglisProgress);
     } else if (!inSession && _hasAttachedMaglisBroadcast) {
       _hasAttachedMaglisBroadcast = false;
       _maglisBroadcastThrottle?.cancel();
+      _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
       _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
     }
   }
 
@@ -348,27 +352,9 @@ class _OrchestratorState extends State<_Orchestrator>
 
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
-        void applyFloorClaim() {
-          _ctrl!.setManualAyah(surah, ayah);
-          _ctrl!.clearHighlightsForwardFrom(surah, ayah);
-          _ctrl!.globalRevision.value++;
-        }
-
-        if (_ctrl!.targetSurah != surah) {
-          _ctrl!
-              .setTargetSurah(
-            surah,
-            preserveOtherSurahStates: true,
-            clearTargetSurah: false,
-          )
-              .then((_) {
-            if (mounted && _ctrl != null) {
-              applyFloorClaim();
-            }
-          });
-        } else {
-          applyFloorClaim();
-        }
+        _ctrl!.setManualAyah(surah, ayah);
+        _ctrl!.clearHighlightsForwardFrom(surah, ayah);
+        _ctrl!.globalRevision.value++;
         _stopRecordingForRemoteClaim();
       }
     };
@@ -868,9 +854,11 @@ class _OrchestratorState extends State<_Orchestrator>
               page: mappedPage ?? currentPage,
               surah: selectedSurah,
               ayah: selectedAyah,
+              activeWord: 0,
             ));
           }
           if (mounted) setState(() => _isRecording = true);
+          _broadcastMaglisProgress();
           await _startAudioRecordingStream();
         }
       }

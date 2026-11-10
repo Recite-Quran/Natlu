@@ -447,7 +447,8 @@ class MaglisController extends ChangeNotifier {
         s.remotePage = pkt.page;
         s.remoteSurah = pkt.surah;
         s.remoteAyah = pkt.ayah;
-        s.remoteWord = pkt.activeWord;
+        final int remoteWord = pkt.activeWord ?? 0;
+        s.remoteWord = remoteWord;
         s.remoteGreenWords = List<int>.from(pkt.greenWords)..sort();
         s.remoteYellowWords = List<int>.from(pkt.yellowWords)..sort();
         s.remoteRedWords = List<int>.from(pkt.redWords)..sort();
@@ -464,7 +465,7 @@ class MaglisController extends ChangeNotifier {
           onRemoteRecitationProgress?.call(
             surah: pkt.surah,
             ayah: pkt.ayah,
-            activeWord: pkt.activeWord,
+            activeWord: remoteWord,
             greenWords: pkt.greenWords,
             yellowWords: pkt.yellowWords,
             redWords: pkt.redWords,
@@ -604,6 +605,7 @@ class MaglisController extends ChangeNotifier {
     required int page,
     required int surah,
     required int ayah,
+    int activeWord = 0,
   }) async {
     final s = _session;
     if (s == null) return;
@@ -618,7 +620,7 @@ class MaglisController extends ChangeNotifier {
     s.remotePage = page;
     s.remoteSurah = surah;
     s.remoteAyah = ayah;
-    s.remoteWord = null;
+    s.remoteWord = activeWord;
     s.remoteGreenWords = const [];
     s.remoteYellowWords = const [];
     s.remoteRedWords = const [];
@@ -640,6 +642,7 @@ class MaglisController extends ChangeNotifier {
         page: page,
         surah: surah,
         ayah: ayah,
+        activeWord: activeWord,
         activeReciterId: s.localPeerId,
         ts: now,
       ),
@@ -648,6 +651,7 @@ class MaglisController extends ChangeNotifier {
       'page': page,
       'surah': surah,
       'ayah': ayah,
+      'activeWord': activeWord,
       'seq': claimSeq,
       'ts': now,
     });
@@ -669,6 +673,7 @@ class MaglisController extends ChangeNotifier {
             page: s.remotePage,
             surah: s.remoteSurah,
             ayah: s.remoteAyah,
+            activeWord: s.remoteWord,
             activeReciterId: s.localPeerId,
             ts: now,
           ),
@@ -687,6 +692,7 @@ class MaglisController extends ChangeNotifier {
             page: s.remotePage,
             surah: s.remoteSurah,
             ayah: s.remoteAyah,
+            activeWord: s.remoteWord,
             activeReciterId: s.localPeerId,
             ts: now,
           ),

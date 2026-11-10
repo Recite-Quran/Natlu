@@ -180,7 +180,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.themeNotifier.addListener(_onVisualSettingsChanged);
     app.blurModeNotifier.addListener(_onVisualSettingsChanged);
     app.modeNotifier.addListener(_onVisualSettingsChanged);
-    app.tajweedColoringNotifier.addListener(_onVisualSettingsChanged);
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
@@ -324,7 +323,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.themeNotifier.removeListener(_onVisualSettingsChanged);
     app.blurModeNotifier.removeListener(_onVisualSettingsChanged);
     app.modeNotifier.removeListener(_onVisualSettingsChanged);
-    app.tajweedColoringNotifier.removeListener(_onVisualSettingsChanged);
     _focusNode.dispose();
     super.dispose();
   }
@@ -930,7 +928,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                   final progress = _slideAnimation.value;
                                   final double offsetFraction =
                                       (1.0 - progress) *
-                                          (_activeSlideDir * 0.06);
+                                          (-_activeSlideDir * 0.16);
                                   return Transform.translate(
                                     offset: Offset(
                                       offsetFraction * pageContainerWidth,
@@ -950,16 +948,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                     paper: null,
                                     paperShadow: false,
                                     defaultInk: c.text,
-                                    tashkeelInk: c.tashkeel,
-                                    tajweedColoring: app.isTajweedColoring,
-                                    tajweedColors: QvpTajweedColors(
-                                      madd: c.tajweed.madd,
-                                      iqlab: c.tajweed.iqlab,
-                                      waqf: c.tajweed.waqf,
-                                      tanwin: c.tajweed.tanwin,
-                                      harakah: c.tajweed.harakah,
-                                      dabt: c.tajweed.dabt,
-                                    ),
                                     onWordTap: (word, _) => _onWordTap(
                                       context,
                                       _currentPageObject!,

@@ -176,6 +176,7 @@ class HighlightStore {
 
   void clearSurahFromAyah(int surah, int startAyah) {
     _completedAyahs[surah]?.removeWhere((ayah) => ayah >= startAyah);
+    _completedAyahs.removeWhere((s, _) => s > surah);
     _states.removeWhere((key, _) {
       final (s, a, _) = QuranCoordinate.unpackWordKey(key);
       return s > surah || (s == surah && a >= startAyah);
@@ -465,28 +466,32 @@ class HighlightingController extends rq.HighlightingController {
   @override
   bool isWordGreen(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    if (_store.isGreen(s, ayah, wordIndex)) return true;
+    final st = _store.getWordStatus(s, ayah, wordIndex);
+    if (st > 0) return st == 1;
     return super.isWordGreen(ayah, wordIndex, surah: s);
   }
 
   @override
   bool isWordYellow(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    if (_store.isYellow(s, ayah, wordIndex)) return true;
+    final st = _store.getWordStatus(s, ayah, wordIndex);
+    if (st > 0) return st == 2;
     return super.isWordYellow(ayah, wordIndex, surah: s);
   }
 
   @override
   bool isWordRed(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    if (_store.isRed(s, ayah, wordIndex)) return true;
+    final st = _store.getWordStatus(s, ayah, wordIndex);
+    if (st > 0) return st == 3;
     return super.isWordRed(ayah, wordIndex, surah: s);
   }
 
   @override
   bool isWordNeutral(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    if (_store.isNeutral(s, ayah, wordIndex)) return true;
+    final st = _store.getWordStatus(s, ayah, wordIndex);
+    if (st > 0) return st == 4;
     return super.isWordNeutral(ayah, wordIndex, surah: s);
   }
 
@@ -507,10 +512,12 @@ class HighlightingController extends rq.HighlightingController {
   /// null: Unread
   int? getWordStatus(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    if (isWordGreen(ayah, wordIndex, surah: s)) return 1;
-    if (isWordYellow(ayah, wordIndex, surah: s)) return 2;
-    if (isWordRed(ayah, wordIndex, surah: s)) return 3;
-    if (isWordNeutral(ayah, wordIndex, surah: s)) return 4;
+    final st = _store.getWordStatus(s, ayah, wordIndex);
+    if (st > 0) return st;
+    if (super.isWordGreen(ayah, wordIndex, surah: s)) return 1;
+    if (super.isWordYellow(ayah, wordIndex, surah: s)) return 2;
+    if (super.isWordRed(ayah, wordIndex, surah: s)) return 3;
+    if (super.isWordNeutral(ayah, wordIndex, surah: s)) return 4;
     return null;
   }
 
@@ -560,11 +567,15 @@ class HighlightingController extends rq.HighlightingController {
     Map<String, int>? cumulative,
     bool isReciting = true,
   }) {
+    final bool recitingChanged = _isRemoteReciting != isReciting;
+    final bool surahChanged = _remoteTargetSurah != surah;
+    final bool wordChanged = _remoteActiveWord != activeWord;
+
     _isRemoteReciting = isReciting;
     _remoteTargetSurah = surah;
     _remoteActiveWord = activeWord;
 
-    bool changed = false;
+    bool changed = recitingChanged || surahChanged || wordChanged;
 
     // 1. Merge snapshot or catch-up cumulative history
     if (cumulative != null && cumulative.isNotEmpty) {
@@ -615,13 +626,6 @@ class HighlightingController extends rq.HighlightingController {
     for (final w in redWords) {
       _store.markRed(surah, ayah, w);
       changed = true;
-    }
-
-    // 3. Complete ayahs prior to the current active ayah in the same surah
-    if (ayah > 1) {
-      for (int a = 1; a < ayah; a++) {
-        _store.markAyahCompleted(surah, a);
-      }
     }
 
     if (activeAyah.value != ayah) {
