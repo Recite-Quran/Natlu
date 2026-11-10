@@ -701,11 +701,12 @@ class QvpPageViewState extends State<QvpPageView>
     if (engineDir != 0) {
       return engineDir;
     }
-    if (vx.abs() > 180.0) {
-      return vx > 0 ? 1 : -1;
-    }
+    // Displacement dominates when significant (> 36px) to prevent finger lift-off micro-reversals
     if (dx.abs() > 36.0) {
       return dx > 0 ? 1 : -1;
+    }
+    if (vx.abs() > 180.0 && (dx.abs() <= 12.0 || (dx > 0 == vx > 0))) {
+      return vx > 0 ? 1 : -1;
     }
     return 0;
   }
@@ -861,6 +862,10 @@ class QvpPageViewState extends State<QvpPageView>
                       }
                       _swipeDx = 0.0;
                     }
+                  : null,
+              onHorizontalDragCancel:
+                  (!widget.panZoomEnabled && widget.onSwipe != null)
+                  ? () => _swipeDx = 0.0
                   : null,
               onLongPressStart: widget.selectionEnabled
                   ? _onLongPressStart

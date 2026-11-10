@@ -467,6 +467,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onExternalPageChanged() {
     if (!mounted) return;
+    if (_flipController.isAnimating) return;
     if (widget.controller.isAudioActive) return;
     final targetPage = AppState.instance.currentMushafPage.value;
     if (targetPage > 0 &&
@@ -596,8 +597,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _stepPage(int dir) {
+    if (_flipController.isAnimating) return;
     final target = QuranMetadata.clampPage(_currentPage + dir);
     if (target == _currentPage) return;
+    _savePositionDebounce?.cancel();
     _navigationTargetAyah = null;
     _turnDir = dir;
     _goToPage(target, animated: true);
@@ -614,6 +617,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _goToPage(int page, {bool animated = false}) {
+    _savePositionDebounce?.cancel();
     final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
     final dir = _turnDir != 0 ? _turnDir : (clamped > _currentPage ? 1 : -1);
