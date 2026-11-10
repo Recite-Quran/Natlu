@@ -306,6 +306,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _clearPageVisuals(_currentPageObject);
     _slideController.dispose();
     _spinnerController.dispose();
     _yellowWordsNotifier.dispose();
@@ -323,7 +324,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     app.blurModeNotifier.removeListener(_syncVisuals);
     app.modeNotifier.removeListener(_syncVisuals);
     _focusNode.dispose();
-    _clearPageVisuals(_currentPageObject);
     super.dispose();
   }
 
@@ -649,7 +649,9 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _hasMasks = false;
     }
     _lastHiddenWords = const [];
-    _yellowWordsNotifier.value = const [];
+    if (_yellowWordsNotifier.value.isNotEmpty) {
+      _yellowWordsNotifier.value = const [];
+    }
   }
 
   // Visual synchronization & recitation highlights
