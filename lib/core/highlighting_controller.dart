@@ -1118,16 +1118,19 @@ abstract final class QuranInteractionService {
     bool playWordDirectly = false,
     List<rq.ReciterError>? overrideErrors,
   }) {
-    final bool isAudioActive = controller.isAudioActive;
     final bool isAlreadySelected =
         controller.targetSurah == surah && controller.activeAyah.value == ayah;
 
-    selectAyah(
-      surah: surah,
-      ayah: ayah,
-      controller: controller,
-      onTap: onAyahTap,
-    );
+    // A word cannot be pressed, auditioned, or selected unless the ayah itself is selected first.
+    if (!isAlreadySelected) {
+      selectAyah(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        onTap: onAyahTap,
+      );
+      return;
+    }
 
     final errors = overrideErrors ??
         (controller.isWordYellow(ayah, wordIndex, surah: surah)
@@ -1145,9 +1148,15 @@ abstract final class QuranInteractionService {
         wordIndex: wordIndex,
       );
       onWordErrorTap?.call();
-    } else if (!isAudioActive && (isAlreadySelected || playWordDirectly)) {
+    } else {
       if (MaglisController.instance.inSession) {
         return;
+      }
+      if (controller.isAudioActive ||
+          QuranAudioService.instance.isPlaying ||
+          QuranAudioService.instance.isBuffering) {
+        QuranAudioService.instance.stop();
+        controller.clearAudio();
       }
       QuranAudioService.instance.playWord(
         surah: surah,
@@ -1157,7 +1166,7 @@ abstract final class QuranInteractionService {
     }
   }
 
-  /// Toggles Ayah audio playback with buffering debounce and haptic feedback.
+  /// Toggles Ayah audio playback with haptic feedback.
   static Future<void> toggleAyahAudio({
     required int surah,
     required int ayah,
@@ -1167,11 +1176,6 @@ abstract final class QuranInteractionService {
     VoidCallback? onExplicitToggle,
   }) async {
     if (MaglisController.instance.inSession) return;
-    if (controller.isAudioBuffering &&
-        controller.audioSurah == surah &&
-        controller.audioAyah == ayah) {
-      return;
-    }
     AppHaptics.selectionClick();
     controller.setManualAyah(surah, ayah);
     onTap?.call();

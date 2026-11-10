@@ -112,11 +112,9 @@ class VerseSpanBuilder {
       TapGestureRecognizer? recognizer;
       if (enableGestures) {
         final bool isYellow = controller.isWordYellow(ayah, wordIdx, surah: surah);
-        // Performance optimization: only attach TapGestureRecognizer if this word has an error
-        // or if the verse is currently active (where individual word audio audition is supported).
-        // Unselected verses without errors delegate taps directly to the VerseRow GestureDetector,
-        // eliminating hundreds of redundant gesture recognizers in the gesture arena!
-        if (isYellow || isActive) {
+        // A word cannot be pressed or auditioned unless the ayah is selected first.
+        // Unselected verses delegate taps directly to the VerseRow GestureDetector to select the ayah.
+        if (isActive) {
           recognizer = TapGestureRecognizer()
             ..onTap = () {
               if (isYellow) {

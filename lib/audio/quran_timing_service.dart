@@ -4,6 +4,7 @@ import 'dart:developer' show log;
 import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../core/app_state.dart';
@@ -150,15 +151,30 @@ class QuranTimingService {
 
   static final http.Client _client = http.Client();
 
+  static const int _maxCachedSurahs = 5;
   final Map<int, SurahTiming> _inMemorySurahs = {};
   final Map<int, Future<SurahTiming?>> _activeFetches = {};
 
   AudioFailureReason lastFailureReason = AudioFailureReason.networkOffline;
 
-  SurahTiming? getSurahTiming(int surah) => _inMemorySurahs[surah];
+  SurahTiming? getSurahTiming(int surah) {
+    final timing = _inMemorySurahs.remove(surah);
+    if (timing != null) {
+      _inMemorySurahs[surah] = timing; // Promote to most recently used
+    }
+    return timing;
+  }
+
+  void _cacheSurah(int surah, SurahTiming timing) {
+    _inMemorySurahs.remove(surah);
+    _inMemorySurahs[surah] = timing;
+    while (_inMemorySurahs.length > _maxCachedSurahs) {
+      _inMemorySurahs.remove(_inMemorySurahs.keys.first);
+    }
+  }
 
   AyahTiming? getCachedAyahTiming(int surah, int ayah) {
-    return _inMemorySurahs[surah]?.getAyah(ayah);
+    return getSurahTiming(surah)?.getAyah(ayah);
   }
 
   static String? _cachedTimingsDirPath;
@@ -185,8 +201,11 @@ class QuranTimingService {
 
   /// Ensures timing data for [surah] is loaded into memory.
   Future<SurahTiming?> ensureSurahLoaded(int surah) async {
-    if (_inMemorySurahs.containsKey(surah)) {
-      return _inMemorySurahs[surah];
+    if (surah < 1 || surah > 114) return null;
+
+    final cached = getSurahTiming(surah);
+    if (cached != null) {
+      return cached;
     }
 
     if (_activeFetches.containsKey(surah)) {
@@ -198,7 +217,23 @@ class QuranTimingService {
 
     () async {
       try {
-        // 1. Check local persistent disk cache first (instant ~1ms on native)
+        // 1. Check pre-bundled offline asset (instant 0ms, 100% offline)
+        try {
+          final assetContent = await rootBundle.loadString(
+            'assets/audio_timings/husary/$surah.json',
+            cache: false,
+          );
+          if (assetContent.length > 50) {
+            final parsed = await _parseJsonAuto(surah, assetContent);
+            if (parsed != null) {
+              _cacheSurah(surah, parsed);
+              completer.complete(parsed);
+              return;
+            }
+          }
+        } catch (_) {}
+
+        // 2. Check local persistent disk cache fallback
         final cacheFile = kIsWeb ? null : await _getDiskCacheFile(surah);
         if (cacheFile != null && await cacheFile.exists()) {
           try {
@@ -206,7 +241,7 @@ class QuranTimingService {
             if (content.length > 50) {
               final parsed = await _parseJsonAuto(surah, content);
               if (parsed != null) {
-                _inMemorySurahs[surah] = parsed;
+                _cacheSurah(surah, parsed);
                 completer.complete(parsed);
                 return;
               }
@@ -217,10 +252,10 @@ class QuranTimingService {
           }
         }
 
-        // 2. Fetch from Quran.com API (Reciter 6 = Mahmoud Khalil Al-Husary)
+        // 3. Fetch from Quran.com API as last resort fallback
         final timing = await _fetchSurahTiming(surah);
         if (timing != null) {
-          _inMemorySurahs[surah] = timing;
+          _cacheSurah(surah, timing);
         }
         completer.complete(timing);
       } catch (e) {
@@ -402,7 +437,8 @@ class QuranTimingService {
     required int ayah,
     required int positionMs,
   }) {
-    final surahTiming = _inMemorySurahs[surah];
+    if (surah < 1 || surah > 114 || ayah < 1) return null;
+    final surahTiming = getSurahTiming(surah);
     final ayahTiming = surahTiming?.getAyah(ayah);
     return ayahTiming?.getWordIndexAtMs(positionMs);
   }

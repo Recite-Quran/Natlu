@@ -8,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 import 'quran_audio_service.dart';
-import 'quran_timing_service.dart';
 
 /// Production-grade Quran audio & timing download manager matching `alquranalkareem`.
 ///
@@ -68,28 +67,16 @@ class QuranDownloadService {
     }
   }
 
-  /// Checks if a Surah's timing file is cached locally on disk.
-  static Future<bool> isSurahTimingDownloaded(int surah) async {
-    if (kIsWeb) return false;
-    try {
-      final file = await QuranTimingService.instance.getDiskCacheFileForSurah(surah);
-      return file != null && file.existsSync() && file.lengthSync() > 50;
-    } catch (_) {
-      return false;
-    }
-  }
+  /// All 114 Surah timing files are pre-bundled in assets (0ms, 100% offline).
+  static Future<bool> isSurahTimingDownloaded(int surah) async => true;
 
-  /// Checks if an entire Surah (all Ayahs + timing JSON) is completely downloaded.
+  /// Checks if an entire Surah (all Ayah audio files) is completely downloaded.
   static Future<bool> isSurahDownloaded(int surah) async {
     if (kIsWeb) return false;
     final int maxAyahs = QuranMetadata.getAyahCount(surah);
     if (maxAyahs <= 0) return false;
 
-    // Check timing JSON
-    final hasTiming = await isSurahTimingDownloaded(surah);
-    if (!hasTiming) return false;
-
-    // Check each Ayah file
+    // Check each Ayah audio file
     for (int a = 1; a <= maxAyahs; a++) {
       final hasAyah = await isAyahDownloaded(surah, a);
       if (!hasAyah) return false;
@@ -222,14 +209,8 @@ class QuranDownloadService {
         final maxAyahs = QuranMetadata.getAyahCount(surah);
 
         currentSurah.value = surah;
-        statusMessage.value =
-            'جاري إعداد بيانات سورة $surahName...';
 
-        // 1. Ensure Surah word timings are downloaded and cached
-        await _ensureTimingDownloaded(surah);
-        if (_isCancelled) break;
-
-        // 2. Download each missing Ayah audio file with 3-worker concurrency (3x speed)
+        // Download each missing Ayah audio file with 3-worker concurrency (3x speed)
         final List<int> missingAyahs = [];
         for (int a = 1; a <= maxAyahs; a++) {
           if (await isAyahDownloaded(surah, a)) {
@@ -283,14 +264,14 @@ class QuranDownloadService {
 
       if (!_isCancelled) {
         progress.value = 1.0;
-        statusMessage.value = 'تم اكتمال تحميل التلاوة والتوقيت بنجاح!';
+        statusMessage.value = 'تم اكتمال تحميل التلاوة بنجاح!';
         AppState.instance.showBanner(
           AppBannerInfo(
             id: 'download_complete',
             messageAr:
-                'تم اكتمال تحميل التلاوة والتوقيت لـ ${surahs.length} سورة للاستماع بدون إنترنت',
+                'تم اكتمال تحميل تلاوة ${surahs.length} سورة للاستماع بدون إنترنت',
             messageEn:
-                'Downloaded audio and timings for ${surahs.length} surahs for offline use',
+                'Downloaded audio for ${surahs.length} surahs for offline use',
             icon: Icons.check_circle_rounded,
             customDuration: const Duration(milliseconds: 4000),
           ),
@@ -312,24 +293,6 @@ class QuranDownloadService {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_prefActiveDownloadSurahs);
-      } catch (_) {}
-    }
-  }
-
-  /// Downloads and caches the Surah timing JSON with retry logic.
-  Future<void> _ensureTimingDownloaded(int surah) async {
-    try {
-      final timing = await QuranTimingService.instance.ensureSurahLoaded(surah);
-      if (timing != null) return;
-    } catch (_) {}
-
-    // Fallback retry
-    for (int retry = 0; retry < 2; retry++) {
-      if (_isCancelled) return;
-      await Future.delayed(const Duration(milliseconds: 800));
-      try {
-        final timing = await QuranTimingService.instance.ensureSurahLoaded(surah);
-        if (timing != null) return;
       } catch (_) {}
     }
   }

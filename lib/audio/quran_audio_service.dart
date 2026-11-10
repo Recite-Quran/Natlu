@@ -124,7 +124,7 @@ class QuranAudioService {
     await _player.dispose();
   }
 
-  /// Toggles Ayah playback: if currently playing -> pause; if paused -> resume; otherwise -> play.
+  /// Toggles Ayah playback: if currently playing/buffering this ayah -> stop; otherwise -> stop any active playback and play.
   Future<void> toggleAyah({
     required int surah,
     required int ayah,
@@ -132,22 +132,23 @@ class QuranAudioService {
     bool continuous = true,
     VoidCallback? onTap,
   }) async {
-    if (controller.isAudioBuffering &&
-        controller.audioSurah == surah &&
-        controller.audioAyah == ayah) {
-      return;
-    }
     onTap?.call();
 
-    if (controller.isAudioPlaying &&
+    final bool isThisAyahActive =
+        (controller.isAudioPlaying || controller.isAudioBuffering) &&
         controller.audioSurah == surah &&
-        controller.audioAyah == ayah) {
-      await pause();
-    } else if (controller.isAudioPaused &&
-        controller.audioSurah == surah &&
-        controller.audioAyah == ayah) {
-      await resume();
+        controller.audioAyah == ayah;
+
+    if (isThisAyahActive) {
+      // STOP button pressed: stop playback completely
+      await stop();
+      controller.clearAudio();
     } else {
+      // PLAY button pressed: stop any existing audio first to avoid collision, then play
+      if (controller.isAudioActive || isPlaying || isBuffering) {
+        await stop();
+        controller.clearAudio();
+      }
       await play(
         surah: surah,
         ayah: ayah,
@@ -531,6 +532,10 @@ class VerseAudioPlayer {
     required int wordIndex,
   }) async {
     final int session = ++_sessionId;
+
+    try {
+      _player?.stop();
+    } catch (_) {}
 
     _isPreparingNewTrack = true;
     _isSingleWordMode = true;
