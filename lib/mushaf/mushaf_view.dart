@@ -572,23 +572,36 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    // Keep active ayah synced to current page if not tracking audio.
+    // Manual page turn (idle browsing): never auto-select the first ayah.
+    // If the previous selection is not on this page, drop it so nothing is
+    // highlighted until the user taps a word or presses record (record-time
+    // anchoring lives in didUpdateWidget → ensureActiveAyahOnCurrentPage).
+    // While a live session exists (recording / remote recitation) an anchor is
+    // kept, since the recitation highlight needs a coordinate on every page.
     if (!widget.controller.isAudioActive) {
       final active = widget.controller.activeAyah.value;
       final targetSurah = widget.controller.targetSurah != 0
           ? widget.controller.targetSurah
           : AppState.instance.lastSurah;
-      if (active == null ||
+      if (active != null &&
           !provider.isAyahOnPage(
             pageNumber: pageNum,
             surah: targetSurah,
             ayah: active,
           )) {
-        final first = provider.getFirstAyahOnPage(pageNum);
-        if (first != null) {
-          _lastHandledAyah = first.$2;
-          _lastHandledSurah = first.$1;
-          widget.controller.setManualAyah(first.$1, first.$2);
+        final bool keepAnchor = widget.isRecording ||
+            MaglisController.instance.isRemoteReciting;
+        if (keepAnchor) {
+          final first = provider.getFirstAyahOnPage(pageNum);
+          if (first != null) {
+            _lastHandledAyah = first.$2;
+            _lastHandledSurah = first.$1;
+            widget.controller.setManualAyah(first.$1, first.$2);
+          }
+        } else {
+          _lastHandledAyah = null;
+          _lastHandledSurah = null;
+          widget.controller.clearManualAyah();
         }
       }
     }
