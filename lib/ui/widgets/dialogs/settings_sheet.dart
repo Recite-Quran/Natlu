@@ -30,7 +30,8 @@ class SettingDivider extends StatelessWidget {
 
 /// Minimalist setting row tile that handles trailing controls and sub-sliders.
 class SettingTile extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final String title;
   final ThemeColors c;
   final Widget? trailing;
@@ -41,7 +42,8 @@ class SettingTile extends StatelessWidget {
 
   const SettingTile({
     super.key,
-    required this.icon,
+    this.icon,
+    this.iconWidget,
     required this.title,
     required this.c,
     this.trailing,
@@ -49,7 +51,8 @@ class SettingTile extends StatelessWidget {
     this.badge,
     this.trailingWidth,
     this.onTap,
-  });
+  }) : assert(icon != null || iconWidget != null,
+            'Either icon or iconWidget must be provided');
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +78,10 @@ class SettingTile extends StatelessWidget {
                     width: 1,
                   ),
                 ),
-                child: Icon(icon, color: const Color(0xFF10B981), size: 20),
+                child: iconWidget ??
+                    (icon != null
+                        ? Icon(icon, color: const Color(0xFF10B981), size: 20)
+                        : const SizedBox.shrink()),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -230,7 +236,10 @@ class SettingsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppBottomSheet(
       maxHeightFactor: 0.75,
-      extraListenable: AppState.instance.mushafModeNotifier,
+      extraListenable: Listenable.merge([
+        AppState.instance.mushafModeNotifier,
+        AppState.instance.tajweedColoringNotifier,
+      ]),
       headerBuilder: (context, c, isAr, isDark) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 2, 20, 4),
         child: Container(
@@ -336,7 +345,26 @@ class SettingsSheet extends StatelessWidget {
                       ),
                       SettingDivider(c: c),
 
-                      // 3. Offline Audio & Timing Download
+                      // 3. Tajweed Colors (Mushaf layout only)
+                      if (app.isMushafMode) ...[
+                        SettingTile(
+                          icon: Icons.format_color_text_rounded,
+                          title: isAr ? 'ألوان التجويد' : 'Tajweed Colors',
+                          c: c,
+                          trailing: AppSegmentedPillSelector(
+                            labels: isAr
+                                ? const ['عادي', 'ملون']
+                                : const ['Standard', 'Colored'],
+                            selected: app.isTajweedColoring ? 1 : 0,
+                            c: c,
+                            onSelected: (i) =>
+                                app.setTajweedColoring(i == 1),
+                          ),
+                        ),
+                        SettingDivider(c: c),
+                      ],
+
+                      // 4. Offline Audio & Timing Download
                       QuranDownloadTile(c: c, isAr: isAr, isDark: isDark),
 
                       // 4. Sliders in reading mode
@@ -629,7 +657,17 @@ class _FontSliderTileState extends State<FontSliderTile> {
     final isDark = app.isDarkMode;
 
     return SettingTile(
-      icon: Icons.format_size_rounded,
+      iconWidget: const Center(
+        child: Text(
+          'Aa',
+          style: TextStyle(
+            color: Color(0xFF10B981),
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+          ),
+        ),
+      ),
       title: isAr ? 'حجم الخط' : 'Font Size',
       c: c,
       trailing: Row(

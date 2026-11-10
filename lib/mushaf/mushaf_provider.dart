@@ -79,6 +79,17 @@ class MushafProvider {
       final neighbors = [pageNumber + 1, pageNumber - 1];
       final currentInkColor = AppState.instance.colors.text;
       final currentTashkeelColor = AppState.instance.colors.tashkeel;
+      final isTajweed = AppState.instance.isTajweedColoring;
+      final tajweedColors = isTajweed
+          ? QvpTajweedColors(
+              madd: AppState.instance.colors.tajweed.madd,
+              iqlab: AppState.instance.colors.tajweed.iqlab,
+              waqf: AppState.instance.colors.tajweed.waqf,
+              tanwin: AppState.instance.colors.tajweed.tanwin,
+              harakah: AppState.instance.colors.tajweed.harakah,
+              dabt: AppState.instance.colors.tajweed.dabt,
+            )
+          : null;
       final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
@@ -104,6 +115,8 @@ class MushafProvider {
             cached,
             inkColor: currentInkColor,
             tashkeelColor: currentTashkeelColor,
+            tajweedColoring: isTajweed,
+            tajweedColors: tajweedColors,
             surahFrames: false,
             dpr: dpr,
             width: targetSize.width,
@@ -135,6 +148,8 @@ class MushafProvider {
               page,
               inkColor: currentInkColor,
               tashkeelColor: currentTashkeelColor,
+              tajweedColoring: isTajweed,
+              tajweedColors: tajweedColors,
               surahFrames: false,
               dpr: dpr,
               width: targetSize.width,

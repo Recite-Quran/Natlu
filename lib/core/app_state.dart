@@ -231,6 +231,19 @@ class AppState extends ChangeNotifier {
     await prefs.setBool('blurMode', isBlurMode);
   }
 
+  // ── Tajweed Static Color Mode ──────────────────────────────────────────────
+  bool isTajweedColoring = false;
+  final ValueNotifier<bool> tajweedColoringNotifier = ValueNotifier<bool>(false);
+
+  void setTajweedColoring(bool val) async {
+    if (isTajweedColoring == val) return;
+    isTajweedColoring = val;
+    tajweedColoringNotifier.value = val;
+    notifyListeners();
+    final prefs = await _getPrefs();
+    await prefs.setBool('tajweedColoring', val);
+  }
+
   // ── Mushaf Layout ──────────────────────────────────────────────────────────
   bool isMushafMode = true;
   final ValueNotifier<bool> mushafModeNotifier = ValueNotifier<bool>(true);
@@ -690,6 +703,14 @@ class AppState extends ChangeNotifier {
         Color(0xFF1E293B), // Slate-800 deep charcoal (13:1 eye-gentle contrast)
     textSecondary: Color(0xFF475569), // Slate-600 secondary text
     tashkeel: Color(0xFF64748B), // Slate-500 neutral muted (5.2:1 contrast for diacritics/waqf)
+    tajweed: const TajweedPalette(
+      madd: Color(0xFFE11D48), // Crimson Rose for Madd
+      iqlab: Color(0xFFD97706), // Warm Amber for Iqlab small meem
+      waqf: Color(0xFF16A34A), // Botanical Green for stop marks
+      tanwin: Color(0xFF9333EA), // Royal Amethyst for Tanwin
+      harakah: Color(0xFF2563EB), // Sapphire Blue for short vowels
+      dabt: Color(0xFF0D9488), // Calm Teal for Dabt/reading signs
+    ),
     ayahOutline: Color(0x2EB45309), // Soft warm amber outline (~18% alpha)
     ambientGlow: Color(0x18047857), // Ambient soft emerald glow
     success: Color(0xFF15803D), // Soothing botanical green success
@@ -728,6 +749,14 @@ class AppState extends ChangeNotifier {
     text: Color(0xFFE2E8F0), // Moonlit pearl (halation-free)
     textSecondary: Color(0xFF94A3B8), // Slate-400
     tashkeel: Color(0xFF94A3B8), // Slate-400 steel mist (5.8:1 contrast for diacritics/waqf)
+    tajweed: const TajweedPalette(
+      madd: Color(0xFFFB7185), // Luminous Rose for Madd
+      iqlab: Color(0xFFFBBF24), // Amber Gold for Iqlab small meem
+      waqf: Color(0xFF34D399), // Emerald Mint for stop marks
+      tanwin: Color(0xFFC084FC), // Luminous Violet for Tanwin
+      harakah: Color(0xFF60A5FA), // Sky Blue for short vowels
+      dabt: Color(0xFF2DD4BF), // Bright Teal for Dabt/reading signs
+    ),
     ayahOutline: Color(0x35EAB308), // Soft amber outline
     ambientGlow: Color(0x2510B981), // Gentle emerald glow
     success: Color(0xFF10B981), // Calming emerald green success
@@ -765,6 +794,8 @@ class AppState extends ChangeNotifier {
       }
       isBlurMode = prefs.getBool('blurMode') ?? false;
       blurModeNotifier.value = isBlurMode;
+      isTajweedColoring = prefs.getBool('tajweedColoring') ?? false;
+      tajweedColoringNotifier.value = isTajweedColoring;
 
       tajweedClickCount = prefs.getInt('tajweed_click_count') ?? 0;
       // Migrate old boolean value if present
@@ -810,6 +841,25 @@ class AppState extends ChangeNotifier {
   }
 }
 
+/// Curated authentic Tajweed color palette for static vector marks.
+class TajweedPalette {
+  final Color madd;
+  final Color iqlab;
+  final Color waqf;
+  final Color tanwin;
+  final Color harakah;
+  final Color dabt;
+
+  const TajweedPalette({
+    required this.madd,
+    required this.iqlab,
+    required this.waqf,
+    required this.tanwin,
+    required this.harakah,
+    required this.dabt,
+  });
+}
+
 /// 2026 Design Token Palette used across the application.
 ///
 /// Implements WCAG AA/AAA compliant Obsidian / Slate dark mode architecture,
@@ -834,6 +884,7 @@ class ThemeColors {
   final Color text;
   final Color textSecondary;
   final Color tashkeel;
+  final TajweedPalette tajweed;
   final Color ayahOutline;
   final Color ambientGlow;
   final Color success;
@@ -864,6 +915,7 @@ class ThemeColors {
     required this.text,
     required this.textSecondary,
     required this.tashkeel,
+    required this.tajweed,
     required this.ayahOutline,
     required this.ambientGlow,
     required this.success,

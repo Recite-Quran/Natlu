@@ -177,9 +177,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     widget.controller.addListener(_onControllerProgress);
     widget.controller.activeAyah.addListener(_onActiveAyahChanged);
     app.currentMushafPage.addListener(_onExternalPageChanged);
-    app.themeNotifier.addListener(_syncVisuals);
-    app.blurModeNotifier.addListener(_syncVisuals);
-    app.modeNotifier.addListener(_syncVisuals);
+    app.themeNotifier.addListener(_onVisualSettingsChanged);
+    app.blurModeNotifier.addListener(_onVisualSettingsChanged);
+    app.modeNotifier.addListener(_onVisualSettingsChanged);
+    app.tajweedColoringNotifier.addListener(_onVisualSettingsChanged);
     MaglisController.instance.sessionListenable
         .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
@@ -320,9 +321,10 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     widget.controller.activeAyah.removeListener(_onActiveAyahChanged);
     final app = AppState.instance;
     app.currentMushafPage.removeListener(_onExternalPageChanged);
-    app.themeNotifier.removeListener(_syncVisuals);
-    app.blurModeNotifier.removeListener(_syncVisuals);
-    app.modeNotifier.removeListener(_syncVisuals);
+    app.themeNotifier.removeListener(_onVisualSettingsChanged);
+    app.blurModeNotifier.removeListener(_onVisualSettingsChanged);
+    app.modeNotifier.removeListener(_onVisualSettingsChanged);
+    app.tajweedColoringNotifier.removeListener(_onVisualSettingsChanged);
     _focusNode.dispose();
     super.dispose();
   }
@@ -666,6 +668,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _syncVisuals();
   }
 
+  void _onVisualSettingsChanged() {
+    _syncVisuals();
+    if (mounted) {
+      setState(() {});
+      MushafProvider.instance.preloadAdjacentPages(_currentPage);
+    }
+  }
+
   void _syncVisuals() {
     final page = _currentPageObject;
     if (page == null || page.isDisposed || !mounted) return;
@@ -821,7 +831,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final c = AppState.instance.colors;
+    final app = AppState.instance;
+    final c = app.colors;
 
     if (_isLoading) {
       return ColoredBox(
@@ -924,6 +935,15 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                     paperShadow: false,
                                     defaultInk: c.text,
                                     tashkeelInk: c.tashkeel,
+                                    tajweedColoring: app.isTajweedColoring,
+                                    tajweedColors: QvpTajweedColors(
+                                      madd: c.tajweed.madd,
+                                      iqlab: c.tajweed.iqlab,
+                                      waqf: c.tajweed.waqf,
+                                      tanwin: c.tajweed.tanwin,
+                                      harakah: c.tajweed.harakah,
+                                      dabt: c.tajweed.dabt,
+                                    ),
                                     onWordTap: (word, _) => _onWordTap(
                                       context,
                                       _currentPageObject!,

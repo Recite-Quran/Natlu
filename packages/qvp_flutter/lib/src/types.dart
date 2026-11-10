@@ -1270,6 +1270,40 @@ final class QvpTheme {
   final int ms;
 }
 
+/// Static Tajweed color mapping for vector mark rendering.
+@immutable
+final class QvpTajweedColors {
+  const QvpTajweedColors({
+    required this.madd,
+    required this.iqlab,
+    required this.waqf,
+    required this.tanwin,
+    required this.harakah,
+    required this.dabt,
+  });
+
+  final Object madd;
+  final Object iqlab;
+  final Object waqf;
+  final Object tanwin;
+  final Object harakah;
+  final Object dabt;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QvpTajweedColors &&
+          madd == other.madd &&
+          iqlab == other.iqlab &&
+          waqf == other.waqf &&
+          tanwin == other.tanwin &&
+          harakah == other.harakah &&
+          dabt == other.dabt;
+
+  @override
+  int get hashCode => Object.hash(madd, iqlab, waqf, tanwin, harakah, dabt);
+}
+
 /// One surah on a page ([QvpPage.surahs]): a surah with words here, or one whose name banner
 /// or basmalah is here.
 @immutable
