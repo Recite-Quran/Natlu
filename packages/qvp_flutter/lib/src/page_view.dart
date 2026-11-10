@@ -22,6 +22,8 @@ import 'page.dart' show pageClock;
 /// Spacing only opens up: `lineSpacing` < 1 is clamped by the engine.
 @immutable
 class QvpViewLayout {
+  /// The defaults leave 24 px above and below the page and 16 px at each side, at the printed
+  /// line spacing.
   const QvpViewLayout({
     this.padTop = 24,
     this.padBottom = 24,
@@ -29,12 +31,23 @@ class QvpViewLayout {
     this.lineSpacing = 1,
     this.fillHeight = false,
     this.gridLines = 0,
-    this.maxAspectSlack = 0.0,
+    this.maxAspectSlack = QvpDefaults.aspectSlack,
     this.surahFrames = true,
   });
-  final double padTop, padBottom, padSide, lineSpacing, maxAspectSlack;
+
+  /// [padTop], [padBottom] and [padSide] are the space around the page in viewport px;
+  /// [padSide] goes on the left and on the right. [lineSpacing] multiplies the printed spacing.
+  final double padTop, padBottom, padSide, lineSpacing;
+
+  /// [fillHeight] opens the line spacing until the page fills the padded height.
+  /// [surahFrames] draws the print's own frames around surah names; a reflowed page has none.
   final bool fillHeight, surahFrames;
+
+  /// The grid to lay the page out inside, in lines; 0 is the page's own ([QvpPage.grid]).
   final int gridLines;
+
+  /// Maximum aspect slack for viewport fit guard.
+  final double maxAspectSlack;
 
   QvpViewLayout copyWith({
     double? padTop,
@@ -134,6 +147,7 @@ class QvpViewController extends ChangeNotifier {
   /// The reader's pan and zoom as the engine has it.
   QvpView get view => QvpView(scale: scale, offsetX: offsetX, offsetY: offsetY);
 
+  /// Sets the fields given and notifies the views that use this controller.
   void set({double? scale, double? offsetX, double? offsetY}) {
     this.scale = scale ?? this.scale;
     this.offsetX = offsetX ?? this.offsetX;
@@ -842,25 +856,27 @@ class QvpPageViewState extends State<QvpPageView>
               onLongPressMoveUpdate:
                   widget.selectionEnabled ? _onLongPressMove : null,
               onLongPressEnd: widget.selectionEnabled ? _onLongPressEnd : null,
-              child: CustomPaint(
-                size: size,
-                isComplex: true,
-                willChange: false,
-                painter: _QvpPainter(
-                  page: page,
-                  view: _ctl,
-                  frame: _frame,
-                  cache: _cache,
-                  dpr: dpr,
-                  paper: widget.paper,
-                  paperShadow: widget.paperShadow,
-                  surahFrames: widget.layout.surahFrames,
-                  tashkeelInk: widget.tashkeelInk,
-                  tajweedColoring: widget.tajweedColoring,
-                  tajweedColors: widget.tajweedColors,
-                  underlay: widget.underlay,
-                  overlay: widget.overlay,
-                  repaintListenable: widget.repaintListenable,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  size: size,
+                  isComplex: true,
+                  willChange: false,
+                  painter: _QvpPainter(
+                    page: page,
+                    view: _ctl,
+                    frame: _frame,
+                    cache: _cache,
+                    dpr: dpr,
+                    paper: widget.paper,
+                    paperShadow: widget.paperShadow,
+                    surahFrames: widget.layout.surahFrames,
+                    tashkeelInk: widget.tashkeelInk,
+                    tajweedColoring: widget.tajweedColoring,
+                    tajweedColors: widget.tajweedColors,
+                    underlay: widget.underlay,
+                    overlay: widget.overlay,
+                    repaintListenable: widget.repaintListenable,
+                  ),
                 ),
               ),
             ),
