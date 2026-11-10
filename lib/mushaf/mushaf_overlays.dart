@@ -33,6 +33,9 @@ class MushafOverlays {
   static TextPainter? _cachedPainterAr;
   static TextPainter? _cachedPainterEn;
 
+  static final Expando<_PageWordLayoutCache> _pageWordCaches =
+      Expando<_PageWordLayoutCache>();
+
   static TextPainter _getTooltipTextPainter(bool isArabic) {
     if (isArabic) {
       if (_cachedPainterAr == null) {
@@ -136,23 +139,15 @@ class MushafOverlays {
     Set<int> getCompletedAyahs(int surah) =>
         completedAyahsCache.putIfAbsent(surah, () => controller.completedAyahsFor(surah));
 
-    // Pre-group words by (surah, ayah) in a single O(N) pass
-    final wordsByAyah = <(int, int), List<QvpWordInfo>>{};
-    for (final w in page.words) {
-      (wordsByAyah[(w.surah, w.ayah)] ??= []).add(w);
-    }
+    // Pre-group words by (surah, ayah) and pre-sort by line once per page lifetime
+    final cache = _pageWordCaches[page] ??= _PageWordLayoutCache.fromPage(page);
+    final wordsByAyah = cache.wordsByAyah;
 
     // 2. Resolve Active / Waited Lead Word on this page
     int? activeWordPageIdx;
     if (activeSurah != 0 && activeAyah != 0) {
-      final activeAyahWords = wordsByAyah[(activeSurah, activeAyah)];
-      if (activeAyahWords != null && activeAyahWords.isNotEmpty) {
-        int maxWordOnPage = 0;
-        for (final w in activeAyahWords) {
-          if (w.word > maxWordOnPage) {
-            maxWordOnPage = w.word;
-          }
-        }
+      final maxWordOnPage = cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
+      if (maxWordOnPage > 0) {
         final leadW0 = controller.getLeadWordIndex(
           surah: activeSurah,
           ayah: activeAyah,
@@ -203,20 +198,11 @@ class MushafOverlays {
     // 4. Render continuous line boxes for each ayah
     for (final (s, a) in ayahsToPaint) {
       final bool isActiveAyah = (s == activeSurah && a == activeAyah);
-      final wordsInAyah = wordsByAyah[(s, a)];
-      if (wordsInAyah == null || wordsInAyah.isEmpty) continue;
-
-      // Group words by line
-      final wordsByLine = <int, List<QvpWordInfo>>{};
-      for (final w in wordsInAyah) {
-        (wordsByLine[w.line] ??= []).add(w);
-      }
+      final wordsByLine = cache.wordsByAyahAndLine[(s, a)];
+      if (wordsByLine == null || wordsByLine.isEmpty) continue;
 
       for (final lineWords in wordsByLine.values) {
         if (lineWords.isEmpty) continue;
-
-        // Sort in Arabic reading order: word 1 is on the right
-        lineWords.sort((w1, w2) => w1.word.compareTo(w2.word));
         final int k = lineWords.length;
 
         // Find the outer bounds of this ayah on this line
@@ -606,4 +592,48 @@ class MushafTajweedTooltipPainter extends CustomPainter {
       );
   @override
   bool shouldRepaint(MushafTajweedTooltipPainter old) => true;
+}
+
+class _PageWordLayoutCache {
+  final Map<(int, int), List<QvpWordInfo>> wordsByAyah;
+  final Map<(int, int), int> maxWordPerAyah;
+  final Map<(int, int), Map<int, List<QvpWordInfo>>> wordsByAyahAndLine;
+
+  _PageWordLayoutCache._({
+    required this.wordsByAyah,
+    required this.maxWordPerAyah,
+    required this.wordsByAyahAndLine,
+  });
+
+  factory _PageWordLayoutCache.fromPage(QvpPage page) {
+    final wordsByAyah = <(int, int), List<QvpWordInfo>>{};
+    final maxWordPerAyah = <(int, int), int>{};
+    for (final w in page.words) {
+      final key = (w.surah, w.ayah);
+      (wordsByAyah[key] ??= []).add(w);
+      final currentMax = maxWordPerAyah[key] ?? 0;
+      if (w.word > currentMax) {
+        maxWordPerAyah[key] = w.word;
+      }
+    }
+
+    final wordsByAyahAndLine = <(int, int), Map<int, List<QvpWordInfo>>>{};
+    for (final entry in wordsByAyah.entries) {
+      final ayahKey = entry.key;
+      final byLine = <int, List<QvpWordInfo>>{};
+      for (final w in entry.value) {
+        (byLine[w.line] ??= []).add(w);
+      }
+      for (final lineWords in byLine.values) {
+        lineWords.sort((w1, w2) => w1.word.compareTo(w2.word));
+      }
+      wordsByAyahAndLine[ayahKey] = byLine;
+    }
+
+    return _PageWordLayoutCache._(
+      wordsByAyah: wordsByAyah,
+      maxWordPerAyah: maxWordPerAyah,
+      wordsByAyahAndLine: wordsByAyahAndLine,
+    );
+  }
 }

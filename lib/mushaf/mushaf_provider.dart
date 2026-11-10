@@ -339,6 +339,7 @@ class MushafProvider {
         page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
         final currentInkColor = AppState.instance.colors.text;
         page.setDefaultColor(currentInkColor);
+        page.buildPaths();
 
         if (_pageCache.length >= _maxCachedPages) {
           final currentPage = AppState.instance.currentMushafPage.value;
