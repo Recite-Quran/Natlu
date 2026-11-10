@@ -181,8 +181,9 @@ export async function onRequest(context) {
     .code-container {
       width: 100%;
       display: flex;
-      justify-content: center;
-      margin-bottom: 24px;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 22px;
     }
 
     .code-pill {
@@ -223,6 +224,30 @@ export async function onRequest(context) {
       color: var(--digit-color);
       box-shadow: 0 1px 3px rgba(4, 120, 87, 0.05);
       user-select: all;
+    }
+
+    .copy-hint {
+      margin-top: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      opacity: 0.85;
+      transition: opacity 0.15s ease;
+    }
+
+    .copy-hint:hover {
+      opacity: 1;
+      color: var(--primary);
+    }
+
+    .copy-hint svg {
+      width: 12px;
+      height: 12px;
+      fill: currentColor;
     }
 
     /* 5. Modern Action Buttons */
@@ -385,12 +410,16 @@ export async function onRequest(context) {
 
     <!-- 4. Segmented 5-Digit Room Code -->
     <div class="code-container">
-      <div class="code-pill" onclick="copyCode()" title="انقر لنسخ الرمز">
+      <div class="code-pill" onclick="copyCode()" title="المس للنسخ">
         <span class="digit">${code[0]}</span>
         <span class="digit">${code[1]}</span>
         <span class="digit">${code[2]}</span>
         <span class="digit">${code[3]}</span>
         <span class="digit">${code[4]}</span>
+      </div>
+      <div class="copy-hint" onclick="copyCode()">
+        <svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+        <span>المس للنسخ • Tap to copy</span>
       </div>
     </div>
 
@@ -424,7 +453,7 @@ export async function onRequest(context) {
     </div>
   </div>
 
-  <div id="toast" class="toast">تم نسخ الرمز ${code}</div>
+  <div id="toast" class="toast">تم نسخ الرمز ${code} • Copied</div>
 
   <script>
     const isAndroid = /android/i.test(navigator.userAgent);
