@@ -521,11 +521,8 @@ class QvpPageViewState extends State<QvpPageView>
       _ticker.stop();
       return;
     }
-    final oldClock = pageClock(page);
     final more = page.tick(nowMs);
-    if (pageClock(page) != oldClock) {
-      _frame.value++;
-    }
+    _frame.value++;
     if (!more) _ticker.stop();
   }
 
@@ -1077,27 +1074,10 @@ class _LruCache {
     }
   }
 
-  bool hasCachedInk(Object key) {
-    if (key is _InkKey) {
-      return _entries.containsKey(key);
-    }
-    if (key is int) {
-      return _entries.keys.any((k) => k.page == key);
-    }
-    if (key is String) {
-      final parts = key.split('|');
-      final pageNum = int.tryParse(parts.first);
-      if (pageNum == null) return false;
-      if (parts.length >= 2) {
-        final inkVal = int.tryParse(parts[1]);
-        if (inkVal != null) {
-          return _entries.keys.any((k) => k.page == pageNum && k.ink == inkVal);
-        }
-      }
-      return _entries.keys.any((k) => k.page == pageNum);
-    }
-    return false;
-  }
+  bool hasCachedInk(Object key) =>
+      key is _InkKey
+          ? _entries.containsKey(key)
+          : (key is int && _entries.keys.any((k) => k.page == key));
 
   _PictureCacheEntry? get(_InkKey key) {
     final entry = _entries.remove(key);
@@ -1726,23 +1706,8 @@ class _QvpPainter extends CustomPainter {
     // it fits under the engine's ceiling, otherwise two screens around the reader, with a top
     // that moves in steps, so a pan reuses the picture until it crosses a step.
     final contentH = (l?.contentH ?? page.height);
-    double top, bandH;
-    if (contentH <= 4096.0 || size.height <= 0 || view.scale <= 0) {
-      top = 0.0;
-      bandH = math.max(contentH, 1.0);
-    } else {
-      try {
-        final band = page.layoutInkBand(view.view, size.width, size.height);
-        top = band.top;
-        bandH = math.max(band.height, 1.0);
-      } catch (_) {
-        final screenH = (size.height / view.scale).clamp(1.0, 4096.0);
-        final tall = math.min(screenH * 2.0, 4096.0);
-        final step = math.max((tall - screenH) / 2.0, 1.0);
-        top = (((-view.offsetY / view.scale) - step) / step).floorToDouble() * step;
-        bandH = tall;
-      }
-    }
+    final band = page.layoutInkBand(view.view, size.width, size.height);
+    final top = band.top, bandH = math.max(band.height, 1.0);
 
     // Base ink cache. The picture is recorded in layout px through _placeInLayout, so the
     // reader's pan and zoom never invalidate it. The engine layout's own offsets do, and they
