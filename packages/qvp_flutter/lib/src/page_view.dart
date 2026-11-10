@@ -694,33 +694,13 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   int _resolveSwipe(double dx, double vx) {
-    // In Arabic Quran reading order (RTL):
-    // Swiping from left to right (dx > 0, vx > 0) turns to the NEXT page (+1).
-    // Swiping from right to left (dx < 0, vx < 0) turns to the PREVIOUS page (-1).
-
-    // 1. Primary rule: When physical drag distance is significant (>= 36px),
-    // displacement is absolute truth and dominates over any lift-off flick noise.
-    if (dx.abs() >= 36.0) {
-      return dx > 0 ? 1 : -1;
-    }
-
-    // 2. Secondary rule: Quick flick gesture (|vx| >= 350 px/s).
-    // If user flicked quickly without traveling 36px, velocity dictates the intent,
-    // provided initial touch didn't have substantial conflicting motion.
-    if (vx.abs() >= 350.0) {
-      if (dx.abs() <= 15.0 || (dx > 0 == vx > 0)) {
-        return vx > 0 ? 1 : -1;
-      }
-    }
-
-    // 3. Fallback to native engine classifier only if dx and vx are non-conflicting
-    final engineDir = page.engine.swipePages(dx, 0.0, vx, 0.0);
-    if (engineDir != 0) {
-      if (engineDir > 0 && (dx > 0 || vx > 0)) return 1;
-      if (engineDir < 0 && (dx < 0 || vx < 0)) return -1;
-    }
-
-    return 0;
+    // The engine owns the swipe classifier on every platform (Android Types.kt,
+    // Swift Types.swift, web qvp.js — all delegated to `swipe_direction`): a
+    // released drag is a page swipe when it is more sideways than vertical and
+    // either farther than 40 viewport px or faster than 500 px/s. The engine
+    // holds the mushaf's RTL sign, so a flick to the right turns to the next
+    // page and no host turns the book backwards (docs/API.md).
+    return page.engine.swipePages(dx, 0.0, vx, 0.0);
   }
 
   void _onScaleEnd(ScaleEndDetails d) {

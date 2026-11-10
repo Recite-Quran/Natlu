@@ -81,10 +81,11 @@ class MushafProvider {
     final targetSize = size ?? lastViewportSize;
     if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
 
-    // Debounce preloading until after any page turn slide animation (150ms) finishes,
-    // freeing the UI thread completely for 60/120fps smooth vector transitions.
+    // Debounce preloading until after the 280 ms page turn slide finishes
+    // (iOS frees its snapshot at 300 ms), keeping the UI thread free for the
+    // smooth 60/120fps vector transition.
     _preloadTimer?.cancel();
-    _preloadTimer = Timer(const Duration(milliseconds: 180), () async {
+    _preloadTimer = Timer(const Duration(milliseconds: 300), () async {
       if (_preloadingTargetPage != pageNumber) return;
 
       // Forward adjacent page has highest priority for recitation and reading continuity

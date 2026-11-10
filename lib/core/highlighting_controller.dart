@@ -955,11 +955,19 @@ class QuranHighlightPalette {
   });
 
   /// Derives consistent, serene highlight shades from the active app theme.
+  ///
+  /// Memoized: this is called from the paint path, which can run at animation
+  /// frequency (e.g. the audio-buffering spinner ticks repaint the page). Colors
+  /// are immutable values, so a change in theme always produces a changed value
+  /// in the signature — only a real theme change allocates a new palette.
   factory QuranHighlightPalette.fromTheme({
     required ThemeColors colors,
     required bool isDark,
   }) {
-    return QuranHighlightPalette(
+    final sig = Object.hash(colors.green, colors.warning, colors.red,
+        colors.wordHighlight, colors.gold, isDark);
+    if (_memoSig == sig) return _memoPalette!;
+    final palette = QuranHighlightPalette(
       greenBand: colors.green.withValues(alpha: isDark ? 0.26 : 0.20),
       yellowBand: colors.warning.withValues(alpha: isDark ? 0.26 : 0.22),
       redBand: colors.red.withValues(alpha: isDark ? 0.26 : 0.20),
@@ -969,7 +977,13 @@ class QuranHighlightPalette {
           ? const Color(0xFF64748B).withValues(alpha: 0.20)
           : const Color(0xFF64748B).withValues(alpha: 0.11),
     );
+    _memoSig = sig;
+    return _memoPalette = palette;
   }
+
+  /// Identity of the theme the memoized palette was built from.
+  static int? _memoSig;
+  static QuranHighlightPalette? _memoPalette;
 
   /// Resolves the band color for a numeric word highlight state:
   /// 1: Green (Correct)

@@ -19,7 +19,8 @@ export 'mushaf_provider.dart';
 ///
 /// Instead of mounting multi-page PageViews and competing gesture recognizers,
 /// this view hosts a single [QvpPageView] with native swipe fling detection
-/// and a 150ms GPU slide transition.
+/// and the Swift DemoModel snapshot slide: the old page slides away over the
+/// new page drawn beneath it (280 ms, easeInOut — identical to iOS).
 class MushafView extends StatefulWidget {
   final HighlightingController controller;
   final bool isRecording;
