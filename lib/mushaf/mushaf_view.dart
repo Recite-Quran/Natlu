@@ -506,11 +506,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
             surah: activeSurah,
             ayah: activeAyah,
           )) {
-        final targetPage = provider.getPageForAyah(activeSurah, activeAyah);
-        if (targetPage != null && targetPage != _currentPage) {
-          _navigationTargetAyah = (activeSurah, activeAyah);
-          _goToPage(targetPage, animated: true);
-          return;
+        if (widget.controller.isAudioActive ||
+            MaglisController.instance.isRemoteReciting) {
+          final targetPage = provider.getPageForAyah(activeSurah, activeAyah);
+          if (targetPage != null && targetPage != _currentPage) {
+            _navigationTargetAyah = (activeSurah, activeAyah);
+            _goToPage(targetPage, animated: true);
+            return;
+          }
         }
       }
     }
@@ -563,6 +566,27 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
           }
         }
         return;
+      }
+    }
+
+    // Keep active ayah synced to current page if not tracking audio.
+    if (!widget.controller.isAudioActive) {
+      final active = widget.controller.activeAyah.value;
+      final targetSurah = widget.controller.targetSurah != 0
+          ? widget.controller.targetSurah
+          : AppState.instance.lastSurah;
+      if (active == null ||
+          !provider.isAyahOnPage(
+            pageNumber: pageNum,
+            surah: targetSurah,
+            ayah: active,
+          )) {
+        final first = provider.getFirstAyahOnPage(pageNum);
+        if (first != null) {
+          _lastHandledAyah = first.$2;
+          _lastHandledSurah = first.$1;
+          widget.controller.setManualAyah(first.$1, first.$2);
+        }
       }
     }
 
@@ -906,7 +930,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                   final progress = _slideAnimation.value;
                                   final double offsetFraction =
                                       (1.0 - progress) *
-                                          (-_activeSlideDir * 0.16);
+                                          (_activeSlideDir * 0.06);
                                   return Transform.translate(
                                     offset: Offset(
                                       offsetFraction * pageContainerWidth,
@@ -921,15 +945,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                     page: _currentPageObject!,
                                     panZoomEnabled: false,
                                     selectionEnabled: false,
-                                    layout: const QvpViewLayout(
-                                      padTop: 0,
-                                      padBottom: 0,
-                                      padSide: 4,
-                                      lineSpacing: 1.0,
-                                      fillHeight: true,
-                                      maxAspectSlack: 0.0,
-                                      surahFrames: false,
-                                    ),
+                                    layout: MushafProvider.mushafLayout,
                                     hitMaxDistance: 28.0,
                                     paper: null,
                                     paperShadow: false,

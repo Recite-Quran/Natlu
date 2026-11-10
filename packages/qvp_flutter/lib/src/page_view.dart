@@ -432,6 +432,7 @@ class QvpPageViewState extends State<QvpPageView>
   }
 
   void _attachPage() {
+    _applyInk();
     widget.page.addListener(_onPageChanged);
     _ctl._attach(this);
     _cache.attach(widget.page);
@@ -500,7 +501,6 @@ class QvpPageViewState extends State<QvpPageView>
 
   void _onPageChanged() {
     if (_isRelayouting) return;
-    _frame.value++; // Repaint when page highlights, styles, or masks update
     // the app cleared the selection behind our back → drop our band
     if (_selHandle != 0 &&
         !_selecting &&
@@ -980,12 +980,15 @@ class _InkPaints {
       dabtPaint;
 
   ui.Paint resolve(QvpPage page, int path) {
+    if (!isTajweed) {
+      if (tashkeelPaint == null) return wordPaint;
+      final kind = page.pathKind(path);
+      final family = page.pathFamily(path);
+      final isTashkeel = (kind == 1 && family != 3);
+      return isTashkeel ? tashkeelPaint! : wordPaint;
+    }
     final kind = page.pathKind(path);
     final family = page.pathFamily(path);
-    if (!isTajweed) {
-      final isTashkeel = (kind == 1 && family != 3);
-      return (isTashkeel && tashkeelPaint != null) ? tashkeelPaint! : wordPaint;
-    }
     if (kind != 1 || family == 3) {
       return wordPaint;
     }
@@ -1040,18 +1043,32 @@ class _InkKey {
     bool surahFrames, [
     int tashkeelInk = 0,
     int tajweedKey = 0,
-  ]) =>
-      page == this.page &&
-      ink == this.ink &&
-      tashkeelInk == this.tashkeelInk &&
-      tajweedKey == this.tajweedKey &&
-      scale == this.scale &&
-      offsetX == this.offsetX &&
-      offsetY == this.offsetY &&
-      top == this.top &&
-      bandH == this.bandH &&
-      styled == this.styled &&
-      surahFrames == this.surahFrames;
+  ]) {
+    if (page != this.page) return false;
+    if (ink != this.ink) return false;
+    if (tashkeelInk != this.tashkeelInk) return false;
+    if (tajweedKey != this.tajweedKey) return false;
+    if (styled != this.styled) return false;
+    if (surahFrames != this.surahFrames) return false;
+    if ((top - this.top).abs() > 0.5) return false;
+    if ((bandH - this.bandH).abs() > 1.0) return false;
+    if (scale != null && this.scale != null) {
+      if ((scale - this.scale!).abs() > 0.001) return false;
+    } else if (scale != this.scale) {
+      return false;
+    }
+    if (offsetX != null && this.offsetX != null) {
+      if ((offsetX - this.offsetX!).abs() > 0.5) return false;
+    } else if (offsetX != this.offsetX) {
+      return false;
+    }
+    if (offsetY != null && this.offsetY != null) {
+      if ((offsetY - this.offsetY!).abs() > 0.5) return false;
+    } else if (offsetY != this.offsetY) {
+      return false;
+    }
+    return true;
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -1070,14 +1087,17 @@ class _InkKey {
         tajweedKey,
       );
 
+  static int _quantize(double? v, double step) =>
+      v == null ? 0 : (v / step).round();
+
   @override
   int get hashCode => Object.hash(
     page,
     ink,
-    scale,
-    offsetX,
-    offsetY,
-    top,
+    _quantize(scale, 0.001),
+    _quantize(offsetX, 0.5),
+    _quantize(offsetY, 0.5),
+    _quantize(top, 0.5),
     bandH,
     styled,
     surahFrames,
@@ -1130,6 +1150,26 @@ class _LruCache {
     if (entry != null) {
       _entries[key] = entry;
       return entry;
+    }
+    // Epsilon-safe fallback scan over cached entries (at most 32 entries)
+    for (final e in _entries.entries) {
+      if (e.key.matches(
+        key.page,
+        key.ink,
+        key.scale,
+        key.offsetX,
+        key.offsetY,
+        key.top,
+        key.bandH,
+        key.styled,
+        key.surahFrames,
+        key.tashkeelInk,
+        key.tajweedKey,
+      )) {
+        _entries.remove(e.key);
+        _entries[key] = e.value;
+        return e.value;
+      }
     }
     return null;
   }
@@ -1184,14 +1224,28 @@ class _DrawList {
     double bandH,
     double contentH,
     QvpLayout? l,
-  ) =>
-      page == this.page &&
-      top == this.top &&
-      bandH == this.bandH &&
-      contentH == this.contentH &&
-      l?.scale == scale &&
-      l?.offsetX == offsetX &&
-      l?.offsetY == offsetY;
+  ) {
+    if (page != this.page) return false;
+    if ((top - this.top).abs() > 0.5) return false;
+    if ((bandH - this.bandH).abs() > 1.0) return false;
+    if ((contentH - this.contentH).abs() > 1.0) return false;
+    if (l?.scale != null && scale != null) {
+      if ((l!.scale - scale!).abs() > 0.001) return false;
+    } else if (l?.scale != scale) {
+      return false;
+    }
+    if (l?.offsetX != null && offsetX != null) {
+      if ((l!.offsetX - offsetX!).abs() > 0.5) return false;
+    } else if (l?.offsetX != offsetX) {
+      return false;
+    }
+    if (l?.offsetY != null && offsetY != null) {
+      if ((l!.offsetY - offsetY!).abs() > 0.5) return false;
+    } else if (l?.offsetY != offsetY) {
+      return false;
+    }
+    return true;
+  }
 }
 
 /// Boxes the engine placed in viewport px, highlight bands or mask blocks, as one nonzero path
@@ -1287,7 +1341,8 @@ class _InkCache {
     if (l == null) return;
     final ink = page.defaultInk;
     final tashkeel = tashkeelColor != null ? rgba(tashkeelColor) : 0;
-    final bandH = math.max(l.contentH, 1.0);
+    const double top = 0.0;
+    final double bandH = math.max(l.contentH, 1.0);
     final styledPaths = page.styledPaths();
     var keyVal = 1;
     for (var i = 0; i < styledPaths.length; i++) {
@@ -1302,7 +1357,7 @@ class _InkCache {
       l.scale,
       l.offsetX,
       l.offsetY,
-      0.0,
+      top,
       bandH.toInt(),
       keyVal,
       surahFrames,
@@ -1314,6 +1369,9 @@ class _InkCache {
 
     final rec = ui.PictureRecorder();
     final c = ui.Canvas(rec);
+    if (top != 0.0) {
+      c.translate(0, -top);
+    }
     final paints = _InkPaints(
       ink: ink,
       tashkeel: tashkeel,
@@ -1324,7 +1382,9 @@ class _InkCache {
     final omitted = styledPaths.isEmpty
         ? null
         : {for (final s in styledPaths) s.path};
-    final draws = page.layoutDrawList();
+    final draws = (top == 0.0 && bandH >= l.contentH)
+        ? page.layoutDrawList()
+        : page.layoutDrawList(bandTop: top, bandBottom: top + bandH);
     final places = page.layoutPlacements();
     var cur = -1, open = false, n = 0;
     for (final d in draws) {
@@ -1741,8 +1801,15 @@ class _QvpPainter extends CustomPainter {
     // it fits under the engine's ceiling, otherwise two screens around the reader, with a top
     // that moves in steps, so a pan reuses the picture until it crosses a step.
     final contentH = (l?.contentH ?? page.height);
-    final band = page.layoutInkBand(view.view, size.width, size.height);
-    final top = band.top, bandH = math.max(band.height, 1.0);
+    final double top, bandH;
+    if (contentH <= 4096.0 || size.height <= 0 || view.scale <= 0) {
+      top = 0.0;
+      bandH = math.max(contentH, 1.0);
+    } else {
+      final band = page.layoutInkBand(view.view, size.width, size.height);
+      top = band.top;
+      bandH = math.max(band.height, 1.0);
+    }
 
     // Base ink cache. The picture is recorded in layout px through _placeInLayout, so the
     // reader's pan and zoom never invalidate it. The engine layout's own offsets do, and they

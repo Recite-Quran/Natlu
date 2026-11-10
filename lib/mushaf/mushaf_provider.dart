@@ -39,6 +39,17 @@ class MushafProvider {
   MushafProvider._();
   static final MushafProvider instance = MushafProvider._();
 
+  /// Canonical layout configuration for Quran Mushaf page view rendering and preloading.
+  static const QvpViewLayout mushafLayout = QvpViewLayout(
+    padTop: 0,
+    padBottom: 0,
+    padSide: 4,
+    lineSpacing: 1.0,
+    fillHeight: true,
+    maxAspectSlack: 0.0,
+    surahFrames: false,
+  );
+
   QvpEngine? _engine;
   QvpAtlas? _atlas;
   bool _isReady = false;
@@ -102,14 +113,9 @@ class MushafProvider {
           if (cl == null ||
               (cl.contentW - targetSize.width).abs() > 0.5 ||
               (cl.contentH - targetSize.height).abs() > 0.5) {
-            cached.layout(const QvpViewLayout(
-              padTop: 0,
-              padBottom: 0,
-              padSide: 4,
-              lineSpacing: 1.0,
-              fillHeight: true,
-              surahFrames: false,
-            ).toSpec(targetSize.width, targetSize.height));
+            cached.layout(
+              mushafLayout.toSpec(targetSize.width, targetSize.height),
+            );
           }
           QvpPageView.prepare(
             cached,
@@ -135,14 +141,9 @@ class MushafProvider {
             if (pl == null ||
                 (pl.contentW - targetSize.width).abs() > 0.5 ||
                 (pl.contentH - targetSize.height).abs() > 0.5) {
-              page.layout(const QvpViewLayout(
-                padTop: 0,
-                padBottom: 0,
-                padSide: 4,
-                lineSpacing: 1.0,
-                fillHeight: true,
-                surahFrames: false,
-              ).toSpec(targetSize.width, targetSize.height));
+              page.layout(
+                mushafLayout.toSpec(targetSize.width, targetSize.height),
+              );
             }
             QvpPageView.prepare(
               page,
