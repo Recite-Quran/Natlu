@@ -168,8 +168,11 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     );
 
     final app = AppState.instance;
+    // NOTE: _spinnerController is deliberately NOT in this merge. The
+    // buffering spinner arc renders on its own tiny layer (see the
+    // _BufferingSpinnerPainter in build), driven by the controller alone, so
+    // its 60–120Hz ticks never re-record the whole page picture.
     _combinedRepaintListenable = Listenable.merge([
-      _spinnerController,
       widget.controller,
       app.modeNotifier,
       app.blurModeNotifier,
@@ -405,6 +408,11 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     // Visual synchronization (Unhide recited words live AND update yellow words for Tajweed tooltips)
     _syncVisuals();
 
+    // Spinner start/stop also depends on audio state transitions that don't
+    // move the coordinate (buffering -> playing on the same ayah), so check
+    // it on every progress change; it is an O(1) guard when nothing changed.
+    _checkSpinnerAnimation();
+
     if (!widget.isRecording) return;
 
     // 1. Hands-free recitation flow across Surahs (only when reciting the final ayah of the surah)
@@ -515,9 +523,34 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       if (!_spinnerController.isAnimating) {
         _spinnerController.repeat();
       }
+      _updateSpinnerMark(page, surah, ayah);
     } else {
       if (_spinnerController.isAnimating) {
         _spinnerController.stop();
+      }
+      _spinnerMark = null;
+      _spinnerMarkKey = null;
+    }
+  }
+
+  // Isolated buffering-spinner layer state: cached mark geometry plus the
+  // key it was computed for, so word ticks during buffering hit an O(1)
+  // identity guard instead of an FFI mark scan.
+  ({Offset center, double radius})? _spinnerMark;
+  ({int surah, int ayah, QvpPage page})? _spinnerMarkKey;
+
+  /// Caches the buffering ayah mark's geometry for the spinner layer: zero
+  /// FFI and zero allocation per animation tick. The FFI mark scan runs only
+  /// when the buffering ayah or page actually changes.
+  void _updateSpinnerMark(QvpPage page, int surah, int ayah) {
+    final key = (surah: surah, ayah: ayah, page: page);
+    if (_spinnerMarkKey == key && _spinnerMark != null) return;
+    _spinnerMarkKey = key;
+    _spinnerMark = null;
+    for (final m in page.ayahMarksView()) {
+      if (widget.controller.isAyahAudioBuffering(m.surah, m.ayah)) {
+        _spinnerMark = (center: Offset(m.cx, m.cy), radius: m.r * 0.80);
+        return;
       }
     }
   }
@@ -595,7 +628,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _turnDir = 0;
 
     final oldPage = _currentPageObject;
-    final bool canAnimate = animated && oldPage != null && !oldPage.isDisposed;
+    // Turn animation policy: forward turns (next page — the RTL left-to-right
+    // swipe) slide the old-page snapshot, matching Swift parity. Backward
+    // turns are instant: no snapshot, no slide, no flip controller — going
+    // back never lags. This applies to every mover (swipe, keys, wheel,
+    // recitation follow, peer hop) since they all arrive through here.
+    final bool canAnimate =
+        animated && dir == 1 && oldPage != null && !oldPage.isDisposed;
 
     if (canAnimate) {
       _flipController.stop();
@@ -661,6 +700,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _hasMasks = false;
     }
     _lastHiddenWords = const [];
+    _spinnerMark = null;
+    _spinnerMarkKey = null;
     if (_yellowWordsNotifier.value.isNotEmpty) {
       _yellowWordsNotifier.value = const [];
     }
@@ -862,7 +903,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       page,
       layout,
       app: app,
-      spinnerProgress: _spinnerController.value,
       surfaceColor: c.surface,
       goldColor: c.gold,
       neutralRingColor: neutralRingColor,
@@ -983,6 +1023,26 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                           _combinedRepaintListenable,
                                     ),
                                   ),
+                                  // Isolated buffering-spinner layer: paints only the
+                                  // rotating arc at the cached mark position. Its
+                                  // repaint listenable is the spinner controller
+                                  // alone, so spinner ticks (60–120Hz) repaint this
+                                  // tiny layer — never the page picture.
+                                  if (_spinnerMark != null)
+                                    Positioned.fill(
+                                      child: IgnorePointer(
+                                        child: RepaintBoundary(
+                                          child: CustomPaint(
+                                            painter: _BufferingSpinnerPainter(
+                                              spinner: _spinnerController,
+                                              center: _spinnerMark!.center,
+                                              ringRadius: _spinnerMark!.radius,
+                                              color: c.primary,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   // Swift-style flip overlay: The old page slides away with a page shadow
                                   if (_flipPageObject != null)
                                     AnimatedBuilder(
@@ -1102,4 +1162,45 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       ),
     );
   }
+}
+
+/// Isolated buffering-spinner layer: paints ONLY the rotating arc, at the
+/// cached mark geometry, in the same layout coordinate space the page's
+/// overlay painters use. Repaint is driven by the spinner controller alone,
+/// so its ticks cost one tiny arc draw instead of a full page re-record.
+class _BufferingSpinnerPainter extends CustomPainter {
+  _BufferingSpinnerPainter({
+    required AnimationController spinner,
+    required this.center,
+    required this.ringRadius,
+    required this.color,
+  }) : _spinner = spinner,
+       super(repaint: spinner);
+
+  final AnimationController _spinner;
+  final Offset center;
+  final double ringRadius;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (ringRadius <= 0) return;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..color = color
+      ..strokeWidth = math.max(ringRadius * 0.18, 1.4);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: ringRadius * 0.58),
+      _spinner.value * 2 * math.pi,
+      2.4,
+      false,
+      paint,
+    );
+  }
+
+  // Repaint comes from the controller listenable; painter identity changes
+  // (new center/radius/color) rebuild the widget instead.
+  @override
+  bool shouldRepaint(_BufferingSpinnerPainter old) => false;
 }

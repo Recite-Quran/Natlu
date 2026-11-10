@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:qvp_flutter/qvp_flutter.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
@@ -17,9 +18,6 @@ class MushafOverlays {
 
   static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
   static final Paint _goldPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _spinnerPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeCap = StrokeCap.round;
 
   static final Paint _tooltipBgPaint = Paint()..style = PaintingStyle.fill;
   static const Radius _tooltipRadius = Radius.circular(4);
@@ -223,21 +221,11 @@ class MushafOverlays {
 
         if (lineX1 <= lineX0 || lineY1 <= lineY0) continue;
 
-        // Compute non-overlapping split boundaries between adjacent words
-        // In RTL: lineWords[0] is rightmost (highest X), lineWords[k-1] is leftmost (lowest X)
-        final splitX = List<double>.filled(k > 1 ? k - 1 : 0, 0.0);
-        for (var i = 0; i < k - 1; i++) {
-          final bCurr = wordBoxes[lineWords[i].index];
-          final bNext = wordBoxes[lineWords[i + 1].index];
-          if (bCurr != null && bNext != null) {
-            // bCurr is to the right of bNext:
-            // bCurr.x0 is left edge of bCurr, bNext.x1 is right edge of bNext
-            splitX[i] = ((bCurr.x0 + bNext.x1) / 2.0).clamp(lineX0, lineX1);
-          } else {
-            splitX[i] = lineX0 + (lineX1 - lineX0) * ((k - 1 - i) / k);
-          }
-        }
-
+        // Word boundaries are computed inline from the neighbour boxes —
+        // zero per-line allocations. In RTL: lineWords[0] is rightmost
+        // (highest X). The boundary between adjacent words sits at the
+        // midpoint of the left edge of the right word and the right edge of
+        // the left word, clamped to the ayah's outer bounds on that line.
         final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
         final outerRRect =
             RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
@@ -247,8 +235,29 @@ class MushafOverlays {
 
         for (var i = 0; i < k; i++) {
           final w = lineWords[i];
-          final double left = (i == k - 1) ? lineX0 : splitX[i];
-          final double right = (i == 0) ? lineX1 : splitX[i - 1];
+          final b = wordBoxes[w.index];
+
+          // Right edge of word i = split between word i-1 and word i.
+          final double right;
+          if (i == 0) {
+            right = lineX1;
+          } else {
+            final bPrev = wordBoxes[lineWords[i - 1].index];
+            right = (bPrev != null && b != null)
+                ? ((bPrev.x0 + b.x1) / 2.0).clamp(lineX0, lineX1)
+                : lineX0 + (lineX1 - lineX0) * ((k - i) / k);
+          }
+
+          // Left edge of word i = split between word i and word i+1.
+          final double left;
+          if (i == k - 1) {
+            left = lineX0;
+          } else {
+            final bNext = wordBoxes[lineWords[i + 1].index];
+            left = (b != null && bNext != null)
+                ? ((b.x0 + bNext.x1) / 2.0).clamp(lineX0, lineX1)
+                : lineX0 + (lineX1 - lineX0) * ((k - 1 - i) / k);
+          }
 
           final double minX = math.min(left, right);
           final double maxX = math.max(left, right);
@@ -310,13 +319,17 @@ class MushafOverlays {
     return Colors.transparent;
   }
 
-  /// Single-pass overlay: Paints Ayah audio loading spinner arc, and stop icon.
+  /// Single-pass overlay: Paints Ayah audio indicators (loading ring, stop icon).
+  ///
+  /// The rotating buffering arc is NOT painted here: it lives on an isolated
+  /// top layer driven only by the spinner controller, so its 60–120Hz ticks
+  /// repaint just that tiny painter instead of re-recording this whole page.
+  /// This painter redraws only when audio state actually changes (ring/icon).
   static void paintAyahMarks(
     Canvas canvas,
     QvpPage page,
     QvpLayout? layout, {
     required AppState app,
-    required double spinnerProgress,
     required Color surfaceColor,
     required Color goldColor,
     Color? neutralRingColor,
@@ -354,19 +367,8 @@ class MushafOverlays {
         _ringPaint.color = greenBtnColor;
         _ringPaint.strokeWidth = 1.2;
         canvas.drawCircle(center, customR, _ringPaint);
-
-        final double spinRadius = customR * 0.58;
-        final double strokeW = math.max(customR * 0.18, 1.4);
-        _spinnerPaint.color = greenBtnColor;
-        _spinnerPaint.strokeWidth = strokeW;
-        final double startAngle = spinnerProgress * 2 * math.pi;
-        canvas.drawArc(
-          Rect.fromCircle(center: center, radius: spinRadius),
-          startAngle,
-          2.4,
-          false,
-          _spinnerPaint,
-        );
+        // The rotating arc for this mark is painted by the isolated spinner
+        // layer (see _BufferingSpinnerPainter in mushaf_view.dart), not here.
       } else if (isThisPlaying) {
         _headerFillPaint.color = surfaceColor;
         canvas.drawCircle(center, customR - 0.5, _headerFillPaint);
@@ -422,8 +424,57 @@ class MushafOverlays {
     final tooltipWidth = textPainter.width;
     final tooltipHeight = (textPainter.height + 2).roundToDouble();
 
-    _tooltipBgPaint.color = goldColor;
+    final double maxW = l.contentW > 0 ? l.contentW : size.width;
 
+    // Badge geometry is cached per (page, yellowWords): the tooltip only
+    // moves when the yellow set or the page changes — never per frame — so
+    // a paint runs two list compares and performs zero layout allocation.
+    if (!identical(page, _tooltipCachePage) ||
+        !listEquals(yellowWords, _tooltipCacheWords)) {
+      _tooltipCachePage = page;
+      _tooltipCacheWords = yellowWords;
+      _tooltipCacheBadges = _computeTooltipBadges(
+        page,
+        yellowWords,
+        tooltipWidth: tooltipWidth,
+        tooltipHeight: tooltipHeight,
+        maxW: maxW,
+      );
+    }
+    final badges = _tooltipCacheBadges;
+    if (badges == null || badges.isEmpty) return;
+
+    _tooltipBgPaint.color = goldColor;
+    for (final (rawX, by) in badges) {
+      final double bx = rawX.roundToDouble();
+
+      final bgRect = RRect.fromLTRBR(
+        bx,
+        by,
+        bx + tooltipWidth,
+        by + tooltipHeight,
+        _tooltipRadius,
+      );
+
+      canvas.drawRRect(bgRect, _tooltipBgPaint);
+      textPainter.paint(canvas, Offset(bx, by + 1.0));
+    }
+  }
+
+  static QvpPage? _tooltipCachePage;
+  static List<int>? _tooltipCacheWords;
+  static List<(double, double)>? _tooltipCacheBadges;
+
+  /// Resolves badge positions for the current yellow words: one badge per
+  /// ayah, placed beneath its first word's line, then spread apart so badges
+  /// never overlap and stay inside the content bounds.
+  static List<(double, double)> _computeTooltipBadges(
+    QvpPage page,
+    List<int> yellowWords, {
+    required double tooltipWidth,
+    required double tooltipHeight,
+    required double maxW,
+  }) {
     final Set<int> seenAyahs = {};
     final Map<int, List<int>> wordsByLine = {};
     for (final wordIdx in yellowWords) {
@@ -438,11 +489,9 @@ class MushafOverlays {
 
     const double minGap = 2.0;
 
-    final double maxW = l.contentW > 0 ? l.contentW : size.width;
-
     final wordBoxes = page.wordBoxesView();
-    for (final entry in wordsByLine.entries) {
-      final wordsOnLine = entry.value;
+    final badges = <(double, double)>[];
+    for (final wordsOnLine in wordsByLine.values) {
       final List<_BadgePosition> lineBadges = [];
 
       for (final wordIdx in wordsOnLine) {
@@ -493,21 +542,10 @@ class MushafOverlays {
       }
 
       for (final badge in lineBadges) {
-        final double bx = badge.x.roundToDouble();
-        final double by = badge.y;
-
-        final bgRect = RRect.fromLTRBR(
-          bx,
-          by,
-          bx + tooltipWidth,
-          by + tooltipHeight,
-          _tooltipRadius,
-        );
-
-        canvas.drawRRect(bgRect, _tooltipBgPaint);
-        textPainter.paint(canvas, Offset(bx, by + 1.0));
+        badges.add((badge.x, badge.y));
       }
     }
+    return badges;
   }
 }
 
@@ -515,83 +553,6 @@ class _BadgePosition {
   double x;
   final double y;
   _BadgePosition({required this.x, required this.y});
-}
-
-/// Backward compatibility class adapters
-class SurahHeaderPainter extends CustomPainter {
-  final QvpPage page;
-  final bool isDark;
-  final ThemeColors colors;
-  SurahHeaderPainter({required this.page, required this.isDark, required this.colors, Listenable? repaintListenable}) : super(repaint: repaintListenable);
-  @override
-  void paint(Canvas canvas, Size size) => MushafOverlays.paintSurahHeaders(canvas, page, page.currentLayout, isDark: isDark, colors: colors);
-  @override
-  bool shouldRepaint(SurahHeaderPainter old) => old.page != page || old.isDark != isDark || old.colors != colors;
-}
-
-class AyahMarkPainter extends CustomPainter {
-  final QvpPage page;
-  final AppState app;
-  final Animation<double> spinnerAnimation;
-  final Color surfaceColor;
-  final Color goldColor;
-  final Color neutralRingColor;
-  final Color ayahHighlightColor;
-  final HighlightingController? controller;
-  AyahMarkPainter({
-    required this.page,
-    required this.app,
-    required this.spinnerAnimation,
-    required this.surfaceColor,
-    required this.goldColor,
-    required this.neutralRingColor,
-    required this.ayahHighlightColor,
-    this.controller,
-    Listenable? repaintListenable,
-  }) : super(repaint: repaintListenable);
-  @override
-  void paint(Canvas canvas, Size size) => MushafOverlays.paintAyahMarks(
-        canvas,
-        page,
-        page.currentLayout,
-        app: app,
-        spinnerProgress: spinnerAnimation.value,
-        surfaceColor: surfaceColor,
-        goldColor: goldColor,
-        neutralRingColor: neutralRingColor,
-        ayahHighlightColor: ayahHighlightColor,
-        controller: controller,
-      );
-  @override
-  bool shouldRepaint(AyahMarkPainter old) => true;
-}
-
-class MushafTajweedTooltipPainter extends CustomPainter {
-  final QvpPage page;
-  final HighlightingController controller;
-  final AppState app;
-  final Color goldColor;
-  final List<int>? explicitYellowWords;
-  MushafTajweedTooltipPainter({
-    required this.page,
-    required this.controller,
-    required this.app,
-    required this.goldColor,
-    this.explicitYellowWords,
-    Listenable? repaintListenable,
-  }) : super(repaint: repaintListenable);
-  @override
-  void paint(Canvas canvas, Size size) => MushafOverlays.paintTajweedTooltip(
-        canvas,
-        size,
-        page,
-        page.currentLayout,
-        app: app,
-        goldColor: goldColor,
-        yellowWords: explicitYellowWords ?? const [],
-      );
-  @override
-  bool shouldRepaint(MushafTajweedTooltipPainter old) => true;
 }
 
 class _PageWordLayoutCache {
