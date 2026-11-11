@@ -6,9 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
-import 'package:audio_service/audio_service.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'quran_audio_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
@@ -122,7 +119,7 @@ class QuranAudioService {
     await _player.skipToPreviousAyah();
   }
 
-  /// Exposes the underlying AudioPlayer for AudioHandler integration.
+  /// Exposes the underlying AudioPlayer.
   AudioPlayer get audioPlayer => _player.audioPlayer;
 
   /// Seeks to a position in active playback.
@@ -291,9 +288,6 @@ class VerseAudioPlayer {
     if (changed) {
       if (surah != null && ayah != null) {
         AppState.instance.saveLastPosition(surah, ayah);
-        QuranAudioHandler.instance.updateMediaItem(
-          createMediaItem(surah, ayah),
-        );
       }
       _notifyProgress();
     }
@@ -336,58 +330,21 @@ class VerseAudioPlayer {
     return File('$_cachedAudioDirPath/${formatAyahAudioFileName(surah, ayah)}');
   }
 
-  static Uri? _cachedAppIconUri;
-
-  /// Pre-caches the local app icon file URI for native MediaSession bitmap loaders.
-  static Future<Uri?> getAppIconUri() async {
-    if (_cachedAppIconUri != null) return _cachedAppIconUri;
-    try {
-      if (kIsWeb) {
-        _cachedAppIconUri = Uri.parse('assets/icon/app_icon.png');
-        return _cachedAppIconUri;
-      }
-      final tempDir = await getTemporaryDirectory();
-      final file = File('${tempDir.path}/app_icon.png');
-      if (!file.existsSync() || file.lengthSync() == 0) {
-        final byteData = await rootBundle.load('assets/icon/app_icon.png');
-        await file.writeAsBytes(byteData.buffer.asUint8List(), flush: true);
-      }
-      _cachedAppIconUri = Uri.file(file.path);
-      return _cachedAppIconUri;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static const String mediaNotificationId = 'quran_audio_single_instance';
-
-  /// Single stable MediaItem metadata matching `quran_library`:
-  /// Uses a constant ID so Android never creates multiple notification cards.
-  static MediaItem get defaultMediaItem => MediaItem(
-        id: mediaNotificationId,
-        title: 'القران العظيم',
-        artUri: _cachedAppIconUri,
-      );
-
-  /// Creates MediaItem metadata for background notification and lock screen controls.
-  static MediaItem createMediaItem([int? surah, int? ayah]) => defaultMediaItem;
-
   /// Creates an AudioSource for an Ayah, utilizing local cached file if present,
-  /// or progressive streaming URL, tagged with MediaItem for background notification.
+  /// or progressive streaming URL.
   static Future<AudioSource> createAyahAudioSource(int surah, int ayah) async {
     final url = getAyahAudioUrl(surah, ayah);
-    final mediaItem = createMediaItem(surah, ayah);
     if (kIsWeb) {
-      return AudioSource.uri(Uri.parse(url), tag: mediaItem);
+      return AudioSource.uri(Uri.parse(url));
     }
     try {
       final file = await getLocalAyahFile(surah, ayah);
       if (file.existsSync() && file.lengthSync() > 1024) {
-        return AudioSource.file(file.path, tag: mediaItem);
+        return AudioSource.file(file.path);
       }
-      return AudioSource.uri(Uri.parse(url), tag: mediaItem);
+      return AudioSource.uri(Uri.parse(url));
     } catch (_) {
-      return AudioSource.uri(Uri.parse(url), tag: mediaItem);
+      return AudioSource.uri(Uri.parse(url));
     }
   }
 
@@ -477,18 +434,6 @@ class VerseAudioPlayer {
         await session.configure(const AudioSessionConfiguration.music());
         await session.setActive(true);
       } catch (_) {}
-
-      // On Android 13+ (API 33+), runtime notification permission is required
-      // so media playback notifications appear on lock screen and minimized tray.
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        try {
-          final status = await Permission.notification.status;
-          if (status.isDenied) {
-            await Permission.notification.request();
-          }
-        } catch (_) {}
-      }
-      unawaited(getAppIconUri());
     }
   }
 
@@ -679,7 +624,6 @@ class VerseAudioPlayer {
           child: source,
           start: Duration(milliseconds: startMs),
           end: Duration(milliseconds: endMs),
-          tag: createMediaItem(surah, ayah),
         );
       }
 
@@ -1008,12 +952,6 @@ class VerseAudioPlayer {
     }
     if (session == _sessionId) {
       _resetStopped();
-      QuranAudioHandler.instance.playbackState.add(
-        QuranAudioHandler.instance.playbackState.value.copyWith(
-          processingState: AudioProcessingState.idle,
-          playing: false,
-        ),
-      );
     }
   }
 

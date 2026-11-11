@@ -7,11 +7,11 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
-import com.ryanheise.audioservice.AudioServiceActivity
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : AudioServiceActivity() {
+class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.recitequran.app/playstore"
     private val MAGLIS_SERVICE_CHANNEL = "com.recitequran.app/maglis_service"
 

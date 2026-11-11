@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -38,15 +39,27 @@ class MaglisCallService : Service() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
 
-                val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(R.mipmap.ic_launcher)
+                val largeIcon = try {
+                    BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+                } catch (_: Exception) {
+                    null
+                }
+
+                val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notification)
+                    .setColor(0xFF047857.toInt())
                     .setContentTitle("مجلس التلاوة — Maglis")
                     .setContentText("المحادثة الصوتية نشطة • Voice call active")
                     .setContentIntent(pendingIntent)
                     .setOngoing(true)
                     .setPriority(NotificationCompat.PRIORITY_LOW)
                     .setCategory(NotificationCompat.CATEGORY_CALL)
-                    .build()
+
+                if (largeIcon != null) {
+                    notificationBuilder.setLargeIcon(largeIcon)
+                }
+
+                val notification = notificationBuilder.build()
 
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
