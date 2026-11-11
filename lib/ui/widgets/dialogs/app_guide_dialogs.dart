@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../core/platform_utils.dart';
 import '../../../core/app_state.dart';
 import 'dialog_base.dart';
 
@@ -44,7 +43,6 @@ class AppGuideDialog extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       topTrailing: IconButton(
         onPressed: () {
-          AppHaptics.lightImpact();
           Navigator.of(context).pop();
         },
         icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
@@ -153,7 +151,6 @@ class AppGuideDialog extends StatelessWidget {
       primaryAction: AppDialogActionItem(
         label: isAr ? 'فهمت' : 'Got it',
         onPressed: () {
-          AppHaptics.lightImpact();
           Navigator.of(context).pop();
         },
       ),
@@ -321,7 +318,6 @@ class MaglisExplanationDialog extends StatelessWidget {
       primaryAction: AppDialogActionItem(
         label: isAr ? 'فهمت، لنبدأ' : "Got it, let's start",
         onPressed: () {
-          AppHaptics.lightImpact();
           Navigator.of(context).pop();
         },
       ),

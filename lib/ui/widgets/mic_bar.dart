@@ -455,7 +455,6 @@ class BottomActionBar extends StatelessWidget {
         : const [Color(0xFF10B981), Color(0xFF059669)];
 
     return _TapScale(
-      onTapDown: isLoadingEngine ? null : AppHaptics.heavyImpact,
       onTap: onMic,
       child: Container(
         width: width,
@@ -485,8 +484,10 @@ class BottomActionBar extends StatelessWidget {
                 valueListenable: AppState.instance.modelDownloadNotifier,
                 builder: (context, dl, _) {
                   final bool isAr = AppState.instance.isArabic;
-                  final bool hasProgress = dl.isDownloading && dl.loadedBytes > 0;
-                  final double? progressVal = hasProgress ? dl.progress.clamp(0.0, 1.0) : null;
+                  final bool hasProgress =
+                      dl.isDownloading && dl.loadedBytes > 0;
+                  final double? progressVal =
+                      hasProgress ? dl.progress.clamp(0.0, 1.0) : null;
                   final String pctText = '${dl.percent}%';
                   final String mbText = '${dl.loadedMB.toInt()}/71 MB';
 
@@ -508,7 +509,8 @@ class BottomActionBar extends StatelessWidget {
                                   value: progressVal,
                                   strokeWidth: 2.1,
                                   color: Colors.white,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.25),
+                                  backgroundColor:
+                                      Colors.white.withValues(alpha: 0.25),
                                 ),
                               ),
                               if (hasProgress)
@@ -566,7 +568,6 @@ class BottomActionBar extends StatelessWidget {
       message: tooltip,
       waitDuration: const Duration(milliseconds: 350),
       child: _TapScale(
-        onTapDown: AppHaptics.lightImpact,
         onTap: onTap,
         child: SizedBox(
           width: width,
@@ -611,11 +612,9 @@ class BottomActionBar extends StatelessWidget {
           isAr ? 'رمز المجلس (اضغط لنسخ الرمز)' : 'Maglis Code (tap to copy)',
       waitDuration: const Duration(milliseconds: 350),
       child: _TapScale(
-        onTapDown: AppHaptics.lightImpact,
         onTap: () {
           if (rawCode.isNotEmpty) {
             Clipboard.setData(ClipboardData(text: rawCode));
-            AppHaptics.mediumImpact();
             AppState.instance.showBanner(
               AppBannerInfo(
                 id: 'maglis_code_copied',
@@ -707,7 +706,6 @@ class BottomActionBar extends StatelessWidget {
       message: isAr ? 'مغادرة المجلس' : 'Leave Maglis',
       waitDuration: const Duration(milliseconds: 350),
       child: _TapScale(
-        onTapDown: AppHaptics.mediumImpact,
         onTap: onTap,
         child: SizedBox(
           height: dockHeight,
@@ -801,7 +799,6 @@ class BottomActionBar extends StatelessWidget {
     final Color fgColor = _btnFg(isDark);
 
     return _TapScale(
-      onTapDown: AppHaptics.lightImpact,
       onTap: onSurahTap,
       child: SizedBox(
         height: dockHeight,

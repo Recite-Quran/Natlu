@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:recite_quran/recite_quran.dart';
 import '../../../mushaf/mushaf_provider.dart';
-import '../../../core/platform_utils.dart';
 import '../../../audio/quran_audio_service.dart';
 import '../../../core/app_state.dart';
 import 'dialog_base.dart';
@@ -158,7 +157,6 @@ class ErrorDetailDialog extends StatelessWidget {
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
             onTap: () {
-              AppHaptics.lightImpact();
               if (isPlaying) {
                 QuranAudioService.instance.pause();
               } else {

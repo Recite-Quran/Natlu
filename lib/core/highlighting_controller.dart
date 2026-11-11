@@ -81,9 +81,12 @@ class HighlightStore {
     _states[key] = status;
     if (errors != null && errors.isNotEmpty && status == 2) {
       _errors[key] = errors;
-    } else {
+    } else if (status != 2 || prev != 2) {
       _errors.remove(key);
     }
+    // Re-asserting yellow without new error detail (e.g. a cumulative
+    // snapshot merge) keeps the stored detail: absent evidence never erases
+    // existing evidence. Detail only clears when the verdict itself changes.
   }
 
   void markGreen(int surah, int ayah, int wordIndex) =>
@@ -690,17 +693,32 @@ class HighlightingController extends rq.HighlightingController {
     Map<int, List<rq.ReciterError>>? errors,
     Map<String, int>? cumulative,
     bool isReciting = true,
-    bool isFlush = false,
   }) {
     bool changed = false;
 
-    // A flush packet is a store-only merge of the ayah that just finished:
-    // word verdicts land in the store, but the coordinate, the remote lead
-    // state and follow arbitration are untouched. The next normal packet
-    // carries the true (advanced) coordinate — merging the flush's previous-
-    // ayah coordinate used to bounce the highlight backward then forward on
-    // every ayah advance (the peer flicker at the start of each ayah).
-    if (isFlush) {
+    if (!isReciting) {
+      // Explicit stop (reciter ended, floor released, session left): the
+      // remote state goes away and a paused follow is released so the next
+      // recitation is followed again. A stop packet never claims the
+      // coordinate — it may carry placeholder values (e.g. a session-leave
+      // packet for surah 1).
+      final bool recitingChanged = _isRemoteReciting;
+      _isRemoteReciting = false;
+      _remoteActiveWord = null;
+      changed = recitingChanged;
+      if (_remoteFollowPaused) {
+        _remoteFollowPaused = false;
+        changed = true;
+      }
+    } else if (activeWord == null) {
+      // A reciting packet that carries no lead position: the sender's recap
+      // of a verse whose verdicts are final (the host always sends these with
+      // no active word, and a live packet always carries the lead while
+      // recording). Absent data is not an explicit clear — merge the word
+      // verdicts into the store and touch nothing else: the coordinate and
+      // the lead stay exactly where the last lead-carrying packet put them.
+      // Claiming this packet's position used to flicker the peer's highlight
+      // backward for a frame on every ayah advance.
       if (_mergeRemoteVerdicts(
         surah: surah,
         ayah: ayah,
@@ -712,32 +730,28 @@ class HighlightingController extends rq.HighlightingController {
       )) {
         changed = true;
       }
+      if (!_isRemoteReciting) {
+        _isRemoteReciting = true;
+        changed = true;
+      }
     } else {
-      final bool recitingChanged = _isRemoteReciting != isReciting;
+      final bool recitingChanged = !_isRemoteReciting;
       final bool surahChanged = _remoteTargetSurah != surah;
       final bool wordChanged = _remoteActiveWord != activeWord;
 
-      _isRemoteReciting = isReciting;
+      _isRemoteReciting = true;
       _remoteTargetSurah = surah;
       _remoteAyah = ayah;
       _remoteActiveWord = activeWord;
       changed = recitingChanged || surahChanged || wordChanged;
 
-      if (!isReciting) {
-        // Reciter stopped / floor released: never claim the coordinate (a
-        // session-leave packet carries placeholder (1,1)), and clear the
-        // follow pause so the next recitation is followed again.
-        if (_remoteFollowPaused) {
-          _remoteFollowPaused = false;
-          changed = true;
-        }
-      } else if (!_remoteFollowPaused) {
-        // Mirror the remote verse into the base coordinate exactly like audio
-        // progress does (applyAudioProgress): every recitation source ends up
-        // in targetSurah + activeAyah, so all readers follow one coordinate.
-        // There is no maglis-specific page or highlight handling anywhere
-        // downstream. While follow is paused the reader owns the coordinate;
-        // verdicts still merge below.
+      // Mirror the remote verse into the base coordinate exactly like audio
+      // progress does (applyAudioProgress): every recitation source ends up
+      // in targetSurah + activeAyah, so all readers follow one coordinate.
+      // There is no maglis-specific page or highlight handling anywhere
+      // downstream. While follow is paused the reader owns the coordinate;
+      // verdicts still merge below.
+      if (!_remoteFollowPaused) {
         if (_manualTargetSurah != surah) {
           _manualTargetSurah = surah;
           changed = true;
@@ -934,6 +948,9 @@ class HighlightingController extends rq.HighlightingController {
       _isRemoteReciting = isReciting;
       if (!isReciting) {
         _remoteActiveWord = null;
+        // Remote recitation is over from this device's point of view (e.g. the
+        // local reader just took the floor): any paused follow is released.
+        _remoteFollowPaused = false;
       }
       globalRevision.value++;
       notifyListeners();
@@ -1032,6 +1049,9 @@ class HighlightingController extends rq.HighlightingController {
       _isAudioPlaying = false;
       _isAudioBuffering = false;
       _isAudioPaused = false;
+      // Audio gave the coordinate back: resume following the remote reciter
+      // if one is active (applyAudioProgress paused it when playback started).
+      _remoteFollowPaused = false;
       globalRevision.value++;
       notifyListeners();
     }

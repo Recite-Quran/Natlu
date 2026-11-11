@@ -354,6 +354,11 @@ class _OrchestratorState extends State<_Orchestrator>
     MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
       if (mounted && _ctrl != null) {
         _ctrl!.setManualAyah(surah, ayah);
+        // A remote peer just took the floor: this device must follow the new
+        // reciter from their anchor. setManualAyah pauses remote coordinate
+        // claims while a recitation is active; the claim IS the rejoin, so
+        // release the pause and let the reciter's next packet drive.
+        _ctrl!.resumeRemoteFollow();
         _ctrl!.clearHighlightsForwardFrom(surah, ayah);
         _ctrl!.globalRevision.value++;
         _stopRecordingForRemoteClaim();

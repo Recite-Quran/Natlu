@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../core/platform_utils.dart';
 import '../../../core/app_state.dart';
 import '../../../core/highlighting_controller.dart';
 import '../../../maglis/maglis_controller.dart';
@@ -41,7 +40,6 @@ class SurahListTile extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
-          AppHaptics.lightImpact();
           onTap();
         },
         child: Container(
@@ -363,7 +361,6 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                 const SizedBox(width: 8),
                 AppScaleButton(
                   onTap: () {
-                    AppHaptics.mediumImpact();
                     if (Navigator.of(context).canPop()) {
                       Navigator.pop(context);
                     }

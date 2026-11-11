@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../../core/platform_utils.dart';
 import '../../../core/app_state.dart';
 import '../../../core/maglis_link_service.dart';
 import 'package:share_plus/share_plus.dart';
@@ -82,7 +81,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   }
 
   void _openKeyboard() {
-    AppHaptics.lightImpact();
     if (!_focusNode.hasFocus) {
       _focusNode.requestFocus();
     }
@@ -119,7 +117,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
     final hasConnection = connectivity.isNotEmpty &&
         !connectivity.contains(ConnectivityResult.none);
     if (!hasConnection) {
-      AppHaptics.selectionClick();
       app.showBanner(AppBannerInfo(
         id: 'maglis_offline',
         messageAr: 'لا يوجد اتصال بالإنترنت. يرجى الاتصال بالشبكة للمتابعة',
@@ -139,7 +136,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       // ── JOINING EXISTING MAGLIS: Verify existence & capacity first! ──
       _focusNode.unfocus();
       setState(() => _isJoining = true);
-      AppHaptics.lightImpact();
 
       try {
         final result = await MaglisController.instance.verifyAndJoinRoom(
@@ -152,7 +148,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         setState(() => _isJoining = false);
 
         if (result == MaglisJoinResult.success) {
-          AppHaptics.mediumImpact();
           Navigator.of(context).pop();
           app.showBanner(AppBannerInfo(
             id: 'maglis_joined',
@@ -163,7 +158,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             customDuration: const Duration(seconds: 3),
           ));
         } else if (result == MaglisJoinResult.full) {
-          AppHaptics.selectionClick();
           app.showBanner(AppBannerInfo(
             id: 'maglis_full',
             messageAr:
@@ -174,7 +168,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             customDuration: const Duration(seconds: 4),
           ));
         } else {
-          AppHaptics.selectionClick();
           app.showBanner(AppBannerInfo(
             id: 'maglis_not_found',
             messageAr:
@@ -200,7 +193,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       // ── MAKING A NEW MAGLIS AS HOST: Verified Relay Start ──
       _focusNode.unfocus();
       setState(() => _isCreating = true);
-      AppHaptics.lightImpact();
 
       try {
         final success = await MaglisController.instance.startSession(
@@ -215,7 +207,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         setState(() => _isCreating = false);
 
         if (success) {
-          AppHaptics.mediumImpact();
           Navigator.of(context).pop();
           app.showBanner(AppBannerInfo(
             id: 'maglis_created',
@@ -226,7 +217,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
             customDuration: const Duration(seconds: 3),
           ));
         } else {
-          AppHaptics.selectionClick();
           app.showBanner(AppBannerInfo(
             id: 'maglis_error',
             messageAr:
@@ -272,7 +262,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
       if (code != null) {
         _codeCtrl.text = code;
         _onCodeChanged(code);
-        AppHaptics.mediumImpact();
         AppState.instance.showBanner(AppBannerInfo(
           id: 'maglis_pasted',
           messageAr:
@@ -285,7 +274,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
         _codeCtrl.text = digitsOnly;
         _onCodeChanged(digitsOnly);
         _focusNode.requestFocus();
-        AppHaptics.lightImpact();
       }
     } catch (_) {}
   }
@@ -293,7 +281,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
   void _copyShareLink() {
     final link = MaglisLinkService.formatUrl(_newCode);
     Clipboard.setData(ClipboardData(text: link));
-    AppHaptics.lightImpact();
     AppState.instance.showBanner(AppBannerInfo(
       id: 'maglis_link_copied',
       messageAr: 'تم نسخ رابط المجلس: $link',
@@ -366,7 +353,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                                     c: c,
                                     onTap: () {
                                       if (_selectedTab != 1) {
-                                        AppHaptics.selectionClick();
                                         setState(() => _selectedTab = 1);
                                       }
                                     },
@@ -381,7 +367,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                                     c: c,
                                     onTap: () {
                                       if (_selectedTab != 0) {
-                                        AppHaptics.selectionClick();
                                         setState(() => _selectedTab = 0);
                                       }
                                     },
@@ -396,7 +381,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                           tooltip: isAr ? 'إرشادات المجلس' : 'How it works',
                           visualDensity: VisualDensity.compact,
                           onPressed: () {
-                            AppHaptics.lightImpact();
                             MaglisExplanationDialog.show(context);
                           },
                           icon: Icon(
@@ -827,7 +811,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                           onTap: () {
                             _codeCtrl.clear();
                             _onCodeChanged('');
-                            AppHaptics.selectionClick();
                           },
                           child: Container(
                             height: 38,
@@ -1013,7 +996,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                         borderRadius: BorderRadius.circular(18),
                         onTap: () {
                           Clipboard.setData(ClipboardData(text: _newCode));
-                          AppHaptics.lightImpact();
                           AppState.instance.showBanner(AppBannerInfo(
                             id: 'maglis_code_copied',
                             messageAr:
@@ -1076,7 +1058,6 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                             origin = box.localToGlobal(Offset.zero) & box.size;
                           }
                           origin ??= const Rect.fromLTWH(0, 0, 100, 100);
-                          AppHaptics.lightImpact();
                           try {
                             await SharePlus.instance.share(ShareParams(
                               text: text,

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../../audio/quran_download_service.dart';
 import '../../../core/app_state.dart';
 import '../../../core/highlighting_controller.dart';
-import '../../../core/platform_utils.dart';
 import 'dialog_base.dart';
 
 /// Ultra-lightweight modal dialog for downloading Quran recitation.
@@ -68,12 +67,10 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
       _selected.fold(0.0, (sum, s) => sum + (_remainingMap[s] ?? 0.0));
 
   void _toggleSurah(int s) {
-    AppHaptics.lightImpact();
     setState(() => _selected.contains(s) ? _selected.remove(s) : _selected.add(s));
   }
 
   void _toggleAll() {
-    AppHaptics.lightImpact();
     setState(() {
       _selected.length == 114
           ? _selected.clear()
@@ -82,7 +79,6 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
   }
 
   void _start() {
-    AppHaptics.lightImpact();
     final list = _selected.toList()..sort();
     QuranDownloadService.instance.startDownload(surahs: list);
   }
@@ -349,7 +345,6 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
             Expanded(
               child: TextButton(
                 onPressed: () {
-                  AppHaptics.lightImpact();
                   Navigator.pop(context);
                 },
                 style: TextButton.styleFrom(
@@ -495,7 +490,6 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
           children: [
             TextButton(
               onPressed: () {
-                AppHaptics.lightImpact();
                 srv.cancelDownload();
                 Navigator.pop(context);
               },
@@ -518,7 +512,6 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
             const Spacer(),
             IconButton(
               onPressed: () {
-                AppHaptics.lightImpact();
                 isPaused ? srv.resumeDownload() : srv.pauseDownload();
               },
               icon: Icon(
@@ -533,7 +526,6 @@ class _AudioDownloadDialogState extends State<AudioDownloadDialog> {
             const SizedBox(width: 4),
             ElevatedButton(
               onPressed: () {
-                AppHaptics.lightImpact();
                 srv.setMinimized(true);
                 Navigator.pop(context);
               },

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../core/app_state.dart';
-import '../../../core/platform_utils.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. DESIGN TOKENS
@@ -175,7 +174,6 @@ class AppModalHeader extends StatelessWidget {
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
               onPressed: () {
-                AppHaptics.lightImpact();
                 if (onClose != null) {
                   onClose!();
                 } else if (Navigator.of(context).canPop()) {
@@ -194,7 +192,7 @@ class AppModalHeader extends StatelessWidget {
   }
 }
 
-/// Tactile button wrapper with spring scale press feedback and haptics.
+/// Tactile button wrapper with spring scale press feedback.
 class AppScaleButton extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
@@ -224,7 +222,6 @@ class _AppScaleButtonState extends State<AppScaleButton> {
       onTapUp: (_) => setState(() => _isDown = false),
       onTapCancel: () => setState(() => _isDown = false),
       onTap: () {
-        AppHaptics.lightImpact();
         widget.onTap();
       },
       child: AnimatedScale(
@@ -320,7 +317,6 @@ class AppSegmentedPillSelector extends StatelessWidget {
                   return Expanded(
                     child: GestureDetector(
                       onTap: () {
-                        AppHaptics.lightImpact();
                         onSelected(i);
                       },
                       behavior: HitTestBehavior.opaque,
@@ -507,7 +503,6 @@ class AppDialogActionButtons extends StatelessWidget {
       onPressed: primary.isLoading
           ? null
           : () {
-              AppHaptics.lightImpact();
               primary.onPressed();
             },
       style: ElevatedButton.styleFrom(
@@ -548,7 +543,6 @@ class AppDialogActionButtons extends StatelessWidget {
       onPressed: secondary!.isLoading
           ? null
           : () {
-              AppHaptics.lightImpact();
               secondary!.onPressed();
             },
       style: TextButton.styleFrom(
