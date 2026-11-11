@@ -738,10 +738,12 @@ class MaglisPlatform {
           await WebRTC.initialize(options: {
             'audioSampleRate': 48000,
             'audioOutputSampleRate': 48000,
+            if (defaultTargetPlatform == TargetPlatform.android) ...{
+              'bypassVoiceProcessing': true,
+              'androidAudioConfiguration': androidConfig.toMap(),
+            },
             'androidUseHardwareAudioProcessing':
                 false, // Software APM handles AGC & AEC cleanly without hardware noise suppression crushing Quran recitation
-            if (defaultTargetPlatform == TargetPlatform.android)
-              'androidAudioConfiguration': androidConfig.toMap(),
           });
         } catch (_) {}
       }

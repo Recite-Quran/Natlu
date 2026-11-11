@@ -1014,40 +1014,6 @@ class _MushafViewState extends State<MushafView> with SingleTickerProviderStateM
                       ),
                     ),
                   ),
-                  if (isWideScreen && constraints.maxWidth > 750) ...[
-                    // Left navigation button (Next page in RTL reading order)
-                    Positioned(
-                      left: math.max(
-                          12.0,
-                          (constraints.maxWidth - pageContainerWidth) / 4 -
-                              24.0),
-                      top: topPadding + usableHeight / 2 - 24.0,
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                        color: c.textSecondary.withValues(alpha: 0.6),
-                        hoverColor: c.gold.withValues(alpha: 0.15),
-                        tooltip: 'الصفحة التالية • Next Page',
-                        onPressed: _currentPage < QuranMetadata.maxPage
-                            ? _nextPage
-                            : null,
-                      ),
-                    ),
-                    // Right navigation button (Previous page in RTL reading order)
-                    Positioned(
-                      right: math.max(
-                          12.0,
-                          (constraints.maxWidth - pageContainerWidth) / 4 -
-                              24.0),
-                      top: topPadding + usableHeight / 2 - 24.0,
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_forward_ios_rounded),
-                        color: c.textSecondary.withValues(alpha: 0.6),
-                        hoverColor: c.gold.withValues(alpha: 0.15),
-                        tooltip: 'الصفحة السابقة • Previous Page',
-                        onPressed: _currentPage > 1 ? _prevPage : null,
-                      ),
-                    ),
-                  ],
                   if (widget.showBottomPageNumber)
                     Positioned(
                       left: pageLabelLeft,
