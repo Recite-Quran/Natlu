@@ -137,8 +137,15 @@ class MushafOverlays {
     // bulk-marks jumped-over ayahs as completed after a reanchor) has no word
     // verdicts, so it paints nothing; the reciter's spoken words continue
     // from where they stopped.
-    // Pre-group words by (surah, ayah) and pre-sort by line once per page lifetime
-    final cache = _pageWordCaches[page] ??= _PageWordLayoutCache.fromPage(page);
+    final l = layout ?? page.readLayout() ?? page.currentLayout;
+    final cached = _pageWordCaches[page];
+    final _PageWordLayoutCache cache;
+    if (cached == null || cached.layout != l) {
+      cache = _PageWordLayoutCache.fromPage(page, l);
+      _pageWordCaches[page] = cache;
+    } else {
+      cache = cached;
+    }
     final wordsByAyah = cache.wordsByAyah;
 
     // 2. Resolve Active / Waited Lead Word on this page
@@ -177,82 +184,19 @@ class MushafOverlays {
 
     if (ayahsToPaint.isEmpty) return;
 
-    final wordBoxes = page.wordBoxesView();
-    if (wordBoxes.isEmpty) return;
-
-    // 4. Render continuous line boxes for each ayah
+    // 4. Render continuous line boxes for each ayah (zero allocation, precomputed geometry)
     for (final (s, a) in ayahsToPaint) {
       final bool isActiveAyah = (s == activeSurah && a == activeAyah);
-      final wordsByLine = cache.wordsByAyahAndLine[(s, a)];
-      if (wordsByLine == null || wordsByLine.isEmpty) continue;
+      final lines = cache.lineGeometries[(s, a)];
+      if (lines == null || lines.isEmpty) continue;
 
-      for (final lineWords in wordsByLine.values) {
-        if (lineWords.isEmpty) continue;
-        final int k = lineWords.length;
-
-        // Find the outer bounds of this ayah on this line
-        double lineX0 = double.infinity;
-        double lineX1 = double.negativeInfinity;
-        double lineY0 = double.infinity;
-        double lineY1 = double.negativeInfinity;
-
-        for (var i = 0; i < k; i++) {
-          final b = wordBoxes[lineWords[i].index];
-          if (b != null) {
-            if (b.x0 < lineX0) lineX0 = b.x0;
-            if (b.x1 > lineX1) lineX1 = b.x1;
-            if (b.y0 < lineY0) lineY0 = b.y0;
-            if (b.y1 > lineY1) lineY1 = b.y1;
-          }
-        }
-
-        if (lineX1 <= lineX0 || lineY1 <= lineY0) continue;
-
-        // Word boundaries are computed inline from the neighbour boxes —
-        // zero per-line allocations. In RTL: lineWords[0] is rightmost
-        // (highest X). The boundary between adjacent words sits at the
-        // midpoint of the left edge of the right word and the right edge of
-        // the left word, clamped to the ayah's outer bounds on that line.
-        final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
-        final outerRRect =
-            RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
-
+      for (final line in lines) {
         canvas.save();
-        canvas.clipRRect(outerRRect);
+        canvas.clipRRect(line.outerRRect);
 
-        for (var i = 0; i < k; i++) {
-          final w = lineWords[i];
-          final b = wordBoxes[w.index];
-
-          // Right edge of word i = split between word i-1 and word i.
-          final double right;
-          if (i == 0) {
-            right = lineX1;
-          } else {
-            final bPrev = wordBoxes[lineWords[i - 1].index];
-            right = (bPrev != null && b != null)
-                ? ((bPrev.x0 + b.x1) / 2.0).clamp(lineX0, lineX1)
-                : lineX0 + (lineX1 - lineX0) * ((k - i) / k);
-          }
-
-          // Left edge of word i = split between word i and word i+1.
-          final double left;
-          if (i == k - 1) {
-            left = lineX0;
-          } else {
-            final bNext = wordBoxes[lineWords[i + 1].index];
-            left = (b != null && bNext != null)
-                ? ((b.x0 + bNext.x1) / 2.0).clamp(lineX0, lineX1)
-                : lineX0 + (lineX1 - lineX0) * ((k - 1 - i) / k);
-          }
-
-          final double minX = math.min(left, right);
-          final double maxX = math.max(left, right);
-          if (maxX - minX <= 0.1) continue;
-
-          final wordRect = Rect.fromLTRB(minX, lineY0, maxX, lineY1);
+        for (final item in line.wordRects) {
           final color = _resolveWordColor(
-            w: w,
+            w: item.word,
             isActiveAyah: isActiveAyah,
             activeWordPageIdx: activeWordPageIdx,
             controller: controller,
@@ -261,7 +205,7 @@ class MushafOverlays {
 
           if (color.a > 0) {
             _highlightFillPaint.color = color;
-            canvas.drawRect(wordRect, _highlightFillPaint);
+            canvas.drawRect(item.rect, _highlightFillPaint);
           }
         }
 
@@ -538,18 +482,32 @@ class _BadgePosition {
   _BadgePosition({required this.x, required this.y});
 }
 
+class _LineHighlightGeometry {
+  final RRect outerRRect;
+  final List<({QvpWordInfo word, Rect rect})> wordRects;
+
+  const _LineHighlightGeometry({
+    required this.outerRRect,
+    required this.wordRects,
+  });
+}
+
 class _PageWordLayoutCache {
+  final QvpLayout? layout;
   final Map<(int, int), List<QvpWordInfo>> wordsByAyah;
   final Map<(int, int), int> maxWordPerAyah;
   final Map<(int, int), Map<int, List<QvpWordInfo>>> wordsByAyahAndLine;
+  final Map<(int, int), List<_LineHighlightGeometry>> lineGeometries;
 
   _PageWordLayoutCache._({
+    required this.layout,
     required this.wordsByAyah,
     required this.maxWordPerAyah,
     required this.wordsByAyahAndLine,
+    required this.lineGeometries,
   });
 
-  factory _PageWordLayoutCache.fromPage(QvpPage page) {
+  factory _PageWordLayoutCache.fromPage(QvpPage page, [QvpLayout? currentLayout]) {
     final wordsByAyah = <(int, int), List<QvpWordInfo>>{};
     final maxWordPerAyah = <(int, int), int>{};
     for (final w in page.words) {
@@ -574,10 +532,86 @@ class _PageWordLayoutCache {
       wordsByAyahAndLine[ayahKey] = byLine;
     }
 
+    final wordBoxes = page.wordBoxesView();
+    final lineGeometries = <(int, int), List<_LineHighlightGeometry>>{};
+
+    for (final entry in wordsByAyahAndLine.entries) {
+      final ayahKey = entry.key;
+      final list = <_LineHighlightGeometry>[];
+      for (final lineWords in entry.value.values) {
+        if (lineWords.isEmpty) continue;
+        final int k = lineWords.length;
+
+        double lineX0 = double.infinity;
+        double lineX1 = double.negativeInfinity;
+        double lineY0 = double.infinity;
+        double lineY1 = double.negativeInfinity;
+
+        for (var i = 0; i < k; i++) {
+          final b = wordBoxes[lineWords[i].index];
+          if (b != null) {
+            if (b.x0 < lineX0) lineX0 = b.x0;
+            if (b.x1 > lineX1) lineX1 = b.x1;
+            if (b.y0 < lineY0) lineY0 = b.y0;
+            if (b.y1 > lineY1) lineY1 = b.y1;
+          }
+        }
+
+        if (lineX1 <= lineX0 || lineY1 <= lineY0) continue;
+
+        final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
+        final outerRRect =
+            RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
+
+        final rects = <({QvpWordInfo word, Rect rect})>[];
+        for (var i = 0; i < k; i++) {
+          final w = lineWords[i];
+          final b = wordBoxes[w.index];
+
+          final double right;
+          if (i == 0) {
+            right = lineX1;
+          } else {
+            final bPrev = wordBoxes[lineWords[i - 1].index];
+            right = (bPrev != null && b != null)
+                ? ((bPrev.x0 + b.x1) / 2.0).clamp(lineX0, lineX1)
+                : lineX0 + (lineX1 - lineX0) * ((k - i) / k);
+          }
+
+          final double left;
+          if (i == k - 1) {
+            left = lineX0;
+          } else {
+            final bNext = wordBoxes[lineWords[i + 1].index];
+            left = (b != null && bNext != null)
+                ? ((b.x0 + bNext.x1) / 2.0).clamp(lineX0, lineX1)
+                : lineX0 + (lineX1 - lineX0) * ((k - 1 - i) / k);
+          }
+
+          final double minX = math.min(left, right);
+          final double maxX = math.max(left, right);
+          if (maxX - minX > 0.1) {
+            rects.add((
+              word: w,
+              rect: Rect.fromLTRB(minX, lineY0, maxX, lineY1),
+            ));
+          }
+        }
+
+        list.add(_LineHighlightGeometry(
+          outerRRect: outerRRect,
+          wordRects: rects,
+        ));
+      }
+      lineGeometries[ayahKey] = list;
+    }
+
     return _PageWordLayoutCache._(
+      layout: currentLayout,
       wordsByAyah: wordsByAyah,
       maxWordPerAyah: maxWordPerAyah,
       wordsByAyahAndLine: wordsByAyahAndLine,
+      lineGeometries: lineGeometries,
     );
   }
 }

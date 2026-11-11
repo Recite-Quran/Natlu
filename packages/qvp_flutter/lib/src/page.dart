@@ -121,11 +121,14 @@ class QvpPage extends ChangeNotifier {
     }
   }
 
-  void _touch() {
+  void _invalidateViewGeometry() {
     _cachedAyahMarks = null;
     _cachedAyahMarksView = null;
     _cachedSurahHeadersView = null;
     _cachedWordBoxesView = null;
+  }
+
+  void _touch() {
     if (_batchDepth > 0) {
       _needsNotify = true;
       return;
@@ -159,7 +162,7 @@ class QvpPage extends ChangeNotifier {
   /// Frees backend page memory. Geometry and info lists stay usable. A second call does
   /// nothing.
   void free() {
-    _cachedAyahMarks = null;
+    _invalidateViewGeometry();
     _lazyPaths = null;
     final h = _handle;
     if (h != null) {
@@ -431,6 +434,7 @@ class QvpPage extends ChangeNotifier {
   QvpLayout layout(QvpLayoutSpec spec) {
     final l = _backend.layout(handle, spec);
     currentLayout = l;
+    _invalidateViewGeometry();
     _touch();
     return l;
   }
@@ -513,6 +517,7 @@ class QvpPage extends ChangeNotifier {
     final l = _backend.readLayout(handle);
     if (l != null && l != currentLayout) {
       currentLayout = l;
+      _invalidateViewGeometry();
       _touch();
     }
     return l;
@@ -998,6 +1003,7 @@ class QvpPage extends ChangeNotifier {
     _dressDraws = null;
     final ok = _backend.dress(handle, set.handle, spec);
     _dressSpec = ok ? spec : null;
+    _invalidateViewGeometry();
     _touch();
     return ok ? dressInfo() : null;
   }
@@ -1007,6 +1013,7 @@ class QvpPage extends ChangeNotifier {
     _backend.undress(handle);
     _dressSpec = null;
     _dressDraws = null;
+    _invalidateViewGeometry();
     _touch();
   }
 

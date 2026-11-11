@@ -66,7 +66,7 @@ class MushafProvider {
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   final Map<int, Size> _pageLayoutSizes = {};
-  static const int _maxCachedPages = 16;
+  static const int _maxCachedPages = 3;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
   Timer? _preloadTimer;
@@ -340,38 +340,25 @@ class MushafProvider {
         page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
         final currentInkColor = AppState.instance.colors.text;
         page.setDefaultColor(currentInkColor);
-        page.buildPaths();
 
-        if (_pageCache.length >= _maxCachedPages) {
+        while (_pageCache.length >= _maxCachedPages) {
           final currentPage = AppState.instance.currentMushafPage.value;
           int? evictKey;
           int maxDistance = -1;
           for (final k in _pageCache.keys) {
             final distance = (k - currentPage).abs();
-            // Protect pages within the active reading window (±3 pages)
-            if (currentPage > 0 && distance <= 3) continue;
             if (distance > maxDistance) {
               maxDistance = distance;
               evictKey = k;
             }
           }
-          // If all cached pages are inside the reading window, fallback to furthest key that isn't current page
-          if (evictKey == null) {
-            for (final k in _pageCache.keys) {
-              if (k != currentPage) {
-                final distance = (k - currentPage).abs();
-                if (distance > maxDistance) {
-                  maxDistance = distance;
-                  evictKey = k;
-                }
-              }
-            }
-          }
-          if (evictKey != null) {
+          if (evictKey != null && evictKey != pageNumber) {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);
             QvpPageView.evictPage(evictKey);
+          } else {
+            break;
           }
         }
         _pageCache[pageNumber] = page;
