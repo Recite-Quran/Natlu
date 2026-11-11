@@ -606,24 +606,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     // swiping back, no coordinate existed to paint, and the highlight only
     // reappeared once the reciter's first word re-created it.
 
-    // Page-turn rejoin: arriving on the page the remote reciter is on resumes
-    // following them (the coordinate claims the reader's own selection or
-    // audio paused). Pure viewport check via the controller's remote
-    // coordinate — no session state is consulted here. A reader playing audio
-    // keeps audio ownership; ending playback resumes following on its own.
-    if (widget.controller.isRemoteFollowPaused &&
-        !widget.controller.isAudioActive) {
-      final remote = widget.controller.remoteCoordinate;
-      if (remote != null &&
-          provider.isAyahOnPage(
-            pageNumber: pageNum,
-            surah: remote.$1,
-            ayah: remote.$2,
-          )) {
-        widget.controller.resumeRemoteFollow();
-      }
-    }
-
     // Preserve any existing selected ayah and save the page position.
     _debouncedSavePosition(pageNum);
   }

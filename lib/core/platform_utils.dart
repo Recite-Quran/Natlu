@@ -39,17 +39,6 @@ abstract final class PlatformCapabilities {
   static bool get usesMediaKitAudio => isWindows;
 }
 
-/// Centralized haptics manager.
-///
-/// Haptics and device vibrations are completely disabled across the application
-/// to ensure a silent, distraction-free Quran recitation and reading experience.
-abstract final class AppHaptics {
-  static void lightImpact() {}
-  static void mediumImpact() {}
-  static void heavyImpact() {}
-  static void selectionClick() {}
-}
-
 /// AppModalRouteObserver
 ///
 /// Reliably tracks the presence of modal dialogs, bottom sheets, and popup routes

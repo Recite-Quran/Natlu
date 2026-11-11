@@ -207,15 +207,13 @@ class HighlightingController extends rq.HighlightingController {
 
   // Remote Maglis state
   int _remoteTargetSurah = 0;
-  int _remoteAyah = 0;
   int? _remoteActiveWord;
   bool _isRemoteReciting = false;
 
-  /// Arbitration: when the local reader manually selects an ayah or plays
-  /// audio while a remote reciter is active, coordinate claims from remote
-  /// packets are paused (verdicts still merge). Follow resumes when audio
-  /// ends, the reciter stops, or the reader turns back to the reciter's
-  /// page ([resumeRemoteFollow]).
+  /// Arbitration: while the local reader's own audio playback owns the
+  /// coordinate, coordinate claims from remote packets are paused (word
+  /// verdicts still merge). Set when playback starts, released when the
+  /// audio ends or the recitation stops — audio ownership, nothing else.
   bool _remoteFollowPaused = false;
 
   // Manual selection state
@@ -341,28 +339,6 @@ class HighlightingController extends rq.HighlightingController {
 
   /// Whether a remote peer in a Maglis session is currently reciting.
   bool get isRemoteReciting => _isRemoteReciting;
-
-  /// Whether the local reader paused following the remote reciter (by manual
-  /// selection or audio playback). While paused, remote packets keep merging
-  /// word verdicts into the store but stop claiming the coordinate.
-  bool get isRemoteFollowPaused => _remoteFollowPaused;
-
-  /// The (surah, ayah) the remote reciter is currently at — packet truth
-  /// only, independent of the local coordinate. The view consults this on
-  /// page turns to rejoin the reciter, which keeps the controller free of
-  /// any page/provider imports.
-  (int, int)? get remoteCoordinate =>
-      _isRemoteReciting && _remoteTargetSurah != 0 && _remoteAyah != 0
-          ? (_remoteTargetSurah, _remoteAyah)
-          : null;
-
-  /// Resumes following the remote recitation after [setManualAyah] or
-  /// [applyAudioProgress] paused it. The next remote packet reclaims the
-  /// coordinate; no forced jump happens here.
-  void resumeRemoteFollow() {
-    if (!_remoteFollowPaused) return;
-    _remoteFollowPaused = false;
-  }
 
   // ── Audio Playback State ──
 
@@ -571,13 +547,6 @@ class HighlightingController extends rq.HighlightingController {
     _isAudioPlaying = false;
     _isAudioBuffering = false;
     _isAudioPaused = false;
-    // The reader just took the coordinate by hand while a remote reciter is
-    // active: pause coordinate claims from remote packets (verdicts keep
-    // merging). Follow resumes via resumeRemoteFollow or an isReciting:false
-    // packet — never by force here.
-    if (_isRemoteReciting) {
-      _remoteFollowPaused = true;
-    }
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
@@ -741,7 +710,6 @@ class HighlightingController extends rq.HighlightingController {
 
       _isRemoteReciting = true;
       _remoteTargetSurah = surah;
-      _remoteAyah = ayah;
       _remoteActiveWord = activeWord;
       changed = recitingChanged || surahChanged || wordChanged;
 

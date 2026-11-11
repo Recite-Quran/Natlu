@@ -1278,12 +1278,10 @@ class _WaveformPainter extends CustomPainter {
 class _TapScale extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
-  final VoidCallback? onTapDown;
 
   const _TapScale({
     required this.child,
     required this.onTap,
-    this.onTapDown,
   });
 
   @override
@@ -1307,7 +1305,6 @@ class _TapScaleState extends State<_TapScale> {
       onPointerDown: (event) {
         _downPos = event.position;
         _down.value = true;
-        widget.onTapDown?.call();
       },
       onPointerUp: (event) {
         final bool wasDown = _down.value;
