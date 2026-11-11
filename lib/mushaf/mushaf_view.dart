@@ -124,7 +124,7 @@ class _MushafViewState extends State<MushafView> with SingleTickerProviderStateM
       final double delta =
           event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
               ? event.scrollDelta.dy
-              : event.scrollDelta.dx;
+              : -event.scrollDelta.dx;
 
       if (delta.abs() > 12.0) {
         _lastWheelMs = now;

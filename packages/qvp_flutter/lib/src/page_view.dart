@@ -598,7 +598,9 @@ class QvpPageViewState extends State<QvpPageView>
   void _onTapUp(TapUpDetails d) {
     final v = _ctl.toView(d.localPosition);
     final exact = page.hitTestExactView(v.dx, v.dy);
-    if (exact != null && exact.decoration >= 0) {
+    if (exact != null &&
+        exact.decoration >= 0 &&
+        exact.decoration < page.decorations.length) {
       widget.onDecorationTap?.call(page.decorations[exact.decoration], exact);
       return;
     }
@@ -607,7 +609,9 @@ class QvpPageViewState extends State<QvpPageView>
       final dx = v.dx - m.cx;
       final dy = v.dy - m.cy;
       final r = m.r + 14.0;
-      if (dx * dx + dy * dy <= r * r) {
+      if (dx * dx + dy * dy <= r * r &&
+          m.decoration >= 0 &&
+          m.decoration < page.decorations.length) {
         final hit = QvpHit(
           word: -1,
           path: m.ornamentPath,
@@ -622,9 +626,11 @@ class QvpPageViewState extends State<QvpPageView>
     }
 
     final h = _hitAt(d.localPosition, maxDistance: widget.hitMaxDistance);
-    if (h != null && h.decoration >= 0) {
+    if (h != null &&
+        h.decoration >= 0 &&
+        h.decoration < page.decorations.length) {
       widget.onDecorationTap?.call(page.decorations[h.decoration], h);
-    } else if (h != null && h.word >= 0) {
+    } else if (h != null && h.word >= 0 && h.word < page.words.length) {
       widget.onWordTap?.call(page.words[h.word], h);
     } else {
       widget.onEmptyTap?.call();
