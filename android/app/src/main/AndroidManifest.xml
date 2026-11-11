@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Mark hardware features as optional so Google Play does not drop devices without Bluetooth or Camera -->
@@ -78,6 +79,11 @@
                 <action android:name="android.media.browse.MediaBrowserService"/>
             </intent-filter>
         </service>
+
+        <!-- Maglis Foreground Voice Service to preserve microphone & WebRTC audio in background -->
+        <service android:name=".MaglisCallService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
 
         <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
             android:exported="true"

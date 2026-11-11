@@ -253,6 +253,7 @@ class MaglisNetworkEngine {
 
     unawaited(MaglisConfigManager.syncRemoteConfig());
     await MaglisPlatform.initAudio();
+    unawaited(MaglisPlatform.startBackgroundCallService());
 
     final hasAudioInput =
         await MaglisMediaHelper.preflightDesktopMediaDevices();
@@ -746,6 +747,8 @@ class MaglisNetworkEngine {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+
+    unawaited(MaglisPlatform.stopBackgroundCallService());
 
     _beaconTimer?.cancel();
     _watchdogTimer?.cancel();

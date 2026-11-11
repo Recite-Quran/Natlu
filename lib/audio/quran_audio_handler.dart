@@ -79,7 +79,6 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return PlaybackState(
       controls: [
         MediaControl.skipToPrevious,
-        if (playing) MediaControl.pause else MediaControl.play,
         MediaControl.stop,
         MediaControl.skipToNext,
       ],
@@ -87,8 +86,11 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
+        MediaAction.skipToPrevious,
+        MediaAction.skipToNext,
+        MediaAction.stop,
       },
-      androidCompactActionIndices: const [0, 1, 3],
+      androidCompactActionIndices: const [0, 1, 2],
       processingState: processingState,
       playing: playing,
       updatePosition: player.position,

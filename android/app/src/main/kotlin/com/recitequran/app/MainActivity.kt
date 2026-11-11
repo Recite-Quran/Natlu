@@ -1,45 +1,19 @@
 package com.recitequran.app
 
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import com.ryanheise.audioservice.AudioServiceActivity
-import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-import android.app.KeyguardManager
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.PowerManager
-
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.recitequran.app/playstore"
-    private val LIFECYCLE_CHANNEL = "com.recitequran.app/audio_lifecycle"
-
-    private var isScreenOff = false
-    private var isUserLeaving = false
-    private var lifecycleChannel: MethodChannel? = null
-
-    private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> {
-                    isScreenOff = true
-                }
-                Intent.ACTION_SCREEN_ON -> {
-                    isScreenOff = false
-                }
-                Intent.ACTION_USER_PRESENT -> {
-                    isScreenOff = false
-                }
-            }
-        }
-    }
+    private val MAGLIS_SERVICE_CHANNEL = "com.recitequran.app/maglis_service"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,25 +27,6 @@ class MainActivity : AudioServiceActivity() {
             @Suppress("DEPRECATION")
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_USER_PRESENT)
-        }
-        registerReceiver(screenReceiver, filter)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        isUserLeaving = false
-    }
-
-    override fun onDestroy() {
-        try {
-            unregisterReceiver(screenReceiver)
-        } catch (_: Exception) {}
-        super.onDestroy()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -89,19 +44,25 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
-        lifecycleChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LIFECYCLE_CHANNEL)
-        lifecycleChannel?.setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MAGLIS_SERVICE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "isScreenOffOrLocked" -> {
-                    val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-                    val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-                    val isInteractive = powerManager?.isInteractive ?: true
-                    val isLocked = keyguardManager?.isKeyguardLocked ?: false
-                    val isOffOrLocked = (!isInteractive) || isLocked || isScreenOff
-                    result.success(isOffOrLocked)
+                "startService" -> {
+                    val intent = Intent(this, MaglisCallService::class.java).apply {
+                        action = MaglisCallService.ACTION_START
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                    result.success(true)
                 }
-                "isUserLeaving" -> {
-                    result.success(isUserLeaving)
+                "stopService" -> {
+                    val intent = Intent(this, MaglisCallService::class.java).apply {
+                        action = MaglisCallService.ACTION_STOP
+                    }
+                    startService(intent)
+                    result.success(true)
                 }
                 else -> {
                     result.notImplemented()

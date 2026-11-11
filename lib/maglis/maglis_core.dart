@@ -7,6 +7,7 @@ import 'package:bip340/bip340.dart' as bip340;
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart' hide Hmac;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:recite_quran/recite_quran.dart' as rq;
@@ -694,12 +695,42 @@ enum MaglisJoinResult {
 }
 
 class MaglisPlatform {
+  static const MethodChannel _serviceChannel =
+      MethodChannel('com.recitequran.app/maglis_service');
   static StreamSubscription? _deviceChangeSub;
   static StreamSubscription? _becomingNoisySub;
   static StreamSubscription? _interruptionSub;
   static bool _webrtcInitialized = false;
   static bool _audioInitialized = false;
   static void Function(bool interrupted)? onAudioInterrupted;
+
+  static Future<void> startBackgroundCallService() async {
+    if (kIsWeb) return;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await _serviceChannel.invokeMethod('startService');
+      } catch (_) {}
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final session = await AudioSession.instance;
+        await session.setActive(true);
+      } catch (_) {}
+    }
+  }
+
+  static Future<void> stopBackgroundCallService() async {
+    if (kIsWeb) return;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await _serviceChannel.invokeMethod('stopService');
+      } catch (_) {}
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final session = await AudioSession.instance;
+        await session.setActive(false);
+      } catch (_) {}
+    }
+  }
 
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return true;
@@ -804,8 +835,12 @@ class MaglisPlatform {
               androidWillPauseWhenDucked: false,
             ),
           );
-          // Note: WebRTC AudioSwitchManager owns native communication audio focus.
-          // Calling session.setActive(true) causes Android to steal focus and revert to earpiece.
+          // Note: WebRTC AudioSwitchManager owns native communication audio focus on Android.
+          // Calling session.setActive(true) on Android causes focus stealing and reverts to earpiece.
+          // On iOS, activating the audio session is required for background VoIP playout & recording.
+          if (defaultTargetPlatform == TargetPlatform.iOS) {
+            await session.setActive(true);
+          }
 
           // Auto-switch to bluetooth or speakerphone when devices are plugged or unplugged
           _deviceChangeSub?.cancel();
@@ -875,6 +910,7 @@ class MaglisPlatform {
   static Future<void> resetAudio() async {
     if (kIsWeb) return;
     try {
+      await stopBackgroundCallService();
       _audioInitialized = false;
       onAudioInterrupted = null;
       _deviceChangeSub?.cancel();

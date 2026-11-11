@@ -188,6 +188,7 @@ class AppAudioProcessor {
     // If still in Maglis room session, preserve WebRTC voice communication mode & loud speakerphone
     if (MaglisController.instance.inSession) {
       MaglisPlatform.setSpeaker(true);
+      unawaited(MaglisPlatform.startBackgroundCallService());
     }
   }
 

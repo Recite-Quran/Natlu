@@ -240,9 +240,6 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
-  static const MethodChannel _lifecycleChannel =
-      MethodChannel('com.recitequran.app/audio_lifecycle');
-
   final SherpaEngine _engine = SherpaEngine();
   final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
@@ -469,6 +466,9 @@ class _OrchestratorState extends State<_Orchestrator>
       if (!_engine.isInitialized) {
         _scheduleEnginePrewarm();
       }
+      if (MaglisController.instance.inSession) {
+        MaglisPlatform.setSpeaker(true);
+      }
     }
 
     // On Desktop (Windows, macOS, Linux) and Web, alt-tab, tab switching, and loss of focus
@@ -477,13 +477,11 @@ class _OrchestratorState extends State<_Orchestrator>
         PlatformCapabilities.isWeb || PlatformCapabilities.isDesktop;
 
     if (!isDesktopOrWeb) {
-      // Leave session when phone locks (screen timeout or power button), NOT when switching apps.
       if (state == AppLifecycleState.paused) {
         _isBackgrounded = true;
         _enginePrewarmTimer?.cancel();
         _enginePrewarmTimer = null;
         if (MaglisController.instance.inSession) {
-          _leaveSessionIfLocked();
           _onMaglisSessionChangedForIdleTimer();
         }
       }
@@ -514,17 +512,6 @@ class _OrchestratorState extends State<_Orchestrator>
         }
       });
     }
-  }
-
-  Future<void> _leaveSessionIfLocked() async {
-    try {
-      final isLocked =
-          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ??
-              false;
-      if (isLocked && MaglisController.instance.inSession) {
-        await MaglisController.instance.leaveSession();
-      }
-    } catch (_) {}
   }
 
   @override
@@ -1134,8 +1121,8 @@ class _OrchestratorState extends State<_Orchestrator>
         );
         _ctrl!.setManualAyah(result.surah, result.ayah);
         AppState.instance.saveLastPosition(result.surah, result.ayah);
-        final mappedPage = MushafProvider.instance
-            .getPageForAyah(result.surah, result.ayah);
+        final mappedPage =
+            MushafProvider.instance.getPageForAyah(result.surah, result.ayah);
         if (mappedPage != null) {
           AppState.instance.saveMushafPage(mappedPage);
         }
