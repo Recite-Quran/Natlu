@@ -80,8 +80,9 @@ void main() async {
             config: const AudioServiceConfig(
               androidNotificationChannelId: 'com.recitequran.app.audio',
               androidNotificationChannelName: 'القرآن العظيم',
-              androidNotificationOngoing: true,
+              androidNotificationOngoing: false,
               androidStopForegroundOnPause: true,
+              androidResumeOnClick: false,
               androidNotificationIcon: 'mipmap/ic_launcher',
             ),
           );

@@ -6,10 +6,14 @@ import 'quran_audio_service.dart';
 /// Central AudioHandler for system playback notifications and lock screen controls.
 ///
 /// Directly matches the professional stream-pipelined architecture of `quran_library`:
-/// - Strictly displays 3 controls: [previous verse, play/pause, next verse].
+/// - 4 controls: [skipToPrevious, play/pause, stop, skipToNext].
+/// - Compact action indices: [0, 1, 3] (previous, play/pause, next in compact view;
+///   stop button accessible in expanded status bar and media notification card).
 /// - Event-driven: pipes JustAudio's native `playbackEventStream` into `playbackState`
 ///   with zero lag, zero polling, and zero CPU overhead.
-/// - Maintains notification on lock screen and drawer when paused for instant resumption.
+/// - Exactly one notification instance: preserves foreground service without zombie
+///   duplications across verse switches and pause/play cycles.
+/// - Dismissible on pause: allows clean swipe-to-kill removal when paused.
 class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   static final QuranAudioHandler instance = QuranAudioHandler._();
   
@@ -49,15 +53,34 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
 
   /// Transforms JustAudio events into AudioService PlaybackState.
   ///
-  /// Enforces strictly 3 controls: [skipToPrevious, play/pause, skipToNext].
-  /// Compact action indices [0, 1, 2] ensure all 3 are displayed in lockscreen and
-  /// collapsed notification panels without extra buttons (such as stop).
+  /// Matches `quran_library`:
+  /// - Controls: [skipToPrevious, play/pause, stop, skipToNext].
+  /// - Compact indices: [0, 1, 3].
+  /// - Guard: avoids sending [AudioProcessingState.idle] during track preparation
+  ///   so Android's foreground service is never abruptly destroyed and resurrected,
+  ///   preventing duplicate/ghost notification instances.
   PlaybackState _transformEvent(AudioPlayer player, PlaybackEvent event) {
     final bool playing = player.playing;
+    final bool isPreparing = QuranAudioService.instance.isPreparingNewTrack;
+
+    final AudioProcessingState processingState;
+    if (isPreparing) {
+      processingState = AudioProcessingState.loading;
+    } else {
+      processingState = const {
+        ProcessingState.idle: AudioProcessingState.idle,
+        ProcessingState.loading: AudioProcessingState.loading,
+        ProcessingState.buffering: AudioProcessingState.buffering,
+        ProcessingState.ready: AudioProcessingState.ready,
+        ProcessingState.completed: AudioProcessingState.completed,
+      }[player.processingState] ?? AudioProcessingState.idle;
+    }
+
     return PlaybackState(
       controls: [
         MediaControl.skipToPrevious,
         if (playing) MediaControl.pause else MediaControl.play,
+        MediaControl.stop,
         MediaControl.skipToNext,
       ],
       systemActions: const {
@@ -65,14 +88,8 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         MediaAction.seekForward,
         MediaAction.seekBackward,
       },
-      androidCompactActionIndices: const [0, 1, 2],
-      processingState: const {
-        ProcessingState.idle: AudioProcessingState.idle,
-        ProcessingState.loading: AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready: AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[player.processingState] ?? AudioProcessingState.idle,
+      androidCompactActionIndices: const [0, 1, 3],
+      processingState: processingState,
       playing: playing,
       updatePosition: player.position,
       bufferedPosition: player.bufferedPosition,
@@ -109,6 +126,15 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   @override
   Future<void> stop() async {
     await QuranAudioService.instance.stop();
+    playbackState.add(playbackState.value.copyWith(
+      processingState: AudioProcessingState.idle,
+      playing: false,
+    ));
     await super.stop();
+  }
+
+  @override
+  Future<void> onNotificationDeleted() async {
+    await stop();
   }
 }

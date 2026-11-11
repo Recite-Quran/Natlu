@@ -55,6 +55,7 @@ class QuranAudioService {
   ValueChanged<bool>? onPlayingChanged;
 
   bool get isSingleWordMode => _player.isSingleWordMode;
+  bool get isPreparingNewTrack => _player.isPreparingNewTrack;
   bool get isPaused => _player.isPaused;
   bool get isPlaying => _player.isPlaying;
   bool get isBuffering => _player.isBuffering;
@@ -158,7 +159,7 @@ class QuranAudioService {
       controller.clearAudio();
     } else {
       // PLAY button pressed: stop any existing audio first to avoid collision, then play
-      if (controller.isAudioActive || isPlaying || isBuffering) {
+      if (controller.isAudioActive || isPlaying || isBuffering || isPaused) {
         await stop();
         controller.clearAudio();
       }
@@ -241,6 +242,7 @@ class VerseAudioPlayer {
   bool _isBuffering = false;
 
   bool get isPaused => _isPaused;
+  bool get isPreparingNewTrack => _isPreparingNewTrack;
   int? get pausedSurah => _pausedSurah;
   int? get pausedAyah => _pausedAyah;
   int? get pausedWordIndex => _pausedWordIndex;
@@ -1005,6 +1007,12 @@ class VerseAudioPlayer {
     }
     if (session == _sessionId) {
       _resetStopped();
+      QuranAudioHandler.instance.playbackState.add(
+        QuranAudioHandler.instance.playbackState.value.copyWith(
+          processingState: AudioProcessingState.idle,
+          playing: false,
+        ),
+      );
     }
   }
 
