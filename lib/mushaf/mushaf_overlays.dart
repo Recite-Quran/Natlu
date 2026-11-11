@@ -131,12 +131,12 @@ class MushafOverlays {
     final int activeSurah = coord?.$1 ?? 0;
     final int activeAyah = coord?.$2 ?? 0;
 
-    // Cache completed ayahs per unique surah on the page (1-3 surahs max),
-    // eliminating hundreds of Set allocations per frame.
-    final completedAyahsCache = <int, Set<int>>{};
-    Set<int> getCompletedAyahs(int surah) =>
-        completedAyahsCache.putIfAbsent(surah, () => controller.completedAyahsFor(surah));
-
+    // Word status cache for this paint: per-surah completed-ayah sets are NOT
+    // consulted here — word color is exclusively a stored word verdict
+    // received from the recite_quran package. A skipped ayah (the package
+    // bulk-marks jumped-over ayahs as completed after a reanchor) has no word
+    // verdicts, so it paints nothing; the reciter's spoken words continue
+    // from where they stopped.
     // Pre-group words by (surah, ayah) and pre-sort by line once per page lifetime
     final cache = _pageWordCaches[page] ??= _PageWordLayoutCache.fromPage(page);
     final wordsByAyah = cache.wordsByAyah;
@@ -174,8 +174,7 @@ class MushafOverlays {
       final s = key.$1;
       final a = key.$2;
 
-      if (getCompletedAyahs(s).contains(a) ||
-          controller.hasAyahHighlights(s, a)) {
+      if (controller.hasAyahHighlights(s, a)) {
         ayahsToPaint.add(key);
         continue;
       }
@@ -270,7 +269,6 @@ class MushafOverlays {
             activeWordPageIdx: activeWordPageIdx,
             controller: controller,
             palette: palette,
-            getCompletedAyahs: getCompletedAyahs,
           );
 
           if (color.a > 0) {
@@ -290,21 +288,17 @@ class MushafOverlays {
     required int? activeWordPageIdx,
     required HighlightingController controller,
     required QuranHighlightPalette palette,
-    required Set<int> Function(int surah) getCompletedAyahs,
   }) {
     // 1. Current active / waited word -> Neon
     if (activeWordPageIdx != null && w.index == activeWordPageIdx) {
       return palette.leadWordBand;
     }
 
-    final int w0 = w.word - 1;
-    int? status = controller.getWordStatus(w.ayah, w0, surah: w.surah);
-
-    // Completed ayah words are treated as green
-    if ((status == null || status == 0) &&
-        getCompletedAyahs(w.surah).contains(w.ayah)) {
-      status = 1;
-    }
+    // 2. Stored word verdict only — the renderer never invents color.
+    // Words without a verdict (never received from the package) stay
+    // transparent; "ayah completed" is a separate concept used by flow
+    // decisions, not a paint instruction.
+    final int? status = controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah);
 
     if (status == 1) {
       return palette.greenBand;

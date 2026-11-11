@@ -590,26 +590,14 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    // Manual page turn: the page never rewrites the recitation coordinate.
-    // No auto ayah selection on page turns, ever — including while a session
-    // is live: if the coordinate's ayah is not on this page, the choice is
-    // dropped, and the live source (ASR, audio playback, Maglis packets —
-    // they all write the controller's coordinate) re-selects its own the
-    // moment its next word lands, which the view then follows.
-    if (!widget.controller.isAudioActive) {
-      final active = widget.controller.activeAyah.value;
-      final targetSurah = widget.controller.recitationCoordinate.$1;
-      if (active != null &&
-          !provider.isAyahOnPage(
-            pageNumber: pageNum,
-            surah: targetSurah,
-            ayah: active,
-          )) {
-        _lastHandledAyah = null;
-        _lastHandledSurah = null;
-        widget.controller.clearManualAyah();
-      }
-    }
+    // Manual page turn: the page never rewrites the recitation coordinate —
+    // the coordinate belongs to the session (selection, ASR anchor, audio,
+    // Maglis), the page is only the viewport. Swiping away leaves the anchor
+    // in place: the active-ayah band and lead word stay bound to it, and the
+    // moment the live source's next word lands, the newest event wins and
+    // the view follows it. Clearing here used to orphan the anchor — after
+    // swiping back, no coordinate existed to paint, and the highlight only
+    // reappeared once the reciter's first word re-created it.
 
     // Preserve any existing selected ayah and save the page position.
     _debouncedSavePosition(pageNum);

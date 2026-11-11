@@ -996,16 +996,6 @@ class HighlightingController extends rq.HighlightingController {
     globalRevision.value++;
     notifyListeners();
   }
-
-  /// Clears manual Ayah selection (e.g. on idle page turn).
-  void clearManualAyah() {
-    if (_manualTargetSurah != 0 || activeAyah.value != null) {
-      _manualTargetSurah = 0;
-      activeAyah.value = null;
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

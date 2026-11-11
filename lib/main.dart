@@ -262,6 +262,7 @@ class _OrchestratorState extends State<_Orchestrator>
   StreamSubscription? _transcriptionSub;
   bool _isBackgrounded = false;
   Timer? _maglisIdleTimer;
+  Timer? _enginePrewarmTimer;
   DateTime? _maglisSoloSince;
   bool _hasAttachedMaglisBroadcast = false;
 
@@ -440,6 +441,8 @@ class _OrchestratorState extends State<_Orchestrator>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
       QuranAudioService.instance.stop();
+      _enginePrewarmTimer?.cancel();
+      _enginePrewarmTimer = null;
       _maglisIdleTimer?.cancel();
       _maglisIdleTimer = null;
       _maglisSoloSince = null;
@@ -462,6 +465,9 @@ class _OrchestratorState extends State<_Orchestrator>
         }
         _maglisSoloSince = null;
       }
+      if (!_engine.isInitialized) {
+        _scheduleEnginePrewarm();
+      }
     }
 
     // On Desktop (Windows, macOS, Linux) and Web, alt-tab, tab switching, and loss of focus
@@ -473,10 +479,17 @@ class _OrchestratorState extends State<_Orchestrator>
       // Leave session when phone locks (screen timeout or power button), NOT when switching apps.
       if (state == AppLifecycleState.paused) {
         _isBackgrounded = true;
+        _enginePrewarmTimer?.cancel();
+        _enginePrewarmTimer = null;
         if (MaglisController.instance.inSession) {
           _leaveSessionIfLocked();
           _onMaglisSessionChangedForIdleTimer();
         }
+      }
+    } else {
+      if (state == AppLifecycleState.paused) {
+        _enginePrewarmTimer?.cancel();
+        _enginePrewarmTimer = null;
       }
     }
   }
@@ -523,6 +536,8 @@ class _OrchestratorState extends State<_Orchestrator>
     _maglisIdleTimer?.cancel();
     _maglisIdleTimer = null;
     _maglisSoloSince = null;
+    _enginePrewarmTimer?.cancel();
+    _enginePrewarmTimer = null;
     if (MaglisController.instance.inSession) {
       unawaited(MaglisController.instance.leaveSession());
     }
@@ -595,6 +610,20 @@ class _OrchestratorState extends State<_Orchestrator>
       if (mounted) setState(() => _isInit = false);
       MaglisLinkService.instance.isAppReady = true;
 
+      // Platform-aware ASR pre-warming:
+      if (PlatformCapabilities.isWeb) {
+        // On Web, warm up silently ONLY if the ~72MB model is already cached in browser IndexedDB.
+        // If not cached, we strictly wait until the user taps Record to request bandwidth consent.
+        _engine.isModelCached().then((isCached) {
+          if (isCached && mounted && !_engine.isInitialized) {
+            unawaited(_engine.initialize().catchError((_) {}));
+          }
+        });
+      } else {
+        // On Native (Android, iOS, Windows, macOS), schedule deferred pre-warm after the UI settles.
+        _scheduleEnginePrewarm();
+      }
+
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
         if (MaglisLinkService.instance.hasPendingRoomCode) {
@@ -636,9 +665,31 @@ class _OrchestratorState extends State<_Orchestrator>
     }
   }
 
+  /// Silently pre-warms the ASR neural engine in the background on native platforms
+  /// after the initial Mushaf frame is completely rendered and idle (1500ms delay).
+  /// This eliminates the 1-2s delay on first record tap while avoiding cold-start contention.
+  void _scheduleEnginePrewarm() {
+    if (PlatformCapabilities.isWeb || _engine.isInitialized) return;
+    _enginePrewarmTimer?.cancel();
+    _enginePrewarmTimer = Timer(const Duration(milliseconds: 1500), () {
+      _enginePrewarmTimer = null;
+      if (!mounted || _isBackgrounded || _engine.isInitialized) return;
+      DebugLogger.logSimple('ASR', '⚡ Background pre-warming ASR engine...');
+      unawaited(_engine.initialize().catchError((e) {
+        DebugLogger.logSimple(
+          'ASR',
+          '⚠️ Background engine pre-warm safely handled error: $e',
+        );
+      }));
+    });
+  }
+
   /// Ensures the ASR engine is initialized.
   /// On Web, prompts for user bandwidth consent if the ~72MB model is not yet downloaded.
   Future<bool> _ensureEngineReady() async {
+    _enginePrewarmTimer?.cancel();
+    _enginePrewarmTimer = null;
+
     if (_engine.isInitialized) return true;
 
     if (PlatformCapabilities.isWeb) {
