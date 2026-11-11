@@ -49,10 +49,10 @@ class VerseSpanBuilder {
     final bool needsBlurCheck = isBlurEffective && !isAutoScrolling;
 
     // Ultra-fast path for unselected verses:
-    // If the verse is not active, blur mode is not hiding words, and has no Tajweed errors,
+    // If the verse is not active, blur mode is not hiding words, no yellow errors, and not in remote session,
     // we do not need per-word TextSpans or word recognizers.
     // Building a single contiguous TextSpan slashes paragraph builder overhead by ~95%!
-    if (!isActive && !needsBlurCheck) {
+    if (!isActive && !needsBlurCheck && !controller.isRemoteReciting) {
       bool hasYellowWord = false;
       final bool isTajweedMode = app.currentMode == AppMode.tajweed;
       if (isTajweedMode) {
@@ -112,9 +112,9 @@ class VerseSpanBuilder {
       TapGestureRecognizer? recognizer;
       if (enableGestures) {
         final bool isYellow = controller.isWordYellow(ayah, wordIdx, surah: surah);
-        // A word cannot be pressed or auditioned unless the ayah is selected first.
-        // Unselected verses delegate taps directly to the VerseRow GestureDetector to select the ayah.
-        if (isActive) {
+        final bool canTapWord =
+            isActive || isYellow || controller.isRemoteReciting;
+        if (canTapWord) {
           recognizer = TapGestureRecognizer()
             ..onTap = () {
               if (isYellow) {

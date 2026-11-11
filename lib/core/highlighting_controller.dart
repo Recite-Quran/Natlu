@@ -1590,9 +1590,10 @@ abstract final class QuranInteractionService {
   }
 
   /// Handles tapping a Quranic word:
-  /// - When not recording: any word tap (including yellow words) requires selecting the Ayah first.
-  /// - When recording (local ASR or remote Maglis session): yellow words open the Tajweed error dialog
-  ///   directly, and regular words play audio, without selecting the Ayah.
+  /// - Yellow word: always can be pressed directly and never selects the ayah,
+  ///   UNLESS the user is in idle mode (not recording), where it requires ayah selection first.
+  /// - Word play: always requires ayah selection first, UNLESS in a Maglis session
+  ///   as the listener while another user is recording.
   static void handleWordTap({
     required BuildContext context,
     required int surah,
@@ -1605,20 +1606,8 @@ abstract final class QuranInteractionService {
     VoidCallback? onAyahTap,
     List<rq.ReciterError>? overrideErrors,
   }) {
-    final bool isSessionActive = isRecording || controller.isRemoteReciting;
     final bool isAlreadySelected =
         controller.targetSurah == surah && controller.activeAyah.value == ayah;
-
-    // When NOT in an active recording session, pressing any word requires selecting the Ayah first.
-    if (!isSessionActive && !isAlreadySelected) {
-      selectAyah(
-        surah: surah,
-        ayah: ayah,
-        controller: controller,
-        onTap: onAyahTap,
-      );
-      return;
-    }
 
     final bool isYellow =
         controller.isWordYellow(ayah, wordIndex, surah: surah);
@@ -1626,9 +1615,22 @@ abstract final class QuranInteractionService {
         (isYellow
             ? controller.getWordErrors(ayah, wordIndex, surah: surah)
             : null);
+    final bool hasYellowError = errors != null && errors.isNotEmpty;
 
-    // Tajweed warning words show the error detail dialog.
-    if (errors != null && errors.isNotEmpty) {
+    // ── 1. Yellow Word ──
+    // Always can be pressed and never selects the ayah, UNLESS the user is in idle mode (not recording).
+    if (hasYellowError) {
+      final bool isIdle = !isRecording && !controller.isRemoteReciting;
+      if (isIdle && !isAlreadySelected) {
+        selectAyah(
+          surah: surah,
+          ayah: ayah,
+          controller: controller,
+          onTap: onAyahTap,
+        );
+        return;
+      }
+
       AppState.instance.markTajweedWordClicked();
       DialogService.showTajweedError(
         context,
@@ -1639,6 +1641,19 @@ abstract final class QuranInteractionService {
         wordIndex: wordIndex,
       );
       onWordErrorTap?.call();
+      return;
+    }
+
+    // ── 2. Word Play ──
+    // Always needs ayah selection first, UNLESS in a Maglis session as the listener while another user is recording.
+    final bool isRemoteListener = controller.isRemoteReciting;
+    if (!isAlreadySelected && !isRemoteListener) {
+      selectAyah(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        onTap: onAyahTap,
+      );
       return;
     }
 
