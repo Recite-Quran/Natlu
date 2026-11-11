@@ -1,23 +1,42 @@
 package com.recitequran.app
 
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.WindowManager
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.cloudwebrtc.webrtc.audio.AudioSwitchManager
-import com.ryanheise.audioservice.AudioServiceActivity
+// TODO(playstore-fgs): Restore AudioServiceActivity when re-enabling FOREGROUND_SERVICE_MEDIA_PLAYBACK.
+// import com.ryanheise.audioservice.AudioServiceActivity
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : AudioServiceActivity() {
+class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.recitequran.app/playstore"
     private val MAGLIS_SERVICE_CHANNEL = "com.recitequran.app/maglis_service"
+    private val LIFECYCLE_CHANNEL = "com.recitequran.app/audio_lifecycle"
+
+    private var isScreenOff = false
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> isScreenOff = true
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> isScreenOff = false
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +50,20 @@ class MainActivity : AudioServiceActivity() {
             @Suppress("DEPRECATION")
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    override fun onDestroy() {
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
+        super.onDestroy()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -49,24 +82,35 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LIFECYCLE_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "isScreenOffOrLocked") {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                val isInteractive = powerManager?.isInteractive ?: true
+                val isLocked = keyguardManager?.isKeyguardLocked ?: false
+                result.success((!isInteractive) || isLocked || isScreenOff)
+            } else {
+                result.notImplemented()
+            }
+        }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MAGLIS_SERVICE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startService" -> {
-                    val intent = Intent(this, MaglisCallService::class.java).apply {
-                        action = MaglisCallService.ACTION_START
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
+                    // TODO(playstore-fgs): Temporarily no-op while FOREGROUND_SERVICE_MICROPHONE is disabled.
+                    // val intent = Intent(this, MaglisCallService::class.java).apply {
+                    //     action = MaglisCallService.ACTION_START
+                    // }
+                    // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    //     startForegroundService(intent)
+                    // } else {
+                    //     startService(intent)
+                    // }
                     result.success(true)
                 }
                 "stopService" -> {
-                    val intent = Intent(this, MaglisCallService::class.java).apply {
-                        action = MaglisCallService.ACTION_STOP
-                    }
-                    startService(intent)
+                    // TODO(playstore-fgs): Temporarily no-op while FOREGROUND_SERVICE_MICROPHONE is disabled.
+                    // stopService(Intent(this, MaglisCallService::class.java))
                     result.success(true)
                 }
                 "resetAudioToNormal" -> {

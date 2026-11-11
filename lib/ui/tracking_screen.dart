@@ -56,6 +56,9 @@ class TrackingScreen extends StatefulWidget {
 
 class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  static const MethodChannel _lifecycleChannel =
+      MethodChannel('com.recitequran.app/audio_lifecycle');
+
   final ValueNotifier<String> _voiceSearchNotifier = ValueNotifier('');
   final GlobalKey<VerseListViewState> _verseListKey =
       GlobalKey<VerseListViewState>();
@@ -121,8 +124,17 @@ class _TrackingScreenState extends State<TrackingScreen>
       if (state == AppLifecycleState.paused ||
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
-        // Continuous Quran audio recitation remains playing continuously across
-        // background, lock screen, and minimization via MediaPlayback service.
+        if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
+          QuranAudioService.instance.stop();
+        } else if (state == AppLifecycleState.paused) {
+          // TODO(playstore-fgs): While FOREGROUND_SERVICE_MEDIA_PLAYBACK is disabled,
+          // allow audio on screen-off/lock (like v1.2.0+22) and stop if user minimized app.
+          if (defaultTargetPlatform == TargetPlatform.android) {
+            unawaited(_checkAndStopAudioIfMinimized());
+          } else if (defaultTargetPlatform != TargetPlatform.iOS) {
+            QuranAudioService.instance.stop();
+          }
+        }
         // Microphone recording and voice search are suspended.
         if (widget.isRecording) {
           widget.onToggleRecord();
@@ -131,6 +143,19 @@ class _TrackingScreenState extends State<TrackingScreen>
           widget.onVoiceSearchToggle();
         }
       }
+    }
+  }
+
+  Future<void> _checkAndStopAudioIfMinimized() async {
+    try {
+      final isOffOrLocked =
+          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ??
+              false;
+      if (!isOffOrLocked) {
+        await QuranAudioService.instance.stop();
+      }
+    } catch (_) {
+      await QuranAudioService.instance.stop();
     }
   }
 

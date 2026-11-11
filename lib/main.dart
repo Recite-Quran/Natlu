@@ -296,6 +296,7 @@ class _OrchestratorState extends State<_Orchestrator>
   String get _voiceSearchAsrText => _voiceSearchAsrNotifier.value;
   StreamSubscription? _transcriptionSub;
   bool _isBackgrounded = false;
+  bool _maglisPausedAutoMuted = false;
   Timer? _maglisIdleTimer;
   Timer? _enginePrewarmTimer;
   int _prewarmEpoch = 0;
@@ -420,6 +421,7 @@ class _OrchestratorState extends State<_Orchestrator>
       }
     };
     MaglisController.instance.onSessionEnded = () {
+      _maglisPausedAutoMuted = false;
       AppState.instance.exitMaglisSession();
       if (mounted && _isRecording) {
         _stopRecordingForRemoteClaim();
@@ -504,6 +506,7 @@ class _OrchestratorState extends State<_Orchestrator>
       _maglisIdleTimer?.cancel();
       _maglisIdleTimer = null;
       _maglisSoloSince = null;
+      _maglisPausedAutoMuted = false;
       if (MaglisController.instance.inSession) {
         unawaited(MaglisController.instance.leaveSession());
       }
@@ -514,11 +517,14 @@ class _OrchestratorState extends State<_Orchestrator>
       _isBackgrounded = false;
       _maglisIdleTimer?.cancel();
       _maglisIdleTimer = null;
+      bool leftSoloTimeout = false;
       if (_maglisSoloSince != null) {
         final elapsed = DateTime.now().difference(_maglisSoloSince!);
         if (elapsed >= const Duration(minutes: 10) &&
             MaglisController.instance.inSession &&
             MaglisController.instance.participantCount <= 1) {
+          leftSoloTimeout = true;
+          _maglisPausedAutoMuted = false;
           unawaited(MaglisController.instance.leaveSession());
         }
         _maglisSoloSince = null;
@@ -526,8 +532,18 @@ class _OrchestratorState extends State<_Orchestrator>
       if (!_engine.isInitialized) {
         _scheduleEnginePrewarm();
       }
-      if (MaglisController.instance.inSession) {
-        MaglisPlatform.setSpeaker(true);
+      if (!leftSoloTimeout && MaglisController.instance.inSession) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          // Restore communication audio, pre-background mic state, and peer links
+          // without killing the Maglis session while foreground service is disabled.
+          final shouldUnmute = _maglisPausedAutoMuted;
+          _maglisPausedAutoMuted = false;
+          unawaited(_restoreMaglisOnResume(unmuteMic: shouldUnmute));
+        } else {
+          MaglisPlatform.setSpeaker(true);
+        }
+      } else {
+        _maglisPausedAutoMuted = false;
       }
     }
 
@@ -541,10 +557,30 @@ class _OrchestratorState extends State<_Orchestrator>
       if (!isDesktopOrWeb) {
         _isBackgrounded = true;
         if (MaglisController.instance.inSession) {
+          if (defaultTargetPlatform == TargetPlatform.android &&
+              !MaglisController.instance.isMicMuted) {
+            // Mute local mic in background without killing the Maglis session
+            // while FOREGROUND_SERVICE_MICROPHONE is temporarily disabled.
+            _maglisPausedAutoMuted = true;
+            unawaited(MaglisController.instance.setMicMuted(true));
+          }
           _onMaglisSessionChangedForIdleTimer();
         }
       }
     }
+  }
+
+  Future<void> _restoreMaglisOnResume({required bool unmuteMic}) async {
+    if (!MaglisController.instance.inSession) return;
+    try {
+      await MaglisPlatform.initAudio();
+      if (unmuteMic && MaglisController.instance.inSession) {
+        await MaglisController.instance.setMicMuted(false);
+      }
+      if (MaglisController.instance.inSession) {
+        await MaglisController.instance.retryConnections();
+      }
+    } catch (_) {}
   }
 
   void _onMaglisSessionChangedForIdleTimer() {

@@ -707,9 +707,11 @@ class MaglisPlatform {
   static Future<void> startBackgroundCallService() async {
     if (kIsWeb) return;
     if (defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        await _serviceChannel.invokeMethod('startService');
-      } catch (_) {}
+      // TODO(playstore-fgs): Temporarily disabled while FOREGROUND_SERVICE_MICROPHONE
+      // is removed for Play Store update; uncomment next update.
+      // try {
+      //   await _serviceChannel.invokeMethod('startService');
+      // } catch (_) {}
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       try {
         final session = await AudioSession.instance;
@@ -721,9 +723,11 @@ class MaglisPlatform {
   static Future<void> stopBackgroundCallService() async {
     if (kIsWeb) return;
     if (defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        await _serviceChannel.invokeMethod('stopService');
-      } catch (_) {}
+      // TODO(playstore-fgs): Temporarily disabled while FOREGROUND_SERVICE_MICROPHONE
+      // is removed for Play Store update; uncomment next update.
+      // try {
+      //   await _serviceChannel.invokeMethod('stopService');
+      // } catch (_) {}
     } else if (defaultTargetPlatform == TargetPlatform.iOS) {
       try {
         final session = await AudioSession.instance;

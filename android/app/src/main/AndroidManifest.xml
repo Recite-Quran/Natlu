@@ -4,10 +4,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- TODO(playstore-fgs): Temporarily disabled until foreground service declarations & videos are submitted.
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    -->
 
     <!-- Mark hardware features as optional so Google Play does not drop devices without Bluetooth or Camera -->
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
@@ -70,12 +72,11 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Maglis Foreground Voice Service to preserve microphone & WebRTC audio in background -->
+        <!-- TODO(playstore-fgs): Temporarily disabled until foreground service declarations & videos are submitted.
         <service android:name=".MaglisCallService"
             android:foregroundServiceType="microphone"
             android:exported="false" />
 
-        <!-- AudioService for background Quran recitation & lockscreen media notification -->
         <service android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="true" tools:ignore="ExportedService">
@@ -90,6 +91,7 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+        -->
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

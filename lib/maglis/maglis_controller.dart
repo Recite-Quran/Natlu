@@ -107,6 +107,11 @@ class MaglisController extends ChangeNotifier {
     await setMicMuted(next);
   }
 
+  /// Re-establishes idle WebRTC/relay links after returning from background.
+  Future<void> retryConnections() async {
+    await _session?.net.retryConnections();
+  }
+
   int get remotePage => _session?.remotePage ?? 1;
   int get remoteSurah => _session?.remoteSurah ?? 1;
   int get remoteAyah => _session?.remoteAyah ?? 1;

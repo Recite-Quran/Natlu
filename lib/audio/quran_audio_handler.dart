@@ -31,7 +31,9 @@ class QuranAudioHandler extends BaseAudioHandler
   /// Safe to call multiple times; executes only once.
   static Future<void> ensureInitialized() async {
     if (_isServiceInitialized) return;
-    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
+    // TODO(playstore-fgs): Temporarily skipped on Android while FOREGROUND_SERVICE_MEDIA_PLAYBACK
+    // is removed for Play Store update; restore (!Platform.isAndroid && !Platform.isIOS) next update.
+    if (kIsWeb || !Platform.isIOS) {
       return;
     }
 
