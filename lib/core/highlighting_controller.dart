@@ -1141,7 +1141,7 @@ class QuranHighlightPalette {
           colors.wordHighlight.withValues(alpha: isDark ? 0.25 : 0.28),
       activeAyahBorder: colors.gold.withValues(alpha: isDark ? 0.70 : 0.60),
       activeAyahBand: isDark
-          ? const Color(0xFF64748B).withValues(alpha: 0.15)
+          ? const Color(0xFF64748B).withValues(alpha: 0.22)
           : const Color(0xFF64748B).withValues(alpha: 0.11),
     );
     _memoSig = sig;

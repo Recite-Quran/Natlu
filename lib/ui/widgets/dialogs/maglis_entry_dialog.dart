@@ -1050,7 +1050,7 @@ class _MaglisEntryDialogState extends State<MaglisEntryDialog> {
                               _newCode,
                               isArabic: isAr);
                           final subject = isAr
-                              ? 'دعوة لمجلس تلاوة القرآن الكريم'
+                              ? 'دعوة لمجلس تلاوة القرآن العظيم'
                               : 'Quran Maglis Invitation';
                           Rect? origin;
                           final box = context.findRenderObject() as RenderBox?;

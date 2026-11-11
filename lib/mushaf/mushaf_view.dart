@@ -858,7 +858,7 @@ class _MushafViewState extends State<MushafView> with SingleTickerProviderStateM
       goldColor: c.gold,
       neutralRingColor: neutralRingColor,
       ayahHighlightColor: isDark
-          ? const Color(0xFF64748B).withValues(alpha: 0.20)
+          ? const Color(0xFF64748B).withValues(alpha: 0.22)
           : const Color(0xFF64748B).withValues(alpha: 0.09),
       controller: widget.controller,
     );

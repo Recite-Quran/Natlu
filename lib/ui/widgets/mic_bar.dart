@@ -483,7 +483,6 @@ class BottomActionBar extends StatelessWidget {
             ? ValueListenableBuilder<ModelDownloadProgress>(
                 valueListenable: AppState.instance.modelDownloadNotifier,
                 builder: (context, dl, _) {
-                  final bool isAr = AppState.instance.isArabic;
                   final bool hasProgress =
                       dl.isDownloading && dl.loadedBytes > 0;
                   final double? progressVal =
@@ -525,18 +524,18 @@ class BottomActionBar extends StatelessWidget {
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            hasProgress
-                                ? mbText
-                                : (isAr ? 'تحميل...' : 'Loading...'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 8.0,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.2,
+                          if (hasProgress) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              mbText,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8.0,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),

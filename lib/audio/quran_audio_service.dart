@@ -158,11 +158,8 @@ class QuranAudioService {
       await stop();
       controller.clearAudio();
     } else {
-      // PLAY button pressed: stop any existing audio first to avoid collision, then play
-      if (controller.isAudioActive || isPlaying || isBuffering || isPaused) {
-        await stop();
-        controller.clearAudio();
-      }
+      // PLAY button pressed: play the requested Ayah directly
+      controller.clearAudio();
       await play(
         surah: surah,
         ayah: ayah,
@@ -362,14 +359,18 @@ class VerseAudioPlayer {
     }
   }
 
+  static const String mediaNotificationId = 'quran_audio_single_instance';
+
+  /// Single stable MediaItem metadata matching `quran_library`:
+  /// Uses a constant ID so Android never creates multiple notification cards.
+  static MediaItem get defaultMediaItem => MediaItem(
+        id: mediaNotificationId,
+        title: 'القران العظيم',
+        artUri: _cachedAppIconUri,
+      );
+
   /// Creates MediaItem metadata for background notification and lock screen controls.
-  static MediaItem createMediaItem(int surah, int ayah) {
-    return MediaItem(
-      id: '$surah:$ayah',
-      title: 'القران العظيم',
-      artUri: _cachedAppIconUri,
-    );
-  }
+  static MediaItem createMediaItem([int? surah, int? ayah]) => defaultMediaItem;
 
   /// Creates an AudioSource for an Ayah, utilizing local cached file if present,
   /// or progressive streaming URL, tagged with MediaItem for background notification.

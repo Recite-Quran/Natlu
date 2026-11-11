@@ -22,6 +22,7 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
   AudioPlayer? _player;
 
   QuranAudioHandler._() {
+    mediaItem.add(VerseAudioPlayer.defaultMediaItem);
     attachPlayer(QuranAudioService.instance.audioPlayer);
   }
 
