@@ -702,8 +702,10 @@ class _MushafViewState extends State<MushafView> with SingleTickerProviderStateM
 
     final app = AppState.instance;
     final ctrl = widget.controller;
+    final bool isSessionActive =
+        widget.isRecording || MaglisController.instance.inSession;
     final bool isBlurEffective =
-        app.isBlurEffective(isRecording: widget.isRecording);
+        app.isBlurEffective(isRecording: isSessionActive);
     final bool needsTajweedTooltip =
         !app.hasClickedTajweedWord && app.currentMode == AppMode.tajweed;
 
