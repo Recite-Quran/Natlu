@@ -2348,6 +2348,15 @@ class _NativePageWorker {
         c?.complete((addr, data));
       } else if (msg is (int, String, bool)) {
         final (id, errMsg, isFormat) = msg;
+        if (id < 0) {
+          _starting = null;
+          _rx?.close();
+          _rx = null;
+          if (!readyCompleter.isCompleted) {
+            readyCompleter.completeError(StateError(errMsg));
+          }
+          return;
+        }
         final c = _pending.remove(id);
         c?.completeError(
           isFormat ? FormatException(errMsg) : StateError(errMsg),

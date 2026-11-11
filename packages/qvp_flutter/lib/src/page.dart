@@ -13,22 +13,22 @@ import 'engine.dart';
 class QvpPage extends ChangeNotifier {
   /// Wraps a page the backend has loaded. Apps call [QvpEngine.loadPage] instead.
   QvpPage.fromHandle(this.engine, this._backend, this._handle, QvpPageData data)
-    : width = data.width,
-      height = data.height,
-      lineSpacing = data.lineSpacing,
-      page = data.page,
-      nLines = data.nLines,
-      nAyahs = data.nAyahs,
-      nWords = data.nWords,
-      nPaths = data.nPaths,
-      nDecorations = data.nDecorations,
-      ops = data.ops,
-      pts = data.pts,
-      table = data.table,
-      words = data.words,
-      ayahs = data.ayahs,
-      lines = data.lines,
-      decorations = data.decorations;
+      : width = data.width,
+        height = data.height,
+        lineSpacing = data.lineSpacing,
+        page = data.page,
+        nLines = data.nLines,
+        nAyahs = data.nAyahs,
+        nWords = data.nWords,
+        nPaths = data.nPaths,
+        nDecorations = data.nDecorations,
+        ops = data.ops,
+        pts = data.pts,
+        table = data.table,
+        words = data.words,
+        ayahs = data.ayahs,
+        lines = data.lines,
+        decorations = data.decorations;
 
   /// The engine that loaded the page.
   final QvpEngine engine;
@@ -92,6 +92,9 @@ class QvpPage extends ChangeNotifier {
   /// Layout from the last [layout] call, if any.
   QvpLayout? currentLayout;
 
+  /// Layout spec passed to the last [layout] call, if known.
+  QvpLayoutSpec? currentLayoutSpec;
+
   int _defaultInk = QvpDefaults.ink;
 
   /// Default ink colour (0xRRGGBBAA).
@@ -146,9 +149,8 @@ class QvpPage extends ChangeNotifier {
     if (kept != null) return kept;
 
     final p = ui.Path();
-    p.fillType = pathEvenOdd(i)
-        ? ui.PathFillType.evenOdd
-        : ui.PathFillType.nonZero;
+    p.fillType =
+        pathEvenOdd(i) ? ui.PathFillType.evenOdd : ui.PathFillType.nonZero;
     final t = table;
     decodeQvpPath(p, ops, t[i * 8], t[i * 8 + 1], pts, t[i * 8 + 2]);
     return all[i] = p;
@@ -315,13 +317,14 @@ class QvpPage extends ChangeNotifier {
     Object form = 'rasmUthmani',
     String wordSep = ' ',
     String lineSep = '\n',
-  ]) => _backend.text(
-    handle,
-    QvpTarget.of(target),
-    QvpForm.of(form),
-    wordSep,
-    lineSep,
-  );
+  ]) =>
+      _backend.text(
+        handle,
+        QvpTarget.of(target),
+        QvpForm.of(form),
+        wordSep,
+        lineSep,
+      );
 
   /// Search this page. [mode]: 'includes' | 'exact' | 'prefix'.
   List<QvpMatch> search(
@@ -388,14 +391,16 @@ class QvpPage extends ChangeNotifier {
     double x,
     double y, [
     QvpHitOptions opt = const QvpHitOptions(),
-  ]) => _enrichHit(_backend.hitTest(handle, x, y, opt));
+  ]) =>
+      _enrichHit(_backend.hitTest(handle, x, y, opt));
 
   /// Gap-aware hit test, viewport px through current layout.
   QvpHit? hitTestView(
     double viewX,
     double viewY, [
     QvpHitOptions opt = const QvpHitOptions(),
-  ]) => _enrichHit(_backend.hitTestView(handle, viewX, viewY, opt));
+  ]) =>
+      _enrichHit(_backend.hitTestView(handle, viewX, viewY, opt));
 
   QvpHit? _enrichHit(QvpHit? h) {
     if (h == null) return null;
@@ -434,6 +439,7 @@ class QvpPage extends ChangeNotifier {
   QvpLayout layout(QvpLayoutSpec spec) {
     final l = _backend.layout(handle, spec);
     currentLayout = l;
+    currentLayoutSpec = spec;
     _invalidateViewGeometry();
     _touch();
     return l;
@@ -452,7 +458,8 @@ class QvpPage extends ChangeNotifier {
     double factor,
     double focalX,
     double focalY,
-  ) => _backend.zoomPinch(handle, spec, zoom, view, factor, focalX, focalY);
+  ) =>
+      _backend.zoomPinch(handle, spec, zoom, view, factor, focalX, focalY);
 
   /// The control moved to a step directly: a size button, a double tap, a reset. Step 0 is the
   /// printed page.
@@ -461,7 +468,8 @@ class QvpPage extends ChangeNotifier {
     QvpZoom zoom,
     int step,
     QvpView view,
-  ) => _backend.zoomToStep(handle, spec, zoom, step, view);
+  ) =>
+      _backend.zoomToStep(handle, spec, zoom, step, view);
 
   /// The same control under another policy, keeping the size the reader is already at.
   QvpZoom zoomMode(QvpLayoutSpec spec, QvpZoom zoom, QvpZoomMode mode) =>
@@ -517,6 +525,7 @@ class QvpPage extends ChangeNotifier {
     final l = _backend.readLayout(handle);
     if (l != null && l != currentLayout) {
       currentLayout = l;
+      currentLayoutSpec = null;
       _invalidateViewGeometry();
       _touch();
     }
@@ -566,17 +575,18 @@ class QvpPage extends ChangeNotifier {
     double toY,
     double viewportW,
     double viewportH,
-  ) => _backend.viewAnchor(
-    handle,
-    view,
-    word,
-    nx,
-    ny,
-    toX,
-    toY,
-    viewportW,
-    viewportH,
-  );
+  ) =>
+      _backend.viewAnchor(
+        handle,
+        view,
+        word,
+        nx,
+        ny,
+        toX,
+        toY,
+        viewportW,
+        viewportH,
+      );
 
   /// Which band of the current layout to keep drawn for [view] and a viewport: the whole page
   /// when it fits, otherwise two screens around the reader. The top moves in steps, so a pan
@@ -590,14 +600,15 @@ class QvpPage extends ChangeNotifier {
     double viewportH, {
     double maxHeight = 0,
     double maxPixels = 0,
-  }) => _backend.layoutInkBand(
-    handle,
-    view,
-    viewportW,
-    viewportH,
-    maxHeight,
-    maxPixels,
-  );
+  }) =>
+      _backend.layoutInkBand(
+        handle,
+        view,
+        viewportW,
+        viewportH,
+        maxHeight,
+        maxPixels,
+      );
 
   /// Where a point of the viewport lands in the laid-out page: how a host turns a touch into a
   /// [hitTestView]. The inverse of `offset + scale·p`.
@@ -605,7 +616,8 @@ class QvpPage extends ChangeNotifier {
     QvpView view,
     double viewX,
     double viewY,
-  ) => _backend.viewToLayout(handle, view, viewX, viewY);
+  ) =>
+      _backend.viewToLayout(handle, view, viewX, viewY);
 
   // ── Styles ──
 
@@ -775,14 +787,15 @@ class QvpPage extends ChangeNotifier {
     String height = 'lineSpacing',
     double padX = QvpDefaults.highlightPadX,
     double padY = QvpDefaults.highlightPadY,
-  }) => _backend.wordBands(
-    handle,
-    ws,
-    view: false,
-    inkHeight: height == 'ink',
-    padX: padX,
-    padY: padY,
-  );
+  }) =>
+      _backend.wordBands(
+        handle,
+        ws,
+        view: false,
+        inkHeight: height == 'ink',
+        padX: padX,
+        padY: padY,
+      );
 
   /// The same bands in viewport px through the current layout: one box per row the words
   /// occupy, where a reflowed page has moved them. A host that draws its own underlines or
@@ -792,36 +805,62 @@ class QvpPage extends ChangeNotifier {
     String height = 'lineSpacing',
     double padX = QvpDefaults.highlightPadX,
     double padY = QvpDefaults.highlightPadY,
-  }) => _backend.wordBands(
-    handle,
-    ws,
-    view: true,
-    inkHeight: height == 'ink',
-    padX: padX,
-    padY: padY,
-  );
+  }) =>
+      _backend.wordBands(
+        handle,
+        ws,
+        view: true,
+        inkHeight: height == 'ink',
+        padX: padX,
+        padY: padY,
+      );
 
   Map<int, QvpBox>? _cachedWordBoxesView;
+
+  /// Resolves a single word's band box in layout viewport px with tight ink padding.
+  /// On non-reflowed layouts this uses direct arithmetic on [words] and [QvpLayout] with zero FFI calls.
+  QvpBox wordBoxView(int i, {double padY = 2.0, QvpLayout? layout}) {
+    final w = words[i];
+    final l = layout ?? currentLayout;
+    if (l != null && !l.reflowed) {
+      final dy = (w.lineIndex >= 0 && w.lineIndex < l.lineDy.length)
+          ? l.lineDy[w.lineIndex]
+          : 0.0;
+      final scale = l.scale;
+      return QvpBox(
+        id: i,
+        line: w.line,
+        x0: l.offsetX + w.x0 * scale,
+        y0: l.offsetY + (w.y0 + dy) * scale - padY,
+        x1: l.offsetX + w.x1 * scale,
+        y1: l.offsetY + (w.y1 + dy) * scale + padY,
+        color: 0,
+        radius: 0.0,
+      );
+    }
+    final b = wordBoundsView(i);
+    return QvpBox(
+      id: i,
+      line: w.line,
+      x0: b.x0,
+      y0: b.y0 - padY,
+      x1: b.x1,
+      y1: b.y1 + padY,
+      color: 0,
+      radius: 0.0,
+    );
+  }
 
   /// Cached band boxes in layout viewport px for each word on the page with tight ink padding.
   /// Computed once per layout and cached until the next mutation or layout change.
   Map<int, QvpBox> wordBoxesView({String height = 'ink', double padY = 2.0}) {
     if (isDisposed) return const {};
     if (_cachedWordBoxesView != null) return _cachedWordBoxesView!;
+    final l = currentLayout;
     final map = <int, QvpBox>{};
     final n = words.length;
     for (var i = 0; i < n; i++) {
-      final b = wordBoundsView(i);
-      map[i] = QvpBox(
-        id: i,
-        line: words[i].line,
-        x0: b.x0,
-        y0: b.y0 - padY,
-        x1: b.x1,
-        y1: b.y1 + padY,
-        color: 0,
-        radius: 0.0,
-      );
+      map[i] = wordBoxView(i, padY: padY, layout: l);
     }
     return _cachedWordBoxesView = map;
   }
@@ -846,7 +885,8 @@ class QvpPage extends ChangeNotifier {
   String selectionText([
     Object form = 'rasmUthmani',
     bool includeCitation = false,
-  ]) => _backend.selectionText(handle, QvpForm.of(form), includeCitation);
+  ]) =>
+      _backend.selectionText(handle, QvpForm.of(form), includeCitation);
 
   // ── Masks & memorisation ──
 
@@ -1057,12 +1097,13 @@ class QvpPage extends ChangeNotifier {
     Object target, {
     double pad = QvpDefaults.cropPad,
     bool keepAyahMarks = true,
-  }) => _backend.cropBounds(
-    handle,
-    QvpTarget.of(target),
-    pad: pad,
-    keepAyahMarks: keepAyahMarks,
-  );
+  }) =>
+      _backend.cropBounds(
+        handle,
+        QvpTarget.of(target),
+        pad: pad,
+        keepAyahMarks: keepAyahMarks,
+      );
 
   /// Standalone SVG of a target (current colours), or null.
   String? cropSvg(
@@ -1070,13 +1111,14 @@ class QvpPage extends ChangeNotifier {
     double pad = QvpDefaults.cropPad,
     bool keepAyahMarks = true,
     Object? background,
-  }) => _backend.cropSvg(
-    handle,
-    QvpTarget.of(target),
-    pad: pad,
-    keepAyahMarks: keepAyahMarks,
-    background: background == null ? null : rgba(background),
-  );
+  }) =>
+      _backend.cropSvg(
+        handle,
+        QvpTarget.of(target),
+        pad: pad,
+        keepAyahMarks: keepAyahMarks,
+        background: background == null ? null : rgba(background),
+      );
 }
 
 /// How many ticks of [page] moved a colour or a band, the tick that settles them included.

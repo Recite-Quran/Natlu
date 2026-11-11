@@ -402,6 +402,23 @@ class _OrchestratorState extends State<_Orchestrator>
       }
     };
 
+    MaglisController.instance.onBeforeSessionDisposed = () async {
+      if (!mounted) return;
+      if (_isVoiceSearching) {
+        await _stopVoiceSearch();
+      }
+      if (_isRecording) {
+        _isRecording = false;
+        _isToggling = false;
+        _maglisBroadcastThrottle?.cancel();
+        await _audio.stop();
+        _engine.resetBuffer();
+        _ctrl?.finalize();
+        if (mounted) {
+          setState(() {});
+        }
+      }
+    };
     MaglisController.instance.onSessionEnded = () {
       AppState.instance.exitMaglisSession();
       if (mounted && _isRecording) {
@@ -568,6 +585,7 @@ class _OrchestratorState extends State<_Orchestrator>
     MaglisController.instance.onRemoteFloorClaimed = null;
     MaglisController.instance.onRemoteRecitationProgress = null;
     MaglisController.instance.onGetSnapshotCumulativeMap = null;
+    MaglisController.instance.onBeforeSessionDisposed = null;
     MaglisController.instance.onSessionEnded = null;
     if (_hasAttachedMaglisBroadcast) {
       _hasAttachedMaglisBroadcast = false;
@@ -982,7 +1000,10 @@ class _OrchestratorState extends State<_Orchestrator>
     if (mounted) {
       setState(() {});
     }
-    MaglisPlatform.setSpeaker(true);
+    if (MaglisController.instance.inSession &&
+        !MaglisController.instance.isLeaving) {
+      MaglisPlatform.setSpeaker(true);
+    }
     AppState.instance.showBanner(AppBannerInfo(
       id: 'maglis_reciter_changed',
       messageAr: 'انتقلت التلاوة للمشارك الآخر • استمع وتابع معه',

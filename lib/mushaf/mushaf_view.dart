@@ -91,11 +91,26 @@ class _MushafViewState extends State<MushafView>
   int? _lastProgressWord;
   int? _lastProgressRev;
 
-  // Audio spinner animation & overlays repaint
+  // Audio spinner animation & fine-grained layer repaint triggers
   late final AnimationController _spinnerController;
-  late final Listenable _combinedRepaintListenable;
+  final ValueNotifier<int> _underlayRepaintTrigger = ValueNotifier<int>(0);
+  final ValueNotifier<int> _staticRepaintTrigger = ValueNotifier<int>(0);
+  final ValueNotifier<int> _overlayRepaintTrigger = ValueNotifier<int>(0);
+  late final Listenable _underlayRepaintListenable;
+  late final Listenable _overlayRepaintListenable;
   final ValueNotifier<List<int>> _yellowWordsNotifier =
       ValueNotifier<List<int>>(const []);
+
+  ({
+    bool onPage,
+    int surah,
+    int? ayah,
+    int? lead,
+    int rev,
+    bool recording,
+  })? _lastUnderlayState;
+  ({bool buffering, bool playing, int? surah, int? ayah})?
+      _lastAudioOverlayState;
 
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
@@ -150,14 +165,17 @@ class _MushafViewState extends State<MushafView>
     );
 
     final app = AppState.instance;
-    // NOTE: _spinnerController is deliberately NOT in this merge. The
-    // buffering spinner arc renders on its own tiny layer (see the
-    // _BufferingSpinnerPainter in build), driven by the controller alone, so
-    // its 60–120Hz ticks never re-record the whole page picture.
-    _combinedRepaintListenable = Listenable.merge([
-      widget.controller,
+    // NOTE: _spinnerController is deliberately NOT in these merges. Each layer
+    // has its own dedicated RepaintBoundary driven only by the state it paints:
+    // underlay (highlights), static ink (base glyphs, headers, neutral rings),
+    // and dynamic overlay (active audio rings, tooltips).
+    _underlayRepaintListenable = Listenable.merge([
+      _underlayRepaintTrigger,
       app.modeNotifier,
       app.blurModeNotifier,
+    ]);
+    _overlayRepaintListenable = Listenable.merge([
+      _overlayRepaintTrigger,
       app.hasClickedTajweedNotifier,
       _yellowWordsNotifier,
     ]);
@@ -215,6 +233,8 @@ class _MushafViewState extends State<MushafView>
       widget.controller.addListener(_onControllerProgress);
       widget.controller.activeAyah.addListener(_onActiveAyahChanged);
       _syncVisuals();
+      _notifyUnderlayIfRelevant();
+      _syncAudioOverlayState();
     }
     if (!oldWidget.isRecording && widget.isRecording) {
       final active = widget.controller.activeAyah.value;
@@ -236,9 +256,13 @@ class _MushafViewState extends State<MushafView>
       } else {
         _syncVisuals();
       }
+      _notifyUnderlayIfRelevant();
     } else if (oldWidget.isRecording && !widget.isRecording) {
       _lastAdvancedSurah = null;
       _syncVisuals();
+      _notifyUnderlayIfRelevant();
+    } else if (!oldWidget.isRecording && widget.isRecording) {
+      _notifyUnderlayIfRelevant();
     }
   }
 
@@ -254,6 +278,8 @@ class _MushafViewState extends State<MushafView>
       if (_needsSyncAfterModal) {
         _needsSyncAfterModal = false;
         _syncVisuals();
+        _notifyUnderlayIfRelevant();
+        _syncAudioOverlayState();
       }
     }
   }
@@ -294,6 +320,9 @@ class _MushafViewState extends State<MushafView>
     _spinnerController.dispose();
     _spinnerMark.dispose();
     _qvpViewCtrl.dispose();
+    _underlayRepaintTrigger.dispose();
+    _staticRepaintTrigger.dispose();
+    _overlayRepaintTrigger.dispose();
     _yellowWordsNotifier.dispose();
     AppModalRouteObserver.instance.activeModalsNotifier
         .removeListener(_onModalStateChanged);
@@ -396,11 +425,17 @@ class _MushafViewState extends State<MushafView>
 
     // Visual synchronization (Unhide recited words live AND update yellow words for Tajweed tooltips)
     _syncVisuals();
+    _notifyUnderlayIfRelevant(
+      surah: activeSurah,
+      ayah: activeAyah,
+      lead: activeWord,
+      rev: rev,
+    );
 
-    // Spinner start/stop also depends on audio state transitions that don't
-    // move the coordinate (buffering -> playing on the same ayah), so check
-    // it on every progress change; it is an O(1) guard when nothing changed.
+    // Spinner start/stop and active audio overlay badge depend on audio state
+    // transitions that don't always move the coordinate (buffering -> playing on same ayah).
     _checkSpinnerAnimation();
+    _syncAudioOverlayState();
 
     if (!widget.isRecording) return;
 
@@ -458,8 +493,9 @@ class _MushafViewState extends State<MushafView>
     _lastHandledAyah = activeAyah;
     _lastHandledSurah = activeSurah;
 
-    // Check spinner only when ayah coord actually changes (not every word tick).
+    // Check spinner and overlay badge only when ayah coord actually changes (not every word tick).
     _checkSpinnerAnimation();
+    _syncAudioOverlayState();
 
     // The one page-sync rule for every recitation source. Local ASR, audio
     // playback and Maglis packets all write the same coordinate into the
@@ -470,6 +506,7 @@ class _MushafViewState extends State<MushafView>
     _syncPageFollow(activeSurah, activeAyah);
 
     _requestSyncVisuals();
+    _notifyUnderlayIfRelevant();
   }
 
   /// Follows the controller's current coordinate to its page. This is the only
@@ -526,6 +563,80 @@ class _MushafViewState extends State<MushafView>
       }
       _spinnerMark.value = null;
       _spinnerMarkKey = null;
+    }
+  }
+
+  void _notifyUnderlayIfRelevant({
+    int? surah,
+    int? ayah,
+    int? lead,
+    int? rev,
+  }) {
+    final ctrl = widget.controller;
+    final int s;
+    final int? a;
+    if (surah != null) {
+      s = surah;
+      a = ayah;
+    } else {
+      (s, a) = ctrl.recitationCoordinate;
+    }
+    final provider = MushafProvider.instance;
+    final bool coordOnPage = s != 0 &&
+        a != null &&
+        provider.isReady &&
+        provider.isAyahOnPage(pageNumber: _currentPage, surah: s, ayah: a);
+    final int resolvedRev = rev ?? ctrl.globalRevision.value;
+    final int? resolvedLead = coordOnPage
+        ? (lead ??
+            ctrl.getLeadWordIndex(
+              surah: s,
+              ayah: a,
+              totalWords: 999,
+              isRecording: widget.isRecording,
+            ))
+        : null;
+    final nextState = (
+      onPage: coordOnPage,
+      surah: coordOnPage ? s : 0,
+      ayah: coordOnPage ? a : null,
+      lead: resolvedLead,
+      rev: resolvedRev,
+      recording: widget.isRecording,
+    );
+    final bool revChanged = resolvedRev != _lastUnderlayState?.rev;
+    final bool wasOnPage = _lastUnderlayState?.onPage ?? false;
+    if (_lastUnderlayState != nextState &&
+        (coordOnPage || wasOnPage || revChanged)) {
+      _lastUnderlayState = nextState;
+      _underlayRepaintTrigger.value++;
+    } else if (!coordOnPage && !wasOnPage && !revChanged) {
+      _lastUnderlayState = nextState;
+    }
+  }
+
+  void _syncAudioOverlayState() {
+    final ctrl = widget.controller;
+    final s = ctrl.audioSurah;
+    final a = ctrl.audioAyah;
+    final provider = MushafProvider.instance;
+    final bool onThisPage = s != null &&
+        a != null &&
+        provider.isReady &&
+        provider.isAyahOnPage(
+          pageNumber: _currentPage,
+          surah: s,
+          ayah: a,
+        );
+    final nextState = (
+      buffering: onThisPage && ctrl.isAudioBuffering,
+      playing: onThisPage && ctrl.isAudioPlaying,
+      surah: onThisPage ? s : null,
+      ayah: onThisPage ? a : null,
+    );
+    if (_lastAudioOverlayState != nextState) {
+      _lastAudioOverlayState = nextState;
+      _overlayRepaintTrigger.value++;
     }
   }
 
@@ -649,8 +760,12 @@ class _MushafViewState extends State<MushafView>
     }
     _clearPageVisuals(oldPage);
     _currentPageObject = page;
+    _lastUnderlayState = null;
+    _lastAudioOverlayState = null;
     _checkSpinnerAnimation();
     _syncVisuals();
+    _notifyUnderlayIfRelevant();
+    _syncAudioOverlayState();
     if (notify && mounted) setState(() {});
   }
 
@@ -682,6 +797,9 @@ class _MushafViewState extends State<MushafView>
 
   void _onVisualSettingsChanged() {
     _syncVisuals();
+    _staticRepaintTrigger.value++;
+    _underlayRepaintTrigger.value++;
+    _overlayRepaintTrigger.value++;
     if (mounted) {
       setState(() {});
       MushafProvider.instance.preloadAdjacentPages(_currentPage);
@@ -795,7 +913,7 @@ class _MushafViewState extends State<MushafView>
       wordText: w.text,
       controller: widget.controller,
       isRecording: widget.isRecording,
-      onAyahTap: () => setState(() {}),
+      onAyahTap: _notifyUnderlayIfRelevant,
     );
   }
 
@@ -811,7 +929,7 @@ class _MushafViewState extends State<MushafView>
     }
   }
 
-  void _paintUnderlay(
+  void _paintStaticUnderlay(
       ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
     if (page.isDisposed) return;
     MushafOverlays.paintSurahHeaders(
@@ -821,6 +939,11 @@ class _MushafViewState extends State<MushafView>
       isDark: AppState.instance.isDarkMode,
       colors: AppState.instance.colors,
     );
+  }
+
+  void _paintUnderlay(
+      ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
+    if (page.isDisposed) return;
     MushafOverlays.paintAyahHighlights(
       canvas,
       page,
@@ -831,7 +954,7 @@ class _MushafViewState extends State<MushafView>
     );
   }
 
-  void _paintOverlay(
+  void _paintStaticOverlay(
       ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
     if (page.isDisposed) return;
     final app = AppState.instance;
@@ -849,10 +972,27 @@ class _MushafViewState extends State<MushafView>
       surfaceColor: c.surface,
       goldColor: c.gold,
       neutralRingColor: neutralRingColor,
-      ayahHighlightColor: isDark
-          ? const Color(0xFF64748B).withValues(alpha: 0.22)
-          : const Color(0xFF64748B).withValues(alpha: 0.09),
+      paintNeutral: true,
+      paintActive: false,
+    );
+  }
+
+  void _paintOverlay(
+      ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout) {
+    if (page.isDisposed) return;
+    final app = AppState.instance;
+    final c = app.colors;
+
+    MushafOverlays.paintAyahMarks(
+      canvas,
+      page,
+      layout,
+      app: app,
+      surfaceColor: c.surface,
+      goldColor: c.gold,
       controller: widget.controller,
+      paintNeutral: false,
+      paintActive: true,
     );
 
     if (!app.hasClickedTajweedWord &&
@@ -946,9 +1086,9 @@ class _MushafViewState extends State<MushafView>
                             : Stack(
                                 clipBehavior: Clip.hardEdge,
                                 children: [
-                                  // Base layer: The current page (already drawn beneath)
+                                  // Base layer: persistent QvpPageView with 3 isolated RepaintBoundary layers
                                   RepaintBoundary(
-                                    key: ValueKey('mushaf_single_qvp_view_$_currentPage'),
+                                    key: const ValueKey('mushaf_single_qvp_view'),
                                     child: QvpPageView(
                                       page: _currentPageObject!,
                                       controller: _qvpViewCtrl,
@@ -967,10 +1107,16 @@ class _MushafViewState extends State<MushafView>
                                       onDecorationTap: (dec, _) =>
                                           _onDecorationTap(dec),
                                       onSwipe: (pages) => _stepPage(pages),
+                                      staticUnderlay: _paintStaticUnderlay,
                                       underlay: _paintUnderlay,
+                                      staticOverlay: _paintStaticOverlay,
                                       overlay: _paintOverlay,
-                                      repaintListenable:
-                                          _combinedRepaintListenable,
+                                      staticRepaintListenable:
+                                          _staticRepaintTrigger,
+                                      underlayRepaintListenable:
+                                          _underlayRepaintListenable,
+                                      overlayRepaintListenable:
+                                          _overlayRepaintListenable,
                                     ),
                                   ),
                                   // Isolated buffering-spinner layer: paints only the

@@ -14,6 +14,7 @@ class MaglisController extends ChangeNotifier {
 
   void Function(int page, int surah, int ayah)? onSyncMushafUI;
   void Function(int surah, int ayah)? onRemoteFloorClaimed;
+  Future<void> Function()? onBeforeSessionDisposed;
   VoidCallback? onSessionEnded;
   Map<String, int> Function()? onGetSnapshotCumulativeMap;
   void Function({
@@ -30,6 +31,10 @@ class MaglisController extends ChangeNotifier {
 
   MaglisActiveSession? _session;
   String _fallbackPeerId = MaglisCrypto.randomHex32().substring(0, 10);
+  bool _isLeaving = false;
+
+  bool get isLeaving => _isLeaving;
+  String? get localAudioTrackId => _session?.net.localAudioTrackId;
 
   final ChangeNotifier _sessionNotifier = ChangeNotifier();
   Listenable get sessionListenable => _sessionNotifier;
@@ -878,6 +883,12 @@ class MaglisController extends ChangeNotifier {
 
     final oldSession = _session;
     if (oldSession == null) return;
+
+    _isLeaving = true;
+    try {
+      await onBeforeSessionDisposed?.call();
+    } catch (_) {}
+
     _session = null;
     onSessionEnded?.call();
     onRemoteRecitationProgress?.call(
@@ -895,6 +906,7 @@ class MaglisController extends ChangeNotifier {
           await MaglisPlatform.resetAudio();
         } catch (_) {}
       }
+      _isLeaving = false;
       _notifySessionChanged();
       notifyListeners();
     }

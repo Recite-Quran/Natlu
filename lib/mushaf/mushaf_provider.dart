@@ -66,10 +66,47 @@ class MushafProvider {
   Size? lastViewportSize;
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   final Map<int, Size> _pageLayoutSizes = {};
-  static const int _maxCachedPages = 3;
+  static const int _maxCachedPages = 10;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
   Timer? _preloadTimer;
+
+  Future<void> _prepareNeighborPage(
+    int neighborPage,
+    int requestedForPage,
+    Size targetSize,
+    Color inkColor,
+    double dpr,
+  ) async {
+    if (!QuranMetadata.isValidPage(neighborPage)) return;
+    if (_preloadingTargetPage != requestedForPage) return;
+
+    QvpPage? page = getCachedPage(neighborPage);
+    if (page == null || page.isDisposed) {
+      page = await getPage(neighborPage);
+    }
+    if (page == null ||
+        page.isDisposed ||
+        _preloadingTargetPage != requestedForPage) {
+      return;
+    }
+
+    final spec = mushafLayout.toSpec(targetSize.width, targetSize.height);
+    if (page.currentLayout == null ||
+        page.currentLayoutSpec != spec ||
+        _pageLayoutSizes[neighborPage] != targetSize) {
+      page.layout(spec);
+      _pageLayoutSizes[neighborPage] = targetSize;
+    }
+    QvpPageView.prepare(
+      page,
+      inkColor: inkColor,
+      surahFrames: false,
+      dpr: dpr,
+      width: targetSize.width,
+      height: targetSize.height,
+    );
+  }
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
     final size = viewportSize ?? lastViewportSize;
@@ -81,64 +118,38 @@ class MushafProvider {
     final targetSize = size ?? lastViewportSize;
     if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
 
-    // Debounce preloading until after the 280 ms page turn slide finishes
-    // (iOS frees its snapshot at 300 ms), keeping the UI thread free for the
-    // smooth 60/120fps vector transition.
+    // Debounce preloading until after the page turn transition settles, then
+    // stagger page + 1 ahead of page - 1 so frame budgets remain smooth.
     _preloadTimer?.cancel();
     _preloadTimer = Timer(const Duration(milliseconds: 300), () async {
       if (_preloadingTargetPage != pageNumber) return;
 
-      // Forward adjacent page has highest priority for recitation and reading continuity
-      final neighbors = [pageNumber + 1, pageNumber - 1];
       final currentInkColor = AppState.instance.colors.text;
       final dpr = ui.PlatformDispatcher.instance.views.isNotEmpty
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
 
-      for (final p in neighbors) {
-        if (!QuranMetadata.isValidPage(p)) continue;
-        final cached = getCachedPage(p);
-        if (cached != null && !cached.isDisposed) {
-          if (cached.currentLayout == null || _pageLayoutSizes[p] != targetSize) {
-            cached.layout(
-              mushafLayout.toSpec(targetSize.width, targetSize.height),
-            );
-            _pageLayoutSizes[p] = targetSize;
-          }
-          QvpPageView.prepare(
-            cached,
-            inkColor: currentInkColor,
-            surahFrames: false,
-            dpr: dpr,
-            width: targetSize.width,
-            height: targetSize.height,
-          );
-          continue;
-        }
+      await _prepareNeighborPage(
+        pageNumber + 1,
+        pageNumber,
+        targetSize,
+        currentInkColor,
+        dpr,
+      );
+      if (_preloadingTargetPage != pageNumber) return;
 
-        unawaited(() async {
-          if (_preloadingTargetPage != pageNumber) return;
-          final page = await getPage(p);
-          if (page != null &&
-              !page.isDisposed &&
-              _preloadingTargetPage == pageNumber) {
-            if (page.currentLayout == null || _pageLayoutSizes[p] != targetSize) {
-              page.layout(
-                mushafLayout.toSpec(targetSize.width, targetSize.height),
-              );
-              _pageLayoutSizes[p] = targetSize;
-            }
-            QvpPageView.prepare(
-              page,
-              inkColor: currentInkColor,
-              surahFrames: false,
-              dpr: dpr,
-              width: targetSize.width,
-              height: targetSize.height,
-            );
-          }
-        }());
-      }
+      // Yield briefly before warming the backward neighbor so we never saturate
+      // a single UI frame with back-to-back layout + rasterization work.
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      if (_preloadingTargetPage != pageNumber) return;
+
+      await _prepareNeighborPage(
+        pageNumber - 1,
+        pageNumber,
+        targetSize,
+        currentInkColor,
+        dpr,
+      );
     });
   }
 
@@ -359,7 +370,7 @@ class MushafProvider {
       }
 
       if (pageBytes != null && pageBytes.isNotEmpty) {
-        final page = _engine!.loadPage(pageBytes);
+        final page = await _engine!.loadPageAsync(pageBytes);
         page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
         final currentInkColor = AppState.instance.colors.text;
         page.setDefaultColor(currentInkColor);
@@ -379,7 +390,6 @@ class MushafProvider {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);
-            QvpPageView.evictPage(evictKey);
           } else {
             break;
           }

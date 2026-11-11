@@ -21,6 +21,8 @@ class MushafOverlays {
 
   static final Paint _tooltipBgPaint = Paint()..style = PaintingStyle.fill;
   static const Radius _tooltipRadius = Radius.circular(4);
+  static const Radius _highlightCornerRadius = Radius.circular(3.0);
+  static final List<Color> _lineColorsScratch = <Color>[];
   static const TextStyle _tooltipTextStyle = TextStyle(
     color: Colors.white,
     fontSize: 7,
@@ -119,25 +121,13 @@ class MushafOverlays {
   }) {
     if (page.isDisposed) return;
 
-    final isDark = app.isDarkMode;
-    final palette =
-        QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
-
     // 1. Resolve Active Ayah Coordinate (surah, ayah)
     // Strictly from controller only — no fallback to app.lastSurah/lastAyah.
-    // When no ayah is selected, coord is null and we return early (no word loops, no FFI).
     final coord = controller.activeAyahCoordinate;
-
     final int activeSurah = coord?.$1 ?? 0;
     final int activeAyah = coord?.$2 ?? 0;
 
-    // Word status cache for this paint: per-surah completed-ayah sets are NOT
-    // consulted here — word color is exclusively a stored word verdict
-    // received from the recite_quran package. A skipped ayah (the package
-    // bulk-marks jumped-over ayahs as completed after a reanchor) has no word
-    // verdicts, so it paints nothing; the reciter's spoken words continue
-    // from where they stopped.
-    final l = layout ?? page.readLayout() ?? page.currentLayout;
+    final l = layout ?? page.currentLayout ?? page.readLayout();
     final cached = _pageWordCaches[page];
     final _PageWordLayoutCache cache;
     if (cached == null || cached.layout != l) {
@@ -148,35 +138,16 @@ class MushafOverlays {
     }
     final wordsByAyah = cache.wordsByAyah;
 
-    // 2. Resolve Active / Waited Lead Word on this page
-    int? activeWordPageIdx;
-    if (activeSurah != 0 && activeAyah != 0) {
-      final maxWordOnPage = cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
-      if (maxWordOnPage > 0) {
-        final leadW0 = controller.getLeadWordIndex(
-          surah: activeSurah,
-          ayah: activeAyah,
-          totalWords: maxWordOnPage,
-          isRecording: isRecording,
-        );
-        if (leadW0 != null) {
-          final idx = page.findWord(activeSurah, activeAyah, leadW0 + 1);
-          if (idx >= 0) activeWordPageIdx = idx;
-        }
-      }
-    }
-
-    // 3. Identify all ayahs to render on this page:
-    //    a) The active selected ayah (if present)
-    //    b) Completed ayahs for surahs on this page
-    //    c) Any ayah with stored highlights (evaluated words)
-    final ayahsToPaint = <(int, int)>{};
-    if (activeSurah != 0 && activeAyah != 0 && wordsByAyah.containsKey((activeSurah, activeAyah))) {
+    // 2. Identify all ayahs to render on this page BEFORE allocating palettes or geometry.
+    final ayahsToPaint = <(int, int)>[];
+    if (activeSurah != 0 &&
+        activeAyah != 0 &&
+        wordsByAyah.containsKey((activeSurah, activeAyah))) {
       ayahsToPaint.add((activeSurah, activeAyah));
     }
 
     for (final key in wordsByAyah.keys) {
-      if (ayahsToPaint.contains(key)) continue;
+      if (key.$1 == activeSurah && key.$2 == activeAyah) continue;
       if (controller.hasAyahHighlights(key.$1, key.$2)) {
         ayahsToPaint.add(key);
       }
@@ -184,32 +155,101 @@ class MushafOverlays {
 
     if (ayahsToPaint.isEmpty) return;
 
-    // 4. Render continuous line boxes for each ayah (zero allocation, precomputed geometry)
-    for (final (s, a) in ayahsToPaint) {
-      final bool isActiveAyah = (s == activeSurah && a == activeAyah);
-      final lines = cache.lineGeometries[(s, a)];
-      if (lines == null || lines.isEmpty) continue;
+    final isDark = app.isDarkMode;
+    final palette =
+        QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
 
-      for (final line in lines) {
-        canvas.save();
-        canvas.clipRRect(line.outerRRect);
-
-        for (final item in line.wordRects) {
-          final color = _resolveWordColor(
-            w: item.word,
-            isActiveAyah: isActiveAyah,
-            activeWordPageIdx: activeWordPageIdx,
-            controller: controller,
-            palette: palette,
-          );
-
-          if (color.a > 0) {
-            _highlightFillPaint.color = color;
-            canvas.drawRect(item.rect, _highlightFillPaint);
+    // 3. Resolve Active / Waited Lead Word on this page with zero FFI calls.
+    int? activeWordPageIdx;
+    if (activeSurah != 0 && activeAyah != 0) {
+      final activeWords = wordsByAyah[(activeSurah, activeAyah)];
+      final maxWordOnPage = cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
+      if (activeWords != null && maxWordOnPage > 0) {
+        final leadW0 = controller.getLeadWordIndex(
+          surah: activeSurah,
+          ayah: activeAyah,
+          totalWords: maxWordOnPage,
+          isRecording: isRecording,
+        );
+        if (leadW0 != null) {
+          final targetWord1Based = leadW0 + 1;
+          for (final w in activeWords) {
+            if (w.word == targetWord1Based) {
+              activeWordPageIdx = w.index;
+              break;
+            }
           }
         }
+      }
+    }
 
-        canvas.restore();
+    // 4. Lazy per-ayah highlight geometry & direct rounded-run drawing (no per-line save/clipRRect).
+    for (final (s, a) in ayahsToPaint) {
+      final bool isActiveAyah = (s == activeSurah && a == activeAyah);
+      final lines = cache.lineGeometriesFor(page, s, a);
+      if (lines.isEmpty) continue;
+
+      for (final line in lines) {
+        final rects = line.wordRects;
+        final k = rects.length;
+        if (k == 0) continue;
+
+        _lineColorsScratch.clear();
+        for (var j = 0; j < k; j++) {
+          _lineColorsScratch.add(
+            _resolveWordColor(
+              w: rects[j].word,
+              isActiveAyah: isActiveAyah,
+              activeWordPageIdx: activeWordPageIdx,
+              controller: controller,
+              palette: palette,
+            ),
+          );
+        }
+
+        var i = 0;
+        while (i < k) {
+          final color = _lineColorsScratch[i];
+          var end = i;
+          while (end + 1 < k && _lineColorsScratch[end + 1] == color) {
+            end++;
+          }
+          if (color.a > 0) {
+            _highlightFillPaint.color = color;
+            if (i == 0 && end == k - 1) {
+              canvas.drawRRect(line.outerRRect, _highlightFillPaint);
+            } else {
+              final runRect = Rect.fromLTRB(
+                rects[end].rect.left,
+                line.outerRRect.top,
+                rects[i].rect.right,
+                line.outerRRect.bottom,
+              );
+              if (i == 0) {
+                canvas.drawRRect(
+                  RRect.fromRectAndCorners(
+                    runRect,
+                    topRight: _highlightCornerRadius,
+                    bottomRight: _highlightCornerRadius,
+                  ),
+                  _highlightFillPaint,
+                );
+              } else if (end == k - 1) {
+                canvas.drawRRect(
+                  RRect.fromRectAndCorners(
+                    runRect,
+                    topLeft: _highlightCornerRadius,
+                    bottomLeft: _highlightCornerRadius,
+                  ),
+                  _highlightFillPaint,
+                );
+              } else {
+                canvas.drawRect(runRect, _highlightFillPaint);
+              }
+            }
+          }
+          i = end + 1;
+        }
       }
     }
   }
@@ -262,12 +302,20 @@ class MushafOverlays {
     Color? neutralRingColor,
     Color? ayahHighlightColor,
     HighlightingController? controller,
+    bool paintNeutral = true,
+    bool paintActive = true,
   }) {
     if (page.isDisposed) return;
+    if (!paintNeutral && !paintActive) return;
+    if (!paintNeutral &&
+        (controller == null ||
+            controller.audioSurah == null ||
+            controller.audioAyah == null)) {
+      return;
+    }
     final l = layout ?? page.currentLayout;
     if (l == null) return;
 
-    // Upgraded: ayahMarksView() computes exact layout/viewport coordinates directly in Rust core
     final marks = page.ayahMarksView();
     if (marks.isEmpty) return;
 
@@ -279,13 +327,17 @@ class MushafOverlays {
             : const Color(0xFF64748B).withValues(alpha: 0.35));
 
     for (final m in marks) {
+      final bool isThisBuffering = paintActive &&
+          controller != null &&
+          controller.isAyahAudioBuffering(m.surah, m.ayah);
+      final bool isThisPlaying = paintActive &&
+          controller != null &&
+          controller.isAyahAudioPlaying(m.surah, m.ayah);
+
+      if (!isThisBuffering && !isThisPlaying && !paintNeutral) continue;
+
       final center = Offset(m.cx, m.cy);
       final double customR = m.r * 0.80;
-
-      final bool isThisBuffering = controller != null &&
-          controller.isAyahAudioBuffering(m.surah, m.ayah);
-      final bool isThisPlaying = controller != null &&
-          controller.isAyahAudioPlaying(m.surah, m.ayah);
 
       if (isThisBuffering) {
         _headerFillPaint.color = surfaceColor;
@@ -294,8 +346,6 @@ class MushafOverlays {
         _ringPaint.color = greenBtnColor;
         _ringPaint.strokeWidth = 1.2;
         canvas.drawCircle(center, customR, _ringPaint);
-        // The rotating arc for this mark is painted by the isolated spinner
-        // layer (see _BufferingSpinnerPainter in mushaf_view.dart), not here.
       } else if (isThisPlaying) {
         _headerFillPaint.color = surfaceColor;
         canvas.drawCircle(center, customR - 0.5, _headerFillPaint);
@@ -317,7 +367,7 @@ class MushafOverlays {
           ),
           _goldPaint,
         );
-      } else {
+      } else if (paintNeutral) {
         // Normal state: ring color stays strictly consistent and neutral.
         // It NEVER changes color on completion or during recitation highlighting.
         _ringPaint.color = ringColor;
@@ -344,7 +394,7 @@ class MushafOverlays {
       return;
     }
 
-    final l = layout ?? page.readLayout() ?? page.currentLayout;
+    final l = layout ?? page.currentLayout ?? page.readLayout();
     if (l == null) return;
 
     final textPainter = _getTooltipTextPainter(app.isArabic);
@@ -353,15 +403,16 @@ class MushafOverlays {
 
     final double maxW = l.contentW > 0 ? l.contentW : size.width;
 
-    // Badge geometry is cached per (page, yellowWords): the tooltip only
-    // moves when the yellow set or the page changes — never per frame — so
-    // a paint runs two list compares and performs zero layout allocation.
+    // Badge geometry is cached per (page, layout, yellowWords) with zero full-page FFI calls.
     if (!identical(page, _tooltipCachePage) ||
+        !identical(l, _tooltipCacheLayout) ||
         !listEquals(yellowWords, _tooltipCacheWords)) {
       _tooltipCachePage = page;
+      _tooltipCacheLayout = l;
       _tooltipCacheWords = yellowWords;
       _tooltipCacheBadges = _computeTooltipBadges(
         page,
+        l,
         yellowWords,
         tooltipWidth: tooltipWidth,
         tooltipHeight: tooltipHeight,
@@ -389,6 +440,7 @@ class MushafOverlays {
   }
 
   static QvpPage? _tooltipCachePage;
+  static QvpLayout? _tooltipCacheLayout;
   static List<int>? _tooltipCacheWords;
   static List<(double, double)>? _tooltipCacheBadges;
 
@@ -397,6 +449,7 @@ class MushafOverlays {
   /// never overlap and stay inside the content bounds.
   static List<(double, double)> _computeTooltipBadges(
     QvpPage page,
+    QvpLayout layout,
     List<int> yellowWords, {
     required double tooltipWidth,
     required double tooltipHeight,
@@ -416,14 +469,12 @@ class MushafOverlays {
 
     const double minGap = 2.0;
 
-    final wordBoxes = page.wordBoxesView();
     final badges = <(double, double)>[];
     for (final wordsOnLine in wordsByLine.values) {
       final List<_BadgePosition> lineBadges = [];
 
       for (final wordIdx in wordsOnLine) {
-        final box = wordBoxes[wordIdx];
-        if (box == null) continue;
+        final box = page.wordBoxView(wordIdx, layout: layout);
         final double centerX = (box.x0 + box.x1) / 2.0;
         final double idealX = centerX - tooltipWidth / 2.0;
         final double tooltipY = (box.y1 + 1.0).roundToDouble();
@@ -496,15 +547,12 @@ class _PageWordLayoutCache {
   final QvpLayout? layout;
   final Map<(int, int), List<QvpWordInfo>> wordsByAyah;
   final Map<(int, int), int> maxWordPerAyah;
-  final Map<(int, int), Map<int, List<QvpWordInfo>>> wordsByAyahAndLine;
-  final Map<(int, int), List<_LineHighlightGeometry>> lineGeometries;
+  final Map<(int, int), List<_LineHighlightGeometry>> _lineGeometriesCache = {};
 
   _PageWordLayoutCache._({
     required this.layout,
     required this.wordsByAyah,
     required this.maxWordPerAyah,
-    required this.wordsByAyahAndLine,
-    required this.lineGeometries,
   });
 
   factory _PageWordLayoutCache.fromPage(QvpPage page, [QvpLayout? currentLayout]) {
@@ -519,99 +567,95 @@ class _PageWordLayoutCache {
       }
     }
 
-    final wordsByAyahAndLine = <(int, int), Map<int, List<QvpWordInfo>>>{};
-    for (final entry in wordsByAyah.entries) {
-      final ayahKey = entry.key;
-      final byLine = <int, List<QvpWordInfo>>{};
-      for (final w in entry.value) {
-        (byLine[w.line] ??= []).add(w);
-      }
-      for (final lineWords in byLine.values) {
-        lineWords.sort((w1, w2) => w1.word.compareTo(w2.word));
-      }
-      wordsByAyahAndLine[ayahKey] = byLine;
-    }
-
-    final wordBoxes = page.wordBoxesView();
-    final lineGeometries = <(int, int), List<_LineHighlightGeometry>>{};
-
-    for (final entry in wordsByAyahAndLine.entries) {
-      final ayahKey = entry.key;
-      final list = <_LineHighlightGeometry>[];
-      for (final lineWords in entry.value.values) {
-        if (lineWords.isEmpty) continue;
-        final int k = lineWords.length;
-
-        double lineX0 = double.infinity;
-        double lineX1 = double.negativeInfinity;
-        double lineY0 = double.infinity;
-        double lineY1 = double.negativeInfinity;
-
-        for (var i = 0; i < k; i++) {
-          final b = wordBoxes[lineWords[i].index];
-          if (b != null) {
-            if (b.x0 < lineX0) lineX0 = b.x0;
-            if (b.x1 > lineX1) lineX1 = b.x1;
-            if (b.y0 < lineY0) lineY0 = b.y0;
-            if (b.y1 > lineY1) lineY1 = b.y1;
-          }
-        }
-
-        if (lineX1 <= lineX0 || lineY1 <= lineY0) continue;
-
-        final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
-        final outerRRect =
-            RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
-
-        final rects = <({QvpWordInfo word, Rect rect})>[];
-        for (var i = 0; i < k; i++) {
-          final w = lineWords[i];
-          final b = wordBoxes[w.index];
-
-          final double right;
-          if (i == 0) {
-            right = lineX1;
-          } else {
-            final bPrev = wordBoxes[lineWords[i - 1].index];
-            right = (bPrev != null && b != null)
-                ? ((bPrev.x0 + b.x1) / 2.0).clamp(lineX0, lineX1)
-                : lineX0 + (lineX1 - lineX0) * ((k - i) / k);
-          }
-
-          final double left;
-          if (i == k - 1) {
-            left = lineX0;
-          } else {
-            final bNext = wordBoxes[lineWords[i + 1].index];
-            left = (b != null && bNext != null)
-                ? ((b.x0 + bNext.x1) / 2.0).clamp(lineX0, lineX1)
-                : lineX0 + (lineX1 - lineX0) * ((k - 1 - i) / k);
-          }
-
-          final double minX = math.min(left, right);
-          final double maxX = math.max(left, right);
-          if (maxX - minX > 0.1) {
-            rects.add((
-              word: w,
-              rect: Rect.fromLTRB(minX, lineY0, maxX, lineY1),
-            ));
-          }
-        }
-
-        list.add(_LineHighlightGeometry(
-          outerRRect: outerRRect,
-          wordRects: rects,
-        ));
-      }
-      lineGeometries[ayahKey] = list;
-    }
-
     return _PageWordLayoutCache._(
       layout: currentLayout,
       wordsByAyah: wordsByAyah,
       maxWordPerAyah: maxWordPerAyah,
-      wordsByAyahAndLine: wordsByAyahAndLine,
-      lineGeometries: lineGeometries,
     );
+  }
+
+  /// Lazily computes continuous midpoint-split line geometries for one ayah on demand,
+  /// using zero-FFI layout box math via [QvpPage.wordBoxView].
+  List<_LineHighlightGeometry> lineGeometriesFor(
+    QvpPage page,
+    int surah,
+    int ayah,
+  ) {
+    final ayahKey = (surah, ayah);
+    final existing = _lineGeometriesCache[ayahKey];
+    if (existing != null) return existing;
+
+    final ayahWords = wordsByAyah[ayahKey];
+    if (ayahWords == null || ayahWords.isEmpty) {
+      return _lineGeometriesCache[ayahKey] = const [];
+    }
+
+    final byLine = <int, List<QvpWordInfo>>{};
+    for (final w in ayahWords) {
+      (byLine[w.line] ??= []).add(w);
+    }
+
+    final list = <_LineHighlightGeometry>[];
+    for (final lineWords in byLine.values) {
+      if (lineWords.isEmpty) continue;
+      if (lineWords.length > 1) {
+        lineWords.sort((w1, w2) => w1.word.compareTo(w2.word));
+      }
+      final int k = lineWords.length;
+
+      final boxes = List<QvpBox>.generate(
+        k,
+        (i) => page.wordBoxView(lineWords[i].index, layout: layout),
+      );
+
+      double lineX0 = double.infinity;
+      double lineX1 = double.negativeInfinity;
+      double lineY0 = double.infinity;
+      double lineY1 = double.negativeInfinity;
+
+      for (var i = 0; i < k; i++) {
+        final b = boxes[i];
+        if (b.x0 < lineX0) lineX0 = b.x0;
+        if (b.x1 > lineX1) lineX1 = b.x1;
+        if (b.y0 < lineY0) lineY0 = b.y0;
+        if (b.y1 > lineY1) lineY1 = b.y1;
+      }
+
+      if (lineX1 <= lineX0 || lineY1 <= lineY0) continue;
+
+      final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
+      final outerRRect =
+          RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
+
+      final rects = <({QvpWordInfo word, Rect rect})>[];
+      for (var i = 0; i < k; i++) {
+        final w = lineWords[i];
+        final b = boxes[i];
+
+        final double right = (i == 0)
+            ? lineX1
+            : ((boxes[i - 1].x0 + b.x1) / 2.0).clamp(lineX0, lineX1);
+
+        final double left = (i == k - 1)
+            ? lineX0
+            : ((b.x0 + boxes[i + 1].x1) / 2.0).clamp(lineX0, lineX1);
+
+        final double minX = math.min(left, right);
+        final double maxX = math.max(left, right);
+        if (maxX > minX) {
+          rects.add((
+            word: w,
+            rect: Rect.fromLTRB(minX, lineY0, maxX, lineY1),
+          ));
+        }
+      }
+
+      list.add(_LineHighlightGeometry(
+        outerRRect: outerRRect,
+        wordRects: rects,
+      ));
+    }
+
+    return _lineGeometriesCache[ayahKey] = list;
   }
 }

@@ -925,17 +925,20 @@ class MaglisPlatform {
           AndroidAudioConfiguration.media,
         );
         await Helper.clearAndroidCommunicationDevice();
-        await Helper.setSpeakerphoneOn(false);
+        try {
+          await _serviceChannel.invokeMethod('resetAudioToNormal');
+        } catch (_) {}
       } else if (defaultTargetPlatform == TargetPlatform.iOS) {
         await Helper.setAppleAudioConfiguration(
           AppleAudioConfiguration(
             appleAudioCategory: AppleAudioCategory.playback,
+            appleAudioMode: AppleAudioMode.spokenAudio,
           ),
         );
-        await Helper.setSpeakerphoneOn(false);
       }
 
-      // Restore system audio_session for standard Quran playback
+      // Restore system audio_session for standard Quran playback and deactivate it
+      // so subsequent Solo recordings/playback start with a fresh session.
       final session = await AudioSession.instance;
       await session.configure(
         const AudioSessionConfiguration(
@@ -949,6 +952,11 @@ class MaglisPlatform {
           ),
           androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
         ),
+      );
+      await session.setActive(
+        false,
+        avAudioSessionSetActiveOptions:
+            AVAudioSessionSetActiveOptions.notifyOthersOnDeactivation,
       );
     } catch (_) {}
   }

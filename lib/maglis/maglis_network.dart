@@ -68,6 +68,9 @@ class MaglisNetworkEngine {
   @visibleForTesting
   MaglisPeerSession get peerSession => _peerSession;
 
+  String? get localAudioTrackId =>
+      _peerSession.localStream?.getAudioTracks().firstOrNull?.id;
+
   final _packetCtrl = StreamController<MaglisPacket>.broadcast();
   final _statesCtrl =
       StreamController<Map<String, RTCIceConnectionState>>.broadcast();

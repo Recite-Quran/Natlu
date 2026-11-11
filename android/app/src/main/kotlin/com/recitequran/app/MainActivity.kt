@@ -3,10 +3,14 @@ package com.recitequran.app
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
+import com.cloudwebrtc.webrtc.audio.AudioSwitchManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -14,6 +18,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.recitequran.app/playstore"
     private val MAGLIS_SERVICE_CHANNEL = "com.recitequran.app/maglis_service"
+    private var maglisAudioTap: MaglisAudioTap? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,6 +36,9 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        maglisAudioTap?.release()
+        maglisAudioTap = MaglisAudioTap(flutterEngine.dartExecutor.binaryMessenger)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "isPlayStoreInstalled") {
                 Thread {
@@ -64,11 +72,51 @@ class MainActivity : AudioServiceActivity() {
                     startService(intent)
                     result.success(true)
                 }
+                "resetAudioToNormal" -> {
+                    try {
+                        AudioSwitchManager.instance?.stop()
+                    } catch (_: Throwable) {
+                    }
+                    // AudioSwitchManager.stop() posts deactivate() to the main looper queue;
+                    // posting our hardware reset immediately after ensures sequential execution.
+                    Handler(Looper.getMainLooper()).post {
+                        try {
+                            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                            if (am != null) {
+                                @Suppress("DEPRECATION")
+                                am.isSpeakerphoneOn = false
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    try {
+                                        am.clearCommunicationDevice()
+                                    } catch (_: Throwable) {
+                                    }
+                                }
+                                try {
+                                    @Suppress("DEPRECATION")
+                                    if (am.isBluetoothScoOn) {
+                                        am.stopBluetoothSco()
+                                        am.isBluetoothScoOn = false
+                                    }
+                                } catch (_: Throwable) {
+                                }
+                                am.mode = AudioManager.MODE_NORMAL
+                            }
+                        } catch (_: Throwable) {
+                        }
+                        result.success(true)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        maglisAudioTap?.release()
+        maglisAudioTap = null
+        super.onDestroy()
     }
 
     private fun isPackageInstalled(packageName: String): Boolean {
