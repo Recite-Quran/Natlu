@@ -7,13 +7,12 @@ import 'dialog_base.dart';
 // 1. APP GUIDE & HOW-TO DIALOG
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Ultra-lightweight, zero-duplicate user guide explaining strictly how to use:
-/// 1. Word colors (Green: right, Yellow: Tajweed/Tashkeel & tap to see error, Red: skipped/wrong).
-/// 2. Tajweed toggle button (with same icon).
-/// 3. Audio on Ayah number tap & word tap (no "(1)").
-/// 4. Voice search.
-/// 5. Maglis live group recitation.
-/// 6. Verse list & auto-scroll.
+/// Ultra-lightweight user guide explaining:
+/// 1. Voice recitation with mic & word status colors.
+/// 2. Hifz / Hide Verse Mode (revealing words on recitation).
+/// 3. Audio recitation & word pronunciation.
+/// 4. Voice search inside Surah list.
+/// 5. Quran Maglis live peer rooms.
 class AppGuideDialog extends StatelessWidget {
   const AppGuideDialog({super.key});
 
@@ -37,103 +36,101 @@ class AppGuideDialog extends StatelessWidget {
     final isAr = app.isArabic;
     final isDark = app.isDarkMode;
 
+    final divider = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5.5),
+      child: Divider(
+        height: 1,
+        thickness: 0.7,
+        color: c.border.withValues(alpha: isDark ? 0.16 : 0.22),
+      ),
+    );
+
     return AppDialog(
-      maxWidth: 380,
+      maxWidth: 395,
       scrollable: true,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
       topTrailing: IconButton(
-        onPressed: () {
-          Navigator.of(context).pop();
-        },
+        onPressed: () => Navigator.of(context).pop(),
         icon: Icon(Icons.close_rounded, color: c.muted, size: 20),
         visualDensity: VisualDensity.compact,
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-        splashRadius: 16,
       ),
-      title: isAr ? 'دليل الاستخدام' : 'How to Use',
       content: Container(
         width: double.infinity,
         decoration: BoxDecoration(
           color: c.surfaceHigh.withValues(alpha: isDark ? 0.35 : 0.55),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: c.border.withValues(alpha: isDark ? 0.22 : 0.30),
-            width: 0.8,
-          ),
+          borderRadius: BorderRadius.circular(DialogTokens.cardRadius),
+          border: Border.fromBorderSide(DialogTokens.borderSide(c, isDark)),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           children: [
-            // 1. Recitation Colors
+            // 1. Voice Recitation & Colors
             _buildRow(
-              icon: Icons.check_circle_outline_rounded,
-              iconColor: c.green,
-              title: isAr ? 'ألوان التسميع' : 'Recitation Colors',
+              icon: Icons.mic_rounded,
+              iconColor: c.primary,
+              title: isAr ? 'التسميع الصوتي' : 'Voice Recitation',
               c: c,
-              body: Column(
+              extra: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildBullet(
-                    color: c.green,
-                    text: isAr ? 'أخضر: كلمة صحيحة' : 'Green: Correct word',
-                    c: c,
+                  Text(
+                    isAr
+                        ? 'اضغط زر الميكروفون بالأسفل وابدأ القراءة بصوتك.'
+                        : 'Tap the bottom Mic button and start reciting aloud.',
+                    style: TextStyle(color: c.textSecondary, fontSize: 11.5, height: 1.35),
                   ),
-                  const SizedBox(height: 2),
-                  _buildBullet(
-                    color: c.warning,
-                    text: isAr
-                        ? 'أصفر: خطأ تجويد/تشكيل (اضغط لمعرفة الخطأ)'
-                        : 'Yellow: Mistake (tap to see error)',
-                    c: c,
-                    highlight: true,
-                  ),
-                  const SizedBox(height: 2),
-                  _buildBullet(
-                    color: c.red,
-                    text: isAr ? 'أحمر: كلمة متروكة أو خاطئة' : 'Red: Skipped or wrong word',
-                    c: c,
+                  const SizedBox(height: 5),
+                  Wrap(
+                    spacing: 5,
+                    runSpacing: 4,
+                    children: [
+                      _buildChip(c.green, isAr ? 'أخضر: صحيح' : 'Green: Correct', c, isDark),
+                      _buildChip(c.warning, isAr ? 'أصفر: تجويد (اضغط للشرح)' : 'Yellow: Tajweed (tap to view)', c, isDark),
+                      _buildChip(c.red, isAr ? 'أحمر: خطأ' : 'Red: Error', c, isDark),
+                    ],
                   ),
                 ],
               ),
             ),
-            _buildDivider(c, isDark),
+            divider,
 
-            // 2. Tajweed Option Button
+            // 2. Hifz / Hide Verse Mode
             _buildRow(
-              icon: Icons.record_voice_over_rounded,
-              iconColor: c.primary,
-              title: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
+              icon: Icons.visibility_off_rounded,
+              iconColor: const Color(0xFF6366F1),
+              title: isAr ? 'وضع الحفظ (إخفاء الآيات)' : 'Hifz Mode (Hide Verses)',
               text: isAr
-                  ? 'زر التجويد لتفعيل أو إيقاف التنبيه على أحكام التجويد والتشكيل.'
-                  : 'Button to enable or disable Tajweed and Tashkeel feedback.',
+                  ? 'اضغط أيقونة العين لإخفاء الكلمات، وتظهر فور نطقك الصحيح لها.'
+                  : 'Tap the Eye icon to hide words; they reveal as you recite correctly.',
               c: c,
             ),
-            _buildDivider(c, isDark),
+            divider,
 
-            // 3. Audio Playback
+            // 3. Audio Recitation
             _buildRow(
               icon: Icons.play_circle_fill_rounded,
               iconColor: isDark ? c.gold : const Color(0xFFD97706),
               title: isAr ? 'تشغيل الصوت' : 'Audio Playback',
               text: isAr
-                  ? 'اضغط على رقم الآية لتشغيل التلاوة، واضغط على أي كلمة لسماع نطقها.'
-                  : 'Tap Ayah number to play recitation, or tap any word to hear it.',
+                  ? 'اضغط رقم الآية للاستماع للشيخ، واضغط أي كلمة لسماع نطقها.'
+                  : 'Tap Ayah number to hear recitation, or tap any word to hear pronunciation.',
               c: c,
             ),
-            _buildDivider(c, isDark),
+            divider,
 
             // 4. Voice Search
             _buildRow(
               icon: Icons.graphic_eq_rounded,
               iconColor: const Color(0xFF10B981),
-              title: isAr ? 'بحث صوتي' : 'Voice Search',
+              title: isAr ? 'البحث الصوتي' : 'Voice Search',
               text: isAr
                   ? 'زر داخل قائمة السور للبحث الصوتي عن أي آية بمجرد نطقها.'
-                  : 'A button inside the Surah list to jump to any verse by voice.',
+                  : 'Recite any verse inside the Surah list to jump to it instantly.',
               c: c,
             ),
-            _buildDivider(c, isDark),
+            divider,
 
             // 5. Quran Maglis
             _buildRow(
@@ -142,7 +139,7 @@ class AppGuideDialog extends StatelessWidget {
               title: isAr ? 'مجلس القرآن' : 'Quran Maglis',
               text: isAr
                   ? 'تلاوة جماعية مباشرة بمكالمة صوتية وتصفح مشترك عبر رمز (5 أرقام).'
-                  : 'Recite together live with voice call & synced pages using a 5-digit code.',
+                  : 'Recite together live with open voice call & synced pages via a 5-digit code.',
               c: c,
             ),
           ],
@@ -150,9 +147,40 @@ class AppGuideDialog extends StatelessWidget {
       ),
       primaryAction: AppDialogActionItem(
         label: isAr ? 'فهمت' : 'Got it',
-        onPressed: () {
-          Navigator.of(context).pop();
-        },
+        onPressed: () => Navigator.of(context).pop(),
+      ),
+    );
+  }
+
+  Widget _buildChip(Color color, String label, ThemeColors c, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.16 : 0.10),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: color.withValues(alpha: isDark ? 0.38 : 0.28),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5.5,
+            height: 5.5,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 4.5),
+          Text(
+            label,
+            style: TextStyle(
+              color: isDark ? c.text : color,
+              fontSize: 10.6,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -163,7 +191,7 @@ class AppGuideDialog extends StatelessWidget {
     required String title,
     required ThemeColors c,
     String? text,
-    Widget? body,
+    Widget? extra,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,67 +213,19 @@ class AppGuideDialog extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: TextStyle(
-                  color: c.text,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(color: c.text, fontSize: 12.5, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 1.5),
-              body ??
-                  Text(
-                    text!,
-                    style: TextStyle(
-                      color: c.textSecondary,
-                      fontSize: 11.5,
-                      height: 1.35,
-                    ),
-                  ),
+              if (text != null)
+                Text(
+                  text,
+                  style: TextStyle(color: c.textSecondary, fontSize: 11.5, height: 1.35),
+                ),
+              if (extra != null) extra,
             ],
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildBullet({
-    required Color color,
-    required String text,
-    required ThemeColors c,
-    bool highlight = false,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          width: 5.5,
-          height: 5.5,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              color: highlight ? c.text : c.textSecondary,
-              fontSize: 11.2,
-              fontWeight: highlight ? FontWeight.w600 : FontWeight.w400,
-              height: 1.25,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDivider(ThemeColors c, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Divider(
-        height: 1,
-        thickness: 0.7,
-        color: c.border.withValues(alpha: isDark ? 0.16 : 0.22),
-      ),
     );
   }
 }
