@@ -34,14 +34,16 @@ class MaglisLinkService {
   static String formatInviteText(String code, {required bool isArabic}) {
     final link = formatUrl(code);
     if (isArabic) {
-      return 'سلام عليكم 🌸\n'
-          'أدعوك للانضمام إلى مجلس تلاوة القرآن العظيم وتدارسه عبر تطبيق "اتلو القران".\n\n'
-          '🔗 رابط الدخول للمجلس:\n$link\n\n'
-          'رمز المجلس: \u202A$code\u202C';
+      return '> إن الذين يتلون كتاب الله وأقاموا الصلاة وأنفقوا مما رزقناهم سرا وعلانية يرجون تجارة لن تبور\n\n'
+          'منتظرك في مجلس التلاوة في تطبيق "اتلو القران" ❤️\n\n'
+          '🔗 رابط الدخول:\n'
+          '$link\n\n'
+          'رمز المجلس: $code';
     } else {
-      return 'Assalamu Alaikum 🌸\n'
-          'Join our live Quran recitation circle on "Natlu".\n\n'
-          '🔗 Direct Link:\n$link\n\n'
+      return '> Indeed, those who recite the Book of Allah and establish prayer and spend out of what We have provided them, secretly and publicly, expect a trade that will never perish.\n\n'
+          'Waiting for you in our recitation circle on "Recite Quran" ❤️\n\n'
+          '🔗 Direct Link:\n'
+          '$link\n\n'
           'Maglis Code: $code';
     }
   }
@@ -73,7 +75,8 @@ class MaglisLinkService {
 
     // 4. Web Hash route format: #/48291 or #/m/48291
     if (uri.fragment.isNotEmpty) {
-      final fragmentMatch = RegExp(r'(?:^|/)(?:m/)?(\d{5})(?:$|/)').firstMatch(uri.fragment);
+      final fragmentMatch =
+          RegExp(r'(?:^|/)(?:m/)?(\d{5})(?:$|/)').firstMatch(uri.fragment);
       if (fragmentMatch != null) {
         return fragmentMatch.group(1);
       }
@@ -169,4 +172,3 @@ class MaglisLinkService {
     _sub = null;
   }
 }
-

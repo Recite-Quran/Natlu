@@ -10,7 +10,7 @@ export async function onRequest(context) {
 
   const code = rawCode;
   const title = `مجلس تلاوة القرآن العظيم • رمز ${code}`;
-  const desc = 'مجلس تلاوة القرآن العظيم وتدارسه عبر تطبيق اتلو القران - Recite Quran.';
+  const desc = 'مجلس تلاوة القرآن العظيم في تطبيق اتلو القران - Recite Quran.';
   const appSchemeUrl = `natlu://maglis/${code}`;
   const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.recitequran.app';
   const appStoreUrl = 'https://apps.apple.com/app/id6806614841';
