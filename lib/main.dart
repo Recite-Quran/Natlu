@@ -41,6 +41,7 @@ import 'mushaf/web/mushaf_web_storage.dart'
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'audio/quran_audio_handler.dart';
 import 'audio/quran_audio_service.dart';
 import 'audio/quran_download_service.dart';
 import 'ui/widgets/dialogs/dialog_service.dart';
@@ -71,6 +72,7 @@ void main() async {
             'Failed to configure AudioSession: $e',
           );
         }
+        unawaited(QuranAudioHandler.ensureInitialized());
       }
 
       unawaited(QuranDownloadService.instance.init());

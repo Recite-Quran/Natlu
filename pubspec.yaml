@@ -15,6 +15,7 @@ dependencies:
   url_launcher: ^6.3.2
 
   audio_session: ^0.2.4
+  audio_service: ^0.18.19
   flutter_displaymode: ^0.7.0
   http: ^1.2.2
   in_app_update: ^5.0.0

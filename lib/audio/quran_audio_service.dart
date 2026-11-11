@@ -9,6 +9,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
+import 'quran_audio_handler.dart';
 import 'quran_timing_service.dart';
 
 /// Central Quran Audio Service facade.
@@ -288,6 +289,9 @@ class VerseAudioPlayer {
     if (changed) {
       if (surah != null && ayah != null) {
         AppState.instance.saveLastPosition(surah, ayah);
+        if (!_isSingleWordMode) {
+          QuranAudioHandler.instance.updateVerse(surah: surah, ayah: ayah);
+        }
       }
       _notifyProgress();
     }
@@ -475,6 +479,14 @@ class VerseAudioPlayer {
       final isBuffering = state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
       _setBuffering(isBuffering);
+
+      if (!_isSingleWordMode) {
+        QuranAudioHandler.instance.syncPlaybackState(
+          player: p,
+          isPlaying: state.playing,
+          isBuffering: isBuffering,
+        );
+      }
 
       if (state.processingState == ProcessingState.completed) {
         _handleTrackComplete();
@@ -703,6 +715,7 @@ class VerseAudioPlayer {
 
     // Pre-warm Surah timing in background
     unawaited(QuranTimingService.instance.ensureSurahLoaded(surah));
+    unawaited(QuranAudioHandler.ensureInitialized());
 
     try {
       await ensureMediaAudioSession();
@@ -922,6 +935,13 @@ class VerseAudioPlayer {
     }
     _setPlaying(false);
     _setBuffering(false);
+    if (_player != null && !_isSingleWordMode) {
+      QuranAudioHandler.instance.syncPlaybackState(
+        player: _player!,
+        isPlaying: false,
+        isBuffering: false,
+      );
+    }
   }
 
   /// Resumes playback from the exact paused position.
@@ -933,6 +953,13 @@ class VerseAudioPlayer {
       _setPlaying(true);
       if (_pausedWordIndex != null) {
         _setWordIndex(_pausedWordIndex);
+      }
+      if (_player != null && !_isSingleWordMode) {
+        QuranAudioHandler.instance.syncPlaybackState(
+          player: _player!,
+          isPlaying: true,
+          isBuffering: false,
+        );
       }
       await _audioPlayer.play();
     } catch (e, stack) {
@@ -977,6 +1004,7 @@ class VerseAudioPlayer {
       onPlayingChanged?.call(false);
     }
     _notifyProgress();
+    QuranAudioHandler.instance.resetState();
 
     if (triggerError) {
       AppState.instance
