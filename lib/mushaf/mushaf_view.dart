@@ -75,7 +75,7 @@ class MushafView extends StatefulWidget {
   State<MushafView> createState() => _MushafViewState();
 }
 
-class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
+class _MushafViewState extends State<MushafView> with SingleTickerProviderStateMixin {
   int _currentPage = 1;
   QvpPage? _currentPageObject;
   bool _isLoading = true;
@@ -90,14 +90,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   int? _lastProgressAyah;
   int? _lastProgressWord;
   int? _lastProgressRev;
-
-  // Page-flip animation matching Swift DemoModel.swift:
-  // A snapshot overlay of the page that slides away while the new page is already drawn beneath.
-  late final AnimationController _flipController;
-  late final Animation<double> _flipAnimation;
-  QvpPage? _flipPageObject;
-  int _flipDir = 0;
-  int _turnDir = 0;
 
   // Audio spinner animation & overlays repaint
   late final AnimationController _spinnerController;
@@ -152,16 +144,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _currentPage = _findInitialPage();
     _isLoading = !provider.isReady;
 
-    _flipController = AnimationController(
-      vsync: this,
-      value: 1.0,
-      duration: const Duration(milliseconds: 280),
-    );
-    _flipAnimation = CurvedAnimation(
-      parent: _flipController,
-      curve: Curves.easeInOut,
-    );
-
     _spinnerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -196,7 +178,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _navigationTargetAyah = (surah, ayah);
       if (QuranMetadata.isValidPage(page)) {
         if (page != _currentPage) {
-          _goToPage(page, animated: true);
+          _goToPage(page);
         } else {
           _syncPageSelection(page);
         }
@@ -262,9 +244,17 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onModalStateChanged() {
     if (!mounted) return;
-    if (!AppModalRouteObserver.instance.isModalOpen && _needsSyncAfterModal) {
-      _needsSyncAfterModal = false;
-      _syncVisuals();
+    if (!AppModalRouteObserver.instance.isModalOpen) {
+      final ctrl = widget.controller;
+      final (int activeSurah, int? activeAyah) = ctrl.recitationCoordinate;
+      if (ctrl.isCoordinateSettled &&
+          (activeSurah != _lastHandledSurah || activeAyah != _lastHandledAyah)) {
+        _onActiveAyahChanged();
+      }
+      if (_needsSyncAfterModal) {
+        _needsSyncAfterModal = false;
+        _syncVisuals();
+      }
     }
   }
 
@@ -310,7 +300,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   @override
   void dispose() {
     _clearPageVisuals(_currentPageObject);
-    _flipController.dispose();
     _spinnerController.dispose();
     _spinnerMark.dispose();
     _qvpViewCtrl.dispose();
@@ -385,6 +374,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
     final ctrl = widget.controller;
     final (int activeSurah, int? activeAyah) = ctrl.recitationCoordinate;
+
+    // Follow settled coordinate if it changed (e.g. after surah retarget or manual selection)
+    if (ctrl.isCoordinateSettled &&
+        (activeSurah != _lastHandledSurah || activeAyah != _lastHandledAyah)) {
+      _onActiveAyahChanged();
+    }
+
     // One lead-word resolver for every source: audio cursor, peer's word, or
     // first unread while recording — decided by source priority inside it.
     final int? activeWord = ctrl.getLeadWordIndex(
@@ -438,12 +434,11 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onExternalPageChanged() {
     if (!mounted) return;
-    if (_flipController.isAnimating) return;
     final targetPage = AppState.instance.currentMushafPage.value;
     if (targetPage > 0 &&
         targetPage != _currentPage &&
         QuranMetadata.isValidPage(targetPage)) {
-      _goToPage(targetPage, animated: true);
+      _goToPage(targetPage);
     }
   }
 
@@ -452,6 +447,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   void _onActiveAyahChanged() {
     if (!mounted) return;
+
+    // Do NOT process or record coordinate changes while the controller is retargeting.
+    // Transient writes (null wipe, engine reset to 1) are merge noise.
+    if (!widget.controller.isCoordinateSettled) {
+      return;
+    }
 
     final (int activeSurah, int? activeAyah) =
         widget.controller.recitationCoordinate;
@@ -482,10 +483,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   /// Follows the controller's current coordinate to its page. This is the only
   /// place a source (audio playback, local ASR recitation, Maglis packets)
   /// moves the mushaf by itself: they all write (surah, ayah) into the
-  /// controller, so the rule is source-agnostic. While a slide is already in
-  /// flight the target is queued in [_navigationTargetAyah] and applied the
-  /// moment the current slide ends — one slot, which is all sequential
-  /// recitation ever needs.
+  /// controller, so the rule is source-agnostic.
   void _syncPageFollow(int surah, int? ayah) {
     // One base rule for every source: never chase the coordinate while the
     // controller is mid-merge — a surah retarget emits transient writes
@@ -505,8 +503,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     final targetPage = provider.getPageForAyah(surah, ayah);
     if (targetPage == null || targetPage == _currentPage) return;
     _navigationTargetAyah = (surah, ayah);
-    if (_flipController.isAnimating) return; // applied after the slide ends
-    _goToPage(targetPage, animated: true);
+    _goToPage(targetPage);
   }
 
   void _checkSpinnerAnimation() {
@@ -611,13 +608,11 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   }
 
   void _stepPage(int dir) {
-    if (_flipController.isAnimating) return;
     final target = QuranMetadata.clampPage(_currentPage + dir);
     if (target == _currentPage) return;
     _savePositionDebounce?.cancel();
     _navigationTargetAyah = null;
-    _turnDir = dir;
-    _goToPage(target, animated: true);
+    _goToPage(target);
   }
 
   void _nextPage() {
@@ -630,52 +625,16 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _stepPage(-1);
   }
 
-  void _goToPage(int page, {bool animated = false}) {
+  void _goToPage(int page) {
     _savePositionDebounce?.cancel();
     final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
-    final dir = _turnDir != 0 ? _turnDir : (clamped > _currentPage ? 1 : -1);
-    _turnDir = 0;
 
-    final oldPage = _currentPageObject;
-    // Turn animation policy: forward turns (next page — the RTL left-to-right
-    // swipe) slide the old-page snapshot, matching Swift parity. Backward
-    // turns are instant: no snapshot, no slide, no flip controller — going
-    // back never lags. This applies to every mover (swipe, keys, wheel,
-    // recitation follow, peer hop) since they all arrive through here.
-    final bool canAnimate =
-        animated && dir == 1 && oldPage != null && !oldPage.isDisposed;
-
-    if (canAnimate) {
-      _flipController.stop();
-      _flipPageObject = oldPage;
-      _flipDir = dir;
-      _flipController.forward(from: 0.0).then((_) {
-        if (mounted) {
-          setState(() {
-            _flipPageObject = null;
-          });
-          _syncPageSelection(_currentPage);
-          MushafProvider.instance.preloadAdjacentPages(
-            _currentPage,
-            MushafProvider.instance.lastViewportSize,
-          );
-          // A coordinate that moved while this slide was in flight was
-          // queued; apply it now (no-op if _syncPageSelection consumed it).
-          final pending = _navigationTargetAyah;
-          if (pending != null) {
-            _syncPageFollow(pending.$1, pending.$2);
-          }
-        }
-      });
-    } else {
-      _flipPageObject = null;
-      _syncPageSelection(clamped);
-      MushafProvider.instance.preloadAdjacentPages(
-        clamped,
-        MushafProvider.instance.lastViewportSize,
-      );
-    }
+    _syncPageSelection(clamped);
+    MushafProvider.instance.preloadAdjacentPages(
+      clamped,
+      MushafProvider.instance.lastViewportSize,
+    );
 
     _currentPage = clamped;
     if (AppState.instance.currentMushafPage.value != clamped) {
@@ -834,21 +793,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       }
     }
 
-    // Yellow Tajweed error words ALWAYS open the Tajweed detail dialog, even during remote session
-    if (isWordYellow(ayah, wordIndex0, surah)) {
-      QuranInteractionService.handleWordTap(
-        context: context,
-        surah: surah,
-        ayah: ayah,
-        wordIndex: wordIndex0,
-        wordText: w.text,
-        controller: widget.controller,
-        onAyahTap: () => setState(() {}),
-        playWordDirectly: widget.controller.isRemoteReciting,
-      );
-      return;
-    }
-
     QuranInteractionService.handleWordTap(
       context: context,
       surah: surah,
@@ -856,7 +800,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       wordIndex: wordIndex0,
       wordText: w.text,
       controller: widget.controller,
-      playWordDirectly: widget.controller.isRemoteReciting,
+      isRecording: widget.isRecording,
+      onAyahTap: () => setState(() {}),
     );
   }
 
@@ -1062,52 +1007,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                                 ),
                                               ),
                                   ),
-                                  // Swift-style flip overlay: The old page slides away with a page shadow
-                                  if (_flipPageObject != null)
-                                    AnimatedBuilder(
-                                      animation: _flipAnimation,
-                                      builder: (context, _) {
-                                        final progress = _flipAnimation.value;
-                                        final double offset =
-                                            progress * _flipDir * pageContainerWidth;
-                                        return Transform.translate(
-                                          offset: Offset(offset, 0.0),
-                                          child: Container(
-                                            width: pageContainerWidth,
-                                            height: usableHeight,
-                                            decoration: BoxDecoration(
-                                              color: c.surface,
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.black
-                                                      .withValues(alpha: 0.22),
-                                                  blurRadius: 10.0,
-                                                  spreadRadius: 1.0,
-                                                  offset: Offset(
-                                                      _flipDir > 0 ? -4.0 : 4.0,
-                                                      0.0),
-                                                ),
-                                              ],
-                                            ),
-                                            child: IgnorePointer(
-                                              child: RepaintBoundary(
-                                                child: QvpPageView(
-                                                  page: _flipPageObject!,
-                                                  panZoomEnabled: false,
-                                                  selectionEnabled: false,
-                                                  layout: MushafProvider.mushafLayout,
-                                                  paper: null,
-                                                  paperShadow: false,
-                                                  defaultInk: c.text,
-                                                  underlay: _paintUnderlay,
-                                                  overlay: _paintOverlay,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
                                 ],
                               ),
                       ),
@@ -1148,9 +1047,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                     ),
                   ],
                   if (widget.showBottomPageNumber)
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 320),
-                      curve: Curves.easeInOutCubic,
+                    Positioned(
                       left: pageLabelLeft,
                       bottom: pageLabelBottom,
                       child: ValueListenableBuilder<int>(

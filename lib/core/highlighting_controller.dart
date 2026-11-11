@@ -163,17 +163,23 @@ class HighlightStore {
   }
 
   void clearSurah(int surah) {
-    _states.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
-    _errors.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
+    _states.removeWhere(
+        (key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
+    _errors.removeWhere(
+        (key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
     _completedAyahs.remove(surah);
-    _ayahHighlightCounts.removeWhere((key, _) => QuranCoordinate.unpackAyahKey(key).$1 == surah);
+    _ayahHighlightCounts.removeWhere(
+        (key, _) => QuranCoordinate.unpackAyahKey(key).$1 == surah);
   }
 
   void clearAllExceptSurah(int keepSurah) {
-    _states.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
-    _errors.removeWhere((key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
+    _states.removeWhere(
+        (key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
+    _errors.removeWhere(
+        (key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
     _completedAyahs.removeWhere((s, _) => s != keepSurah);
-    _ayahHighlightCounts.removeWhere((key, _) => QuranCoordinate.unpackAyahKey(key).$1 != keepSurah);
+    _ayahHighlightCounts.removeWhere(
+        (key, _) => QuranCoordinate.unpackAyahKey(key).$1 != keepSurah);
   }
 
   void clearSurahFromAyah(int surah, int startAyah) {
@@ -210,11 +216,6 @@ class HighlightingController extends rq.HighlightingController {
   int? _remoteActiveWord;
   bool _isRemoteReciting = false;
 
-  /// Arbitration: while the local reader's own audio playback owns the
-  /// coordinate, coordinate claims from remote packets are paused (word
-  /// verdicts still merge). Set when playback starts, released when the
-  /// audio ends or the recitation stops — audio ownership, nothing else.
-  bool _remoteFollowPaused = false;
 
   // Manual selection state
   int _manualTargetSurah = 0;
@@ -351,9 +352,7 @@ class HighlightingController extends rq.HighlightingController {
   bool get isAudioPlaying => _isAudioPlaying;
   bool get isAudioBuffering => _isAudioBuffering;
   bool get isAudioPaused =>
-      _isAudioPaused &&
-      _audioSurah != null &&
-      _audioAyah != null;
+      _isAudioPaused && _audioSurah != null && _audioAyah != null;
   int? get audioSurah => _audioSurah;
   int? get audioAyah => _audioAyah;
   int? get audioWordIndex => _audioWordIndex;
@@ -453,7 +452,8 @@ class HighlightingController extends rq.HighlightingController {
   void Function(int nextSurah, int nextAyah)? onSurahAutoAdvanced;
 
   /// Advances to next Surah in sequence, preserving previous Surah highlights for continuous reading.
-  Future<bool> advanceToNextSurah({int? nextSurah, bool isRecording = false}) async {
+  Future<bool> advanceToNextSurah(
+      {int? nextSurah, bool isRecording = false}) async {
     final int next = nextSurah ?? (targetSurah + 1);
     if (!QuranMetadata.isValidSurah(next)) return false;
 
@@ -667,18 +667,11 @@ class HighlightingController extends rq.HighlightingController {
 
     if (!isReciting) {
       // Explicit stop (reciter ended, floor released, session left): the
-      // remote state goes away and a paused follow is released so the next
-      // recitation is followed again. A stop packet never claims the
-      // coordinate — it may carry placeholder values (e.g. a session-leave
-      // packet for surah 1).
+      // remote state goes away. A stop packet never claims the coordinate.
       final bool recitingChanged = _isRemoteReciting;
       _isRemoteReciting = false;
       _remoteActiveWord = null;
       changed = recitingChanged;
-      if (_remoteFollowPaused) {
-        _remoteFollowPaused = false;
-        changed = true;
-      }
     } else if (activeWord == null) {
       // A reciting packet that carries no lead position: the sender's recap
       // of a verse whose verdicts are final (the host always sends these with
@@ -713,21 +706,16 @@ class HighlightingController extends rq.HighlightingController {
       _remoteActiveWord = activeWord;
       changed = recitingChanged || surahChanged || wordChanged;
 
-      // Mirror the remote verse into the base coordinate exactly like audio
-      // progress does (applyAudioProgress): every recitation source ends up
-      // in targetSurah + activeAyah, so all readers follow one coordinate.
-      // There is no maglis-specific page or highlight handling anywhere
-      // downstream. While follow is paused the reader owns the coordinate;
-      // verdicts still merge below.
-      if (!_remoteFollowPaused) {
-        if (_manualTargetSurah != surah) {
-          _manualTargetSurah = surah;
-          changed = true;
-        }
-        if (activeAyah.value != ayah) {
-          activeAyah.value = ayah;
-          changed = true;
-        }
+      // Mirror the remote verse into the base coordinate: every recitation
+      // source ends up in targetSurah + activeAyah, so all readers follow
+      // one unified coordinate.
+      if (_manualTargetSurah != surah) {
+        _manualTargetSurah = surah;
+        changed = true;
+      }
+      if (activeAyah.value != ayah) {
+        activeAyah.value = ayah;
+        changed = true;
       }
       if (_mergeRemoteVerdicts(
         surah: surah,
@@ -916,9 +904,6 @@ class HighlightingController extends rq.HighlightingController {
       _isRemoteReciting = isReciting;
       if (!isReciting) {
         _remoteActiveWord = null;
-        // Remote recitation is over from this device's point of view (e.g. the
-        // local reader just took the floor): any paused follow is released.
-        _remoteFollowPaused = false;
       }
       globalRevision.value++;
       notifyListeners();
@@ -974,13 +959,11 @@ class HighlightingController extends rq.HighlightingController {
     }
 
     // Align base controller targetSurah and activeAyah with audio playback verse only when actively playing/buffering
-    if ((_isAudioPlaying || _isAudioBuffering) && surah != null && surah != 0) {
-      // Audio claimed the coordinate while a remote reciter is active: pause
-      // remote coordinate claims so the two sources don't yank the page back
-      // and forth (verdicts keep merging either way).
-      if (_isRemoteReciting) {
-        _remoteFollowPaused = true;
-      }
+    // AND NOT when a remote peer is reciting (so local audio playback/auditioning never hijacks the remote reciter's coordinate).
+    if (!_isRemoteReciting &&
+        (_isAudioPlaying || _isAudioBuffering) &&
+        surah != null &&
+        surah != 0) {
       if (_manualTargetSurah != surah) {
         _manualTargetSurah = surah;
         changed = true;
@@ -992,7 +975,8 @@ class HighlightingController extends rq.HighlightingController {
     }
 
     if (changed) {
-      if ((_isAudioPlaying || _isAudioBuffering) &&
+      if (!_isRemoteReciting &&
+          (_isAudioPlaying || _isAudioBuffering) &&
           _audioSurah != null &&
           _audioAyah != null) {
         onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
@@ -1017,9 +1001,6 @@ class HighlightingController extends rq.HighlightingController {
       _isAudioPlaying = false;
       _isAudioBuffering = false;
       _isAudioPaused = false;
-      // Audio gave the coordinate back: resume following the remote reciter
-      // if one is active (applyAudioProgress paused it when playback started).
-      _remoteFollowPaused = false;
       globalRevision.value++;
       notifyListeners();
     }
@@ -1070,11 +1051,12 @@ class HighlightingController extends rq.HighlightingController {
     required int totalWords,
     bool isRecording = false,
   }) {
-    if (activeAyah.value != ayah || (targetSurah != 0 && targetSurah != surah)) {
+    if (activeAyah.value != ayah ||
+        (targetSurah != 0 && targetSurah != surah)) {
       return null;
     }
-    if (isAudioActive) return audioWordIndex;
     if (isRemoteReciting) return activeWordIndex;
+    if (isAudioActive) return audioWordIndex;
     if (isRecording) {
       for (int i = 0; i < totalWords; i++) {
         if (!isWordRead(ayah, i, surah: surah)) {
@@ -1155,10 +1137,11 @@ class QuranHighlightPalette {
       greenBand: colors.green.withValues(alpha: isDark ? 0.26 : 0.20),
       yellowBand: colors.warning.withValues(alpha: isDark ? 0.26 : 0.22),
       redBand: colors.red.withValues(alpha: isDark ? 0.26 : 0.20),
-      leadWordBand: colors.wordHighlight.withValues(alpha: isDark ? 0.32 : 0.28),
+      leadWordBand:
+          colors.wordHighlight.withValues(alpha: isDark ? 0.25 : 0.28),
       activeAyahBorder: colors.gold.withValues(alpha: isDark ? 0.70 : 0.60),
       activeAyahBand: isDark
-          ? const Color(0xFF64748B).withValues(alpha: 0.20)
+          ? const Color(0xFF64748B).withValues(alpha: 0.15)
           : const Color(0xFF64748B).withValues(alpha: 0.11),
     );
     _memoSig = sig;
@@ -1223,22 +1206,125 @@ abstract final class QuranMetadata {
   static int clampPage(int page) => page.clamp(minPage, maxPage);
 
   /// Formats the canonical 3-digit QVP page asset filename (e.g. '001.qvp').
-  static String formatPageKey(int page) => '${page.toString().padLeft(3, '0')}.qvp';
+  static String formatPageKey(int page) =>
+      '${page.toString().padLeft(3, '0')}.qvp';
 
   /// Canonical Ayah count for Surahs 1 to 114.
   static const List<int> surahAyahCounts = [
-    7, 286, 200, 176, 120, 165, 206, 75, 129, 109,
-    123, 111, 43, 52, 99, 128, 111, 110, 98, 135,
-    112, 78, 118, 64, 77, 227, 93, 88, 69, 60,
-    34, 30, 73, 54, 45, 83, 182, 88, 75, 85,
-    54, 53, 89, 59, 37, 35, 38, 29, 18, 45,
-    60, 49, 62, 55, 78, 96, 29, 22, 24, 13,
-    14, 11, 11, 18, 12, 12, 30, 52, 52, 44,
-    28, 28, 20, 56, 40, 31, 50, 40, 46, 42,
-    29, 19, 36, 25, 22, 17, 19, 26, 30, 20,
-    15, 21, 11, 8, 8, 19, 5, 8, 8, 11,
-    11, 8, 3, 9, 5, 4, 7, 3, 6, 3,
-    5, 4, 5, 6
+    7,
+    286,
+    200,
+    176,
+    120,
+    165,
+    206,
+    75,
+    129,
+    109,
+    123,
+    111,
+    43,
+    52,
+    99,
+    128,
+    111,
+    110,
+    98,
+    135,
+    112,
+    78,
+    118,
+    64,
+    77,
+    227,
+    93,
+    88,
+    69,
+    60,
+    34,
+    30,
+    73,
+    54,
+    45,
+    83,
+    182,
+    88,
+    75,
+    85,
+    54,
+    53,
+    89,
+    59,
+    37,
+    35,
+    38,
+    29,
+    18,
+    45,
+    60,
+    49,
+    62,
+    55,
+    78,
+    96,
+    29,
+    22,
+    24,
+    13,
+    14,
+    11,
+    11,
+    18,
+    12,
+    12,
+    30,
+    52,
+    52,
+    44,
+    28,
+    28,
+    20,
+    56,
+    40,
+    31,
+    50,
+    40,
+    46,
+    42,
+    29,
+    19,
+    36,
+    25,
+    22,
+    17,
+    19,
+    26,
+    30,
+    20,
+    15,
+    21,
+    11,
+    8,
+    8,
+    19,
+    5,
+    8,
+    8,
+    11,
+    11,
+    8,
+    3,
+    9,
+    5,
+    4,
+    7,
+    3,
+    6,
+    3,
+    5,
+    4,
+    5,
+    6
   ];
 
   /// Returns total Ayahs for [surah], or 0 if out of range.
@@ -1288,18 +1374,120 @@ abstract final class QuranMetadata {
 
   /// Canonical 114 Surah names in Arabic.
   static const List<String> surahNamesAr = [
-    'الفاتحة', 'البقرة', 'آل عمران', 'النساء', 'المائدة', 'الأنعام', 'الأعراف', 'الأنفال', 'التوبة', 'يونس',
-    'هود', 'يوسف', 'الرعد', 'إبراهيم', 'الحجر', 'النحل', 'الإسراء', 'الكهف', 'مريم', 'طه',
-    'الأنبياء', 'الحج', 'المؤمنون', 'النور', 'الفرقان', 'الشعراء', 'النمل', 'القصص', 'العنكبوت', 'الروم',
-    'لقمان', 'السجدة', 'الأحزاب', 'سبأ', 'فاطر', 'يس', 'الصافات', 'ص', 'الزمر', 'غافر',
-    'فصلت', 'الشورى', 'الزخرف', 'الدخان', 'الجاثية', 'الأحقاف', 'محمد', 'الفتح', 'الحجرات', 'ق',
-    'الذاريات', 'الطور', 'النجم', 'القمر', 'الرحمن', 'الواقعة', 'الحديد', 'المجادلة', 'الحشر', 'الممتحنة',
-    'الصف', 'الجمعة', 'المنافقون', 'التغابن', 'الطلاق', 'التحريم', 'الملك', 'القلم', 'الحاقة', 'المعارج',
-    'نوح', 'الجن', 'المزمل', 'المدثر', 'القيامة', 'الإنسان', 'المرسلات', 'النبأ', 'النازعات', 'عبس',
-    'التكوير', 'الانفطار', 'المطففين', 'الانشقاق', 'البروج', 'الطارق', 'الأعلى', 'الغاشية', 'الفجر', 'البلد',
-    'الشمس', 'الليل', 'الضحى', 'الشرح', 'التين', 'العلق', 'القدر', 'البينة', 'الزلزلة', 'العاديات',
-    'القارعة', 'التكاثر', 'العصر', 'الهمزة', 'الفيل', 'قريش', 'الماعون', 'الكوثر', 'الكافرون', 'النصر',
-    'المسد', 'الإخلاص', 'الفلق', 'الناس'
+    'الفاتحة',
+    'البقرة',
+    'آل عمران',
+    'النساء',
+    'المائدة',
+    'الأنعام',
+    'الأعراف',
+    'الأنفال',
+    'التوبة',
+    'يونس',
+    'هود',
+    'يوسف',
+    'الرعد',
+    'إبراهيم',
+    'الحجر',
+    'النحل',
+    'الإسراء',
+    'الكهف',
+    'مريم',
+    'طه',
+    'الأنبياء',
+    'الحج',
+    'المؤمنون',
+    'النور',
+    'الفرقان',
+    'الشعراء',
+    'النمل',
+    'القصص',
+    'العنكبوت',
+    'الروم',
+    'لقمان',
+    'السجدة',
+    'الأحزاب',
+    'سبأ',
+    'فاطر',
+    'يس',
+    'الصافات',
+    'ص',
+    'الزمر',
+    'غافر',
+    'فصلت',
+    'الشورى',
+    'الزخرف',
+    'الدخان',
+    'الجاثية',
+    'الأحقاف',
+    'محمد',
+    'الفتح',
+    'الحجرات',
+    'ق',
+    'الذاريات',
+    'الطور',
+    'النجم',
+    'القمر',
+    'الرحمن',
+    'الواقعة',
+    'الحديد',
+    'المجادلة',
+    'الحشر',
+    'الممتحنة',
+    'الصف',
+    'الجمعة',
+    'المنافقون',
+    'التغابن',
+    'الطلاق',
+    'التحريم',
+    'الملك',
+    'القلم',
+    'الحاقة',
+    'المعارج',
+    'نوح',
+    'الجن',
+    'المزمل',
+    'المدثر',
+    'القيامة',
+    'الإنسان',
+    'المرسلات',
+    'النبأ',
+    'النازعات',
+    'عبس',
+    'التكوير',
+    'الانفطار',
+    'المطففين',
+    'الانشقاق',
+    'البروج',
+    'الطارق',
+    'الأعلى',
+    'الغاشية',
+    'الفجر',
+    'البلد',
+    'الشمس',
+    'الليل',
+    'الضحى',
+    'الشرح',
+    'التين',
+    'العلق',
+    'القدر',
+    'البينة',
+    'الزلزلة',
+    'العاديات',
+    'القارعة',
+    'التكاثر',
+    'العصر',
+    'الهمزة',
+    'الفيل',
+    'قريش',
+    'الماعون',
+    'الكوثر',
+    'الكافرون',
+    'النصر',
+    'المسد',
+    'الإخلاص',
+    'الفلق',
+    'الناس'
   ];
 
   /// Returns canonical Arabic Surah name (e.g. 'الفاتحة').
@@ -1388,6 +1576,11 @@ abstract final class QuranInteractionService {
     required HighlightingController controller,
     VoidCallback? onTap,
   }) async {
+    // When a remote peer is actively reciting in Maglis, the client
+    // cannot change or select the active ayah coordinate.
+    if (controller.isRemoteReciting) {
+      return;
+    }
     if (controller.isAudioActive) {
       QuranAudioService.instance.stop();
       controller.clearAudio();
@@ -1397,9 +1590,9 @@ abstract final class QuranInteractionService {
   }
 
   /// Handles tapping a Quranic word:
-  /// - Selects the Ayah.
-  /// - If yellow word -> opens Tajweed error dialog.
-  /// - If non-yellow word and (already selected or [playWordDirectly]) -> plays word audio.
+  /// - When not recording: any word tap (including yellow words) requires selecting the Ayah first.
+  /// - When recording (local ASR or remote Maglis session): yellow words open the Tajweed error dialog
+  ///   directly, and regular words play audio, without selecting the Ayah.
   static void handleWordTap({
     required BuildContext context,
     required int surah,
@@ -1407,11 +1600,26 @@ abstract final class QuranInteractionService {
     required int wordIndex,
     required String wordText,
     required HighlightingController controller,
+    bool isRecording = false,
     VoidCallback? onWordErrorTap,
     VoidCallback? onAyahTap,
-    bool playWordDirectly = false,
     List<rq.ReciterError>? overrideErrors,
   }) {
+    final bool isSessionActive = isRecording || controller.isRemoteReciting;
+    final bool isAlreadySelected =
+        controller.targetSurah == surah && controller.activeAyah.value == ayah;
+
+    // When NOT in an active recording session, pressing any word requires selecting the Ayah first.
+    if (!isSessionActive && !isAlreadySelected) {
+      selectAyah(
+        surah: surah,
+        ayah: ayah,
+        controller: controller,
+        onTap: onAyahTap,
+      );
+      return;
+    }
+
     final bool isYellow =
         controller.isWordYellow(ayah, wordIndex, surah: surah);
     final errors = overrideErrors ??
@@ -1419,8 +1627,7 @@ abstract final class QuranInteractionService {
             ? controller.getWordErrors(ayah, wordIndex, surah: surah)
             : null);
 
-    // Tajweed warning words ALWAYS show the error detail dialog directly
-    // without requiring the verse to be active or mutated.
+    // Tajweed warning words show the error detail dialog.
     if (errors != null && errors.isNotEmpty) {
       AppState.instance.markTajweedWordClicked();
       DialogService.showTajweedError(
@@ -1432,20 +1639,6 @@ abstract final class QuranInteractionService {
         wordIndex: wordIndex,
       );
       onWordErrorTap?.call();
-      return;
-    }
-
-    final bool isAlreadySelected =
-        controller.targetSurah == surah && controller.activeAyah.value == ayah;
-
-    // A word cannot be auditioned or selected unless the ayah itself is selected first.
-    if (!isAlreadySelected && !playWordDirectly) {
-      selectAyah(
-        surah: surah,
-        ayah: ayah,
-        controller: controller,
-        onTap: onAyahTap,
-      );
       return;
     }
 
@@ -1473,7 +1666,7 @@ abstract final class QuranInteractionService {
         surah: surah,
         ayah: ayah,
         controller: controller,
-        continuous: !isRecording,
+        continuous: !isRecording && !controller.isRemoteReciting,
         onTap: onTap,
       );
     }
@@ -1495,23 +1688,10 @@ abstract final class QuranInteractionService {
             ? controller.targetSurah
             : AppState.instance.lastSurah);
 
-    if (controller.isWordGreen(ayah, wordIndex, surah: s)) {
-      return colors.green;
-    }
-    if (controller.isWordYellow(ayah, wordIndex, surah: s)) {
-      return colors.warning;
-    }
-    if (controller.isWordRed(ayah, wordIndex, surah: s)) {
-      return colors.red;
-    }
-
-    final bool isNeutral = controller.isWordNeutral(ayah, wordIndex, surah: s);
-    if (isBlurEffective) {
-      if (isNeutral) return colors.text;
+    if (isBlurEffective && !controller.isWordRead(ayah, wordIndex, surah: s)) {
       return Colors.transparent;
     }
 
     return colors.text;
   }
 }
-

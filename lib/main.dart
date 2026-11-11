@@ -1133,6 +1133,12 @@ class _OrchestratorState extends State<_Orchestrator>
           clearTargetSurah: false,
         );
         _ctrl!.setManualAyah(result.surah, result.ayah);
+        AppState.instance.saveLastPosition(result.surah, result.ayah);
+        final mappedPage = MushafProvider.instance
+            .getPageForAyah(result.surah, result.ayah);
+        if (mappedPage != null) {
+          AppState.instance.saveMushafPage(mappedPage);
+        }
       } else {
         // Fallback: resume previous state if no Ayah was found
         _ctrl?.resumeTracking();

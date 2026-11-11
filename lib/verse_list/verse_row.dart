@@ -92,9 +92,8 @@ class VerseRow extends StatefulWidget {
       isAutoScrolling ? false : controller.isAyahActive(surah, ayah);
 
   /// Handles tapping a Quranic word:
-  /// - Selects the Ayah.
-  /// - If yellow word -> opens Tajweed error dialog.
-  /// - If non-yellow word and (already selected or [playWordDirectly]) -> plays word audio.
+  /// - When not recording: any word tap (including yellow words) requires selecting the Ayah first.
+  /// - When recording: yellow words open Tajweed dialog, and words play audio, without selecting Ayah.
   static void handleWordTap({
     required BuildContext context,
     required int surah,
@@ -103,9 +102,9 @@ class VerseRow extends StatefulWidget {
     required String wordText,
     required HighlightingController controller,
     required bool isAutoScrolling,
+    bool isRecording = false,
     VoidCallback? onWordErrorTap,
     VoidCallback? onAyahTap,
-    bool playWordDirectly = false,
   }) {
     if (isAutoScrolling) return;
     QuranInteractionService.handleWordTap(
@@ -115,9 +114,9 @@ class VerseRow extends StatefulWidget {
       wordIndex: wordIndex,
       wordText: wordText,
       controller: controller,
+      isRecording: isRecording,
       onWordErrorTap: onWordErrorTap,
       onAyahTap: onAyahTap,
-      playWordDirectly: playWordDirectly,
     );
   }
 
@@ -604,6 +603,7 @@ class _VerseRowState extends State<VerseRow> {
             wordText: word,
             controller: widget.controller,
             isAutoScrolling: widget.isAutoScrolling,
+            isRecording: widget.isRecording,
             onWordErrorTap: widget.onWordErrorTap,
             onAyahTap: widget.onTap,
           );
@@ -617,6 +617,7 @@ class _VerseRowState extends State<VerseRow> {
             wordText: widget.verse.uthmaniWords[wordIdx],
             controller: widget.controller,
             isAutoScrolling: widget.isAutoScrolling,
+            isRecording: widget.isRecording,
             onAyahTap: widget.onTap,
           );
         },
