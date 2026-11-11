@@ -34,7 +34,6 @@ class MaglisController extends ChangeNotifier {
   bool _isLeaving = false;
 
   bool get isLeaving => _isLeaving;
-  String? get localAudioTrackId => _session?.net.localAudioTrackId;
 
   final ChangeNotifier _sessionNotifier = ChangeNotifier();
   Listenable get sessionListenable => _sessionNotifier;

@@ -18,7 +18,6 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : AudioServiceActivity() {
     private val CHANNEL = "com.recitequran.app/playstore"
     private val MAGLIS_SERVICE_CHANNEL = "com.recitequran.app/maglis_service"
-    private var maglisAudioTap: MaglisAudioTap? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,8 +35,6 @@ class MainActivity : AudioServiceActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        maglisAudioTap?.release()
-        maglisAudioTap = MaglisAudioTap(flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "isPlayStoreInstalled") {
@@ -111,12 +108,6 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
         }
-    }
-
-    override fun onDestroy() {
-        maglisAudioTap?.release()
-        maglisAudioTap = null
-        super.onDestroy()
     }
 
     private fun isPackageInstalled(packageName: String): Boolean {
