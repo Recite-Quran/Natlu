@@ -52,16 +52,13 @@
 
   <style>
     html,
-    body,
-    flutter-view,
-    flt-glass-pane {
+    body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
       background: #fdfaf6;
       overflow: hidden;
-      overscroll-behavior: none;
     }
 
     /* PWA Banner */
@@ -144,6 +141,11 @@
   </style>
 
   <script>
+    // Prevent browser history navigation on horizontal touchpad swipes
+    window.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) e.preventDefault();
+    }, { passive: false });
+
     // Self-contained Setup Engine (IIFE prevents any global identifier clashes)
     (function () {
       const PAGES_DB_NAME = 'MushafPagesDB';
