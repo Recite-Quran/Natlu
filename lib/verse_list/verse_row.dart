@@ -67,7 +67,7 @@ class VerseRow extends StatefulWidget {
   }) =>
       controller.isAyahAudioBuffering(surah, ayah);
 
-  /// Handles selecting/tapping an Ayah: haptic feedback, manual selection, and persisting last position.
+  /// Handles selecting/tapping an Ayah: manual selection, and persisting last position.
   static Future<void> selectAyah({
     required int surah,
     required int ayah,
@@ -121,7 +121,7 @@ class VerseRow extends StatefulWidget {
     );
   }
 
-  /// Toggles Ayah audio playback with buffering debounce and haptic feedback.
+  /// Toggles Ayah audio playback with buffering debounce.
   static Future<void> toggleAyahAudio({
     required int surah,
     required int ayah,

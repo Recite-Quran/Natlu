@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 /// Centralized platform detection and hardware capability abstraction.
 /// Eliminates scattered `kIsWeb` and `defaultTargetPlatform` checks across the app.
@@ -40,37 +39,15 @@ abstract final class PlatformCapabilities {
   static bool get usesMediaKitAudio => isWindows;
 }
 
-/// Centralized, high-performance haptics manager.
+/// Centralized haptics manager.
 ///
-/// Gates all haptic calls strictly to physical mobile devices (Android / iOS).
-/// Completely eliminates redundant platform-channel IPC roundtrips on Windows,
-/// macOS, Linux, and Web desktop targets where hardware vibration does not exist.
+/// Haptics and device vibrations are completely disabled across the application
+/// to ensure a silent, distraction-free Quran recitation and reading experience.
 abstract final class AppHaptics {
-  static bool get _supportsHaptics => PlatformCapabilities.isMobile;
-
-  static void lightImpact() {
-    if (_supportsHaptics) {
-      HapticFeedback.lightImpact();
-    }
-  }
-
-  static void mediumImpact() {
-    if (_supportsHaptics) {
-      HapticFeedback.mediumImpact();
-    }
-  }
-
-  static void heavyImpact() {
-    if (_supportsHaptics) {
-      HapticFeedback.heavyImpact();
-    }
-  }
-
-  static void selectionClick() {
-    if (_supportsHaptics) {
-      HapticFeedback.selectionClick();
-    }
-  }
+  static void lightImpact() {}
+  static void mediumImpact() {}
+  static void heavyImpact() {}
+  static void selectionClick() {}
 }
 
 /// AppModalRouteObserver

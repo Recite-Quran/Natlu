@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:recite_quran/recite_quran.dart' as rq;
 export 'package:recite_quran/recite_quran.dart' hide HighlightingController;
 
-import 'platform_utils.dart';
 import 'app_state.dart';
 import '../audio/quran_audio_service.dart';
 import '../ui/widgets/dialogs/dialog_service.dart';
@@ -205,8 +204,16 @@ class HighlightingController extends rq.HighlightingController {
 
   // Remote Maglis state
   int _remoteTargetSurah = 0;
+  int _remoteAyah = 0;
   int? _remoteActiveWord;
   bool _isRemoteReciting = false;
+
+  /// Arbitration: when the local reader manually selects an ayah or plays
+  /// audio while a remote reciter is active, coordinate claims from remote
+  /// packets are paused (verdicts still merge). Follow resumes when audio
+  /// ends, the reciter stops, or the reader turns back to the reciter's
+  /// page ([resumeRemoteFollow]).
+  bool _remoteFollowPaused = false;
 
   // Manual selection state
   int _manualTargetSurah = 0;
@@ -331,6 +338,28 @@ class HighlightingController extends rq.HighlightingController {
 
   /// Whether a remote peer in a Maglis session is currently reciting.
   bool get isRemoteReciting => _isRemoteReciting;
+
+  /// Whether the local reader paused following the remote reciter (by manual
+  /// selection or audio playback). While paused, remote packets keep merging
+  /// word verdicts into the store but stop claiming the coordinate.
+  bool get isRemoteFollowPaused => _remoteFollowPaused;
+
+  /// The (surah, ayah) the remote reciter is currently at — packet truth
+  /// only, independent of the local coordinate. The view consults this on
+  /// page turns to rejoin the reciter, which keeps the controller free of
+  /// any page/provider imports.
+  (int, int)? get remoteCoordinate =>
+      _isRemoteReciting && _remoteTargetSurah != 0 && _remoteAyah != 0
+          ? (_remoteTargetSurah, _remoteAyah)
+          : null;
+
+  /// Resumes following the remote recitation after [setManualAyah] or
+  /// [applyAudioProgress] paused it. The next remote packet reclaims the
+  /// coordinate; no forced jump happens here.
+  void resumeRemoteFollow() {
+    if (!_remoteFollowPaused) return;
+    _remoteFollowPaused = false;
+  }
 
   // ── Audio Playback State ──
 
@@ -539,6 +568,13 @@ class HighlightingController extends rq.HighlightingController {
     _isAudioPlaying = false;
     _isAudioBuffering = false;
     _isAudioPaused = false;
+    // The reader just took the coordinate by hand while a remote reciter is
+    // active: pause coordinate claims from remote packets (verdicts keep
+    // merging). Follow resumes via resumeRemoteFollow or an isReciting:false
+    // packet — never by force here.
+    if (_isRemoteReciting) {
+      _remoteFollowPaused = true;
+    }
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
@@ -654,27 +690,99 @@ class HighlightingController extends rq.HighlightingController {
     Map<int, List<rq.ReciterError>>? errors,
     Map<String, int>? cumulative,
     bool isReciting = true,
+    bool isFlush = false,
   }) {
-    final bool recitingChanged = _isRemoteReciting != isReciting;
-    final bool surahChanged = _remoteTargetSurah != surah;
-    final bool wordChanged = _remoteActiveWord != activeWord;
+    bool changed = false;
 
-    _isRemoteReciting = isReciting;
-    _remoteTargetSurah = surah;
-    _remoteActiveWord = activeWord;
+    // A flush packet is a store-only merge of the ayah that just finished:
+    // word verdicts land in the store, but the coordinate, the remote lead
+    // state and follow arbitration are untouched. The next normal packet
+    // carries the true (advanced) coordinate — merging the flush's previous-
+    // ayah coordinate used to bounce the highlight backward then forward on
+    // every ayah advance (the peer flicker at the start of each ayah).
+    if (isFlush) {
+      if (_mergeRemoteVerdicts(
+        surah: surah,
+        ayah: ayah,
+        greenWords: greenWords,
+        yellowWords: yellowWords,
+        redWords: redWords,
+        errors: errors,
+        cumulative: cumulative,
+      )) {
+        changed = true;
+      }
+    } else {
+      final bool recitingChanged = _isRemoteReciting != isReciting;
+      final bool surahChanged = _remoteTargetSurah != surah;
+      final bool wordChanged = _remoteActiveWord != activeWord;
 
-    bool changed = recitingChanged || surahChanged || wordChanged;
+      _isRemoteReciting = isReciting;
+      _remoteTargetSurah = surah;
+      _remoteAyah = ayah;
+      _remoteActiveWord = activeWord;
+      changed = recitingChanged || surahChanged || wordChanged;
 
-    // Mirror the remote surah into the base coordinate exactly like audio
-    // progress does (applyAudioProgress): every recitation source ends up in
-    // targetSurah + activeAyah, so hosts follow one coordinate. There is no
-    // maglis-specific page or highlight handling anywhere downstream.
-    if (isReciting && _manualTargetSurah != surah) {
-      _manualTargetSurah = surah;
-      changed = true;
+      if (!isReciting) {
+        // Reciter stopped / floor released: never claim the coordinate (a
+        // session-leave packet carries placeholder (1,1)), and clear the
+        // follow pause so the next recitation is followed again.
+        if (_remoteFollowPaused) {
+          _remoteFollowPaused = false;
+          changed = true;
+        }
+      } else if (!_remoteFollowPaused) {
+        // Mirror the remote verse into the base coordinate exactly like audio
+        // progress does (applyAudioProgress): every recitation source ends up
+        // in targetSurah + activeAyah, so all readers follow one coordinate.
+        // There is no maglis-specific page or highlight handling anywhere
+        // downstream. While follow is paused the reader owns the coordinate;
+        // verdicts still merge below.
+        if (_manualTargetSurah != surah) {
+          _manualTargetSurah = surah;
+          changed = true;
+        }
+        if (activeAyah.value != ayah) {
+          activeAyah.value = ayah;
+          changed = true;
+        }
+      }
+      if (_mergeRemoteVerdicts(
+        surah: surah,
+        ayah: ayah,
+        greenWords: greenWords,
+        yellowWords: yellowWords,
+        redWords: redWords,
+        errors: errors,
+        cumulative: cumulative,
+      )) {
+        changed = true;
+      }
     }
 
-    // 1. Merge snapshot or catch-up cumulative history
+    if (changed) {
+      if (_isAudioPlaying && _audioSurah != null && _audioAyah != null) {
+        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
+      }
+      globalRevision.value++;
+      notifyListeners();
+    }
+  }
+
+  /// Merges remote word verdicts (cumulative history + live words of the
+  /// current verse) into the highlight store. Pure store work — no coordinate
+  /// or state writes — shared by flush and normal remote packets.
+  bool _mergeRemoteVerdicts({
+    required int surah,
+    required int ayah,
+    required List<int> greenWords,
+    required List<int> yellowWords,
+    required List<int> redWords,
+    required Map<int, List<rq.ReciterError>>? errors,
+    required Map<String, int>? cumulative,
+  }) {
+    bool changed = false;
+
     if (cumulative != null && cumulative.isNotEmpty) {
       cumulative.forEach((k, v) {
         if (v < 1 || v > 3) return;
@@ -710,7 +818,6 @@ class HighlightingController extends rq.HighlightingController {
       });
     }
 
-    // 2. Merge active live words for current verse
     for (final w in greenWords) {
       _store.markGreen(surah, ayah, w);
       changed = true;
@@ -728,21 +835,11 @@ class HighlightingController extends rq.HighlightingController {
       changed = true;
     }
 
-    if (activeAyah.value != ayah) {
-      activeAyah.value = ayah;
-      changed = true;
-    }
-
-    if (changed) {
-      if (_isAudioPlaying && _audioSurah != null && _audioAyah != null) {
-        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
-      }
-      globalRevision.value++;
-      notifyListeners();
-    }
+    return changed;
   }
 
   /// Hydrates a lightweight [rq.ReciterError] into a complete model with
+  /// canonical Tajweed rule metadata and guidance derived locally from [repository].
   /// canonical Tajweed rule metadata and guidance derived locally from [repository].
   rq.ReciterError hydrateRemoteError(
     int surah,
@@ -893,6 +990,12 @@ class HighlightingController extends rq.HighlightingController {
 
     // Align base controller targetSurah and activeAyah with audio playback verse only when actively playing/buffering
     if ((_isAudioPlaying || _isAudioBuffering) && surah != null && surah != 0) {
+      // Audio claimed the coordinate while a remote reciter is active: pause
+      // remote coordinate claims so the two sources don't yank the page back
+      // and forth (verdicts keep merging either way).
+      if (_isRemoteReciting) {
+        _remoteFollowPaused = true;
+      }
       if (_manualTargetSurah != surah) {
         _manualTargetSurah = surah;
         changed = true;
@@ -1290,14 +1393,13 @@ abstract final class QuranTypography {
 /// Handles Ayah selection, word clicks (Tajweed error dialog vs word audio audition),
 /// and continuous Ayah audio playback across both Mushaf Vector and Verse List views.
 abstract final class QuranInteractionService {
-  /// Handles selecting/tapping an Ayah: haptic feedback, manual selection, and persisting last position.
+  /// Handles selecting/tapping an Ayah: manual selection, and persisting last position.
   static Future<void> selectAyah({
     required int surah,
     required int ayah,
     required HighlightingController controller,
     VoidCallback? onTap,
   }) async {
-    AppHaptics.lightImpact();
     if (controller.isAudioActive) {
       QuranAudioService.instance.stop();
       controller.clearAudio();
@@ -1366,7 +1468,7 @@ abstract final class QuranInteractionService {
     );
   }
 
-  /// Toggles Ayah audio playback with haptic feedback.
+  /// Toggles Ayah audio playback.
   static Future<void> toggleAyahAudio({
     required int surah,
     required int ayah,
@@ -1375,7 +1477,6 @@ abstract final class QuranInteractionService {
     VoidCallback? onTap,
     VoidCallback? onExplicitToggle,
   }) async {
-    AppHaptics.selectionClick();
     if (onExplicitToggle != null) {
       onTap?.call();
       onExplicitToggle();

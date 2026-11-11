@@ -313,6 +313,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _flipController.dispose();
     _spinnerController.dispose();
     _spinnerMark.dispose();
+    _qvpViewCtrl.dispose();
     _yellowWordsNotifier.dispose();
     AppModalRouteObserver.instance.activeModalsNotifier
         .removeListener(_onModalStateChanged);
@@ -351,7 +352,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _lastAdvancedSurah = currentSurah;
 
     try {
-      AppHaptics.mediumImpact();
       // Same base page-sync rule as every other coordinate move.
       _syncPageFollow(nextSurah, 1);
 
@@ -554,6 +554,13 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       ValueNotifier(null);
   ({int surah, int ayah, QvpPage page})? _spinnerMarkKey;
 
+  /// Shared view controller for the single-page Qvp view. The page view's fit
+  /// writes `view px = offsetX + scale · layout px` into it (page_view.dart's
+  /// fit path); the buffering-spinner painter reads the same values at paint
+  /// time, so the arc lands exactly on the ayah mark instead of in raw layout
+  /// space — the fit transform is part of the page's geometry, not optional.
+  final QvpViewController _qvpViewCtrl = QvpViewController();
+
   /// Caches the buffering ayah mark's geometry for the spinner layer: zero
   /// FFI and zero allocation per animation tick. The FFI mark scan runs only
   /// when the buffering ayah or page actually changes.
@@ -598,6 +605,24 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     // the view follows it. Clearing here used to orphan the anchor — after
     // swiping back, no coordinate existed to paint, and the highlight only
     // reappeared once the reciter's first word re-created it.
+
+    // Page-turn rejoin: arriving on the page the remote reciter is on resumes
+    // following them (the coordinate claims the reader's own selection or
+    // audio paused). Pure viewport check via the controller's remote
+    // coordinate — no session state is consulted here. A reader playing audio
+    // keeps audio ownership; ending playback resumes following on its own.
+    if (widget.controller.isRemoteFollowPaused &&
+        !widget.controller.isAudioActive) {
+      final remote = widget.controller.remoteCoordinate;
+      if (remote != null &&
+          provider.isAyahOnPage(
+            pageNumber: pageNum,
+            surah: remote.$1,
+            ayah: remote.$2,
+          )) {
+        widget.controller.resumeRemoteFollow();
+      }
+    }
 
     // Preserve any existing selected ayah and save the page position.
     _debouncedSavePosition(pageNum);
@@ -837,13 +862,8 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
         wordText: w.text,
         controller: widget.controller,
         onAyahTap: () => setState(() {}),
-        playWordDirectly: false,
+        playWordDirectly: widget.controller.isRemoteReciting,
       );
-      return;
-    }
-
-    final maglis = MaglisController.instance;
-    if (maglis.inSession && maglis.isRemoteReciting) {
       return;
     }
 
@@ -854,13 +874,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       wordIndex: wordIndex0,
       wordText: w.text,
       controller: widget.controller,
-      playWordDirectly: false,
+      playWordDirectly: widget.controller.isRemoteReciting,
     );
   }
 
   void _onDecorationTap(QvpDecorationInfo dec) {
     if (dec.surah > 0 && dec.ayah > 0) {
-      AppHaptics.selectionClick();
       AppState.instance.markMushafAudioAyahClicked();
       QuranInteractionService.toggleAyahAudio(
         surah: dec.surah,
@@ -1005,6 +1024,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                     key: const ValueKey('mushaf_single_qvp_view'),
                                     child: QvpPageView(
                                       page: _currentPageObject!,
+                                      controller: _qvpViewCtrl,
                                       panZoomEnabled: false,
                                       selectionEnabled: false,
                                       layout: MushafProvider.mushafLayout,
@@ -1048,6 +1068,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                                           _BufferingSpinnerPainter(
                                                         spinner:
                                                             _spinnerController,
+                                                        viewCtrl: _qvpViewCtrl,
                                                         center: spinnerMark
                                                             .center,
                                                         ringRadius:
@@ -1187,13 +1208,20 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 class _BufferingSpinnerPainter extends CustomPainter {
   _BufferingSpinnerPainter({
     required AnimationController spinner,
+    required QvpViewController viewCtrl,
     required this.center,
     required this.ringRadius,
     required this.color,
   }) : _spinner = spinner,
+       _viewCtrl = viewCtrl,
        super(repaint: spinner);
 
   final AnimationController _spinner;
+
+  /// The page view's live fit transform (`view px = offset + scale · layout
+  /// px`). Read at paint time, never cached: a viewport resize re-fits before
+  /// the next spinner tick, so the arc stays glued to the ayah mark.
+  final QvpViewController _viewCtrl;
   final Offset center;
   final double ringRadius;
   final Color color;
@@ -1201,13 +1229,20 @@ class _BufferingSpinnerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (ringRadius <= 0) return;
+    final double scale = _viewCtrl.scale;
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..color = color
-      ..strokeWidth = math.max(ringRadius * 0.18, 1.4);
+      ..strokeWidth = math.max(ringRadius * scale * 0.18, 1.4);
     canvas.drawArc(
-      Rect.fromCircle(center: center, radius: ringRadius * 0.58),
+      Rect.fromCircle(
+        center: Offset(
+          _viewCtrl.offsetX + center.dx * scale,
+          _viewCtrl.offsetY + center.dy * scale,
+        ),
+        radius: ringRadius * scale * 0.58,
+      ),
       _spinner.value * 2 * math.pi,
       2.4,
       false,

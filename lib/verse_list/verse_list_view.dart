@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 import '../core/highlighting_controller.dart';
-import '../core/platform_utils.dart';
 import '../audio/quran_audio_service.dart';
 import '../audio/quran_timing_service.dart';
 import '../core/app_state.dart';
@@ -415,7 +414,6 @@ class VerseListViewState extends State<VerseListView>
   // ── Surah Navigation ───────────────────────────────────────────────────────
   void _navigateToSurah(int newSurah) async {
     if (!QuranMetadata.isValidSurah(newSurah)) return;
-    AppHaptics.mediumImpact();
     QuranAudioService.instance.stop();
 
     if (widget.isRecording) {
@@ -449,7 +447,6 @@ class VerseListViewState extends State<VerseListView>
   }
 
   void _scrollToTop() {
-    AppHaptics.lightImpact();
     if (_isAutoScrolling) {
       stopAutoScrolling();
     }

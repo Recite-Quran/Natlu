@@ -421,7 +421,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                                 surahName: surahName,
                                 onSurahTap: _showSurahPicker,
                                 onSettingsTap: () {
-                                  AppHaptics.lightImpact();
                                   _showSettingsDialog();
                                 },
                                 isInMaglis: maglis.inSession,
@@ -429,7 +428,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                                 maglisPeerCount: peerCount,
                                 isRemoteReciting: maglis.isRemoteReciting,
                                 onMaglisTap: () async {
-                                  AppHaptics.lightImpact();
                                   app.recordMaglisTap();
                                   if (!app.hasSeenMaglisExplanation) {
                                     await DialogService.showMaglisExplanation(context);
@@ -441,7 +439,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                                   }
                                 },
                                 onMaglisExitTap: () async {
-                                  AppHaptics.heavyImpact();
                                   if (widget.isRecording) {
                                     widget.onToggleRecord();
                                   }
@@ -788,11 +785,9 @@ class _AutoScrollFloatingButtonState extends State<_AutoScrollFloatingButton> {
       onTapUp: (_) => setState(() => _isDown = false),
       onTapCancel: () => setState(() => _isDown = false),
       onTap: () {
-        AppHaptics.lightImpact();
         widget.onTap();
       },
       onLongPress: () {
-        AppHaptics.mediumImpact();
         widget.onLongPress();
       },
       behavior: HitTestBehavior.opaque,

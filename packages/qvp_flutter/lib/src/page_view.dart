@@ -12,7 +12,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'engine.dart';
@@ -763,7 +762,6 @@ class QvpPageViewState extends State<QvpPageView>
     if (h == null || h.word < 0) return;
     _selecting = true;
     _selAnchor = h.word;
-    HapticFeedback.selectionClick();
     _updateSelection(h.word);
   }
 

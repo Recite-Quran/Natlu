@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../../core/app_state.dart';
 import 'dialog_base.dart';
 
@@ -210,7 +209,6 @@ class _SpeedSelectionDialogState extends State<SpeedSelectionDialog> {
   int? _selectedIndex;
 
   void _selectSpeed(AppState app, int speedIndex) {
-    HapticFeedback.lightImpact();
     setState(() => _selectedIndex = speedIndex);
     app.setAutoScrollSpeed(speedIndex);
     Future.delayed(const Duration(milliseconds: 100), widget.onSpeedSelected);
@@ -369,4 +367,3 @@ class _ModernSpeedTile extends StatelessWidget {
     );
   }
 }
-
