@@ -2,9 +2,11 @@
 // crates/qvp-ffi/include/qvp.h documents every call and struct this file marshals, so its
 // members carry no doc block of their own.
 // ignore_for_file: public_member_api_docs
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' show Path, PathFillType, Rect;
 
@@ -66,6 +68,8 @@ class QvpNativeBackend implements QvpBackend {
     String? path,
     @visibleForTesting int scratchBytes = 1 << 18, // 256 KB
   }) : b = QvpBindings(library ?? resolveLibrary(path: path)),
+       _libraryPath = path,
+       _hasCustomLibrary = library != null,
        _scratchBytes = scratchBytes < _minScratchBytes
            ? _minScratchBytes
            : scratchBytes {
@@ -171,6 +175,9 @@ class QvpNativeBackend implements QvpBackend {
   late final ffi.Pointer<QvpPassageLayoutC> _passageLayout;
   late final ffi.Pointer<QvpOrnamentC> _ornament;
   late final ffi.Pointer<ffi.Uint32> _dressColors;
+  final String? _libraryPath;
+  final bool _hasCustomLibrary;
+  _NativePageWorker? _pageWorker;
   bool _disposed = false;
 
   /// Throws once [dispose] has run. [dispose] frees the scratch buffers and the out structs
@@ -479,6 +486,8 @@ class QvpNativeBackend implements QvpBackend {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _pageWorker?.dispose();
+    _pageWorker = null;
     _freeTarget(_target);
     _freeTheme(_theme);
     for (final p in <ffi.Pointer>[
@@ -550,6 +559,31 @@ class QvpNativeBackend implements QvpBackend {
         ),
       ),
     );
+  }
+
+  @override
+  Future<(PageHandle, QvpPageData)> pageLoadAsync(Uint8List bytes) async {
+    _live();
+    if (_hasCustomLibrary) {
+      return pageLoad(bytes);
+    }
+    try {
+      final worker = _pageWorker ??= _NativePageWorker(_libraryPath);
+      final (addr, data) = await worker.load(bytes);
+      final ptr = ffi.Pointer<QvpPageC>.fromAddress(addr);
+      if (_disposed) {
+        if (ptr != ffi.nullptr) b.pageFree(ptr);
+        throw StateError('QvpEngine was disposed');
+      }
+      return (NativePageHandle(ptr), data);
+    } on StateError {
+      rethrow;
+    } on FormatException {
+      rethrow;
+    } catch (_) {
+      if (_disposed) throw StateError('QvpEngine was disposed');
+      return pageLoad(bytes);
+    }
   }
 
   @override
@@ -2272,5 +2306,131 @@ class QvpNativeBackend implements QvpBackend {
       reflowed: l.reflowed != 0,
       rows: l.nRows,
     );
+  }
+}
+
+/// Persistent background isolate worker that executes `qvp_page_load` and all
+/// per-word/ayah/line/decoration FFI metadata decoding off the UI isolate.
+class _NativePageWorker {
+  _NativePageWorker(this._libraryPath);
+
+  final String? _libraryPath;
+  Isolate? _isolate;
+  ReceivePort? _rx;
+  SendPort? _tx;
+  Future<SendPort>? _starting;
+  int _nextId = 1;
+  bool _disposed = false;
+  final Map<int, Completer<(int, QvpPageData)>> _pending = {};
+
+  Future<SendPort> _ensureStarted() {
+    if (_disposed) {
+      return Future.error(StateError('QvpEngine was disposed'));
+    }
+    if (_tx != null) return Future.value(_tx!);
+    return _starting ??= _spawn();
+  }
+
+  Future<SendPort> _spawn() async {
+    final rx = ReceivePort();
+    _rx = rx;
+    final readyCompleter = Completer<SendPort>();
+
+    rx.listen((msg) {
+      if (msg is SendPort) {
+        _tx = msg;
+        if (!readyCompleter.isCompleted) readyCompleter.complete(msg);
+        return;
+      }
+      if (msg is (int, int, QvpPageData)) {
+        final (id, addr, data) = msg;
+        final c = _pending.remove(id);
+        c?.complete((addr, data));
+      } else if (msg is (int, String, bool)) {
+        final (id, errMsg, isFormat) = msg;
+        final c = _pending.remove(id);
+        c?.completeError(
+          isFormat ? FormatException(errMsg) : StateError(errMsg),
+        );
+      }
+    });
+
+    try {
+      _isolate = await Isolate.spawn(_workerEntry, (
+        rx.sendPort,
+        _libraryPath,
+      ), debugName: 'QvpPageLoader');
+      return await readyCompleter.future;
+    } catch (e, st) {
+      _starting = null;
+      rx.close();
+      _rx = null;
+      if (!readyCompleter.isCompleted) readyCompleter.completeError(e, st);
+      rethrow;
+    }
+  }
+
+  Future<(int, QvpPageData)> load(Uint8List bytes) async {
+    final tx = await _ensureStarted();
+    if (_disposed) throw StateError('QvpEngine was disposed');
+    final id = _nextId++;
+    final completer = Completer<(int, QvpPageData)>();
+    _pending[id] = completer;
+    tx.send((id, TransferableTypedData.fromList([bytes])));
+    return completer.future;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    try {
+      _tx?.send(null);
+    } catch (_) {}
+    _rx?.close();
+    _rx = null;
+    _tx = null;
+    _isolate?.kill(priority: Isolate.beforeNextEvent);
+    _isolate = null;
+    for (final c in _pending.values) {
+      if (!c.isCompleted) {
+        c.completeError(StateError('QvpEngine was disposed'));
+      }
+    }
+    _pending.clear();
+  }
+
+  static void _workerEntry((SendPort, String?) init) {
+    final (replyPort, libraryPath) = init;
+    final rx = ReceivePort();
+    QvpNativeBackend? backend;
+    try {
+      backend = QvpNativeBackend(path: libraryPath);
+    } catch (e) {
+      replyPort.send((-1, e.toString(), false));
+      rx.close();
+      return;
+    }
+    replyPort.send(rx.sendPort);
+
+    rx.listen((msg) {
+      if (msg == null) {
+        backend?.dispose();
+        rx.close();
+        return;
+      }
+      if (msg is (int, TransferableTypedData)) {
+        final (id, transferable) = msg;
+        try {
+          final bytes = transferable.materialize().asUint8List();
+          final (handle, data) = backend!.pageLoad(bytes);
+          final addr = (handle as NativePageHandle).pointer.address;
+          replyPort.send((id, addr, data));
+        } on FormatException catch (e) {
+          replyPort.send((id, e.message, true));
+        } catch (e) {
+          replyPort.send((id, e.toString(), false));
+        }
+      }
+    });
   }
 }

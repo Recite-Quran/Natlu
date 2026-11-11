@@ -146,6 +146,12 @@ class QvpEngine {
     return QvpPage.fromHandle(this, backend, handle, data);
   }
 
+  /// Decodes a page off the UI thread on native platforms (and inline on Web).
+  Future<QvpPage> loadPageAsync(Uint8List bytes) async {
+    final (handle, data) = await backend.pageLoadAsync(bytes);
+    return QvpPage.fromHandle(this, backend, handle, data);
+  }
+
   /// Decodes an atlas (`atlas.qva`).
   QvpAtlas loadAtlas(Uint8List bytes) {
     final (handle, pages) = backend.atlasLoad(bytes);

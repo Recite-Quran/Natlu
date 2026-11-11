@@ -103,6 +103,7 @@ abstract interface class QvpBackend {
 
   // ── Page lifecycle & data ──
   (PageHandle, QvpPageData) pageLoad(Uint8List bytes);
+  Future<(PageHandle, QvpPageData)> pageLoadAsync(Uint8List bytes);
   void pageFree(PageHandle handle);
 
   // ── Page text & query ──

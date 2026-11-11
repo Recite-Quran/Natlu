@@ -218,24 +218,17 @@ class MushafProvider {
     }
   }
 
-  /// Completes once Mushaf data (extraction, atlas, and initial page) is ready.
-  Future<void> waitUntilReady() async {
-    if (_isReady) return;
-    if (_isLoading && _loadingCompleter != null) {
-      await _loadingCompleter!.future;
-      return;
-    }
-    await loadData();
-  }
-
-  int _resolveInitialPage() {
+  /// Resolves the initial Mushaf page from cached page state or surah/ayah mapping.
+  int resolveInitialPage({int? surah, int? ayah}) {
     final cachedPage = AppState.instance.currentMushafPage.value;
     if (cachedPage > 1 && QuranMetadata.isValidPage(cachedPage)) {
       return cachedPage;
     }
     final app = AppState.instance;
-    final mapped = _atlas?.pageOf(app.lastSurah, app.lastAyah) ??
-        _atlas?.pageOf(app.lastSurah, 1);
+    final targetSurah = (surah != null && surah > 0) ? surah : app.lastSurah;
+    final targetAyah = ayah ?? app.lastAyah;
+    final mapped = _atlas?.pageOf(targetSurah, targetAyah) ??
+        _atlas?.pageOf(targetSurah, 1);
     if (mapped != null && QuranMetadata.isValidPage(mapped)) {
       return mapped;
     }
@@ -289,8 +282,7 @@ class MushafProvider {
         }
         // Pre-load the first visible page before marking ready so MushafView
         // renders synchronously from _pageCache on its first frame.
-        final initialPage = _resolveInitialPage();
-        await _loadPageInternal(initialPage);
+        await _loadPageInternal(resolveInitialPage());
       }
       _isReady = true;
 

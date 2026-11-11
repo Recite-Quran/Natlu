@@ -259,20 +259,11 @@ class _MushafViewState extends State<MushafView>
   }
 
   int _findInitialPage() {
-    final cachedPage = AppState.instance.currentMushafPage.value;
-    if (cachedPage > 1 && QuranMetadata.isValidPage(cachedPage)) {
-      return cachedPage;
-    }
     final coord = widget.controller.recitationCoordinate;
-    final surah = coord.$1;
-    final ayah = coord.$2 ?? AppState.instance.lastAyah;
-    final provider = MushafProvider.instance;
-    final mapped = provider.getPageForAyah(surah, ayah) ??
-        provider.getPageForAyah(surah, 1);
-    if (mapped != null && QuranMetadata.isValidPage(mapped)) {
-      return mapped;
-    }
-    return QuranMetadata.clampPage(cachedPage);
+    return MushafProvider.instance.resolveInitialPage(
+      surah: coord.$1,
+      ayah: coord.$2,
+    );
   }
 
   Future<void> _initMushafData() async {
@@ -650,22 +641,17 @@ class _MushafViewState extends State<MushafView>
     QvpPage? oldPage,
     bool notify = true,
   }) async {
-    final cached = MushafProvider.instance.getCachedPage(pageNumber);
-    if (cached != null && !cached.isDisposed) {
-      _clearPageVisuals(oldPage);
-      _currentPageObject = cached;
-      _checkSpinnerAnimation();
-      _syncVisuals();
-      if (notify && mounted) setState(() {});
-    } else {
-      final p = await MushafProvider.instance.getPage(pageNumber);
+    var page = MushafProvider.instance.getCachedPage(pageNumber);
+    if (page == null || page.isDisposed) {
+      page = await MushafProvider.instance.getPage(pageNumber);
       if (!mounted || pageNumber != _currentPage) return;
-      _clearPageVisuals(oldPage);
-      _currentPageObject = p;
-      _checkSpinnerAnimation();
-      _syncVisuals();
-      if (mounted) setState(() {});
+      notify = true;
     }
+    _clearPageVisuals(oldPage);
+    _currentPageObject = page;
+    _checkSpinnerAnimation();
+    _syncVisuals();
+    if (notify && mounted) setState(() {});
   }
 
   void _clearPageVisuals(QvpPage? page) {

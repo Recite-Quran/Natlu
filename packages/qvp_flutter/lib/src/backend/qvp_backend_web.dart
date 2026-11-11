@@ -622,6 +622,10 @@ class QvpWebBackend implements QvpBackend {
   }
 
   @override
+  Future<(PageHandle, QvpPageData)> pageLoadAsync(Uint8List bytes) =>
+      Future.value(pageLoad(bytes));
+
+  @override
   void pageFree(PageHandle handle) => _page(handle).callMethod('free'.toJS);
 
   List<QvpWordInfo> _readWords(JSObject p) {

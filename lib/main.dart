@@ -106,9 +106,6 @@ void main() async {
       }
 
       await AppState.instance.load();
-      if (!PlatformCapabilities.isWeb) {
-        MushafView.preloadData();
-      }
       runApp(const QuranApp());
     },
     (error, stack) {
@@ -238,19 +235,12 @@ class _IsolateQuranMetadataService extends QuranMetadataService {
 
   @override
   String? get datasetRiwayah {
-    final raw = rawJson;
-    if (raw == null) return null;
-    final moshaf = raw['moshaf'];
-    if (moshaf is Map && moshaf['rewaya'] != null) {
-      return moshaf['rewaya'].toString().toLowerCase();
-    }
-    if (raw['riwayah'] != null) {
-      return raw['riwayah'].toString().toLowerCase();
-    }
-    if (raw['rewaya'] != null) {
-      return raw['rewaya'].toString().toLowerCase();
-    }
-    return null;
+    final r = rawJson;
+    final moshaf = r?['moshaf'];
+    final v = (moshaf is Map ? moshaf['rewaya'] : null) ??
+        r?['riwayah'] ??
+        r?['rewaya'];
+    return v?.toString().toLowerCase();
   }
 
   @override
@@ -308,12 +298,12 @@ class _OrchestratorState extends State<_Orchestrator>
   bool _isBackgrounded = false;
   Timer? _maglisIdleTimer;
   Timer? _enginePrewarmTimer;
-  bool _isPrewarmScheduled = false;
+  int _prewarmEpoch = 0;
   DateTime? _maglisSoloSince;
   bool _hasAttachedMaglisBroadcast = false;
 
   void _cancelEnginePrewarm() {
-    _isPrewarmScheduled = false;
+    _prewarmEpoch++;
     _enginePrewarmTimer?.cancel();
     _enginePrewarmTimer = null;
   }
@@ -702,58 +692,43 @@ class _OrchestratorState extends State<_Orchestrator>
   }
 
   /// Silently pre-warms the ASR neural engine in the background on native platforms
-  /// only after Mushaf data is ready and the initial frame has rendered, preventing
-  /// the 72.7 MB ONNX copy/init from contending with first-run extraction.
+  /// only after Mushaf data is ready, preventing the 72.7 MB ONNX copy/init from
+  /// contending with first-run extraction.
   void _scheduleEnginePrewarm() {
-    if (PlatformCapabilities.isWeb ||
-        _engine.isInitialized ||
-        _isPrewarmScheduled) {
-      return;
-    }
-    _isPrewarmScheduled = true;
-    unawaited(_waitAndArmEnginePrewarm());
+    if (PlatformCapabilities.isWeb || _engine.isInitialized) return;
+    final int epoch = ++_prewarmEpoch;
+    _enginePrewarmTimer?.cancel();
+    _enginePrewarmTimer = null;
+    unawaited(_waitAndArmEnginePrewarm(epoch));
   }
 
-  Future<void> _waitAndArmEnginePrewarm() async {
-    try {
-      if (AppState.instance.isMushafMode && !MushafProvider.instance.isReady) {
-        await MushafProvider.instance.waitUntilReady();
-      }
-      if (!mounted ||
-          _isBackgrounded ||
-          _engine.isInitialized ||
-          !_isPrewarmScheduled) {
-        return;
-      }
-
-      if (WidgetsBinding.instance.hasScheduledFrame) {
-        await WidgetsBinding.instance.endOfFrame;
-      }
-      if (!mounted ||
-          _isBackgrounded ||
-          _engine.isInitialized ||
-          !_isPrewarmScheduled) {
-        return;
-      }
-
-      _enginePrewarmTimer?.cancel();
-      _enginePrewarmTimer = Timer(const Duration(milliseconds: 1500), () {
-        _enginePrewarmTimer = null;
-        _isPrewarmScheduled = false;
-        if (!mounted || _isBackgrounded || _engine.isInitialized) return;
-        DebugLogger.logSimple('ASR', '⚡ Background pre-warming ASR engine...');
-        unawaited(_engine.initialize().catchError((e) {
-          DebugLogger.logSimple(
-            'ASR',
-            '⚠️ Background engine pre-warm safely handled error: $e',
-          );
-        }));
-      });
-    } finally {
-      if (_enginePrewarmTimer == null) {
-        _isPrewarmScheduled = false;
-      }
+  Future<void> _waitAndArmEnginePrewarm(int epoch) async {
+    if (AppState.instance.isMushafMode && !MushafProvider.instance.isReady) {
+      await MushafProvider.instance.loadData();
     }
+    if (!mounted ||
+        _isBackgrounded ||
+        _engine.isInitialized ||
+        epoch != _prewarmEpoch) {
+      return;
+    }
+
+    _enginePrewarmTimer = Timer(const Duration(milliseconds: 1500), () {
+      _enginePrewarmTimer = null;
+      if (!mounted ||
+          _isBackgrounded ||
+          _engine.isInitialized ||
+          epoch != _prewarmEpoch) {
+        return;
+      }
+      DebugLogger.logSimple('ASR', '⚡ Background pre-warming ASR engine...');
+      unawaited(_engine.initialize().catchError((e) {
+        DebugLogger.logSimple(
+          'ASR',
+          '⚠️ Background engine pre-warm safely handled error: $e',
+        );
+      }));
+    });
   }
 
   /// Ensures the ASR engine is initialized.
