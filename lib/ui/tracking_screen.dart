@@ -463,8 +463,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                       AnimatedPositioned(
                         duration: const Duration(milliseconds: 280),
                         curve: Curves.easeOutCubic,
-                        left: pageLabelLeft - 9.0,
-                        bottom: isAutoScrolling ? (bottom + 18.0 - 9.0) : (bottom + 60.0 - 9.0),
+                        left: pageLabelLeft - 13.0,
+                        bottom: isAutoScrolling ? (bottom + 18.0 - 13.0) : (bottom + 60.0 - 13.0),
                         child: _AutoScrollFloatingButton(
                           isAutoScrolling: isAutoScrolling,
                           c: c,
@@ -792,8 +792,8 @@ class _AutoScrollFloatingButtonState extends State<_AutoScrollFloatingButton> {
       },
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 48,
-        height: 48,
+        width: 56,
+        height: 56,
         color: Colors.transparent,
         alignment: Alignment.center,
         child: AnimatedScale(

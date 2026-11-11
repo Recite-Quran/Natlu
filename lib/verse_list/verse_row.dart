@@ -699,7 +699,7 @@ class _VerseRowState extends State<VerseRow> {
                 Positioned(
                   left: 0,
                   bottom: 2,
-                  width: 32,
+                  width: 38,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.center,
@@ -728,7 +728,7 @@ class _VerseRowState extends State<VerseRow> {
                           onExplicitToggle: widget.onAudioPlayToggle,
                         ),
                         child: Container(
-                          width: 32,
+                          width: 38,
                           padding: const EdgeInsets.symmetric(vertical: 2),
                           color: Colors.transparent,
                           child: FittedBox(
@@ -833,8 +833,8 @@ class _VerseAudioButton extends StatelessWidget {
           onTap: onTapVerse,
         ),
         child: Container(
-          width: 32,
-          height: 30,
+          width: 38,
+          height: 38,
           color: Colors.transparent,
           child: Center(
             child: AnimatedContainer(
