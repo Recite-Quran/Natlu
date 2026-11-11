@@ -16,9 +16,11 @@ import 'quran_audio_service.dart';
 /// - App logo cached and passed as [MediaItem.artUri]
 /// - Tagged and labeled: "القران العظيم"
 /// - Swipe-to-dismiss support: `androidStopForegroundOnPause: true` + [onNotificationDeleted] -> stops audio.
-class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
+class QuranAudioHandler extends BaseAudioHandler
+    with QueueHandler, SeekHandler {
   static QuranAudioHandler? _instance;
-  static QuranAudioHandler get instance => _instance ??= QuranAudioHandler._internal();
+  static QuranAudioHandler get instance =>
+      _instance ??= QuranAudioHandler._internal();
 
   static bool _isServiceInitialized = false;
   static Uri? _cachedArtUri;
@@ -41,7 +43,6 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.recitequran.app.audio',
           androidNotificationChannelName: 'القران العظيم',
-          androidNotificationChannelDescription: 'تلاوة آيات القرآن الكريم بصوت الشيخ محمود خليل الحصري',
           androidNotificationOngoing: false,
           androidStopForegroundOnPause: true,
           androidNotificationIcon: 'mipmap/ic_launcher',
@@ -83,10 +84,8 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
       id: '$surah:$ayah',
       album: 'القران العظيم',
       title: verseLabel,
-      artist: 'القارئ محمود خليل الحصري',
       displayTitle: 'القران العظيم',
       displaySubtitle: verseLabel,
-      displayDescription: 'القارئ محمود خليل الحصري',
       artUri: _cachedArtUri,
     );
 
@@ -102,7 +101,9 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     if (!_isServiceInitialized) return;
 
     AudioProcessingState processing;
-    if (isBuffering || player.processingState == ProcessingState.loading || player.processingState == ProcessingState.buffering) {
+    if (isBuffering ||
+        player.processingState == ProcessingState.loading ||
+        player.processingState == ProcessingState.buffering) {
       processing = AudioProcessingState.buffering;
     } else if (player.processingState == ProcessingState.ready) {
       processing = AudioProcessingState.ready;
@@ -186,4 +187,3 @@ class QuranAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler 
     return super.onNotificationDeleted();
   }
 }
-
