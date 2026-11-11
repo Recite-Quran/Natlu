@@ -608,8 +608,11 @@ class QvpPageViewState extends State<QvpPageView>
     for (final m in page.ayahMarksView()) {
       final dx = v.dx - m.cx;
       final dy = v.dy - m.cy;
-      final r = m.r + 14.0;
-      if (dx * dx + dy * dy <= r * r &&
+      // Ergonomic oval target: tighter on sides (rx: +7px) to protect word tapping,
+      // taller vertically (ry: +13px) utilizing empty line spacing.
+      final rx = m.r + 7.0;
+      final ry = m.r + 13.0;
+      if ((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1.0 &&
           m.decoration >= 0 &&
           m.decoration < page.decorations.length) {
         final hit = QvpHit(
