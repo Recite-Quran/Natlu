@@ -361,13 +361,10 @@ class VerseAudioPlayer {
   }
 
   /// Creates MediaItem metadata for background notification and lock screen controls.
-  /// Formats strictly as: "الايه رقم [رقم] - [اسم السورة]" (e.g. "الايه رقم 5 - الاسراء").
   static MediaItem createMediaItem(int surah, int ayah) {
-    final surahName = QuranMetadata.getSurahNameArabic(surah);
     return MediaItem(
       id: '$surah:$ayah',
-      album: 'سورة $surahName',
-      title: 'الايه رقم $ayah - $surahName',
+      title: 'القران العظيم',
       artUri: _cachedAppIconUri,
     );
   }

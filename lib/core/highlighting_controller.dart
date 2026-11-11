@@ -211,6 +211,30 @@ class HighlightingController extends rq.HighlightingController {
   // Manual selection state
   int _manualTargetSurah = 0;
 
+  // ── Retarget window ──
+  //
+  // A cross-surah merge (setTargetSurah / setManualAyah retargeting the
+  // engine) makes the package write transient coordinates through the shared
+  // activeAyah notifier: first a null wipe, then reset() hard-codes ayah 1
+  // and notifies mid-merge. Those writes are merge noise, not coordinate
+  // truth — a view that follows the coordinate would chase them (flip to the
+  // surah's first page, then flip back). [isCoordinateSettled] reports the
+  // window; the merge's final write re-broadcasts the settled coordinate,
+  // which is what the view follows.
+  bool _isRetargeting = false;
+  bool get isCoordinateSettled => !_isRetargeting;
+
+  void _beginRetarget() => _isRetargeting = true;
+
+  void _endRetarget() {
+    if (!_isRetargeting) return;
+    _isRetargeting = false;
+    // The coordinate may have been re-pointed during the window (rapid
+    // re-selection wins over the stale merge). Re-broadcast once so the view
+    // re-follows whatever coordinate is settled now.
+    notifyListeners();
+  }
+
   // Audio Playback state
   int? _audioSurah;
   int? _audioAyah;
@@ -226,6 +250,47 @@ class HighlightingController extends rq.HighlightingController {
     super.isTajweed = true,
     super.config = const rq.TrackerConfig(),
   });
+
+  // ── Package → Controller ingestion (the only read boundary) ──
+
+  /// The package reports; the controller saves. Every package event ends in
+  /// [notifyListeners], so the engine's verdicts are pulled into the flat
+  /// store HERE — before any listener sees the notification. Afterwards all
+  /// queries, the paint path included, are pure O(1) store reads:
+  /// package → controller → view, one direction, no fallback reads.
+  @override
+  void notifyListeners() {
+    _ingestEngineState();
+    super.notifyListeners();
+  }
+
+  /// Receives the package's latest verdicts (word states + completed ayahs)
+  /// into the store. Idempotent and cheap: a word already saved is never
+  /// re-read from the engine or overwritten, and the gate bails instantly
+  /// whenever no package session is live.
+  void _ingestEngineState() {
+    // Gate on the package's own session state: verdicts only exist between
+    // startRecordingSession() and finalize(). Everything else (audio ticks,
+    // packets, selection changes) pays one enum compare.
+    if (super.state != rq.TrackerState.tracking) return;
+    final int? ayah = activeAyah.value;
+    if (ayah == null) return;
+    final int surah = targetSurah;
+    if (surah == 0) return;
+
+    final verse = repository.getVerse(surah, ayah);
+    if (verse == null) return;
+    extractAyahWordClassification(surah, ayah, verse.uthmaniWords.length);
+
+    // Receive completed-ayah marks too — including the package's bulk
+    // completion of skipped ayahs.
+    final mine = _store.completedAyahsFor(surah);
+    for (final a in super.completedAyahsFor(surah)) {
+      if (!mine.contains(a)) {
+        _store.markAyahCompleted(surah, a);
+      }
+    }
+  }
 
   /// The active source driving highlighting/progress.
   RecitationSource get activeSource {
@@ -281,17 +346,12 @@ class HighlightingController extends rq.HighlightingController {
 
   /// The active coordinate (surah, ayah) driving playback or recitation.
   ///
-  /// Strict controller truth: the mirrored coordinate first, then the engine's
-  /// own live match. Audio has no separate branch — applyAudioProgress mirrors
-  /// the playing verse into targetSurah/activeAyah in the same event that
-  /// makes isAudioActive true.
+  /// Pure controller truth: the mirrored coordinate, nothing else. Audio has
+  /// no separate branch — applyAudioProgress mirrors the playing verse into
+  /// targetSurah/activeAyah in the same event that makes isAudioActive true.
   (int surah, int ayah)? get activeAyahCoordinate {
     if (activeAyah.value != null && targetSurah != 0) {
       return (targetSurah, activeAyah.value!);
-    }
-    final activeMatch = currentMatchedVerse;
-    if (activeMatch != null) {
-      return (activeMatch.verse.surah, activeMatch.verse.ayah);
     }
     return null;
   }
@@ -326,11 +386,18 @@ class HighlightingController extends rq.HighlightingController {
     if (clearTargetSurah) {
       _store.clearSurah(surah);
     }
-    await super.setTargetSurah(
-      surah,
-      preserveOtherSurahStates: preserveOtherSurahStates,
-      clearTargetSurah: clearTargetSurah,
-    );
+    // Merge window: the package writes transient coordinates mid-merge;
+    // views must not follow until the merge's final write lands.
+    _beginRetarget();
+    try {
+      await super.setTargetSurah(
+        surah,
+        preserveOtherSurahStates: preserveOtherSurahStates,
+        clearTargetSurah: clearTargetSurah,
+      );
+    } finally {
+      _endRetarget();
+    }
   }
 
   static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};
@@ -370,33 +437,59 @@ class HighlightingController extends rq.HighlightingController {
     return true;
   }
 
-  /// Extracts classified word indices (green, yellow, red) and errors for an ayah,
-  /// while seamlessly recording local ASR matches into the flat [_store] for O(1) snapshots.
+  /// Receives the package's verdicts for one ayah and saves them into the
+  /// flat store. This is the single boundary where package state is read —
+  /// the package reports, the controller saves; a word already saved (e.g.
+  /// by a Maglis packet) is never overwritten. The returned classification is
+  /// read back from the store, so callers broadcast exactly what the UI renders.
   ({
     List<int> greenWords,
     List<int> yellowWords,
     List<int> redWords,
     Map<int, List<rq.ReciterError>>? wordErrors,
   }) extractAyahWordClassification(int surah, int ayah, int wordCount) {
+    for (int w0 = 0; w0 < wordCount; w0++) {
+      if (_store.getWordStatus(surah, ayah, w0) != 0) continue;
+      // Package verdict? Receive it once.
+      int status = 0;
+      List<rq.ReciterError>? errors;
+      if (super.isWordRed(ayah, w0, surah: surah)) {
+        status = 3;
+      } else if (super.isWordYellow(ayah, w0, surah: surah)) {
+        status = 2;
+        errors = super.getWordErrors(ayah, w0, surah: surah);
+      } else if (super.isWordGreen(ayah, w0, surah: surah)) {
+        status = 1;
+      } else if (super.isWordNeutral(ayah, w0, surah: surah)) {
+        status = 4;
+      }
+      if (status == 1) {
+        _store.markGreen(surah, ayah, w0);
+      } else if (status == 2) {
+        _store.markYellow(surah, ayah, w0, errors);
+      } else if (status == 3) {
+        _store.markRed(surah, ayah, w0);
+      } else if (status == 4) {
+        _store.markNeutral(surah, ayah, w0);
+      }
+    }
+
     final greenWords = <int>[];
     final yellowWords = <int>[];
     final redWords = <int>[];
     Map<int, List<rq.ReciterError>>? wordErrors;
-
     for (int w0 = 0; w0 < wordCount; w0++) {
-      if (isWordRed(ayah, w0, surah: surah)) {
-        redWords.add(w0);
-        _store.markRed(surah, ayah, w0);
-      } else if (isWordYellow(ayah, w0, surah: surah)) {
+      final st = _store.getWordStatus(surah, ayah, w0);
+      if (st == 1) {
+        greenWords.add(w0);
+      } else if (st == 2) {
         yellowWords.add(w0);
-        final errs = getWordErrors(ayah, w0, surah: surah);
+        final errs = _store.errorsFor(surah, ayah, w0);
         if (errs != null && errs.isNotEmpty) {
           (wordErrors ??= {})[w0] = errs;
         }
-        _store.markYellow(surah, ayah, w0, errs);
-      } else if (isWordGreen(ayah, w0, surah: surah)) {
-        greenWords.add(w0);
-        _store.markGreen(surah, ayah, w0);
+      } else if (st == 3) {
+        redWords.add(w0);
       }
     }
 
@@ -430,6 +523,10 @@ class HighlightingController extends rq.HighlightingController {
       // The engine needs its target surah loaded before it can accept the
       // ayah. Only apply if this selection is still the newest event — a
       // rapid re-selection must never let a stale engine write land.
+      // Merge window open until the merge's final write lands (or a newer
+      // selection replaces it): the view must not follow the package's
+      // transient coordinate writes in between.
+      _beginRetarget();
       super
           .setTargetSurah(
             surah,
@@ -437,10 +534,12 @@ class HighlightingController extends rq.HighlightingController {
             clearTargetSurah: false,
           )
           .then((_) {
-        if (_manualTargetSurah == surah) {
-          super.setManualAyah(surah, ayah);
-        }
-      }).catchError((_) {});
+            if (_manualTargetSurah == surah) {
+              super.setManualAyah(surah, ayah);
+            }
+          })
+          .catchError((_) {})
+          .whenComplete(_endRetarget);
     }
 
     globalRevision.value++;
@@ -450,57 +549,44 @@ class HighlightingController extends rq.HighlightingController {
   @override
   rq.VerseMatch? get currentMatchedVerse {
     // The mirrored coordinate IS the matched verse for every source (manual
-    // selection, ASR anchor, audio playback, Maglis packets). Only when no
-    // coordinate exists does the engine's own live match answer.
+    // selection, ASR anchor, audio playback, Maglis packets). Pure coordinate
+    // read — no fallback into the package.
     if (_manualTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
       if (v != null) {
         return rq.VerseMatch(verse: v, score: 1.0);
       }
     }
-    return super.currentMatchedVerse;
+    return null;
   }
 
-  // ── Word Status Queries (one base resolution for all sources) ──
+  // ── Word Status Queries (pure store reads) ──
   //
-  // Every word-state query funnels through [_resolvedWordStatus]: the flat
-  // O(1) store first — local ASR, remote Maglis and audio playback all merge
-  // into it — then a single engine consult on a store miss. The paint path
-  // calls this per word per frame, so the hit path is one map lookup and
-  // never reaches the engine.
-
-  /// Resolves the numeric highlight state for one word:
-  /// 1 green · 2 yellow · 3 red · 4 neutral · 0 unread.
-  int _resolvedWordStatus(int ayah, int wordIndex, int? surah) {
-    final s = surah ?? targetSurah;
-    final st = _store.getWordStatus(s, ayah, wordIndex);
-    if (st > 0) return st;
-    if (super.isWordGreen(ayah, wordIndex, surah: s)) return 1;
-    if (super.isWordYellow(ayah, wordIndex, surah: s)) return 2;
-    if (super.isWordRed(ayah, wordIndex, surah: s)) return 3;
-    if (super.isWordNeutral(ayah, wordIndex, surah: s)) return 4;
-    return 0;
-  }
+  // The package's verdicts arrive through _ingestEngineState and live in the
+  // store from then on; audio playback and Maglis packets write the same
+  // store at their ingestion points. Every query below — the paint path
+  // included — is a single O(1) lookup. No source is ever consulted at read
+  // time: package → controller → view, one direction.
 
   @override
   bool isWordGreen(int ayah, int wordIndex, {int? surah}) =>
-      _resolvedWordStatus(ayah, wordIndex, surah) == 1;
+      _store.isGreen(surah ?? targetSurah, ayah, wordIndex);
 
   @override
   bool isWordYellow(int ayah, int wordIndex, {int? surah}) =>
-      _resolvedWordStatus(ayah, wordIndex, surah) == 2;
+      _store.isYellow(surah ?? targetSurah, ayah, wordIndex);
 
   @override
   bool isWordRed(int ayah, int wordIndex, {int? surah}) =>
-      _resolvedWordStatus(ayah, wordIndex, surah) == 3;
+      _store.isRed(surah ?? targetSurah, ayah, wordIndex);
 
   @override
   bool isWordNeutral(int ayah, int wordIndex, {int? surah}) =>
-      _resolvedWordStatus(ayah, wordIndex, surah) == 4;
+      _store.isNeutral(surah ?? targetSurah, ayah, wordIndex);
 
   /// Whether the word carries any recitation state (green/yellow/red/neutral).
   bool isWordRead(int ayah, int wordIndex, {int? surah}) =>
-      _resolvedWordStatus(ayah, wordIndex, surah) != 0;
+      _store.isRead(surah ?? targetSurah, ayah, wordIndex);
 
   /// Numeric status representation for high-speed rendering:
   /// 1: Green (Correct)
@@ -509,42 +595,25 @@ class HighlightingController extends rq.HighlightingController {
   /// 4: Neutral (Spoken/Passed)
   /// null: Unread
   int? getWordStatus(int ayah, int wordIndex, {int? surah}) {
-    final st = _resolvedWordStatus(ayah, wordIndex, surah);
+    final st = _store.getWordStatus(surah ?? targetSurah, ayah, wordIndex);
     return st > 0 ? st : null;
   }
 
   @override
   List<rq.ReciterError>? getWordErrors(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
-    final list = _store.errorsFor(s, ayah, wordIndex) ??
-        super.getWordErrors(ayah, wordIndex, surah: s);
+    final list = _store.errorsFor(s, ayah, wordIndex);
     if (list == null || list.isEmpty) return null;
     return list.map((e) => hydrateRemoteError(s, ayah, wordIndex, e)).toList();
   }
 
   @override
-  Set<int> completedAyahsFor(int surah) {
-    final remoteSet = _store.completedAyahsFor(surah);
-    final localSet = super.completedAyahsFor(surah);
-    if (remoteSet.isEmpty) return localSet;
-    if (localSet.isEmpty) return remoteSet;
-    return {...localSet, ...remoteSet};
-  }
+  Set<int> completedAyahsFor(int surah) => _store.completedAyahsFor(surah);
 
-  /// High-speed check if a specific ayah has any stored highlights across local or remote store.
-  bool hasAyahHighlights(int surah, int ayah) {
-    if (_store.hasAyahHighlights(surah, ayah)) return true;
-    final v = repository.getVerse(surah, ayah);
-    final count = v?.uthmaniWords.length ?? 0;
-    for (int i = 0; i < count; i++) {
-      if (_resolvedWordStatus(ayah, i, surah) != 0) {
-        // Back-fill the store once so every later lookup is O(1) instant.
-        extractAyahWordClassification(surah, ayah, count);
-        return true;
-      }
-    }
-    return false;
-  }
+  /// O(1) check: the store's per-ayah highlight count. All verdicts are
+  /// saved at their ingestion point, so there is nothing to scan.
+  bool hasAyahHighlights(int surah, int ayah) =>
+      _store.hasAyahHighlights(surah, ayah);
 
   // ── Remote Maglis Recitation Ingestion ──
 
@@ -901,17 +970,10 @@ class HighlightingController extends rq.HighlightingController {
   }
 
   /// Determines if an Ayah is actively selected, reciting, or playing audio.
-  /// Audio has no separate branch — applyAudioProgress mirrors the playing
-  /// verse into the coordinate in the same event that activates it.
-  bool isAyahActive(int surah, int ayah) {
-    final activeMatch = currentMatchedVerse;
-    if (activeMatch != null &&
-        activeMatch.verse.surah == surah &&
-        activeMatch.verse.ayah == ayah) {
-      return true;
-    }
-    return activeAyah.value == ayah && targetSurah == surah;
-  }
+  /// Pure coordinate check: every source mirrors into the coordinate, so
+  /// there is nothing else to consult.
+  bool isAyahActive(int surah, int ayah) =>
+      activeAyah.value == ayah && targetSurah == surah;
 
   /// The single coordinate every recitation source currently drives.
   ///

@@ -312,6 +312,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _clearPageVisuals(_currentPageObject);
     _flipController.dispose();
     _spinnerController.dispose();
+    _spinnerMark.dispose();
     _yellowWordsNotifier.dispose();
     AppModalRouteObserver.instance.activeModalsNotifier
         .removeListener(_onModalStateChanged);
@@ -486,6 +487,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   /// moment the current slide ends — one slot, which is all sequential
   /// recitation ever needs.
   void _syncPageFollow(int surah, int? ayah) {
+    // One base rule for every source: never chase the coordinate while the
+    // controller is mid-merge — a surah retarget emits transient writes
+    // (null wipe, engine reset to ayah 1) through the shared coordinate.
+    // The merge's final write re-broadcasts the settled coordinate, which
+    // re-triggers this method with the truth.
+    if (!widget.controller.isCoordinateSettled) return;
     final provider = MushafProvider.instance;
     if (surah == 0 || ayah == null || !provider.isReady) return;
     if (provider.isAyahOnPage(
@@ -528,7 +535,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       if (_spinnerController.isAnimating) {
         _spinnerController.stop();
       }
-      _spinnerMark = null;
+      _spinnerMark.value = null;
       _spinnerMarkKey = null;
     }
   }
@@ -536,7 +543,15 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   // Isolated buffering-spinner layer state: cached mark geometry plus the
   // key it was computed for, so word ticks during buffering hit an O(1)
   // identity guard instead of an FFI mark scan.
-  ({Offset center, double radius})? _spinnerMark;
+  //
+  // The mark is a ValueNotifier, not a plain field: the presence/absence of
+  // the arc layer must be reactive. A plain field clear happens with no
+  // rebuild attached, so the arc widget would stay in the tree — frozen on
+  // screen forever after buffering ends. The builder below reads the
+  // geometry once per mark change; per-frame rotation stays on
+  // _spinnerController.
+  final ValueNotifier<({Offset center, double radius})?> _spinnerMark =
+      ValueNotifier(null);
   ({int surah, int ayah, QvpPage page})? _spinnerMarkKey;
 
   /// Caches the buffering ayah mark's geometry for the spinner layer: zero
@@ -544,12 +559,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   /// when the buffering ayah or page actually changes.
   void _updateSpinnerMark(QvpPage page, int surah, int ayah) {
     final key = (surah: surah, ayah: ayah, page: page);
-    if (_spinnerMarkKey == key && _spinnerMark != null) return;
+    if (_spinnerMarkKey == key && _spinnerMark.value != null) return;
     _spinnerMarkKey = key;
-    _spinnerMark = null;
+    _spinnerMark.value = null;
     for (final m in page.ayahMarksView()) {
       if (widget.controller.isAyahAudioBuffering(m.surah, m.ayah)) {
-        _spinnerMark = (center: Offset(m.cx, m.cy), radius: m.r * 0.80);
+        _spinnerMark.value = (center: Offset(m.cx, m.cy), radius: m.r * 0.80);
         return;
       }
     }
@@ -700,7 +715,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       _hasMasks = false;
     }
     _lastHiddenWords = const [];
-    _spinnerMark = null;
+    _spinnerMark.value = null;
     _spinnerMarkKey = null;
     if (_yellowWordsNotifier.value.isNotEmpty) {
       _yellowWordsNotifier.value = const [];
@@ -1027,22 +1042,35 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                   // rotating arc at the cached mark position. Its
                                   // repaint listenable is the spinner controller
                                   // alone, so spinner ticks (60–120Hz) repaint this
-                                  // tiny layer — never the page picture.
-                                  if (_spinnerMark != null)
-                                    Positioned.fill(
-                                      child: IgnorePointer(
-                                        child: RepaintBoundary(
-                                          child: CustomPaint(
-                                            painter: _BufferingSpinnerPainter(
-                                              spinner: _spinnerController,
-                                              center: _spinnerMark!.center,
-                                              ringRadius: _spinnerMark!.radius,
-                                              color: c.primary,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
+                                  // tiny layer — never the page picture. Layer
+                                  // presence is driven by the mark ValueNotifier,
+                                  // so the arc is removed from the tree the moment
+                                  // buffering ends.
+                                  ValueListenableBuilder<
+                                      ({Offset center, double radius})?>(
+                                    valueListenable: _spinnerMark,
+                                    builder: (context, spinnerMark, _) =>
+                                        spinnerMark == null
+                                            ? const SizedBox.shrink()
+                                            : Positioned.fill(
+                                                child: IgnorePointer(
+                                                  child: RepaintBoundary(
+                                                    child: CustomPaint(
+                                                      painter:
+                                                          _BufferingSpinnerPainter(
+                                                        spinner:
+                                                            _spinnerController,
+                                                        center: spinnerMark
+                                                            .center,
+                                                        ringRadius:
+                                                            spinnerMark.radius,
+                                                        color: c.primary,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                  ),
                                   // Swift-style flip overlay: The old page slides away with a page shadow
                                   if (_flipPageObject != null)
                                     AnimatedBuilder(
