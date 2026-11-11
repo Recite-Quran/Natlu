@@ -224,6 +224,10 @@ class HighlightingController extends rq.HighlightingController {
   bool _isRetargeting = false;
   bool get isCoordinateSettled => !_isRetargeting;
 
+  // Last (surah, ayah) the ingestion ran for — drives the coordinate-advance
+  // catch-up in [_ingestEngineState].
+  ({int surah, int ayah})? _lastIngestedCoordinate;
+
   void _beginRetarget() => _isRetargeting = true;
 
   void _endRetarget() {
@@ -278,9 +282,23 @@ class HighlightingController extends rq.HighlightingController {
     final int surah = targetSurah;
     if (surah == 0) return;
 
-    final verse = repository.getVerse(surah, ayah);
-    if (verse == null) return;
-    extractAyahWordClassification(surah, ayah, verse.uthmaniWords.length);
+    // Coordinate-advance catch-up. The package writes the next ayah into the
+    // coordinate BEFORE notifying: an ayah's last-word event both commits the
+    // word and advances the coordinate in the same synchronous block, so
+    // reading only the coordinate's ayah would lose the finished ayah's final
+    // verdicts. One general rule, reanchor jumps included: on a forward move
+    // within the same surah, ingest every ayah the coordinate passed. The
+    // store-first skip keeps verdicts already saved (e.g. by Maglis packets)
+    // untouched, and only words the package actually gave a verdict for are
+    // received — bulk-completed-but-unspoken ayahs stay unsaved.
+    final last = _lastIngestedCoordinate;
+    if (last != null && last.surah == surah && ayah > last.ayah) {
+      for (int a = last.ayah; a < ayah; a++) {
+        _ingestAyah(surah, a);
+      }
+    }
+    _lastIngestedCoordinate = (surah: surah, ayah: ayah);
+    _ingestAyah(surah, ayah);
 
     // Receive completed-ayah marks too — including the package's bulk
     // completion of skipped ayahs.
@@ -290,6 +308,13 @@ class HighlightingController extends rq.HighlightingController {
         _store.markAyahCompleted(surah, a);
       }
     }
+  }
+
+  /// Receives one ayah's word verdicts from the package into the store.
+  void _ingestAyah(int surah, int ayah) {
+    final verse = repository.getVerse(surah, ayah);
+    if (verse == null) return;
+    extractAyahWordClassification(surah, ayah, verse.uthmaniWords.length);
   }
 
   /// The active source driving highlighting/progress.
