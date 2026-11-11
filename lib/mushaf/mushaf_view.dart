@@ -187,7 +187,7 @@ class _MushafViewState extends State<MushafView>
 
     if (provider.isReady) {
       _isLoading = false;
-      _loadCurrentPage(_currentPage);
+      _loadCurrentPage(_currentPage, notify: false);
     } else {
       _initMushafData();
     }
@@ -645,14 +645,18 @@ class _MushafViewState extends State<MushafView>
     _loadCurrentPage(clamped, oldPage: oldPage);
   }
 
-  Future<void> _loadCurrentPage(int pageNumber, {QvpPage? oldPage}) async {
+  Future<void> _loadCurrentPage(
+    int pageNumber, {
+    QvpPage? oldPage,
+    bool notify = true,
+  }) async {
     final cached = MushafProvider.instance.getCachedPage(pageNumber);
     if (cached != null && !cached.isDisposed) {
       _clearPageVisuals(oldPage);
       _currentPageObject = cached;
       _checkSpinnerAnimation();
       _syncVisuals();
-      if (mounted) setState(() {});
+      if (notify && mounted) setState(() {});
     } else {
       final p = await MushafProvider.instance.getPage(pageNumber);
       if (!mounted || pageNumber != _currentPage) return;

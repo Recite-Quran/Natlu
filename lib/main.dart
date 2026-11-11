@@ -19,6 +19,7 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -105,6 +106,9 @@ void main() async {
       }
 
       await AppState.instance.load();
+      if (!PlatformCapabilities.isWeb) {
+        MushafView.preloadData();
+      }
       runApp(const QuranApp());
     },
     (error, stack) {
@@ -221,6 +225,58 @@ class QuranApp extends StatelessWidget {
   }
 }
 
+Map<String, dynamic> _decodePhonemeJsonBytes(Uint8List bytes) =>
+    jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+
+/// Offloads UTF-8 decoding and JSON parsing of the 12.8 MB phoneme dataset
+/// to a background isolate on native platforms so the UI thread stays fluid.
+class _IsolateQuranMetadataService extends QuranMetadataService {
+  Map<String, dynamic>? _decodedJson;
+
+  @override
+  Map<String, dynamic>? get rawJson => _decodedJson ?? super.rawJson;
+
+  @override
+  String? get datasetRiwayah {
+    final raw = rawJson;
+    if (raw == null) return null;
+    final moshaf = raw['moshaf'];
+    if (moshaf is Map && moshaf['rewaya'] != null) {
+      return moshaf['rewaya'].toString().toLowerCase();
+    }
+    if (raw['riwayah'] != null) {
+      return raw['riwayah'].toString().toLowerCase();
+    }
+    if (raw['rewaya'] != null) {
+      return raw['rewaya'].toString().toLowerCase();
+    }
+    return null;
+  }
+
+  @override
+  Future<void> loadData() async {
+    if (rawJson != null) return;
+    if (kIsWeb) {
+      await super.loadData();
+      return;
+    }
+
+    ByteData data;
+    try {
+      data = await rootBundle.load(
+        'packages/recite_quran/assets/model/ordered_quran_phonemes.json',
+      );
+    } catch (_) {
+      data = await rootBundle.load('assets/model/ordered_quran_phonemes.json');
+    }
+    final bytes = data.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+    _decodedJson = await compute(_decodePhonemeJsonBytes, bytes);
+  }
+}
+
 /// The conductor — owns the ASR engine, audio processor, and controller.
 /// Manages the full lifecycle of a recording session.
 class _Orchestrator extends StatefulWidget {
@@ -252,8 +308,15 @@ class _OrchestratorState extends State<_Orchestrator>
   bool _isBackgrounded = false;
   Timer? _maglisIdleTimer;
   Timer? _enginePrewarmTimer;
+  bool _isPrewarmScheduled = false;
   DateTime? _maglisSoloSince;
   bool _hasAttachedMaglisBroadcast = false;
+
+  void _cancelEnginePrewarm() {
+    _isPrewarmScheduled = false;
+    _enginePrewarmTimer?.cancel();
+    _enginePrewarmTimer = null;
+  }
 
   void _syncMaglisBroadcastListeners() {
     final inSession = MaglisController.instance.inSession;
@@ -430,8 +493,7 @@ class _OrchestratorState extends State<_Orchestrator>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
       QuranAudioService.instance.stop();
-      _enginePrewarmTimer?.cancel();
-      _enginePrewarmTimer = null;
+      _cancelEnginePrewarm();
       _maglisIdleTimer?.cancel();
       _maglisIdleTimer = null;
       _maglisSoloSince = null;
@@ -467,19 +529,13 @@ class _OrchestratorState extends State<_Orchestrator>
     final bool isDesktopOrWeb =
         PlatformCapabilities.isWeb || PlatformCapabilities.isDesktop;
 
-    if (!isDesktopOrWeb) {
-      if (state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.paused) {
+      _cancelEnginePrewarm();
+      if (!isDesktopOrWeb) {
         _isBackgrounded = true;
-        _enginePrewarmTimer?.cancel();
-        _enginePrewarmTimer = null;
         if (MaglisController.instance.inSession) {
           _onMaglisSessionChangedForIdleTimer();
         }
-      }
-    } else {
-      if (state == AppLifecycleState.paused) {
-        _enginePrewarmTimer?.cancel();
-        _enginePrewarmTimer = null;
       }
     }
   }
@@ -515,8 +571,7 @@ class _OrchestratorState extends State<_Orchestrator>
     _maglisIdleTimer?.cancel();
     _maglisIdleTimer = null;
     _maglisSoloSince = null;
-    _enginePrewarmTimer?.cancel();
-    _enginePrewarmTimer = null;
+    _cancelEnginePrewarm();
     if (MaglisController.instance.inSession) {
       unawaited(MaglisController.instance.leaveSession());
     }
@@ -551,7 +606,10 @@ class _OrchestratorState extends State<_Orchestrator>
       // ASR engine initialization is lazily deferred until the user initiates recitation
       // or voice search via _ensureEngineReady(), keeping silent reading cool, lean, and jank-free.
       if (mounted) setState(() => _initStatus = 'Loading Quran database…');
-      final service = QuranMetadataService();
+      // Start Mushaf preload before phoneme JSON loading so native extraction/atlas
+      // load does not wait behind the 12.8 MB phoneme dataset.
+      MushafView.preloadData();
+      final service = _IsolateQuranMetadataService();
       _repo = QuranRepository(service);
       final initialSurah = AppState.instance.lastSurah;
       final initialAyah = AppState.instance.lastAyah;
@@ -560,7 +618,6 @@ class _OrchestratorState extends State<_Orchestrator>
 
       // Voice search phonetic index is lazily loaded on first voice search tap,
       // saving ~20MB RAM and preventing background isolate CPU churn during startup and silent reading.
-      MushafView.preloadData(); // Fire-and-forget in background Isolate
 
       _ctrl = HighlightingController(
         engine: _engine,
@@ -645,29 +702,64 @@ class _OrchestratorState extends State<_Orchestrator>
   }
 
   /// Silently pre-warms the ASR neural engine in the background on native platforms
-  /// after the initial Mushaf frame is completely rendered and idle (1500ms delay).
-  /// This eliminates the 1-2s delay on first record tap while avoiding cold-start contention.
+  /// only after Mushaf data is ready and the initial frame has rendered, preventing
+  /// the 72.7 MB ONNX copy/init from contending with first-run extraction.
   void _scheduleEnginePrewarm() {
-    if (PlatformCapabilities.isWeb || _engine.isInitialized) return;
-    _enginePrewarmTimer?.cancel();
-    _enginePrewarmTimer = Timer(const Duration(milliseconds: 1500), () {
-      _enginePrewarmTimer = null;
-      if (!mounted || _isBackgrounded || _engine.isInitialized) return;
-      DebugLogger.logSimple('ASR', '⚡ Background pre-warming ASR engine...');
-      unawaited(_engine.initialize().catchError((e) {
-        DebugLogger.logSimple(
-          'ASR',
-          '⚠️ Background engine pre-warm safely handled error: $e',
-        );
-      }));
-    });
+    if (PlatformCapabilities.isWeb ||
+        _engine.isInitialized ||
+        _isPrewarmScheduled) {
+      return;
+    }
+    _isPrewarmScheduled = true;
+    unawaited(_waitAndArmEnginePrewarm());
+  }
+
+  Future<void> _waitAndArmEnginePrewarm() async {
+    try {
+      if (AppState.instance.isMushafMode && !MushafProvider.instance.isReady) {
+        await MushafProvider.instance.waitUntilReady();
+      }
+      if (!mounted ||
+          _isBackgrounded ||
+          _engine.isInitialized ||
+          !_isPrewarmScheduled) {
+        return;
+      }
+
+      if (WidgetsBinding.instance.hasScheduledFrame) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      if (!mounted ||
+          _isBackgrounded ||
+          _engine.isInitialized ||
+          !_isPrewarmScheduled) {
+        return;
+      }
+
+      _enginePrewarmTimer?.cancel();
+      _enginePrewarmTimer = Timer(const Duration(milliseconds: 1500), () {
+        _enginePrewarmTimer = null;
+        _isPrewarmScheduled = false;
+        if (!mounted || _isBackgrounded || _engine.isInitialized) return;
+        DebugLogger.logSimple('ASR', '⚡ Background pre-warming ASR engine...');
+        unawaited(_engine.initialize().catchError((e) {
+          DebugLogger.logSimple(
+            'ASR',
+            '⚠️ Background engine pre-warm safely handled error: $e',
+          );
+        }));
+      });
+    } finally {
+      if (_enginePrewarmTimer == null) {
+        _isPrewarmScheduled = false;
+      }
+    }
   }
 
   /// Ensures the ASR engine is initialized.
   /// On Web, prompts for user bandwidth consent if the ~72MB model is not yet downloaded.
   Future<bool> _ensureEngineReady() async {
-    _enginePrewarmTimer?.cancel();
-    _enginePrewarmTimer = null;
+    _cancelEnginePrewarm();
 
     if (_engine.isInitialized) return true;
 

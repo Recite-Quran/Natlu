@@ -180,7 +180,10 @@ class MushafProvider {
         return;
       }
 
-      final bytes = archiveData.buffer.asUint8List();
+      final bytes = archiveData.buffer.asUint8List(
+        archiveData.offsetInBytes,
+        archiveData.lengthInBytes,
+      );
       final targetPath = dir.path;
       await compute(_extractTarXzIsolate, (bytes, targetPath));
       _extractedPagesPath = targetPath;
@@ -213,6 +216,30 @@ class MushafProvider {
     } catch (e) {
       debugPrint('Error inside _extractTarXzIsolate: $e');
     }
+  }
+
+  /// Completes once Mushaf data (extraction, atlas, and initial page) is ready.
+  Future<void> waitUntilReady() async {
+    if (_isReady) return;
+    if (_isLoading && _loadingCompleter != null) {
+      await _loadingCompleter!.future;
+      return;
+    }
+    await loadData();
+  }
+
+  int _resolveInitialPage() {
+    final cachedPage = AppState.instance.currentMushafPage.value;
+    if (cachedPage > 1 && QuranMetadata.isValidPage(cachedPage)) {
+      return cachedPage;
+    }
+    final app = AppState.instance;
+    final mapped = _atlas?.pageOf(app.lastSurah, app.lastAyah) ??
+        _atlas?.pageOf(app.lastSurah, 1);
+    if (mapped != null && QuranMetadata.isValidPage(mapped)) {
+      return mapped;
+    }
+    return QuranMetadata.clampPage(cachedPage);
   }
 
   Future<void> loadData({bool force = false}) async {
@@ -260,6 +287,10 @@ class MushafProvider {
                 'Mushaf atlas.qva not found at ${localAtlas?.path}');
           }
         }
+        // Pre-load the first visible page before marking ready so MushafView
+        // renders synchronously from _pageCache on its first frame.
+        final initialPage = _resolveInitialPage();
+        await _loadPageInternal(initialPage);
       }
       _isReady = true;
 
