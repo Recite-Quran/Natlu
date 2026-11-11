@@ -19,8 +19,7 @@ export 'mushaf_provider.dart';
 ///
 /// Instead of mounting multi-page PageViews and competing gesture recognizers,
 /// this view hosts a single [QvpPageView] with native swipe fling detection
-/// and the Swift DemoModel snapshot slide: the old page slides away over the
-/// new page drawn beneath it (280 ms, easeInOut — identical to iOS).
+/// and instant zero-latency page transitions.
 class MushafView extends StatefulWidget {
   final HighlightingController controller;
   final bool isRecording;
@@ -75,7 +74,8 @@ class MushafView extends StatefulWidget {
   State<MushafView> createState() => _MushafViewState();
 }
 
-class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
+class _MushafViewState extends State<MushafView>
+    with SingleTickerProviderStateMixin {
   int _currentPage = 1;
   QvpPage? _currentPageObject;
   bool _isLoading = true;
@@ -99,11 +99,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
 
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
-
-  // Swift DemoModel snapshot slide transition state
-  QvpPage? _slidingOutPage;
-  double _slidingOutDir = 0.0;
-  late final AnimationController _slideController;
 
   // Keyboard navigation: Left = Next page (+1 in RTL), Right = Prev page (-1 in RTL)
   KeyEventResult _controlRLByKeyboard(FocusNode node, KeyEvent event) {
@@ -153,20 +148,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     );
-
-    _slideController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 280),
-    );
-    _slideController.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        if (_slidingOutPage != null) {
-          _clearPageVisuals(_slidingOutPage);
-          _slidingOutPage = null;
-        }
-        if (mounted) setState(() {});
-      }
-    });
 
     final app = AppState.instance;
     // NOTE: _spinnerController is deliberately NOT in this merge. The
@@ -319,11 +300,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   @override
   void dispose() {
     _clearPageVisuals(_currentPageObject);
-    if (_slidingOutPage != null) {
-      _clearPageVisuals(_slidingOutPage);
-      _slidingOutPage = null;
-    }
-    _slideController.dispose();
     _spinnerController.dispose();
     _spinnerMark.dispose();
     _qvpViewCtrl.dispose();
@@ -637,7 +613,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     if (target == _currentPage) return;
     _savePositionDebounce?.cancel();
     _navigationTargetAyah = null;
-    _goToPage(target, slideDir: dir);
+    _goToPage(target);
   }
 
   void _nextPage() {
@@ -650,26 +626,12 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     _stepPage(-1);
   }
 
-  void _goToPage(int page, {int? slideDir}) {
+  void _goToPage(int page) {
     _savePositionDebounce?.cancel();
     final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
 
     final oldPage = _currentPageObject;
-    final int dir = slideDir ?? (clamped > _currentPage ? 1 : -1);
-    if (oldPage != null && !oldPage.isDisposed) {
-      _slideController.stop();
-      _slidingOutPage = oldPage;
-      _slidingOutDir = dir.toDouble();
-      _slideController.forward(from: 0.0);
-    } else {
-      _slideController.stop();
-      if (_slidingOutPage != null) {
-        _clearPageVisuals(_slidingOutPage);
-        _slidingOutPage = null;
-      }
-    }
-
     _syncPageSelection(clamped);
     MushafProvider.instance.preloadAdjacentPages(
       clamped,
@@ -686,7 +648,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
   Future<void> _loadCurrentPage(int pageNumber, {QvpPage? oldPage}) async {
     final cached = MushafProvider.instance.getCachedPage(pageNumber);
     if (cached != null && !cached.isDisposed) {
-      if (_slidingOutPage == null) _clearPageVisuals(oldPage);
+      _clearPageVisuals(oldPage);
       _currentPageObject = cached;
       _checkSpinnerAnimation();
       _syncVisuals();
@@ -694,7 +656,7 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
     } else {
       final p = await MushafProvider.instance.getPage(pageNumber);
       if (!mounted || pageNumber != _currentPage) return;
-      if (_slidingOutPage == null) _clearPageVisuals(oldPage);
+      _clearPageVisuals(oldPage);
       _currentPageObject = p;
       _checkSpinnerAnimation();
       _syncVisuals();
@@ -1055,47 +1017,6 @@ class _MushafViewState extends State<MushafView> with TickerProviderStateMixin {
                                                 ),
                                               ),
                                   ),
-                                  // Swift DemoModel snapshot slide: the old page slides away over the new page drawn beneath it
-                                  if (_slidingOutPage != null && !_slidingOutPage!.isDisposed)
-                                    AnimatedBuilder(
-                                      animation: _slideController,
-                                      builder: (context, _) {
-                                        final double progress = Curves.easeInOut.transform(_slideController.value);
-                                        final double dx = _slidingOutDir * pageContainerWidth * progress;
-                                        return Positioned.fill(
-                                          child: Transform.translate(
-                                            offset: Offset(dx, 0),
-                                            child: IgnorePointer(
-                                              child: RepaintBoundary(
-                                                child: DecoratedBox(
-                                                  decoration: BoxDecoration(
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.black.withValues(alpha: 0.15 * (1.0 - progress)),
-                                                        blurRadius: 8.0,
-                                                        offset: Offset(_slidingOutDir > 0 ? 4 : -4, 0),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: QvpPageView(
-                                                    page: _slidingOutPage!,
-                                                    panZoomEnabled: false,
-                                                    selectionEnabled: false,
-                                                    layout: MushafProvider.mushafLayout,
-                                                    hitMaxDistance: 28.0,
-                                                    paper: null,
-                                                    paperShadow: false,
-                                                    defaultInk: c.text,
-                                                    underlay: _paintUnderlay,
-                                                    overlay: _paintOverlay,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
                                 ],
                               ),
                       ),
