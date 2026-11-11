@@ -379,6 +379,7 @@ class _MushafViewState extends State<MushafView> with SingleTickerProviderStateM
     if (ctrl.isCoordinateSettled &&
         (activeSurah != _lastHandledSurah || activeAyah != _lastHandledAyah)) {
       _onActiveAyahChanged();
+      return;
     }
 
     // One lead-word resolver for every source: audio cursor, peer's word, or

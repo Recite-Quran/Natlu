@@ -312,18 +312,49 @@ class HighlightingController extends rq.HighlightingController {
     // Receive completed-ayah marks too — including the package's bulk
     // completion of skipped ayahs.
     final mine = _store.completedAyahsFor(surah);
-    for (final a in super.completedAyahsFor(surah)) {
-      if (!mine.contains(a)) {
-        _store.markAyahCompleted(surah, a);
+    final engineCompleted = super.completedAyahsFor(surah);
+    if (engineCompleted.length != mine.length) {
+      for (final a in engineCompleted) {
+        if (!mine.contains(a)) {
+          _store.markAyahCompleted(surah, a);
+        }
       }
     }
   }
 
   /// Receives one ayah's word verdicts from the package into the store.
+  /// Zero-allocation, single-verse fetch, and bails on the first unspoken word.
   void _ingestAyah(int surah, int ayah) {
     final verse = repository.getVerse(surah, ayah);
     if (verse == null) return;
-    extractAyahWordClassification(surah, ayah, verse.uthmaniWords.length);
+    final int wordCount = verse.uthmaniWords.length;
+    for (int w0 = 0; w0 < wordCount; w0++) {
+      final current = _store.getWordStatus(surah, ayah, w0);
+      if (current == 1) {
+        // Already green: check if downgraded to yellow with Tajweed errors
+        if (super.isWordYellow(ayah, w0, surah: surah)) {
+          final errors = super.getWordErrors(ayah, w0, surah: surah);
+          _store.markYellow(surah, ayah, w0, errors);
+        }
+        continue;
+      }
+      if (current != 0) continue;
+
+      // Word has no verdict yet in store: check engine
+      if (super.isWordGreen(ayah, w0, surah: surah)) {
+        _store.markGreen(surah, ayah, w0);
+      } else if (super.isWordYellow(ayah, w0, surah: surah)) {
+        final errors = super.getWordErrors(ayah, w0, surah: surah);
+        _store.markYellow(surah, ayah, w0, errors);
+      } else if (super.isWordRed(ayah, w0, surah: surah)) {
+        _store.markRed(surah, ayah, w0);
+      } else if (super.isWordNeutral(ayah, w0, surah: surah)) {
+        _store.markNeutral(surah, ayah, w0);
+      } else {
+        // Sequential recitation: words after the first unspoken word cannot be spoken yet.
+        break;
+      }
+    }
   }
 
   /// The active source driving highlighting/progress.
@@ -470,42 +501,15 @@ class HighlightingController extends rq.HighlightingController {
     return true;
   }
 
-  /// Receives the package's verdicts for one ayah and saves them into the
-  /// flat store. This is the single boundary where package state is read —
-  /// the package reports, the controller saves; a word already saved (e.g.
-  /// by a Maglis packet) is never overwritten. The returned classification is
-  /// read back from the store, so callers broadcast exactly what the UI renders.
+  /// Extracts word classification lists (green, yellow, red, wordErrors) for an ayah.
+  /// Used for network sync (Maglis) and evaluation snapshots.
   ({
     List<int> greenWords,
     List<int> yellowWords,
     List<int> redWords,
     Map<int, List<rq.ReciterError>>? wordErrors,
   }) extractAyahWordClassification(int surah, int ayah, int wordCount) {
-    for (int w0 = 0; w0 < wordCount; w0++) {
-      if (_store.getWordStatus(surah, ayah, w0) != 0) continue;
-      // Package verdict? Receive it once.
-      int status = 0;
-      List<rq.ReciterError>? errors;
-      if (super.isWordRed(ayah, w0, surah: surah)) {
-        status = 3;
-      } else if (super.isWordYellow(ayah, w0, surah: surah)) {
-        status = 2;
-        errors = super.getWordErrors(ayah, w0, surah: surah);
-      } else if (super.isWordGreen(ayah, w0, surah: surah)) {
-        status = 1;
-      } else if (super.isWordNeutral(ayah, w0, surah: surah)) {
-        status = 4;
-      }
-      if (status == 1) {
-        _store.markGreen(surah, ayah, w0);
-      } else if (status == 2) {
-        _store.markYellow(surah, ayah, w0, errors);
-      } else if (status == 3) {
-        _store.markRed(surah, ayah, w0);
-      } else if (status == 4) {
-        _store.markNeutral(surah, ayah, w0);
-      }
-    }
+    _ingestAyah(surah, ayah);
 
     final greenWords = <int>[];
     final yellowWords = <int>[];

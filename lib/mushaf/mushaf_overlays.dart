@@ -168,22 +168,10 @@ class MushafOverlays {
       ayahsToPaint.add((activeSurah, activeAyah));
     }
 
-    for (final entry in wordsByAyah.entries) {
-      final key = entry.key;
+    for (final key in wordsByAyah.keys) {
       if (ayahsToPaint.contains(key)) continue;
-      final s = key.$1;
-      final a = key.$2;
-
-      if (controller.hasAyahHighlights(s, a)) {
+      if (controller.hasAyahHighlights(key.$1, key.$2)) {
         ayahsToPaint.add(key);
-        continue;
-      }
-
-      for (final w in entry.value) {
-        if (controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah) != null) {
-          ayahsToPaint.add(key);
-          break;
-        }
       }
     }
 
@@ -298,7 +286,8 @@ class MushafOverlays {
     // Words without a verdict (never received from the package) stay
     // transparent; "ayah completed" is a separate concept used by flow
     // decisions, not a paint instruction.
-    final int? status = controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah);
+    final int? status =
+        controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah);
 
     if (status == 1) {
       return palette.greenBand;

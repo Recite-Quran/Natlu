@@ -64,7 +64,17 @@ void main() async {
         try {
           final session = await AudioSession.instance;
           await session.configure(
-            const AudioSessionConfiguration.music(),
+            const AudioSessionConfiguration(
+              avAudioSessionCategory: AVAudioSessionCategory.playback,
+              avAudioSessionCategoryOptions:
+                  AVAudioSessionCategoryOptions.duckOthers,
+              avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+              androidAudioAttributes: AndroidAudioAttributes(
+                contentType: AndroidAudioContentType.music,
+                usage: AndroidAudioUsage.media,
+              ),
+              androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+            ),
           );
         } catch (e) {
           DebugLogger.logSimple(
