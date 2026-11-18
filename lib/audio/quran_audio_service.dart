@@ -835,6 +835,28 @@ class VerseAudioPlayer {
           return;
         }
       }
+    } else {
+      // Continuous mode at final Ayah of Surah:
+      // HTTP streams on ExoPlayer/AVPlayer frequently stall at EOF without emitting ProcessingState.completed.
+      // Once the last word finishes (or track reaches EOF), trigger seamless Surah advance directly.
+      final int maxAyahs = QuranMetadata.getAyahCount(playingSurah);
+      if (playingAyah >= maxAyahs && !_isAdvancingSurah && !_isHandlingComplete) {
+        final ayahTiming = QuranTimingService.instance
+            .getCachedAyahTiming(playingSurah, playingAyah);
+        final int? lastWordEndMs =
+            (ayahTiming != null && ayahTiming.words.isNotEmpty)
+                ? ayahTiming.words.last.endMs
+                : null;
+        final int? durationMs = _player?.duration?.inMilliseconds;
+        final bool finishedByTiming =
+            lastWordEndMs != null && posMs >= lastWordEndMs + 80;
+        final bool finishedByDuration =
+            durationMs != null && durationMs > 0 && posMs >= durationMs - 120;
+        if (finishedByTiming || finishedByDuration) {
+          _handleTrackComplete();
+          return;
+        }
+      }
     }
 
     // Continuous recitation mode: lookup active word index

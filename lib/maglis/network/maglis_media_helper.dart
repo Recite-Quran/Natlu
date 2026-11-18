@@ -55,9 +55,9 @@ class MaglisMediaHelper {
         'autoGainControl':
             true, // Essential for full volume on Windows, desktop & mobile
         'noiseSuppression':
-            false, // Preserve natural Tajweed recitation without clipping
+            false, // Strictly keep noise suppression OFF so Tajweed whispered letters (Hams), Madd, and Ghunnah are never clipped
         'highpassFilter':
-            false, // Disable telephony bass cutoff to preserve natural vocal warmth
+            true, // 80Hz cutoff eliminates mechanical fan/AC sub-bass rumble without touching vocal formants (>150Hz)
         'sampleRate': 48000,
         'sampleSize': 16,
         'channelCount': 1,
@@ -74,8 +74,8 @@ class MaglisMediaHelper {
           {'noiseSuppression': false},
           {'googNoiseSuppression': false},
           {'googNoiseSuppression2': false},
-          {'highpassFilter': false},
-          {'googHighpassFilter': false},
+          {'highpassFilter': true},
+          {'googHighpassFilter': true},
           {'googTypingNoiseDetection': false},
           if (inputDeviceId != null) {'sourceId': inputDeviceId},
         ],

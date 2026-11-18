@@ -717,10 +717,9 @@ class HighlightingController extends rq.HighlightingController {
         _manualTargetSurah = surah;
         changed = true;
       }
-      if (activeAyah.value != ayah) {
-        activeAyah.value = ayah;
-        changed = true;
-      }
+      // Merge verdicts into store BEFORE advancing activeAyah so synchronous coordinate
+      // listeners (such as _onActiveAyahChanged -> _syncVisuals) read up-to-date verdicts
+      // and immediately unmask recited words in Hide Mode.
       if (_mergeRemoteVerdicts(
         surah: surah,
         ayah: ayah,
@@ -730,6 +729,10 @@ class HighlightingController extends rq.HighlightingController {
         errors: errors,
         cumulative: cumulative,
       )) {
+        changed = true;
+      }
+      if (activeAyah.value != ayah) {
+        activeAyah.value = ayah;
         changed = true;
       }
     }

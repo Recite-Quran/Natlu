@@ -219,9 +219,16 @@ class AppState extends ChangeNotifier {
   /// Dedicated notifier for blur mode changes (allows scoped listening without global ChangeNotifier).
   final ValueNotifier<bool> blurModeNotifier = ValueNotifier<bool>(false);
 
+  /// Hook to check if a remote Maglis session is active without circular imports.
+  static bool Function()? isMaglisSessionActive;
+
   /// Whether blur (memorization concealing) should actively conceal unrecited words.
-  /// Strictly active ONLY inside an active recording session.
-  bool isBlurEffective({bool isRecording = false}) => isBlurMode && isRecording;
+  /// Strictly active inside an active recitation session (local recording or remote Maglis session).
+  bool isBlurEffective({bool isRecording = false}) {
+    final bool sessionActive =
+        isRecording || (isMaglisSessionActive?.call() ?? false);
+    return isBlurMode && sessionActive;
+  }
 
   void toggleBlurMode() async {
     isBlurMode = !isBlurMode;

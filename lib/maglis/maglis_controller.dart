@@ -9,7 +9,9 @@ import 'maglis_network.dart';
 import '../mushaf/mushaf_provider.dart';
 
 class MaglisController extends ChangeNotifier {
-  MaglisController._();
+  MaglisController._() {
+    AppState.isMaglisSessionActive = () => inSession;
+  }
   static final MaglisController instance = MaglisController._();
 
   void Function(int page, int surah, int ayah)? onSyncMushafUI;
