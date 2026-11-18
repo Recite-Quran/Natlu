@@ -91,6 +91,10 @@ class _MushafViewState extends State<MushafView>
   int? _lastProgressWord;
   int? _lastProgressRev;
 
+  // Interactive PageController driving train-style horizontal page transitions
+  late PageController _pageController;
+  bool _isProgrammaticScroll = false;
+
   // Audio spinner animation & fine-grained layer repaint triggers
   late final AnimationController _spinnerController;
   final ValueNotifier<int> _underlayRepaintTrigger = ValueNotifier<int>(0);
@@ -157,6 +161,7 @@ class _MushafViewState extends State<MushafView>
     super.initState();
     final provider = MushafProvider.instance;
     _currentPage = _findInitialPage();
+    _pageController = PageController(initialPage: _currentPage - 1);
     _isLoading = !provider.isReady;
 
     _spinnerController = AnimationController(
@@ -175,6 +180,7 @@ class _MushafViewState extends State<MushafView>
       app.blurModeNotifier,
     ]);
     _overlayRepaintListenable = Listenable.merge([
+      _underlayRepaintTrigger,
       _overlayRepaintTrigger,
       app.hasClickedTajweedNotifier,
       _yellowWordsNotifier,
@@ -299,6 +305,12 @@ class _MushafViewState extends State<MushafView>
       _currentPage = initialPage;
       AppState.instance.currentMushafPage.value = _currentPage;
       await _loadCurrentPage(_currentPage);
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_currentPage - 1);
+      } else {
+        _pageController.dispose();
+        _pageController = PageController(initialPage: _currentPage - 1);
+      }
       setState(() => _isLoading = false);
     }
   }
@@ -320,6 +332,7 @@ class _MushafViewState extends State<MushafView>
     _spinnerController.dispose();
     _spinnerMark.dispose();
     _qvpViewCtrl.dispose();
+    _pageController.dispose();
     _underlayRepaintTrigger.dispose();
     _staticRepaintTrigger.dispose();
     _overlayRepaintTrigger.dispose();
@@ -728,7 +741,7 @@ class _MushafViewState extends State<MushafView>
     _stepPage(-1);
   }
 
-  void _goToPage(int page) {
+  void _goToPage(int page, {bool animated = true}) {
     _savePositionDebounce?.cancel();
     final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
@@ -745,6 +758,37 @@ class _MushafViewState extends State<MushafView>
       AppState.instance.currentMushafPage.value = clamped;
     }
     _loadCurrentPage(clamped, oldPage: oldPage);
+
+    if (_pageController.hasClients) {
+      final targetIndex = clamped - 1;
+      final currentIndex =
+          _pageController.page?.round() ?? _pageController.initialPage;
+      if (currentIndex != targetIndex) {
+        _isProgrammaticScroll = true;
+        final distance = (currentIndex - targetIndex).abs();
+        if (animated && distance <= 2) {
+          _pageController
+              .animateToPage(
+                targetIndex,
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic,
+              )
+              .whenComplete(() {
+                if (mounted) _isProgrammaticScroll = false;
+              });
+        } else {
+          _pageController.jumpToPage(targetIndex);
+          _isProgrammaticScroll = false;
+        }
+      }
+    }
+  }
+
+  void _onPageChangedFromScroll(int index) {
+    if (_isProgrammaticScroll) return;
+    final targetPage = index + 1;
+    if (targetPage == _currentPage) return;
+    _goToPage(targetPage, animated: false);
   }
 
   Future<void> _loadCurrentPage(
@@ -983,6 +1027,15 @@ class _MushafViewState extends State<MushafView>
     final app = AppState.instance;
     final c = app.colors;
 
+    MushafOverlays.paintWordColorHighlights(
+      canvas,
+      page,
+      layout,
+      controller: widget.controller,
+      app: app,
+      isRecording: widget.isRecording,
+    );
+
     MushafOverlays.paintAyahMarks(
       canvas,
       page,
@@ -1081,80 +1134,15 @@ class _MushafViewState extends State<MushafView>
                       child: SizedBox(
                         width: pageContainerWidth,
                         height: usableHeight,
-                        child: _currentPageObject == null
-                            ? const SizedBox.expand()
-                            : Stack(
-                                clipBehavior: Clip.hardEdge,
-                                children: [
-                                  // Base layer: persistent QvpPageView with 3 isolated RepaintBoundary layers
-                                  RepaintBoundary(
-                                    key: const ValueKey('mushaf_single_qvp_view'),
-                                    child: QvpPageView(
-                                      page: _currentPageObject!,
-                                      controller: _qvpViewCtrl,
-                                      panZoomEnabled: false,
-                                      selectionEnabled: false,
-                                      layout: MushafProvider.mushafLayout,
-                                      hitMaxDistance: 28.0,
-                                      paper: null,
-                                      paperShadow: false,
-                                      defaultInk: c.text,
-                                      onWordTap: (word, _) => _onWordTap(
-                                        context,
-                                        _currentPageObject!,
-                                        word.index,
-                                      ),
-                                      onDecorationTap: (dec, _) =>
-                                          _onDecorationTap(dec),
-                                      onSwipe: (pages) => _stepPage(pages),
-                                      staticUnderlay: _paintStaticUnderlay,
-                                      underlay: _paintUnderlay,
-                                      staticOverlay: _paintStaticOverlay,
-                                      overlay: _paintOverlay,
-                                      staticRepaintListenable:
-                                          _staticRepaintTrigger,
-                                      underlayRepaintListenable:
-                                          _underlayRepaintListenable,
-                                      overlayRepaintListenable:
-                                          _overlayRepaintListenable,
-                                    ),
-                                  ),
-                                  // Isolated buffering-spinner layer: paints only the
-                                  // rotating arc at the cached mark position. Its
-                                  // repaint listenable is the spinner controller
-                                  // alone, so spinner ticks (60–120Hz) repaint this
-                                  // tiny layer — never the page picture. Layer
-                                  // presence is driven by the mark ValueNotifier,
-                                  // so the arc is removed from the tree the moment
-                                  // buffering ends.
-                                  ValueListenableBuilder<
-                                      ({Offset center, double radius})?>(
-                                    valueListenable: _spinnerMark,
-                                    builder: (context, spinnerMark, _) =>
-                                        spinnerMark == null
-                                            ? const SizedBox.shrink()
-                                            : Positioned.fill(
-                                                child: IgnorePointer(
-                                                  child: RepaintBoundary(
-                                                    child: CustomPaint(
-                                                      painter:
-                                                          _BufferingSpinnerPainter(
-                                                        spinner:
-                                                            _spinnerController,
-                                                        viewCtrl: _qvpViewCtrl,
-                                                        center: spinnerMark
-                                                            .center,
-                                                        ringRadius:
-                                                            spinnerMark.radius,
-                                                        color: c.primary,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                  ),
-                                ],
-                              ),
+                        child: PageView.builder(
+                          controller: _pageController,
+                          itemCount: QuranMetadata.maxPage,
+                          padEnds: false,
+                          physics: const ClampingScrollPhysics(),
+                          onPageChanged: _onPageChangedFromScroll,
+                          itemBuilder: (context, index) =>
+                              _buildPageItem(context, index + 1),
+                        ),
                       ),
                     ),
                   ),
@@ -1188,6 +1176,73 @@ class _MushafViewState extends State<MushafView>
           },
         ),
       ),
+    );
+  }
+
+  /// Builds a single page item inside the horizontal train strip.
+  Widget _buildPageItem(BuildContext context, int pageNum) {
+    final page = MushafProvider.instance.getCachedPage(pageNum);
+    final c = AppState.instance.colors;
+
+    if (page == null || page.isDisposed) {
+      MushafProvider.instance.getPage(pageNum).then((p) {
+        if (mounted) setState(() {});
+      });
+      return ColoredBox(color: c.surface);
+    }
+
+    final isCurrent = pageNum == _currentPage;
+
+    return Stack(
+      clipBehavior: Clip.hardEdge,
+      children: [
+        RepaintBoundary(
+          child: QvpPageView(
+            page: page,
+            controller: isCurrent ? _qvpViewCtrl : null,
+            panZoomEnabled: false,
+            selectionEnabled: false,
+            layout: MushafProvider.mushafLayout,
+            hitMaxDistance: 28.0,
+            paper: null,
+            paperShadow: false,
+            defaultInk: c.text,
+            onSwipe: null, // Critical: let outer PageView drive horizontal motion
+            onWordTap: (word, _) => _onWordTap(context, page, word.index),
+            onDecorationTap: (dec, _) => _onDecorationTap(dec),
+            staticUnderlay: _paintStaticUnderlay,
+            underlay: _paintUnderlay,
+            staticOverlay: _paintStaticOverlay,
+            overlay: _paintOverlay,
+            staticRepaintListenable: _staticRepaintTrigger,
+            underlayRepaintListenable: _underlayRepaintListenable,
+            overlayRepaintListenable: _overlayRepaintListenable,
+          ),
+        ),
+        if (isCurrent)
+          ValueListenableBuilder<({Offset center, double radius})?>(
+            valueListenable: _spinnerMark,
+            builder: (context, spinnerMark, _) => spinnerMark == null
+                ? const SizedBox.shrink()
+                : Positioned.fill(
+                    child: IgnorePointer(
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _BufferingSpinnerPainter(
+                            spinner: _spinnerController,
+                            viewCtrl: _qvpViewCtrl,
+                            center: spinnerMark.center,
+                            ringRadius: spinnerMark.radius,
+                            color: c.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        const _PageGutterShadow(isLeftEdge: true),
+        const _PageGutterShadow(isLeftEdge: false),
+      ],
     );
   }
 }
@@ -1245,4 +1300,36 @@ class _BufferingSpinnerPainter extends CustomPainter {
   // (new center/radius/color) rebuild the widget instead.
   @override
   bool shouldRepaint(_BufferingSpinnerPainter old) => false;
+}
+
+/// Subtle vertical gradient shadow along page edges mimicking physical paper depth (book gutter seam).
+class _PageGutterShadow extends StatelessWidget {
+  final bool isLeftEdge;
+  const _PageGutterShadow({required this.isLeftEdge});
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 0,
+      bottom: 0,
+      left: isLeftEdge ? 0 : null,
+      right: isLeftEdge ? null : 0,
+      width: 14.0,
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: isLeftEdge ? Alignment.centerLeft : Alignment.centerRight,
+              end: isLeftEdge ? Alignment.centerRight : Alignment.centerLeft,
+              colors: [
+                Colors.black.withValues(alpha: 0.07),
+                Colors.black.withValues(alpha: 0.02),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

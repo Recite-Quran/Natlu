@@ -121,7 +121,10 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
 
     if (!isDesktop) {
-      if (state == AppLifecycleState.paused ||
+      if (state == AppLifecycleState.resumed) {
+        // Re-assert immersive sticky fullscreen mode whenever app regains focus or is resumed
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      } else if (state == AppLifecycleState.paused ||
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
         if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {

@@ -18,11 +18,11 @@ class MushafOverlays {
 
   static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
   static final Paint _goldPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _wordFillPaint = Paint()..style = PaintingStyle.fill;
 
   static final Paint _tooltipBgPaint = Paint()..style = PaintingStyle.fill;
   static const Radius _tooltipRadius = Radius.circular(4);
-  static const Radius _highlightCornerRadius = Radius.circular(3.0);
-  static final List<Color> _lineColorsScratch = <Color>[];
+  static const Radius _highlightCornerRadius = Radius.circular(1.5);
   static const TextStyle _tooltipTextStyle = TextStyle(
     color: Colors.white,
     fontSize: 7,
@@ -35,6 +35,18 @@ class MushafOverlays {
 
   static final Expando<_PageWordLayoutCache> _pageWordCaches =
       Expando<_PageWordLayoutCache>();
+
+  static _PageWordLayoutCache _getLayoutCache(
+      QvpPage page, QvpLayout? layout) {
+    final l = layout ?? page.currentLayout ?? page.readLayout();
+    final cached = _pageWordCaches[page];
+    if (cached == null || cached.layout != l) {
+      final cache = _PageWordLayoutCache.fromPage(page, l);
+      _pageWordCaches[page] = cache;
+      return cache;
+    }
+    return cached;
+  }
 
   static TextPainter _getTooltipTextPainter(bool isArabic) {
     if (isArabic) {
@@ -97,20 +109,17 @@ class MushafOverlays {
 
       final rect = Rect.fromLTRB(left, top, right, bottom);
       canvas.drawRect(rect, _headerFillPaint);
-      canvas.drawLine(Offset(left, top), Offset(right, top), _headerBorderPaint);
-      canvas.drawLine(Offset(left, bottom), Offset(right, bottom), _headerBorderPaint);
+      canvas.drawLine(
+          Offset(left, top), Offset(right, top), _headerBorderPaint);
+      canvas.drawLine(
+          Offset(left, bottom), Offset(right, bottom), _headerBorderPaint);
     }
   }
 
-  /// Single-pass underlay: Paints continuous Ayah highlight boxes and word state segments.
-  /// Renders behind the base ink:
-  /// - The selected/active ayah is ONE continuous rounded highlight box on each line.
-  /// - Unrecited words in the active ayah are grey.
-  /// - The current awaited word is neon highlighted.
-  /// - Correctly recited words seamlessly become green.
-  /// - Mispronounced words become red, Tajweed warnings yellow.
-  /// - Adjacent words on the same line meet at their midpoint with ZERO overlap and ZERO gap.
-  ///   Colors NEVER merge, blend, or darken into dark red.
+  /// Single-pass underlay: Paints continuous Ayah background highlight box
+  /// and current waited word beacon band matching the official quran-engine specification.
+  /// Evaluated words (green/yellow/red) do NOT have background highlight bands —
+  /// only the word's text changes color via [paintWordColorHighlights].
   static void paintAyahHighlights(
     Canvas canvas,
     QvpPage page,
@@ -122,49 +131,30 @@ class MushafOverlays {
     if (page.isDisposed) return;
 
     // 1. Resolve Active Ayah Coordinate (surah, ayah)
-    // Strictly from controller only — no fallback to app.lastSurah/lastAyah.
     final coord = controller.activeAyahCoordinate;
     final int activeSurah = coord?.$1 ?? 0;
     final int activeAyah = coord?.$2 ?? 0;
 
-    final l = layout ?? page.currentLayout ?? page.readLayout();
-    final cached = _pageWordCaches[page];
-    final _PageWordLayoutCache cache;
-    if (cached == null || cached.layout != l) {
-      cache = _PageWordLayoutCache.fromPage(page, l);
-      _pageWordCaches[page] = cache;
-    } else {
-      cache = cached;
-    }
+    if (activeSurah == 0 || activeAyah == 0) return;
+
+    final cache = _getLayoutCache(page, layout);
     final wordsByAyah = cache.wordsByAyah;
+    final activeWords = wordsByAyah[(activeSurah, activeAyah)];
+    if (activeWords == null || activeWords.isEmpty) return;
 
-    // 2. Identify all ayahs to render on this page BEFORE allocating palettes or geometry.
-    final ayahsToPaint = <(int, int)>[];
-    if (activeSurah != 0 &&
-        activeAyah != 0 &&
-        wordsByAyah.containsKey((activeSurah, activeAyah))) {
-      ayahsToPaint.add((activeSurah, activeAyah));
-    }
+    final palette = QuranHighlightPalette.fromTheme(
+      colors: app.colors,
+      isDark: app.isDarkMode,
+    );
 
-    for (final key in wordsByAyah.keys) {
-      if (key.$1 == activeSurah && key.$2 == activeAyah) continue;
-      if (controller.hasAyahHighlights(key.$1, key.$2)) {
-        ayahsToPaint.add(key);
-      }
-    }
-
-    if (ayahsToPaint.isEmpty) return;
-
-    final isDark = app.isDarkMode;
-    final palette =
-        QuranHighlightPalette.fromTheme(colors: app.colors, isDark: isDark);
-
-    // 3. Resolve Active / Waited Lead Word on this page with zero FFI calls.
+    // 2. Resolve Active / Waited Lead Word on this page with zero FFI calls.
     int? activeWordPageIdx;
-    if (activeSurah != 0 && activeAyah != 0) {
-      final activeWords = wordsByAyah[(activeSurah, activeAyah)];
-      final maxWordOnPage = cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
-      if (activeWords != null && maxWordOnPage > 0) {
+    final bool isSessionActive =
+        isRecording || controller.isAudioActive || controller.isRemoteReciting;
+    if (isSessionActive) {
+      final maxWordOnPage =
+          cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
+      if (maxWordOnPage > 0) {
         final leadW0 = controller.getLeadWordIndex(
           surah: activeSurah,
           ayah: activeAyah,
@@ -183,107 +173,184 @@ class MushafOverlays {
       }
     }
 
-    // 4. Lazy per-ayah highlight geometry & direct rounded-run drawing (no per-line save/clipRRect).
-    for (final (s, a) in ayahsToPaint) {
-      final bool isActiveAyah = (s == activeSurah && a == activeAyah);
-      final lines = cache.lineGeometriesFor(page, s, a);
-      if (lines.isEmpty) continue;
+    // 3. Render continuous line boxes for the active ayah:
+    // - Waited word has leadWordBand.
+    // - All other words of the active ayah have activeAyahBand.
+    // - Evaluated words do NOT have green/yellow/red background bands.
+    final lines = cache.lineGeometriesFor(page, activeSurah, activeAyah);
+    if (lines.isEmpty) return;
 
-      for (final line in lines) {
-        final rects = line.wordRects;
-        final k = rects.length;
-        if (k == 0) continue;
+    for (final line in lines) {
+      final rects = line.wordRects;
+      final k = rects.length;
+      if (k == 0) continue;
 
-        _lineColorsScratch.clear();
+      // Fast path: if the awaited word is not on this line, draw the entire ayah line in 1 call.
+      int activeWordIdx = -1;
+      if (activeWordPageIdx != null) {
         for (var j = 0; j < k; j++) {
-          _lineColorsScratch.add(
-            _resolveWordColor(
-              w: rects[j].word,
-              isActiveAyah: isActiveAyah,
-              activeWordPageIdx: activeWordPageIdx,
-              controller: controller,
-              palette: palette,
-            ),
-          );
+          if (rects[j].word.index == activeWordPageIdx) {
+            activeWordIdx = j;
+            break;
+          }
         }
+      }
 
-        var i = 0;
-        while (i < k) {
-          final color = _lineColorsScratch[i];
-          var end = i;
-          while (end + 1 < k && _lineColorsScratch[end + 1] == color) {
-            end++;
-          }
-          if (color.a > 0) {
-            _highlightFillPaint.color = color;
-            if (i == 0 && end == k - 1) {
-              canvas.drawRRect(line.outerRRect, _highlightFillPaint);
-            } else {
-              final runRect = Rect.fromLTRB(
-                rects[end].rect.left,
-                line.outerRRect.top,
-                rects[i].rect.right,
-                line.outerRRect.bottom,
-              );
-              if (i == 0) {
-                canvas.drawRRect(
-                  RRect.fromRectAndCorners(
-                    runRect,
-                    topRight: _highlightCornerRadius,
-                    bottomRight: _highlightCornerRadius,
-                  ),
-                  _highlightFillPaint,
-                );
-              } else if (end == k - 1) {
-                canvas.drawRRect(
-                  RRect.fromRectAndCorners(
-                    runRect,
-                    topLeft: _highlightCornerRadius,
-                    bottomLeft: _highlightCornerRadius,
-                  ),
-                  _highlightFillPaint,
-                );
-              } else {
-                canvas.drawRect(runRect, _highlightFillPaint);
-              }
-            }
-          }
-          i = end + 1;
-        }
+      if (activeWordIdx == -1) {
+        _highlightFillPaint.color = palette.activeAyahBand;
+        canvas.drawRRect(line.outerRRect, _highlightFillPaint);
+        continue;
+      }
+
+      // The awaited word is on this line: render split runs with zero overlap and zero gap.
+      final top = line.outerRRect.top;
+      final bottom = line.outerRRect.bottom;
+      final left = line.outerRRect.left;
+      final right = line.outerRRect.right;
+
+      if (k == 1) {
+        _highlightFillPaint.color = palette.leadWordBand;
+        canvas.drawRRect(line.outerRRect, _highlightFillPaint);
+      } else if (activeWordIdx == 0) {
+        final splitX = rects[0].rect.left;
+        _highlightFillPaint.color = palette.leadWordBand;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(splitX, top, right, bottom),
+            topRight: _highlightCornerRadius,
+            bottomRight: _highlightCornerRadius,
+          ),
+          _highlightFillPaint,
+        );
+        _highlightFillPaint.color = palette.activeAyahBand;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(left, top, splitX, bottom),
+            topLeft: _highlightCornerRadius,
+            bottomLeft: _highlightCornerRadius,
+          ),
+          _highlightFillPaint,
+        );
+      } else if (activeWordIdx == k - 1) {
+        final splitX = rects[k - 1].rect.right;
+        _highlightFillPaint.color = palette.activeAyahBand;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(splitX, top, right, bottom),
+            topRight: _highlightCornerRadius,
+            bottomRight: _highlightCornerRadius,
+          ),
+          _highlightFillPaint,
+        );
+        _highlightFillPaint.color = palette.leadWordBand;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(left, top, splitX, bottom),
+            topLeft: _highlightCornerRadius,
+            bottomLeft: _highlightCornerRadius,
+          ),
+          _highlightFillPaint,
+        );
+      } else {
+        final splitRight = rects[activeWordIdx].rect.right;
+        final splitLeft = rects[activeWordIdx].rect.left;
+        _highlightFillPaint.color = palette.activeAyahBand;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(splitRight, top, right, bottom),
+            topRight: _highlightCornerRadius,
+            bottomRight: _highlightCornerRadius,
+          ),
+          _highlightFillPaint,
+        );
+        _highlightFillPaint.color = palette.leadWordBand;
+        canvas.drawRect(
+          Rect.fromLTRB(splitLeft, top, splitRight, bottom),
+          _highlightFillPaint,
+        );
+        _highlightFillPaint.color = palette.activeAyahBand;
+        canvas.drawRRect(
+          RRect.fromRectAndCorners(
+            Rect.fromLTRB(left, top, splitLeft, bottom),
+            topLeft: _highlightCornerRadius,
+            bottomLeft: _highlightCornerRadius,
+          ),
+          _highlightFillPaint,
+        );
       }
     }
   }
 
-  static Color _resolveWordColor({
-    required QvpWordInfo w,
-    required bool isActiveAyah,
-    required int? activeWordPageIdx,
+  /// Single-pass overlay: Paints colored vector glyphs directly over base ink
+  /// ONLY for evaluated words (Right: green, Tajweed warning: yellow, Mistake: red).
+  ///
+  /// Text ink is pure vector fill with subpixel-exact placement from layoutPlacements:
+  /// zero blur, zero halation, zero FFI on recitation ticks, zero allocations.
+  static void paintWordColorHighlights(
+    Canvas canvas,
+    QvpPage page,
+    QvpLayout? layout, {
     required HighlightingController controller,
-    required QuranHighlightPalette palette,
+    required AppState app,
+    required bool isRecording,
   }) {
-    // 1. Current active / waited word -> Neon
-    if (activeWordPageIdx != null && w.index == activeWordPageIdx) {
-      return palette.leadWordBand;
-    }
+    if (page.isDisposed) return;
 
-    // 2. Stored word verdict only — the renderer never invents color.
-    // Words without a verdict (never received from the package) stay
-    // transparent; "ayah completed" is a separate concept used by flow
-    // decisions, not a paint instruction.
-    final int? status =
-        controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah);
+    final coord = controller.activeAyahCoordinate;
+    final int activeSurah = coord?.$1 ?? 0;
+    final int activeAyah = coord?.$2 ?? 0;
 
-    if (status == 1) {
-      return palette.greenBand;
-    } else if (status == 2) {
-      return palette.yellowBand;
-    } else if (status == 3) {
-      return palette.redBand;
-    } else if (isActiveAyah) {
-      // Selected/active ayah unrecited words -> Grey!
-      return palette.activeAyahBand;
+    final cache = _getLayoutCache(page, layout);
+    final l = cache.layout;
+    if (l == null) return;
+    final wordsByAyah = cache.wordsByAyah;
+
+    final c = app.colors;
+    final double ls = l.scale;
+    final double ox = l.offsetX;
+    final double oy = l.offsetY;
+
+    for (final entry in wordsByAyah.entries) {
+      final key = entry.key;
+      final bool isActive = (key.$1 == activeSurah && key.$2 == activeAyah);
+      if (!isActive && !controller.hasAyahHighlights(key.$1, key.$2)) {
+        continue;
+      }
+
+      final ayahWords = entry.value;
+      for (final w in ayahWords) {
+        if (w.nPaths <= 0) continue;
+
+        final int? status =
+            controller.getWordStatus(w.ayah, w.word - 1, surah: w.surah);
+
+        // ONLY word text is colored when FALSE / RIGHT (evaluated words):
+        final Color? color = status == 1
+            ? c.green
+            : (status == 2 ? c.warning : (status == 3 ? c.red : null));
+
+        if (color == null) continue;
+
+        _wordFillPaint.color = color;
+        QvpPlacement? curQ;
+        bool open = false;
+        final end = w.firstPath + w.nPaths;
+
+        for (var p = w.firstPath; p < end; p++) {
+          final q = cache.placementOfPath[p] ?? QvpPlacement.identity;
+          if (!open || curQ != q) {
+            if (open) canvas.restore();
+            canvas.save();
+            canvas.translate(ox + q.dx * ls, oy + q.dy * ls);
+            canvas.scale(ls * q.kx, ls * q.ky);
+            open = true;
+            curQ = q;
+          }
+          canvas.drawPath(page.path(p), _wordFillPaint);
+        }
+        if (open) canvas.restore();
+      }
     }
-    return Colors.transparent;
   }
 
   /// Single-pass overlay: Paints Ayah audio indicators (loading ring, stop icon).
@@ -547,15 +614,18 @@ class _PageWordLayoutCache {
   final QvpLayout? layout;
   final Map<(int, int), List<QvpWordInfo>> wordsByAyah;
   final Map<(int, int), int> maxWordPerAyah;
+  final Map<int, QvpPlacement> placementOfPath;
   final Map<(int, int), List<_LineHighlightGeometry>> _lineGeometriesCache = {};
 
   _PageWordLayoutCache._({
     required this.layout,
     required this.wordsByAyah,
     required this.maxWordPerAyah,
+    required this.placementOfPath,
   });
 
-  factory _PageWordLayoutCache.fromPage(QvpPage page, [QvpLayout? currentLayout]) {
+  factory _PageWordLayoutCache.fromPage(QvpPage page,
+      [QvpLayout? currentLayout]) {
     final wordsByAyah = <(int, int), List<QvpWordInfo>>{};
     final maxWordPerAyah = <(int, int), int>{};
     for (final w in page.words) {
@@ -567,10 +637,24 @@ class _PageWordLayoutCache {
       }
     }
 
+    final placementOfPath = <int, QvpPlacement>{};
+    if (!page.isDisposed) {
+      try {
+        final draws = page.layoutDrawList();
+        final places = page.layoutPlacements();
+        for (final d in draws) {
+          if (d.placement >= 0 && d.placement < places.length) {
+            placementOfPath[d.path] = places[d.placement];
+          }
+        }
+      } catch (_) {}
+    }
+
     return _PageWordLayoutCache._(
       layout: currentLayout,
       wordsByAyah: wordsByAyah,
       maxWordPerAyah: maxWordPerAyah,
+      placementOfPath: placementOfPath,
     );
   }
 
@@ -625,7 +709,7 @@ class _PageWordLayoutCache {
 
       final outerRect = Rect.fromLTRB(lineX0, lineY0, lineX1, lineY1);
       final outerRRect =
-          RRect.fromRectAndRadius(outerRect, const Radius.circular(3.0));
+          RRect.fromRectAndRadius(outerRect, MushafOverlays._highlightCornerRadius);
 
       final rects = <({QvpWordInfo word, Rect rect})>[];
       for (var i = 0; i < k; i++) {

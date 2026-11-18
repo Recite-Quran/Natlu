@@ -1141,15 +1141,15 @@ class QuranHighlightPalette {
         colors.wordHighlight, colors.gold, isDark);
     if (_memoSig == sig) return _memoPalette!;
     final palette = QuranHighlightPalette(
-      greenBand: colors.green.withValues(alpha: isDark ? 0.26 : 0.20),
-      yellowBand: colors.warning.withValues(alpha: isDark ? 0.26 : 0.22),
-      redBand: colors.red.withValues(alpha: isDark ? 0.26 : 0.20),
+      greenBand: colors.green.withValues(alpha: isDark ? 0.18 : 0.14),
+      yellowBand: colors.warning.withValues(alpha: isDark ? 0.18 : 0.14),
+      redBand: colors.red.withValues(alpha: isDark ? 0.18 : 0.14),
       leadWordBand:
-          colors.wordHighlight.withValues(alpha: isDark ? 0.25 : 0.28),
-      activeAyahBorder: colors.gold.withValues(alpha: isDark ? 0.70 : 0.60),
+          colors.wordHighlight.withValues(alpha: isDark ? 0.20 : 0.18),
+      activeAyahBorder: colors.gold.withValues(alpha: isDark ? 0.45 : 0.35),
       activeAyahBand: isDark
-          ? const Color(0xFF64748B).withValues(alpha: 0.22)
-          : const Color(0xFF64748B).withValues(alpha: 0.11),
+          ? colors.gold.withValues(alpha: 0.14)
+          : colors.gold.withValues(alpha: 0.09),
     );
     _memoSig = sig;
     return _memoPalette = palette;
