@@ -18,7 +18,17 @@ class MushafOverlays {
 
   static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
   static final Paint _goldPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _wordFillPaint = Paint()..style = PaintingStyle.fill;
+  static final Paint _wordFillPaint = Paint()
+    ..style = PaintingStyle.fill
+    ..isAntiAlias = true;
+  static final Paint _wordEraserStrokePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round
+    ..isAntiAlias = true;
+  static final Paint _wordEraserFillPaint = Paint()
+    ..style = PaintingStyle.fill
+    ..isAntiAlias = true;
 
   static final Paint _tooltipBgPaint = Paint()..style = PaintingStyle.fill;
   static const Radius _tooltipRadius = Radius.circular(4);
@@ -310,12 +320,25 @@ class MushafOverlays {
     final double ox = l.offsetX;
     final double oy = l.offsetY;
 
+    final palette = QuranHighlightPalette.fromTheme(
+      colors: c,
+      isDark: app.isDarkMode,
+    );
+    final Color activeAyahBg =
+        Color.alphaBlend(palette.activeAyahBand, c.surface);
+    final Color defaultBg = c.surface;
+    _wordEraserStrokePaint.strokeWidth = 0.65 / ls;
+
     for (final entry in wordsByAyah.entries) {
       final key = entry.key;
       final bool isActive = (key.$1 == activeSurah && key.$2 == activeAyah);
       if (!isActive && !controller.hasAyahHighlights(key.$1, key.$2)) {
         continue;
       }
+
+      final Color eraserColor = isActive ? activeAyahBg : defaultBg;
+      _wordEraserStrokePaint.color = eraserColor;
+      _wordEraserFillPaint.color = eraserColor;
 
       final ayahWords = entry.value;
       for (final w in ayahWords) {
@@ -346,7 +369,12 @@ class MushafOverlays {
             open = true;
             curQ = q;
           }
-          canvas.drawPath(page.path(p), _wordFillPaint);
+          final path = page.path(p);
+          // 1. Wipe out underlying black raster ink & bilinear edge bleed:
+          canvas.drawPath(path, _wordEraserStrokePaint);
+          canvas.drawPath(path, _wordEraserFillPaint);
+          // 2. Draw pristine, crisp colored vector glyph:
+          canvas.drawPath(path, _wordFillPaint);
         }
         if (open) canvas.restore();
       }
