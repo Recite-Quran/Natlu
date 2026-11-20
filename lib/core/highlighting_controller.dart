@@ -282,10 +282,9 @@ class HighlightingController extends rq.HighlightingController {
   /// re-read from the engine or overwritten, and the gate bails instantly
   /// whenever no package session is live.
   void _ingestEngineState() {
-    // Gate on the package's own session state: verdicts only exist between
-    // startRecordingSession() and finalize(). Everything else (audio ticks,
-    // packets, selection changes) pays one enum compare.
-    if (super.state != rq.TrackerState.tracking) return;
+    // Gate on non-ASR sources: audio playback, remote Maglis packets, and retargeting
+    // drive _store directly at their own boundaries and must never query the engine.
+    if (isAudioActive || isRemoteReciting || _isRetargeting) return;
     final int? ayah = activeAyah.value;
     if (ayah == null) return;
     final int surah = targetSurah;
@@ -463,20 +462,27 @@ class HighlightingController extends rq.HighlightingController {
     }
   }
 
-  static final Map<int, ({int ayah, int wordInAyah})> _surahLastWordCache = {};
+  static final Map<int, ({int ayah, int lastUthmaniWordIndex})>
+      _surahLastWordCache = {};
 
   /// Checks whether all words in [surah] have been completed or read.
   bool isSurahFinished(int surah) {
     if (!QuranMetadata.isValidSurah(surah)) return false;
     final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
-      final surahWords = repository.getSurahWords(surah);
-      if (surahWords.isEmpty) return (ayah: -1, wordInAyah: -1);
-      final last = surahWords.last;
-      return (ayah: last.ayah, wordInAyah: last.wordInAyah);
+      final totalAyahs = QuranMetadata.getAyahCount(surah);
+      if (totalAyahs <= 0) return (ayah: -1, lastUthmaniWordIndex: -1);
+      final lastVerse = repository.getVerse(surah, totalAyahs);
+      if (lastVerse == null || lastVerse.uthmaniWords.isEmpty) {
+        return (ayah: totalAyahs, lastUthmaniWordIndex: 0);
+      }
+      return (
+        ayah: totalAyahs,
+        lastUthmaniWordIndex: lastVerse.uthmaniWords.length - 1,
+      );
     });
     if (lastWord.ayah < 0) return false;
     return completedAyahsFor(surah).contains(lastWord.ayah) ||
-        isWordRead(lastWord.ayah, lastWord.wordInAyah, surah: surah);
+        isWordRead(lastWord.ayah, lastWord.lastUthmaniWordIndex, surah: surah);
   }
 
   /// Hook called when a continuous recitation boundary transitions to the next Surah.
