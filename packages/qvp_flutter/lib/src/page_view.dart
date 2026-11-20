@@ -57,30 +57,31 @@ class QvpViewLayout {
     int? gridLines,
     double? maxAspectSlack,
     bool? surahFrames,
-  }) => QvpViewLayout(
-    padTop: padTop ?? this.padTop,
-    padBottom: padBottom ?? this.padBottom,
-    padSide: padSide ?? this.padSide,
-    lineSpacing: lineSpacing ?? this.lineSpacing,
-    fillHeight: fillHeight ?? this.fillHeight,
-    gridLines: gridLines ?? this.gridLines,
-    maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
-    surahFrames: surahFrames ?? this.surahFrames,
-  );
+  }) =>
+      QvpViewLayout(
+        padTop: padTop ?? this.padTop,
+        padBottom: padBottom ?? this.padBottom,
+        padSide: padSide ?? this.padSide,
+        lineSpacing: lineSpacing ?? this.lineSpacing,
+        fillHeight: fillHeight ?? this.fillHeight,
+        gridLines: gridLines ?? this.gridLines,
+        maxAspectSlack: maxAspectSlack ?? this.maxAspectSlack,
+        surahFrames: surahFrames ?? this.surahFrames,
+      );
 
   QvpLayoutSpec toSpec(double viewportW, double viewportH) => QvpLayoutSpec(
-    viewportW: viewportW,
-    viewportH: viewportH,
-    padTop: padTop,
-    padBottom: padBottom,
-    padLeft: padSide,
-    padRight: padSide,
-    lineSpacing: lineSpacing,
-    fillHeight: fillHeight,
-    gridLines: gridLines,
-    maxAspectSlack: maxAspectSlack,
-    surahFrames: surahFrames,
-  );
+        viewportW: viewportW,
+        viewportH: viewportH,
+        padTop: padTop,
+        padBottom: padBottom,
+        padLeft: padSide,
+        padRight: padSide,
+        lineSpacing: lineSpacing,
+        fillHeight: fillHeight,
+        gridLines: gridLines,
+        maxAspectSlack: maxAspectSlack,
+        surahFrames: surahFrames,
+      );
 
   @override
   bool operator ==(Object other) =>
@@ -96,15 +97,15 @@ class QvpViewLayout {
 
   @override
   int get hashCode => Object.hash(
-    padTop,
-    padBottom,
-    padSide,
-    lineSpacing,
-    fillHeight,
-    gridLines,
-    maxAspectSlack,
-    surahFrames,
-  );
+        padTop,
+        padBottom,
+        padSide,
+        lineSpacing,
+        fillHeight,
+        gridLines,
+        maxAspectSlack,
+        surahFrames,
+      );
 }
 
 /// Pan / zoom on top of the engine layout. `view px = offsetX + layout px * scale`. The
@@ -218,8 +219,8 @@ typedef QvpWordTapCallback = void Function(QvpWordInfo word, QvpHit hit);
 
 /// A tap on a decoration (ayah mark, surah banner, …) that is not a word, and
 /// the hit that found it: line / distance / isExact, as for a word.
-typedef QvpDecorationTapCallback =
-    void Function(QvpDecorationInfo decoration, QvpHit hit);
+typedef QvpDecorationTapCallback = void Function(
+    QvpDecorationInfo decoration, QvpHit hit);
 
 /// Renders a [QvpPage] with the engine's layout, animated highlights, masks,
 /// styled paths, tap / long-press selection and pinch / pan.
@@ -266,8 +267,7 @@ class QvpPageView extends StatefulWidget {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  underlay;
+  )? underlay;
 
   /// Optional static canvas painter drawn inside the static ink layer beneath the base ink
   /// (e.g. Surah header background cards).
@@ -276,8 +276,7 @@ class QvpPageView extends StatefulWidget {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  staticUnderlay;
+  )? staticUnderlay;
 
   /// Optional static canvas painter drawn inside the static ink layer above the base ink
   /// (e.g. neutral Ayah mark medallions).
@@ -286,8 +285,7 @@ class QvpPageView extends StatefulWidget {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  staticOverlay;
+  )? staticOverlay;
 
   /// Optional single-pass dynamic canvas painter drawn above the ink (e.g. active Ayah marks, tooltips).
   final void Function(
@@ -295,8 +293,7 @@ class QvpPageView extends StatefulWidget {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  overlay;
+  )? overlay;
 
   /// Legacy fallback listenable that triggers repaint of dynamic underlay/overlay layers.
   final Listenable? repaintListenable;
@@ -375,6 +372,15 @@ class QvpPageView extends StatefulWidget {
     );
   }
 
+  /// Sets the active reader page number in the global ink cache to protect
+  /// adjacent pages within [currentPage - 2 ... currentPage + 2] from eviction.
+  static void setCurrentPage(int pageNumber) {
+    _InkCache.setCurrentPage(pageNumber);
+  }
+
+  /// Returns the current active reader page number tracked by the global ink cache, if any.
+  static int? get currentReaderPage => _InkCache.currentPage;
+
   /// Evicts any cached base ink pictures for [pageNumber] from the global cache.
   static void evictPage(int pageNumber) {
     _InkCache.evictPage(pageNumber);
@@ -390,11 +396,12 @@ class QvpPageView extends StatefulWidget {
 
   /// Maximum byte budget for rasterized page ink images in the global ink cache.
   @visibleForTesting
-  static int get maxPictureCacheBytes => _LruCache.maxBytes;
+  static int get maxPictureCacheBytes => _InkCache._globalInkCache.maxBytes;
 
   /// Current total byte footprint of rasterized page ink entries in the global ink cache.
   @visibleForTesting
-  static int get currentPictureCacheBytes => _InkCache._globalInkCache.totalBytes;
+  static int get currentPictureCacheBytes =>
+      _InkCache._globalInkCache.totalBytes;
 
   @override
   State<QvpPageView> createState() => QvpPageViewState();
@@ -486,8 +493,7 @@ class QvpPageViewState extends State<QvpPageView>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
       _ctl._detach(this);
-      _ctl =
-          widget.controller ??
+      _ctl = widget.controller ??
           (oldWidget.controller == null ? _ctl : QvpViewController());
       _ctl._attach(this);
     }
@@ -936,33 +942,31 @@ class QvpPageViewState extends State<QvpPageView>
               onScaleEnd: widget.panZoomEnabled ? _onScaleEnd : null,
               onHorizontalDragStart:
                   (!widget.panZoomEnabled && widget.onSwipe != null)
-                  ? (_) => _swipeDx = 0.0
-                  : null,
+                      ? (_) => _swipeDx = 0.0
+                      : null,
               onHorizontalDragUpdate:
                   (!widget.panZoomEnabled && widget.onSwipe != null)
-                  ? (d) => _swipeDx += d.primaryDelta ?? d.delta.dx
-                  : null,
+                      ? (d) => _swipeDx += d.primaryDelta ?? d.delta.dx
+                      : null,
               onHorizontalDragEnd:
                   (!widget.panZoomEnabled && widget.onSwipe != null)
-                  ? (d) {
-                      final vx = d.primaryVelocity ?? 0.0;
-                      final dir = _resolveSwipe(_swipeDx, vx);
-                      if (dir != 0) {
-                        widget.onSwipe!(dir);
-                      }
-                      _swipeDx = 0.0;
-                    }
-                  : null,
+                      ? (d) {
+                          final vx = d.primaryVelocity ?? 0.0;
+                          final dir = _resolveSwipe(_swipeDx, vx);
+                          if (dir != 0) {
+                            widget.onSwipe!(dir);
+                          }
+                          _swipeDx = 0.0;
+                        }
+                      : null,
               onHorizontalDragCancel:
                   (!widget.panZoomEnabled && widget.onSwipe != null)
-                  ? () => _swipeDx = 0.0
-                  : null,
-              onLongPressStart: widget.selectionEnabled
-                  ? _onLongPressStart
-                  : null,
-              onLongPressMoveUpdate: widget.selectionEnabled
-                  ? _onLongPressMove
-                  : null,
+                      ? () => _swipeDx = 0.0
+                      : null,
+              onLongPressStart:
+                  widget.selectionEnabled ? _onLongPressStart : null,
+              onLongPressMoveUpdate:
+                  widget.selectionEnabled ? _onLongPressMove : null,
               onLongPressEnd: widget.selectionEnabled ? _onLongPressEnd : null,
               child: Stack(
                 fit: StackFit.passthrough,
@@ -1039,14 +1043,12 @@ class _InkKey {
     this.offsetY,
     this.top,
     this.bandH,
-    this.rasterScale,
-    this.logicalW,
     this.surahFrames,
   );
 
   final int page, ink, bandH;
   final double? scale, offsetX, offsetY;
-  final double top, rasterScale, logicalW;
+  final double top;
   final bool surahFrames;
 
   bool matches(
@@ -1057,8 +1059,6 @@ class _InkKey {
     double? offsetY,
     double top,
     int bandH,
-    double rasterScale,
-    double logicalW,
     bool surahFrames,
   ) {
     if (page != this.page) return false;
@@ -1066,8 +1066,6 @@ class _InkKey {
     if (surahFrames != this.surahFrames) return false;
     if ((top - this.top).abs() > 0.5) return false;
     if ((bandH - this.bandH).abs() > 1.0) return false;
-    if ((rasterScale - this.rasterScale).abs() > 0.05) return false;
-    if ((logicalW - this.logicalW).abs() > 0.5) return false;
     if (scale != null && this.scale != null) {
       if ((scale - this.scale!).abs() > 0.001) return false;
     } else if (scale != this.scale) {
@@ -1097,8 +1095,6 @@ class _InkKey {
         offsetY,
         top,
         bandH,
-        rasterScale,
-        logicalW,
         surahFrames,
       );
 
@@ -1107,75 +1103,41 @@ class _InkKey {
 
   @override
   int get hashCode => Object.hash(
-    page,
-    ink,
-    _quantize(scale, 0.001),
-    _quantize(offsetX, 0.5),
-    _quantize(offsetY, 0.5),
-    _quantize(top, 0.5),
-    bandH,
-    _quantize(rasterScale, 0.05),
-    _quantize(logicalW, 0.5),
-    surahFrames,
-  );
-}
-
-void _disposeRasterResources(ui.Image? image, ui.Picture? picture) {
-  if (image == null && picture == null) return;
-  try {
-    final binding = SchedulerBinding.instance;
-    if (binding.schedulerPhase != SchedulerPhase.idle) {
-      binding.addPostFrameCallback((_) {
-        try {
-          image?.dispose();
-        } on Object catch (_) {}
-        try {
-          picture?.dispose();
-        } on Object catch (_) {}
-      });
-      return;
-    }
-  } on Object catch (_) {}
-  try {
-    image?.dispose();
-  } on Object catch (_) {}
-  try {
-    picture?.dispose();
-  } on Object catch (_) {}
+        page,
+        ink,
+        _quantize(scale, 0.001),
+        _quantize(offsetX, 0.5),
+        _quantize(offsetY, 0.5),
+        _quantize(top, 0.5),
+        bandH,
+        surahFrames,
+      );
 }
 
 class _PictureCacheEntry {
   final _InkKey key;
-  final ui.Image? image;
-  final ui.Picture? picture;
+  final ui.Picture picture;
   final int paths;
   final int styledKey;
   final Set<int> styledSet;
-  final int pixelW;
-  final int pixelH;
-  final double effectiveScale;
-  final int byteSize;
 
   _PictureCacheEntry({
     required this.key,
+    required this.picture,
     required this.paths,
     required this.styledKey,
     required this.styledSet,
-    this.image,
-    this.picture,
-    this.pixelW = 0,
-    this.pixelH = 0,
-    this.effectiveScale = 1.0,
-    this.byteSize = 0,
   });
 
-  /// True once the cache has let the raster/picture go. A view that holds the entry records again.
+  /// True once the cache has let the picture go. A view that holds the entry records again.
   bool disposed = false;
 
   void dispose() {
     if (disposed) return;
     disposed = true;
-    _disposeRasterResources(image, picture);
+    try {
+      picture.dispose();
+    } on Object catch (_) {}
   }
 }
 
@@ -1183,24 +1145,34 @@ class _LruCache {
   /// Hard count ceiling as a secondary guard alongside [maxBytes].
   static const int maxEntries = 32;
 
-  /// Byte budget (~48 MB) for rasterized base ink images, matching Android inkCacheBudget.
-  static const int maxBytes = 48 * 1024 * 1024;
+  /// Default memory budget: 128 MB (matching native reference engines).
+  static const int defaultMaxBytes = 128 * 1024 * 1024;
+
+  int maxBytes = defaultMaxBytes;
+
+  /// The active reader page, used to protect adjacent pages within [currentPage - 2 ... currentPage + 2].
+  int? currentPage;
 
   final LinkedHashMap<_InkKey, _PictureCacheEntry> _entries = LinkedHashMap();
-  int _totalBytes = 0;
 
-  int get totalBytes => _totalBytes;
+  int get totalBytes => _entries.length * 64 * 1024;
+
+  void setCurrentPage(int? page) {
+    currentPage = page;
+  }
+
+  bool isPageProtected(int pageNumber) {
+    final cur = currentPage;
+    if (cur == null) return false;
+    return pageNumber >= (cur - 2) && pageNumber <= (cur + 2);
+  }
 
   void evictPage(int pageNumber) {
-    final keysToRemove = _entries.keys
-        .where((k) => k.page == pageNumber)
-        .toList();
+    final keysToRemove =
+        _entries.keys.where((k) => k.page == pageNumber).toList();
     for (final k in keysToRemove) {
       final removed = _entries.remove(k);
-      if (removed != null) {
-        _totalBytes = math.max(0, _totalBytes - removed.byteSize);
-        removed.dispose();
-      }
+      removed?.dispose();
     }
   }
 
@@ -1215,7 +1187,6 @@ class _LruCache {
         _entries[key] = entry;
         return entry;
       }
-      _totalBytes = math.max(0, _totalBytes - entry.byteSize);
       return null;
     }
     // Epsilon-safe fallback scan over cached entries
@@ -1228,8 +1199,6 @@ class _LruCache {
         key.offsetY,
         key.top,
         key.bandH,
-        key.rasterScale,
-        key.logicalW,
         key.surahFrames,
       )) {
         final found = e.value;
@@ -1238,30 +1207,34 @@ class _LruCache {
           _entries[key] = found;
           return found;
         }
-        _totalBytes = math.max(0, _totalBytes - found.byteSize);
         return null;
       }
     }
     return null;
   }
 
+  void _trim() {
+    while (_entries.length > maxEntries) {
+      _InkKey? victimKey;
+      for (final k in _entries.keys) {
+        if (!isPageProtected(k.page)) {
+          victimKey = k;
+          break;
+        }
+      }
+      victimKey ??= _entries.keys.first;
+      final evicted = _entries.remove(victimKey);
+      evicted?.dispose();
+    }
+  }
+
   _PictureCacheEntry put(_InkKey key, _PictureCacheEntry entry) {
     final old = _entries.remove(key);
     if (old != null && !identical(old, entry)) {
-      _totalBytes = math.max(0, _totalBytes - old.byteSize);
       old.dispose();
     }
     _entries[key] = entry;
-    _totalBytes += entry.byteSize;
-    while (_entries.length > maxEntries ||
-        (_totalBytes > maxBytes && _entries.length > 3)) {
-      final firstKey = _entries.keys.first;
-      final evicted = _entries.remove(firstKey);
-      if (evicted != null) {
-        _totalBytes = math.max(0, _totalBytes - evicted.byteSize);
-        evicted.dispose();
-      }
-    }
+    _trim();
     return entry;
   }
 
@@ -1383,15 +1356,16 @@ class _BoxLayer {
   }
 }
 
-/// Per-page render cache: base ink image/picture and layout draws.
+/// Per-page render cache: base ink picture and layout draws.
 class _InkCache {
   static final _LruCache _globalInkCache = _LruCache();
-  static final ui.Paint _blitPaint = ui.Paint()
-    ..isAntiAlias = false
-    ..filterQuality = ui.FilterQuality.none;
 
   static _PictureCacheEntry? getGlobalInk(_InkKey key) =>
       _globalInkCache.get(key);
+
+  static void setCurrentPage(int? page) => _globalInkCache.setCurrentPage(page);
+
+  static int? get currentPage => _globalInkCache.currentPage;
 
   static void evictPage(int pageNumber) =>
       _globalInkCache.evictPage(pageNumber);
@@ -1456,18 +1430,14 @@ class _InkCache {
       return candidate;
     }
     // Incremental Hifz word reveal: candidate omitted a strict superset of [styledSet],
-    // so all previously drawn ink stays valid and only newly revealed glyphs rasterize.
-    final prevImg = candidate.image;
-    if (prevImg != null &&
-        candidate.styledSet.length > styledSet.length &&
+    // so all previously recorded ink is drawn and only newly revealed glyphs are appended.
+    if (candidate.styledSet.length > styledSet.length &&
         candidate.styledSet.containsAll(styledSet)) {
       final revealed = candidate.styledSet.difference(styledSet);
-      ui.Picture? deltaPic;
       try {
         final rec = ui.PictureRecorder();
         final c = ui.Canvas(rec);
-        c.drawImage(prevImg, ui.Offset.zero, _blitPaint);
-        c.scale(candidate.effectiveScale);
+        c.drawPicture(candidate.picture);
         if (top != 0.0) c.translate(0, -top);
         final paint = ui.Paint()
           ..color = QvpColor.toColor(ink)
@@ -1480,32 +1450,22 @@ class _InkCache {
           paint: paint,
           includePath: revealed.contains,
         );
-        deltaPic = rec.endRecording();
-        final newImg = deltaPic.toImageSync(candidate.pixelW, candidate.pixelH);
-        deltaPic.dispose();
-        deltaPic = null;
+        final deltaPic = rec.endRecording();
         final updated = _PictureCacheEntry(
           key: key,
-          image: newImg,
+          picture: deltaPic,
           paths: candidate.paths + added,
           styledKey: styledKey,
           styledSet: styledSet,
-          pixelW: candidate.pixelW,
-          pixelH: candidate.pixelH,
-          effectiveScale: candidate.effectiveScale,
-          byteSize: candidate.byteSize,
         );
-        return _globalInkCache.put(key, updated);
-      } on Object catch (_) {
-        try {
-          deltaPic?.dispose();
-        } on Object catch (_) {}
-      }
+        _globalInkCache.put(key, updated);
+        return updated;
+      } on Object catch (_) {}
     }
     return null;
   }
 
-  /// Resolves, reuses, incrementally updates, or freshly rasterizes base ink into [_globalInkCache].
+  /// Resolves, reuses, incrementally updates, or freshly records base ink into [_globalInkCache].
   static _PictureCacheEntry resolveInkEntry({
     required QvpPage page,
     required QvpLayout? layout,
@@ -1513,13 +1473,11 @@ class _InkCache {
     required int ink,
     required double top,
     required double bandH,
-    required double targetRasterScale,
     required bool surahFrames,
     required int styledKey,
     required Set<int> styledSet,
     _PictureCacheEntry? localHeld,
   }) {
-    final logicalW = math.max(layout?.contentW ?? page.width, 1.0);
     final key = _InkKey(
       page.page,
       ink,
@@ -1528,8 +1486,6 @@ class _InkCache {
       layout?.offsetY,
       top,
       bandH.toInt(),
-      targetRasterScale,
-      logicalW,
       surahFrames,
     );
 
@@ -1562,31 +1518,8 @@ class _InkCache {
     );
     if (reusedGlobal != null) return reusedGlobal;
 
-    final allowImageRaster = targetRasterScale > 0.0;
-    double effectiveScale = 1.0;
-    int pixelW = 0;
-    int pixelH = 0;
-    if (allowImageRaster) {
-      final logicalH = math.max(bandH, 1.0);
-      final desiredPxW = logicalW * targetRasterScale;
-      final desiredPxH = logicalH * targetRasterScale;
-      final clampFactor = math.min(
-        1.0,
-        math.min(
-          4096.0 / math.max(desiredPxW, 1.0),
-          4096.0 / math.max(desiredPxH, 1.0),
-        ),
-      );
-      effectiveScale = targetRasterScale * clampFactor;
-      pixelW = (logicalW * effectiveScale).ceil().clamp(1, 4096);
-      pixelH = (logicalH * effectiveScale).ceil().clamp(1, 4096);
-    }
-
     final rec = ui.PictureRecorder();
     final c = ui.Canvas(rec);
-    if (allowImageRaster && effectiveScale != 1.0) {
-      c.scale(effectiveScale);
-    }
     if (top != 0.0) {
       c.translate(0, -top);
     }
@@ -1605,36 +1538,15 @@ class _InkCache {
     );
     final pic = rec.endRecording();
 
-    if (allowImageRaster && pixelW > 0 && pixelH > 0) {
-      try {
-        final img = pic.toImageSync(pixelW, pixelH);
-        pic.dispose();
-        final entry = _PictureCacheEntry(
-          key: key,
-          image: img,
-          paths: n,
-          styledKey: styledKey,
-          styledSet: styledSet,
-          pixelW: pixelW,
-          pixelH: pixelH,
-          effectiveScale: effectiveScale,
-          byteSize: pixelW * pixelH * 4,
-        );
-        return _globalInkCache.put(key, entry);
-      } on Object catch (_) {
-        // Fallback cleanly to Picture below if toImageSync is unavailable.
-      }
-    }
-
-    final fallbackEntry = _PictureCacheEntry(
+    final entry = _PictureCacheEntry(
       key: key,
       picture: pic,
       paths: n,
       styledKey: styledKey,
       styledSet: styledSet,
-      byteSize: 64 * 1024,
     );
-    return _globalInkCache.put(key, fallbackEntry);
+    _globalInkCache.put(key, entry);
+    return entry;
   }
 
   static void prepare(
@@ -1649,26 +1561,36 @@ class _InkCache {
     if (inkColor != null && rgba(inkColor) != page.defaultInk) {
       page.setDefaultColor(inkColor);
     }
-    final l = page.currentLayout;
+    final initialLayout = page.currentLayout;
+    final QvpLayout? l;
+    if (initialLayout == null && width != null && height != null) {
+      final spec = QvpLayoutSpec(
+        viewportW: width,
+        viewportH: height,
+        surahFrames: surahFrames,
+      );
+      page.layout(spec);
+      l = page.currentLayout;
+    } else {
+      l = initialLayout;
+    }
     if (l == null) return;
+    final targetLayout = l;
     final ink = page.defaultInk;
     const double top = 0.0;
-    final double bandH = math.max(l.contentH, 1.0);
+    final double bandH = math.max(targetLayout.contentH, 1.0);
     final styledPaths = page.styledPaths();
     var keyVal = 1;
-    final Set<int> styledSet = styledPaths.isEmpty
-        ? const <int>{}
-        : <int>{};
+    final Set<int> styledSet = styledPaths.isEmpty ? const <int>{} : <int>{};
     for (var i = 0; i < styledPaths.length; i++) {
       final s = styledPaths[i];
       keyVal = 31 * (31 * keyVal + s.path) + s.color;
       styledSet.add(s.path);
     }
 
-    final targetRasterScale = (dpr * l.fitScale).clamp(1.0, 3.0);
     resolveInkEntry(
       page: page,
-      layout: l,
+      layout: targetLayout,
       getDrawList: () => _DrawList(
         draws: page.layoutDrawList(),
         places: page.layoutPlacements(),
@@ -1676,15 +1598,14 @@ class _InkCache {
         page: page.page,
         top: top,
         bandH: bandH,
-        contentH: l.contentH,
-        scale: l.scale,
-        offsetX: l.offsetX,
-        offsetY: l.offsetY,
+        contentH: targetLayout.contentH,
+        scale: targetLayout.scale,
+        offsetX: targetLayout.offsetX,
+        offsetY: targetLayout.offsetY,
       ),
       ink: ink,
       top: top,
       bandH: bandH,
-      targetRasterScale: targetRasterScale,
       surahFrames: surahFrames,
       styledKey: keyVal,
       styledSet: styledSet,
@@ -1757,8 +1678,7 @@ class _InkCache {
   /// masks and the dress follow the page alone. A frame where nothing changed asks for nothing.
   void read(QvpPage page) {
     final l = page.currentLayout;
-    final changed =
-        !identical(page, _readPage) ||
+    final changed = !identical(page, _readPage) ||
         page.revision != _readRevision ||
         !identical(l, _readLayout);
     final clock = pageClock(page);
@@ -1877,7 +1797,8 @@ void paintPassage(
   if (open) canvas.restore();
 }
 
-void _paintInView(ui.Canvas canvas, QvpViewController view, void Function() fn) {
+void _paintInView(
+    ui.Canvas canvas, QvpViewController view, void Function() fn) {
   canvas.save();
   canvas.translate(view.offsetX, view.offsetY);
   canvas.scale(view.scale);
@@ -1898,12 +1819,12 @@ class _UnderlayPainter extends CustomPainter {
     this.underlay,
     Listenable? repaintListenable,
   }) : super(
-         repaint: Listenable.merge([
-           page,
-           view,
-           if (repaintListenable != null) repaintListenable,
-         ]),
-       );
+          repaint: Listenable.merge([
+            page,
+            view,
+            if (repaintListenable != null) repaintListenable,
+          ]),
+        );
 
   final QvpPage page;
   final QvpViewController view;
@@ -1915,8 +1836,7 @@ class _UnderlayPainter extends CustomPainter {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  underlay;
+  )? underlay;
 
   final ui.Paint _boxPaint = ui.Paint()..isAntiAlias = true;
   final ui.Path _boxPath = ui.Path();
@@ -1928,7 +1848,8 @@ class _UnderlayPainter extends CustomPainter {
 
     final paperColor = paper;
     if (paperColor != null) {
-      final dress = page.dressSpec == null ? null : (cache.dress ?? page.dressInfo());
+      final dress =
+          page.dressSpec == null ? null : (cache.dress ?? page.dressInfo());
       final o = dress?.overflow ?? const [0.0, 0.0, 0.0, 0.0];
       final left = view.offsetX - o[0] * view.scale;
       final top = view.offsetY - o[1] * view.scale;
@@ -1975,12 +1896,12 @@ class _OverlayPainter extends CustomPainter {
     this.overlay,
     Listenable? repaintListenable,
   }) : super(
-         repaint: Listenable.merge([
-           page,
-           view,
-           if (repaintListenable != null) repaintListenable,
-         ]),
-       );
+          repaint: Listenable.merge([
+            page,
+            view,
+            if (repaintListenable != null) repaintListenable,
+          ]),
+        );
 
   final QvpPage page;
   final QvpViewController view;
@@ -1989,8 +1910,7 @@ class _OverlayPainter extends CustomPainter {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  overlay;
+  )? overlay;
 
   @override
   void paint(ui.Canvas canvas, Size size) {
@@ -2016,13 +1936,13 @@ class _StaticInkPainter extends CustomPainter {
     this.staticOverlay,
     Listenable? repaintListenable,
   }) : super(
-         repaint: Listenable.merge([
-           page,
-           view,
-           frame,
-           if (repaintListenable != null) repaintListenable,
-         ]),
-       );
+          repaint: Listenable.merge([
+            page,
+            view,
+            frame,
+            if (repaintListenable != null) repaintListenable,
+          ]),
+        );
 
   final QvpPage page;
   final QvpViewController view;
@@ -2034,20 +1954,15 @@ class _StaticInkPainter extends CustomPainter {
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  staticUnderlay;
+  )? staticUnderlay;
   final void Function(
     ui.Canvas canvas,
     Size size,
     QvpPage page,
     QvpLayout? layout,
-  )?
-  staticOverlay;
+  )? staticOverlay;
 
   final ui.Paint _boxPaint = ui.Paint()..isAntiAlias = true;
-  final ui.Paint _imageBlitPaint = ui.Paint()
-    ..isAntiAlias = true
-    ..filterQuality = ui.FilterQuality.medium;
   final ui.Paint _styledPaint = ui.Paint()
     ..isAntiAlias = true
     ..blendMode = ui.BlendMode.srcOver;
@@ -2155,12 +2070,6 @@ class _StaticInkPainter extends CustomPainter {
       bandH = math.max(band.height, 1.0);
     }
 
-    final fitScale = l?.fitScale ?? 1.0;
-    final bool useRasterImage = view.scale <= fitScale * 1.25;
-    final double targetRasterScale = useRasterImage
-        ? (dpr * fitScale).clamp(1.0, 3.0)
-        : 0.0;
-
     final swBase = Stopwatch()..start();
     final prevEntry = cache.entry;
     final resolved = _InkCache.resolveInkEntry(
@@ -2170,7 +2079,6 @@ class _StaticInkPainter extends CustomPainter {
       ink: ink,
       top: top,
       bandH: bandH,
-      targetRasterScale: targetRasterScale,
       surahFrames: surahFrames,
       styledKey: cache.styledKey,
       styledSet: cache.styledSet,
@@ -2200,29 +2108,12 @@ class _StaticInkPainter extends CustomPainter {
       cache.bands.draw(canvas, _boxPaint, view);
     }
 
-    // 2. Base ink: GPU texture image blit when unzoomed, Picture fallback when deep-zoomed
-    final img = resolved.image;
+    // 2. Base ink: drawn via fast cached vector picture
     final pic = resolved.picture;
-    if (img != null || pic != null) {
+    if (!resolved.disposed) {
       _paintInView(canvas, view, () {
         if (top != 0.0) canvas.translate(0, top);
-        if (img != null) {
-          final src = Rect.fromLTWH(
-            0,
-            0,
-            img.width.toDouble(),
-            img.height.toDouble(),
-          );
-          final dst = Rect.fromLTWH(
-            0,
-            0,
-            img.width / resolved.effectiveScale,
-            img.height / resolved.effectiveScale,
-          );
-          canvas.drawImageRect(img, src, dst, _imageBlitPaint);
-        } else if (pic != null) {
-          canvas.drawPicture(pic);
-        }
+        canvas.drawPicture(pic);
       });
     }
 
@@ -2291,12 +2182,11 @@ extension QvpPageViewStats on QvpPageViewState {
     int overlayPaths,
     double overlayMs,
     int bands,
-  })
-  get stats => (
-    basePaths: _cache.basePaths,
-    baseMs: _cache.baseMs,
-    overlayPaths: _cache.overlayPaths,
-    overlayMs: _cache.overlayMs,
-    bands: _cache.bandCount,
-  );
+  }) get stats => (
+        basePaths: _cache.basePaths,
+        baseMs: _cache.baseMs,
+        overlayPaths: _cache.overlayPaths,
+        overlayMs: _cache.overlayMs,
+        bands: _cache.bandCount,
+      );
 }

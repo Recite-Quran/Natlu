@@ -63,10 +63,17 @@ class MushafProvider {
   QvpEngine get engine => _engine!;
   QvpAtlas get atlas => _atlas!;
 
-  Size? lastViewportSize;
+  Size? _lastViewportSize;
+  Size? get lastViewportSize => _lastViewportSize;
+  set lastViewportSize(Size? size) {
+    if (size != null && size.width > 0 && size.height > 0) {
+      _lastViewportSize = size;
+    }
+  }
+
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   final Map<int, Size> _pageLayoutSizes = {};
-  static const int _maxCachedPages = 10;
+  static const int _maxCachedPages = 32;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
   Timer? _preloadTimer;
@@ -101,7 +108,7 @@ class MushafProvider {
     QvpPageView.prepare(
       page,
       inkColor: inkColor,
-      surahFrames: false,
+      surahFrames: mushafLayout.surahFrames,
       dpr: dpr,
       width: targetSize.width,
       height: targetSize.height,
@@ -109,19 +116,22 @@ class MushafProvider {
   }
 
   void preloadAdjacentPages(int pageNumber, [Size? viewportSize]) {
-    final size = viewportSize ?? lastViewportSize;
-    if (size != null && size.width > 0 && size.height > 0) {
-      lastViewportSize = size;
+    if (viewportSize != null &&
+        viewportSize.width > 0 &&
+        viewportSize.height > 0) {
+      lastViewportSize = viewportSize;
     }
 
     _preloadingTargetPage = pageNumber;
-    final targetSize = size ?? lastViewportSize;
-    if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) return;
+    QvpPageView.setCurrentPage(pageNumber);
 
-    // Debounce preloading until after the page turn transition settles, then
-    // stagger page + 1 ahead of page - 1 so frame budgets remain smooth.
+    final targetSize = lastViewportSize;
+    if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) {
+      return;
+    }
+
     _preloadTimer?.cancel();
-    _preloadTimer = Timer(const Duration(milliseconds: 300), () async {
+    _preloadTimer = Timer(const Duration(milliseconds: 60), () async {
       if (_preloadingTargetPage != pageNumber) return;
 
       final currentInkColor = AppState.instance.colors.text;
@@ -129,6 +139,7 @@ class MushafProvider {
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
 
+      // 1. Warm forward neighbor (+1) first
       await _prepareNeighborPage(
         pageNumber + 1,
         pageNumber,
@@ -138,9 +149,8 @@ class MushafProvider {
       );
       if (_preloadingTargetPage != pageNumber) return;
 
-      // Yield briefly before warming the backward neighbor so we never saturate
-      // a single UI frame with back-to-back layout + rasterization work.
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      // 2. Yield/stagger before warming backward neighbor (-1) so frame budgets are never saturated
+      await Future<void>.delayed(const Duration(milliseconds: 30));
       if (_preloadingTargetPage != pageNumber) return;
 
       await _prepareNeighborPage(
@@ -352,14 +362,16 @@ class MushafProvider {
         }
       } else {
         var localPage = _extractedPagesPath != null
-            ? File('$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
+            ? File(
+                '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
             : null;
         if (localPage == null ||
             !localPage.existsSync() ||
             localPage.lengthSync() == 0) {
           await _ensureExtracted(force: true);
           localPage = _extractedPagesPath != null
-              ? File('$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
+              ? File(
+                  '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
               : null;
         }
         if (localPage != null &&
@@ -386,7 +398,9 @@ class MushafProvider {
               evictKey = k;
             }
           }
-          if (evictKey != null && evictKey != pageNumber) {
+          if (evictKey != null &&
+              evictKey != pageNumber &&
+              (evictKey - currentPage).abs() > 3) {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);

@@ -282,6 +282,10 @@ class HighlightingController extends rq.HighlightingController {
   /// re-read from the engine or overwritten, and the gate bails instantly
   /// whenever no package session is live.
   void _ingestEngineState() {
+    // Gate on the package's own session state: verdicts only exist when actively tracking.
+    // Bail immediately when idle, browsing, paused, or stopped to avoid heavy
+    // verse lookups and word checks on every notifyListeners() tick.
+    if (super.state != rq.TrackerState.tracking) return;
     // Gate on non-ASR sources: audio playback, remote Maglis packets, and retargeting
     // drive _store directly at their own boundaries and must never query the engine.
     if (isAudioActive || isRemoteReciting || _isRetargeting) return;
@@ -1148,7 +1152,7 @@ class QuranHighlightPalette {
     if (_memoSig == sig) return _memoPalette!;
     final palette = QuranHighlightPalette(
       greenBand: colors.green.withValues(alpha: isDark ? 0.18 : 0.14),
-      yellowBand: colors.warning.withValues(alpha: isDark ? 0.18 : 0.14),
+      yellowBand: colors.warning.withValues(alpha: isDark ? 0.18 : 0.20), // 0.14→0.20: amber on warm linen at 14% was near-invisible
       redBand: colors.red.withValues(alpha: isDark ? 0.18 : 0.14),
       leadWordBand:
           colors.wordHighlight.withValues(alpha: isDark ? 0.20 : 0.18),

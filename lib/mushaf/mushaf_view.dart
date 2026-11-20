@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import '../core/app_state.dart';
@@ -94,6 +95,11 @@ class _MushafViewState extends State<MushafView>
   // Interactive PageController driving train-style horizontal page transitions
   late PageController _pageController;
   bool _isProgrammaticScroll = false;
+
+  void _onScrollEnd() {
+    MushafProvider.instance.isPageScrolling.value = false;
+    _settleOnPage(_currentPage);
+  }
 
   // Audio spinner animation & fine-grained layer repaint triggers
   late final AnimationController _spinnerController;
@@ -746,18 +752,14 @@ class _MushafViewState extends State<MushafView>
     final clamped = QuranMetadata.clampPage(page);
     if (clamped == _currentPage && _currentPageObject != null) return;
 
-    final oldPage = _currentPageObject;
-    _syncPageSelection(clamped);
-    MushafProvider.instance.preloadAdjacentPages(
-      clamped,
-      MushafProvider.instance.lastViewportSize,
-    );
-
     _currentPage = clamped;
     if (AppState.instance.currentMushafPage.value != clamped) {
       AppState.instance.currentMushafPage.value = clamped;
     }
-    _loadCurrentPage(clamped, oldPage: oldPage);
+    MushafProvider.instance.preloadAdjacentPages(
+      clamped,
+      MushafProvider.instance.lastViewportSize,
+    );
 
     if (_pageController.hasClients) {
       final targetIndex = clamped - 1;
@@ -774,21 +776,42 @@ class _MushafViewState extends State<MushafView>
                 curve: Curves.easeOutCubic,
               )
               .whenComplete(() {
-                if (mounted) _isProgrammaticScroll = false;
+                if (mounted) {
+                  _isProgrammaticScroll = false;
+                  _settleOnPage(clamped);
+                }
               });
+          return;
         } else {
           _pageController.jumpToPage(targetIndex);
           _isProgrammaticScroll = false;
+          _settleOnPage(clamped);
+          return;
         }
       }
     }
+    _settleOnPage(clamped);
   }
 
   void _onPageChangedFromScroll(int index) {
     if (_isProgrammaticScroll) return;
     final targetPage = index + 1;
     if (targetPage == _currentPage) return;
-    _goToPage(targetPage, animated: false);
+    _currentPage = targetPage;
+    if (AppState.instance.currentMushafPage.value != targetPage) {
+      AppState.instance.currentMushafPage.value = targetPage;
+    }
+    MushafProvider.instance.preloadAdjacentPages(
+      targetPage,
+      MushafProvider.instance.lastViewportSize,
+    );
+  }
+
+  void _settleOnPage(int pageNumber) {
+    if (!mounted) return;
+    _syncPageSelection(pageNumber);
+    _loadCurrentPage(pageNumber);
+    _debouncedSavePosition(pageNumber);
   }
 
   Future<void> _loadCurrentPage(
@@ -796,13 +819,14 @@ class _MushafViewState extends State<MushafView>
     QvpPage? oldPage,
     bool notify = true,
   }) async {
+    final bool alreadyLoaded =
+        MushafProvider.instance.getCachedPage(pageNumber) != null;
     var page = MushafProvider.instance.getCachedPage(pageNumber);
     if (page == null || page.isDisposed) {
       page = await MushafProvider.instance.getPage(pageNumber);
       if (!mounted || pageNumber != _currentPage) return;
-      notify = true;
     }
-    _clearPageVisuals(oldPage);
+    _clearPageVisuals(oldPage ?? _currentPageObject);
     _currentPageObject = page;
     _lastUnderlayState = null;
     _lastAudioOverlayState = null;
@@ -810,7 +834,10 @@ class _MushafViewState extends State<MushafView>
     _syncVisuals();
     _notifyUnderlayIfRelevant();
     _syncAudioOverlayState();
-    if (notify && mounted) setState(() {});
+
+    if (notify && mounted && !alreadyLoaded) {
+      setState(() {});
+    }
   }
 
   void _clearPageVisuals(QvpPage? page) {
@@ -1134,14 +1161,33 @@ class _MushafViewState extends State<MushafView>
                       child: SizedBox(
                         width: pageContainerWidth,
                         height: usableHeight,
-                        child: PageView.builder(
-                          controller: _pageController,
-                          itemCount: QuranMetadata.maxPage,
-                          padEnds: false,
-                          physics: const ClampingScrollPhysics(),
-                          onPageChanged: _onPageChangedFromScroll,
-                          itemBuilder: (context, index) =>
-                              _buildPageItem(context, index + 1),
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (notification) {
+                            if (notification is ScrollStartNotification) {
+                              MushafProvider.instance.isPageScrolling.value =
+                                  true;
+                            } else if (notification is ScrollEndNotification) {
+                              _onScrollEnd();
+                            } else if (notification is UserScrollNotification) {
+                              if (notification.direction ==
+                                  ScrollDirection.idle) {
+                                _onScrollEnd();
+                              } else {
+                                MushafProvider.instance.isPageScrolling.value =
+                                    true;
+                              }
+                            }
+                            return false;
+                          },
+                          child: PageView.builder(
+                            controller: _pageController,
+                            itemCount: QuranMetadata.maxPage,
+                            padEnds: false,
+                            physics: const ClampingScrollPhysics(),
+                            onPageChanged: _onPageChangedFromScroll,
+                            itemBuilder: (context, index) =>
+                                _buildPageItem(context, index + 1),
+                          ),
                         ),
                       ),
                     ),
@@ -1181,47 +1227,157 @@ class _MushafViewState extends State<MushafView>
 
   /// Builds a single page item inside the horizontal train strip.
   Widget _buildPageItem(BuildContext context, int pageNum) {
-    final page = MushafProvider.instance.getCachedPage(pageNum);
-    final c = AppState.instance.colors;
+    return _MushafPageItem(
+      key: ValueKey<int>(pageNum),
+      pageNum: pageNum,
+      isCurrent: pageNum == _currentPage,
+      viewCtrl: _qvpViewCtrl,
+      onWordTap: (ctx, page, wordIdx) => _onWordTap(ctx, page, wordIdx),
+      onDecorationTap: (dec) => _onDecorationTap(dec),
+      staticUnderlay: _paintStaticUnderlay,
+      underlay: _paintUnderlay,
+      staticOverlay: _paintStaticOverlay,
+      overlay: _paintOverlay,
+      staticRepaintListenable: _staticRepaintTrigger,
+      underlayRepaintListenable: _underlayRepaintListenable,
+      overlayRepaintListenable: _overlayRepaintListenable,
+      spinnerMark: _spinnerMark,
+      spinnerController: _spinnerController,
+    );
+  }
+}
 
-    if (page == null || page.isDisposed) {
-      MushafProvider.instance.getPage(pageNum).then((p) {
-        if (mounted) setState(() {});
-      });
-      return ColoredBox(color: c.surface);
+/// Autonomous single-page host within the horizontal PageView.
+///
+/// Resolves and loads its own [QvpPage] independently from the parent view.
+/// When the page decodes off-thread, this widget triggers its own local [setState],
+/// eliminating race conditions, dropped rebuilds, and stuck blank white pages.
+class _MushafPageItem extends StatefulWidget {
+  final int pageNum;
+  final bool isCurrent;
+  final QvpViewController viewCtrl;
+  final void Function(BuildContext context, QvpPage page, int wordIndex) onWordTap;
+  final void Function(QvpDecorationInfo dec) onDecorationTap;
+  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? staticUnderlay;
+  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? underlay;
+  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? staticOverlay;
+  final void Function(ui.Canvas canvas, Size size, QvpPage page, QvpLayout? layout)? overlay;
+  final Listenable? staticRepaintListenable;
+  final Listenable? underlayRepaintListenable;
+  final Listenable? overlayRepaintListenable;
+  final ValueListenable<({Offset center, double radius})?> spinnerMark;
+  final AnimationController spinnerController;
+
+  const _MushafPageItem({
+    super.key,
+    required this.pageNum,
+    required this.isCurrent,
+    required this.viewCtrl,
+    required this.onWordTap,
+    required this.onDecorationTap,
+    this.staticUnderlay,
+    this.underlay,
+    this.staticOverlay,
+    this.overlay,
+    this.staticRepaintListenable,
+    this.underlayRepaintListenable,
+    this.overlayRepaintListenable,
+    required this.spinnerMark,
+    required this.spinnerController,
+  });
+
+  @override
+  State<_MushafPageItem> createState() => _MushafPageItemState();
+}
+
+class _MushafPageItemState extends State<_MushafPageItem> {
+  QvpPage? _page;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolvePage();
+  }
+
+  @override
+  void didUpdateWidget(_MushafPageItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageNum != widget.pageNum) {
+      _resolvePage();
+    } else if (_page != null && _page!.isDisposed) {
+      _resolvePage();
+    }
+  }
+
+  void _resolvePage() {
+    final cached = MushafProvider.instance.getCachedPage(widget.pageNum);
+    if (cached != null && !cached.isDisposed) {
+      _page = cached;
+      _isLoading = false;
+      return;
     }
 
-    final isCurrent = pageNum == _currentPage;
+    _isLoading = true;
+    _page = null;
+    MushafProvider.instance.getPage(widget.pageNum).then((p) {
+      if (!mounted) return;
+      if (p != null && !p.isDisposed) {
+        setState(() {
+          _page = p;
+          _isLoading = false;
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var page = _page;
+    if (page == null || page.isDisposed) {
+      final cached = MushafProvider.instance.getCachedPage(widget.pageNum);
+      if (cached != null && !cached.isDisposed) {
+        page = cached;
+        _page = cached;
+        _isLoading = false;
+      }
+    }
+
+    final c = AppState.instance.colors;
+    if (page == null || page.isDisposed) {
+      if (!_isLoading) {
+        _resolvePage();
+      }
+      return ColoredBox(color: c.surface);
+    }
 
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
-        RepaintBoundary(
-          child: QvpPageView(
-            page: page,
-            controller: isCurrent ? _qvpViewCtrl : null,
-            panZoomEnabled: false,
-            selectionEnabled: false,
-            layout: MushafProvider.mushafLayout,
-            hitMaxDistance: 28.0,
-            paper: null,
-            paperShadow: false,
-            defaultInk: c.text,
-            onSwipe: null, // Critical: let outer PageView drive horizontal motion
-            onWordTap: (word, _) => _onWordTap(context, page, word.index),
-            onDecorationTap: (dec, _) => _onDecorationTap(dec),
-            staticUnderlay: _paintStaticUnderlay,
-            underlay: _paintUnderlay,
-            staticOverlay: _paintStaticOverlay,
-            overlay: _paintOverlay,
-            staticRepaintListenable: _staticRepaintTrigger,
-            underlayRepaintListenable: _underlayRepaintListenable,
-            overlayRepaintListenable: _overlayRepaintListenable,
-          ),
+        QvpPageView(
+          page: page,
+          controller: widget.isCurrent ? widget.viewCtrl : null,
+          panZoomEnabled: false,
+          selectionEnabled: false,
+          layout: MushafProvider.mushafLayout,
+          hitMaxDistance: 28.0,
+          paper: null,
+          paperShadow: false,
+          defaultInk: c.text,
+          onSwipe: null, // Critical: let outer PageView drive horizontal motion
+          onWordTap: (word, _) => widget.onWordTap(context, page!, word.index),
+          onDecorationTap: (dec, _) => widget.onDecorationTap(dec),
+          staticUnderlay: widget.staticUnderlay,
+          underlay: widget.underlay,
+          staticOverlay: widget.staticOverlay,
+          overlay: widget.overlay,
+          staticRepaintListenable: widget.staticRepaintListenable,
+          underlayRepaintListenable: widget.underlayRepaintListenable,
+          overlayRepaintListenable: widget.overlayRepaintListenable,
         ),
-        if (isCurrent)
+        if (widget.isCurrent)
           ValueListenableBuilder<({Offset center, double radius})?>(
-            valueListenable: _spinnerMark,
+            valueListenable: widget.spinnerMark,
             builder: (context, spinnerMark, _) => spinnerMark == null
                 ? const SizedBox.shrink()
                 : Positioned.fill(
@@ -1229,8 +1385,8 @@ class _MushafViewState extends State<MushafView>
                       child: RepaintBoundary(
                         child: CustomPaint(
                           painter: _BufferingSpinnerPainter(
-                            spinner: _spinnerController,
-                            viewCtrl: _qvpViewCtrl,
+                            spinner: widget.spinnerController,
+                            viewCtrl: widget.viewCtrl,
                             center: spinnerMark.center,
                             ringRadius: spinnerMark.radius,
                             color: c.primary,
