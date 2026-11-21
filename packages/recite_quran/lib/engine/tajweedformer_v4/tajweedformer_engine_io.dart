@@ -12,6 +12,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../utils/debug_logger.dart';
 import '../core/recite_engine.dart';
 import '../core/tajweed_diagnostics.dart';
 import '../core/transcription_result.dart';
@@ -93,7 +94,11 @@ class TajweedFormerEngine implements ReciteEngine {
           .where((k) => k.startsWith('assets/model/'))
           .toList();
 
-      if (modelAssets.isEmpty) return;
+      if (modelAssets.isEmpty) {
+        throw StateError(
+          'TajweedFormer: No assets found under assets/model/ in asset manifest!',
+        );
+      }
 
       final dir = Directory(targetDir);
       if (!dir.existsSync()) dir.createSync(recursive: true);
@@ -113,7 +118,10 @@ class TajweedFormerEngine implements ReciteEngine {
         );
         await targetFile.writeAsBytes(bytes, flush: true);
       }
-    } catch (_) {}
+    } catch (e) {
+      DebugLogger.logSimple('TajweedFormer', '❌ Extraction error: $e');
+      rethrow;
+    }
   }
 
   @override
@@ -197,6 +205,19 @@ class TajweedFormerEngine implements ReciteEngine {
   }
 
   Future<String> _resolveDefaultModelDir() async {
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      try {
+        final exeDir = File(Platform.resolvedExecutable).parent.path;
+        final bundledDir =
+            Directory('$exeDir/data/flutter_assets/assets/model');
+        if (bundledDir.existsSync() &&
+            File('${bundledDir.path}/layers.zfw').existsSync()) {
+          return bundledDir.path;
+        }
+      } catch (_) {}
+    }
+
     final appDir = await getApplicationDocumentsDirectory();
     final dir = Directory('${appDir.path}/model');
     if (!await dir.exists()) {
@@ -445,6 +466,9 @@ class TajweedFormerEngine implements ReciteEngine {
               headsPtr.ref.attrQalqalah[lastF * 3 + 2],
             ]
           : const [];
+      final double confProb = headsPtr.ref.conf != nullptr
+          ? 1.0 / (1.0 + math.exp(-headsPtr.ref.conf[lastF]))
+          : 1.0;
 
       mainSendPort.send(
         TajweedFormerDiagnosticsEvent(
@@ -454,6 +478,7 @@ class TajweedFormerEngine implements ReciteEngine {
           ghunnaProbs: const [],
           tafkheemProbs: const [],
           faceProbs: const [],
+          confidence: confProb,
         ),
       );
     }

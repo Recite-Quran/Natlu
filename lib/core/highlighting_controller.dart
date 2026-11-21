@@ -295,7 +295,11 @@ class HighlightingController extends ChangeNotifier {
     _wordEvaluatedSub = _scorer.onWordEvaluated.listen(_onEngineWordEvaluated);
     _ayahCompletedSub = _scorer.onAyahCompleted.listen(_onEngineAyahCompleted);
     _engineTranscriptionSub = _engine.transcriptionStream.listen((result) {
-      if (result.streamEpoch != _engine.currentStreamEpoch) return;
+      // A final result is the flushed tail of the take that was just reset;
+      // its epoch is necessarily the one before the reset, so accept it.
+      if (!result.isFinal && result.streamEpoch != _engine.currentStreamEpoch) {
+        return;
+      }
       if (result.text.isNotEmpty) {
         debugRecognizedText.value = result.text;
       }
@@ -494,7 +498,6 @@ class HighlightingController extends ChangeNotifier {
   /// Direct access to the highlight store.
   HighlightStore get highlightStore => _store;
 
-  @override
   int get targetSurah {
     // Single coordinate: every source (manual selection, ASR, audio playback,
     // Maglis packets) mirrors into _manualTargetSurah at its merge point, so
@@ -666,7 +669,7 @@ class HighlightingController extends ChangeNotifier {
   rq.VerseMatch? get currentMatchedVerse {
     // The mirrored coordinate IS the matched verse for every source (manual
     // selection, ASR anchor, audio playback, Maglis packets). Pure coordinate
-    // read — no fallback into the package.
+    // read - no fallback into the package.
     if (_manualTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
       if (v != null) {
@@ -684,19 +687,15 @@ class HighlightingController extends ChangeNotifier {
   // included — is a single O(1) lookup. No source is ever consulted at read
   // time: package → controller → view, one direction.
 
-  @override
   bool isWordGreen(int ayah, int wordIndex, {int? surah}) =>
       _store.isGreen(surah ?? targetSurah, ayah, wordIndex);
 
-  @override
   bool isWordYellow(int ayah, int wordIndex, {int? surah}) =>
       _store.isYellow(surah ?? targetSurah, ayah, wordIndex);
 
-  @override
   bool isWordRed(int ayah, int wordIndex, {int? surah}) =>
       _store.isRed(surah ?? targetSurah, ayah, wordIndex);
 
-  @override
   bool isWordNeutral(int ayah, int wordIndex, {int? surah}) =>
       _store.isNeutral(surah ?? targetSurah, ayah, wordIndex);
 
@@ -715,7 +714,6 @@ class HighlightingController extends ChangeNotifier {
     return st > 0 ? st : null;
   }
 
-  @override
   List<rq.ReciterError>? getWordErrors(int ayah, int wordIndex, {int? surah}) {
     final s = surah ?? targetSurah;
     final list = _store.errorsFor(s, ayah, wordIndex);
@@ -723,8 +721,10 @@ class HighlightingController extends ChangeNotifier {
     return list.map((e) => hydrateRemoteError(s, ayah, wordIndex, e)).toList();
   }
 
-  @override
   Set<int> completedAyahsFor(int surah) => _store.completedAyahsFor(surah);
+
+  /// Completed ayahs for the currently targeted surah.
+  Set<int> get completedAyahs => _store.completedAyahsFor(targetSurah);
 
   /// O(1) check: the store's per-ayah highlight count. All verdicts are
   /// saved at their ingestion point, so there is nothing to scan.
@@ -1065,19 +1065,15 @@ class HighlightingController extends ChangeNotifier {
 
   // ── Clearing & Synchronization ──
 
-  @override
   void clearHighlightsFromAyah(int startAyah, {int? surah}) {
     final s = surah ?? targetSurah;
     _store.clearSurahFromAyah(s, startAyah);
-    super.clearHighlightsFromAyah(startAyah);
     globalRevision.value++;
     notifyListeners();
   }
 
-  @override
   void clearHighlightsForSurah(int surah) {
     _store.clearSurah(surah);
-    super.clearHighlightsForSurah(surah);
     globalRevision.value++;
     notifyListeners();
   }
@@ -1142,12 +1138,10 @@ class HighlightingController extends ChangeNotifier {
     return (AppState.instance.lastSurah, activeAyah.value);
   }
 
-  @override
   void clearHighlights() {
     _store.clearAll();
     _remoteActiveWord = null;
     _manualTargetSurah = 0;
-    super.clearHighlights();
     globalRevision.value++;
     notifyListeners();
   }

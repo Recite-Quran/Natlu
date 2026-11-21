@@ -767,7 +767,8 @@ class _OrchestratorState extends State<_Orchestrator>
         } else {
           AppState.instance.resetModelDownload();
         }
-      } catch (e) {
+      } catch (e, stack) {
+        DebugLogger.logSimple('ASR', '❌ Engine initialization failed: $e\n$stack');
         AppState.instance.resetModelDownload();
       } finally {
         if (mounted) setState(() => _isEngineLoading = false);

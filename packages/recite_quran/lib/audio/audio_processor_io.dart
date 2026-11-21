@@ -4,6 +4,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
+import '../utils/debug_logger.dart';
 
 class AudioProcessor {
   // ── Audio format constants ─────────────────────────────────────────────────
@@ -40,6 +41,7 @@ class AudioProcessor {
     _recorder = AudioRecorder();
     _carryByte = null;
 
+    DebugLogger.logSimple('AUDIO', '🎙️ AudioProcessor.start: initializing microphone stream @ $recordSampleRate Hz...');
     final recordStream = await _recorder!.startStream(
       // Keep natural microphone preamp sensitivity while explicitly disabling
       // aggressive software noise-gating that erases breathy "ه" or subtle Tajweed.
@@ -53,39 +55,56 @@ class AudioProcessor {
       ),
     );
 
-    _subscription = recordStream.listen((Uint8List rawData) {
-      if (rawData.isEmpty) return;
+    int packetCount = 0;
+    _subscription = recordStream.listen(
+      (Uint8List rawData) {
+        if (rawData.isEmpty) return;
+        packetCount++;
+        if (packetCount == 1 || packetCount % 50 == 0) {
+          DebugLogger.logSimple(
+            'AUDIO',
+            '🎙️ Audio stream active: packet #$packetCount (${rawData.length} bytes)',
+          );
+        }
 
-      // Handle odd-byte carry across chunk boundaries (exact parity with official pumpPcm16)
-      final Uint8List bytes;
-      if (_carryByte != null) {
-        bytes = Uint8List(rawData.length + 1)
-          ..[0] = _carryByte!
-          ..setRange(1, rawData.length + 1, rawData);
-        _carryByte = null;
-      } else {
-        bytes = rawData;
-      }
+        // Handle odd-byte carry across chunk boundaries (exact parity with official pumpPcm16)
+        final Uint8List bytes;
+        if (_carryByte != null) {
+          bytes = Uint8List(rawData.length + 1)
+            ..[0] = _carryByte!
+            ..setRange(1, rawData.length + 1, rawData);
+          _carryByte = null;
+        } else {
+          bytes = rawData;
+        }
 
-      final int evenBytes = bytes.length & ~1;
-      if (bytes.length.isOdd) {
-        _carryByte = bytes[bytes.length - 1];
-      }
-      if (evenBytes == 0) return;
+        final int evenBytes = bytes.length & ~1;
+        if (bytes.length.isOdd) {
+          _carryByte = bytes[bytes.length - 1];
+        }
+        if (evenBytes == 0) return;
 
-      final byteData = ByteData.sublistView(bytes, 0, evenBytes);
-      final int sampleCount = evenBytes ~/ bytesPerSample;
-      final float32Samples = Float32List(sampleCount);
+        final byteData = ByteData.sublistView(bytes, 0, evenBytes);
+        final int sampleCount = evenBytes ~/ bytesPerSample;
+        final float32Samples = Float32List(sampleCount);
 
-      // ── Direct Linear Conversion ──
-      // int16 / 32768.0 matches the official TajweedFormer training & C engine pipeline
-      for (int i = 0; i < sampleCount; i++) {
-        float32Samples[i] = byteData.getInt16(i * 2, Endian.little) / 32768.0;
-      }
+        // ── Direct Linear Conversion ──
+        // int16 / 32768.0 matches the official TajweedFormer training & C engine pipeline
+        for (int i = 0; i < sampleCount; i++) {
+          float32Samples[i] = byteData.getInt16(i * 2, Endian.little) / 32768.0;
+        }
 
-      // Stream immediately to the neural ASR engine without artificial batch delay!
-      onChunk(float32Samples, false);
-    });
+        // Stream immediately to the neural ASR engine without artificial batch delay!
+        onChunk(float32Samples, false);
+      },
+      onError: (e, stack) {
+        DebugLogger.logSimple('AUDIO', '❌ Audio stream error: $e');
+      },
+      onDone: () {
+        DebugLogger.logSimple('AUDIO', '⚠️ Audio stream finished');
+      },
+      cancelOnError: false,
+    );
   }
 
   void clearBuffer() {

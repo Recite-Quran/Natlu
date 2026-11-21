@@ -27,6 +27,8 @@ class TajweedDiagnostics {
   final List<double> faceProbs;
 
   /// Word/syllable boundary probability in [0.0, 1.0].
+  ///
+  /// 0.0 when the `boundary` head was not enabled for the session.
   final double boundary;
 
   /// Overall acoustic confidence metric in [0.0, 1.0].

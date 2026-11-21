@@ -197,11 +197,7 @@ class QuranTajweedFormer {
 
   void _onTranscriptionResult(TranscriptionResult result) {
     if (_isDisposed) return;
-    // A final result is the flushed tail of the take that was just reset;
-    // its epoch is necessarily the one before the reset, so accept it.
-    if (!result.isFinal && result.streamEpoch != _engine.currentStreamEpoch) {
-      return;
-    }
+    if (result.streamEpoch != _engine.currentStreamEpoch) return;
 
     if (result.text.isNotEmpty) {
       _transcriptController.add(result.text);
