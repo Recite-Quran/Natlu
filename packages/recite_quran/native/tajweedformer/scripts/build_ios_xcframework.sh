@@ -30,10 +30,10 @@ cmake -B "$OUTPUT_DIR/build-ios" \
 echo "--> Compiling for iOS Device (arm64)..."
 cmake --build "$OUTPUT_DIR/build-ios" --config Release --target zf_tajweed -- -sdk iphoneos ONLY_ACTIVE_ARCH=NO
 
-# Locate iOS Device framework
-IOS_FW=$(find "$OUTPUT_DIR/build-ios" -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
-if [ -z "$IOS_FW" ] || [ ! -d "$IOS_FW" ]; then
-  echo "Error: iOS Device framework not found in $OUTPUT_DIR/build-ios"
+# Locate iOS Device framework (skip intermediate .build and EagerLinkingTBDs)
+IOS_FW=$(find "$OUTPUT_DIR/build-ios" -name "zf_tajweed.framework" -type d | grep -v "EagerLinkingTBDs" | grep -v "/build/" | head -n 1)
+if [ -z "$IOS_FW" ] || [ ! -f "$IOS_FW/zf_tajweed" ]; then
+  echo "Error: iOS Device framework binary not found in $OUTPUT_DIR/build-ios"
   exit 1
 fi
 echo "Found iOS Device framework: $IOS_FW"
@@ -62,10 +62,10 @@ cmake -B "$OUTPUT_DIR/build-sim" \
 echo "--> Compiling for iOS Simulator (arm64)..."
 cmake --build "$OUTPUT_DIR/build-sim" --config Release --target zf_tajweed -- -sdk iphonesimulator ONLY_ACTIVE_ARCH=NO
 
-# Locate iOS Simulator framework
-SIM_FW=$(find "$OUTPUT_DIR/build-sim" -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
-if [ -z "$SIM_FW" ] || [ ! -d "$SIM_FW" ]; then
-  echo "Error: iOS Simulator framework not found in $OUTPUT_DIR/build-sim"
+# Locate iOS Simulator framework (skip intermediate .build and EagerLinkingTBDs)
+SIM_FW=$(find "$OUTPUT_DIR/build-sim" -name "zf_tajweed.framework" -type d | grep -v "EagerLinkingTBDs" | grep -v "/build/" | head -n 1)
+if [ -z "$SIM_FW" ] || [ ! -f "$SIM_FW/zf_tajweed" ]; then
+  echo "Error: iOS Simulator framework binary not found in $OUTPUT_DIR/build-sim"
   exit 1
 fi
 echo "Found iOS Simulator framework: $SIM_FW"

@@ -57,13 +57,15 @@ jobs:
 
       - name: Verify iOS Device Framework
         run: |
-          IOS_FW=$(find build-ios -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
-          if [ -z "$IOS_FW" ] || [ ! -d "$IOS_FW" ]; then
-            echo "::error::iOS Device framework was not generated!"
+          IOS_FW=$(find build-ios -name "zf_tajweed.framework" -type d | grep -v "EagerLinkingTBDs" | grep -v "/build/" | head -n 1)
+          if [ -z "$IOS_FW" ] || [ ! -f "$IOS_FW/zf_tajweed" ]; then
+            echo "All candidate frameworks found:"
+            find build-ios -name "zf_tajweed.framework" -type d
+            echo "::error::Real iOS Device framework binary not found!"
             exit 1
           fi
           echo "Found Device Framework: $IOS_FW"
-          ls -laR "$IOS_FW"
+          ls -la "$IOS_FW"
           file "$IOS_FW/zf_tajweed"
           
           # Ensure CFBundleSupportedPlatforms is present for xcodebuild
@@ -93,13 +95,15 @@ jobs:
 
       - name: Verify iOS Simulator Framework
         run: |
-          SIM_FW=$(find build-sim -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
-          if [ -z "$SIM_FW" ] || [ ! -d "$SIM_FW" ]; then
-            echo "::error::iOS Simulator framework was not generated!"
+          SIM_FW=$(find build-sim -name "zf_tajweed.framework" -type d | grep -v "EagerLinkingTBDs" | grep -v "/build/" | head -n 1)
+          if [ -z "$SIM_FW" ] || [ ! -f "$SIM_FW/zf_tajweed" ]; then
+            echo "All candidate frameworks found:"
+            find build-sim -name "zf_tajweed.framework" -type d
+            echo "::error::Real iOS Simulator framework binary not found!"
             exit 1
           fi
           echo "Found Simulator Framework: $SIM_FW"
-          ls -laR "$SIM_FW"
+          ls -la "$SIM_FW"
           file "$SIM_FW/zf_tajweed"
           
           # Ensure CFBundleSupportedPlatforms is present for xcodebuild
@@ -110,8 +114,8 @@ jobs:
 
       - name: Assemble zf_tajweed.xcframework
         run: |
-          IOS_FW=$(find build-ios -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
-          SIM_FW=$(find build-sim -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
+          IOS_FW=$(find build-ios -name "zf_tajweed.framework" -type d | grep -v "EagerLinkingTBDs" | grep -v "/build/" | head -n 1)
+          SIM_FW=$(find build-sim -name "zf_tajweed.framework" -type d | grep -v "EagerLinkingTBDs" | grep -v "/build/" | head -n 1)
 
           echo "--> Combining:"
           echo "  Device:    $IOS_FW"
