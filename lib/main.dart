@@ -8,18 +8,17 @@
 ///
 /// The _Orchestrator initializes:
 ///   1. Microphone permissions
-///   2. Sherpa-ONNX ASR engine (in a background Isolate)
-///   3. Quran metadata (quran.json)
+///   2. TajweedFormer V4 ASR engine (in a background Isolate)
+///   3. Quran reference metadata (expected_tj3.zfx)
 ///   4. HighlightingController (bridges ASR → UI)
 ///
 /// Recording flow:
 ///   AudioProcessor captures mic → feeds chunks to Controller →
-///   Controller sends to SherpaEngine (Isolate) → gets transcription →
+///   Controller sends to TajweedFormerEngine (Isolate) → gets transcription →
 ///   matches words against expected Quran text → updates highlighting
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -222,50 +221,6 @@ class QuranApp extends StatelessWidget {
   }
 }
 
-Map<String, dynamic> _decodePhonemeJsonBytes(Uint8List bytes) =>
-    jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-
-/// Offloads UTF-8 decoding and JSON parsing of the 12.8 MB phoneme dataset
-/// to a background isolate on native platforms so the UI thread stays fluid.
-class _IsolateQuranMetadataService extends QuranMetadataService {
-  Map<String, dynamic>? _decodedJson;
-
-  @override
-  Map<String, dynamic>? get rawJson => _decodedJson ?? super.rawJson;
-
-  @override
-  String? get datasetRiwayah {
-    final r = rawJson;
-    final moshaf = r?['moshaf'];
-    final v = (moshaf is Map ? moshaf['rewaya'] : null) ??
-        r?['riwayah'] ??
-        r?['rewaya'];
-    return v?.toString().toLowerCase();
-  }
-
-  @override
-  Future<void> loadData() async {
-    if (rawJson != null) return;
-    if (kIsWeb) {
-      await super.loadData();
-      return;
-    }
-
-    ByteData data;
-    try {
-      data = await rootBundle.load(
-        'packages/recite_quran/assets/model/ordered_quran_phonemes.json',
-      );
-    } catch (_) {
-      data = await rootBundle.load('assets/model/ordered_quran_phonemes.json');
-    }
-    final bytes = data.buffer.asUint8List(
-      data.offsetInBytes,
-      data.lengthInBytes,
-    );
-    _decodedJson = await compute(_decodePhonemeJsonBytes, bytes);
-  }
-}
 
 /// The conductor — owns the ASR engine, audio processor, and controller.
 /// Manages the full lifecycle of a recording session.
@@ -277,7 +232,7 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
-  final SherpaEngine _engine = SherpaEngine();
+  final TajweedFormerEngine _engine = TajweedFormerEngine();
   final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
 
@@ -325,7 +280,7 @@ class _OrchestratorState extends State<_Orchestrator>
     }
   }
 
-  // Timer logic removed, we now rely on Sherpa's VAD endpoint with 4s silence
+  // Endpointing: VAD endpoint with silence threshold
 
   @override
   void initState() {
@@ -413,8 +368,8 @@ class _OrchestratorState extends State<_Orchestrator>
         _isToggling = false;
         _maglisBroadcastThrottle?.cancel();
         await _audio.stop();
-        _engine.resetBuffer();
-        _ctrl?.finalize();
+        _engine.flushThenReset();
+        _ctrl?.finalize(resetEngine: false);
         if (mounted) {
           setState(() {});
         }
@@ -653,7 +608,7 @@ class _OrchestratorState extends State<_Orchestrator>
       // Start Mushaf preload before phoneme JSON loading so native extraction/atlas
       // load does not wait behind the 12.8 MB phoneme dataset.
       MushafView.preloadData();
-      final service = _IsolateQuranMetadataService();
+      final service = QuranMetadataService();
       _repo = QuranRepository(service);
       final initialSurah = AppState.instance.lastSurah;
       final initialAyah = AppState.instance.lastAyah;
@@ -882,8 +837,8 @@ class _OrchestratorState extends State<_Orchestrator>
       if (_isRecording) {
         _maglisBroadcastThrottle?.cancel();
         await _audio.stop();
-        _engine.resetBuffer();
-        _ctrl?.finalize();
+        _engine.flushThenReset();
+        _ctrl?.finalize(resetEngine: false);
         if (MaglisController.instance.inSession) {
           _broadcastMaglisProgress();
           unawaited(MaglisController.instance.releaseFloor(
@@ -1030,8 +985,8 @@ class _OrchestratorState extends State<_Orchestrator>
     _isToggling = false;
     _maglisBroadcastThrottle?.cancel();
     _audio.stop();
-    _engine.resetBuffer();
-    _ctrl?.finalize();
+    _engine.flushThenReset();
+    _ctrl?.finalize(resetEngine: false);
     // Screen remains awake continuously
     if (mounted) {
       setState(() {});

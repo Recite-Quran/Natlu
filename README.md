@@ -27,8 +27,8 @@
 </p>
 
 <p align="center">
-  <a href="https://pub.dev/packages/recite_quran" target="_blank">
-    <img src="https://img.shields.io/badge/pub.dev-recite__quran%20^1.0.5-0175C2?logo=dart&logoColor=white" height="20" alt="recite_quran on pub.dev" />
+  <a href="https://pub.dev/packages/quran_tajweedformer" target="_blank">
+    <img src="https://img.shields.io/badge/pub.dev-recite__quran%20^1.0.5-0175C2?logo=dart&logoColor=white" height="20" alt="quran_tajweedformer on pub.dev" />
   </a>
   &nbsp;
   <a href="https://huggingface.co/Quran-Lab/zipformer_p-arabic-v3" target="_blank">
@@ -51,7 +51,7 @@
 
 **Natlu (نتلو)** is an open-source, fully offline, privacy-first Quran recitation, memorization, and Tajweed revision application built with Flutter. It combines an on-device neural ASR pipeline with real-time acoustic phoneme alignment, measuring vowel duration (المدود), nasalization (الغنة), and consonant pressure (الشدة) with millisecond accuracy across an authentic 15-line Mus'haf rendered natively via vector graphics.
 
-Natlu serves as the flagship reference application for [`package:recite_quran`](https://pub.dev/packages/recite_quran)—the open Dart package that abstracts streaming sherpa-onnx inference, acoustic duration analysis, and Myers phonetic search into an embeddable engine.
+Natlu serves as the flagship reference application for [`package:quran_tajweedformer`](https://pub.dev/packages/quran_tajweedformer)—the open Dart package that abstracts streaming sherpa-onnx inference, acoustic duration analysis, and Myers phonetic search into an embeddable engine.
 
 - **100% On-Device Neural Inference**: Powered by a quantized INT8 Zipformer model (`zipformer_p_arabic_v3.int8.onnx`). Zero audio frames ever leave the physical device.
 - **Zero Telemetry & Zero Accounts**: No tracking, no user identifiers, no remote database, and no mandatory internet connection.
@@ -74,7 +74,7 @@ Natlu separates high-performance presentation, native vector rendering, decentra
                 │                            │
                 ▼                            ▼
 ┌──────────────────────────────┐  ┌──────────────────────────────────────┐
-│     package:qvp_flutter      │  │        package:recite_quran          │
+│     package:qvp_flutter      │  │        package:quran_tajweedformer          │
 │  (Native Vector Engine)      │  │  (ASR & Acoustic Tajweed Pipeline)   │
 │  ├── C++/Rust FFI & WASM     │  │  ├── SherpaEngine (ONNX Isolate)     │
 │  ├── Sub-ms HafsSmart layout │  │  ├── AudioProcessor (16 kHz PCM)     │
@@ -330,20 +330,20 @@ flutter build ipa --release
 
 ---
 
-## Using `package:recite_quran` in Your Flutter App
+## Using `package:quran_tajweedformer` in Your Flutter App
 
-To integrate real-time Quran speech alignment into your own Flutter application, add `recite_quran` to your `pubspec.yaml`:
+To integrate real-time Quran speech alignment into your own Flutter application, add `quran_tajweedformer` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
   flutter:
     sdk: flutter
-  recite_quran: ^1.0.5
+  quran_tajweedformer: ^1.0.5
 ```
 
 ```dart
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart';
+import 'package:quran_tajweedformer/quran_tajweedformer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

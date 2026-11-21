@@ -8,10 +8,23 @@ import 'dialog_base.dart';
 // 1. SURAH LIST TILE (120 FPS Zero-Allocation Item)
 // ══════════════════════════════════════════════════════════════════════════════
 
+/// Metadata for displaying a Surah row in UI pickers.
+class SurahUiEntry {
+  final int number;
+  final String surahName;
+  final String surahNameEn;
+
+  const SurahUiEntry({
+    required this.number,
+    required this.surahName,
+    required this.surahNameEn,
+  });
+}
+
 /// Ultra-lightweight, 120 FPS single interactive row tile for a Surah.
 class SurahListTile extends StatelessWidget {
   final int surahNumber;
-  final QuranVerse surahMeta;
+  final SurahUiEntry surahMeta;
   final bool isSelected;
   final VoidCallback onTap;
   final bool isArabic;
@@ -172,6 +185,16 @@ class SurahPickerSheet extends StatefulWidget {
 class _SurahPickerSheetState extends State<SurahPickerSheet> {
   static const double _itemExtent = 70.0;
 
+  static final List<SurahUiEntry> _allSurahs = List.generate(
+    114,
+    (i) => SurahUiEntry(
+      number: i + 1,
+      surahName: QuranMetadata.getSurahNameArabic(i + 1),
+      surahNameEn: QuranMetadata.getSurahNameEnglish(i + 1),
+    ),
+    growable: false,
+  );
+
   static final List<int> _allIndices =
       List<int>.generate(114, (i) => i, growable: false);
 
@@ -185,12 +208,12 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
   String _query = '';
   final TextEditingController _searchCtrl = TextEditingController();
   late final ScrollController _scrollCtrl;
-  late final List<QuranVerse> _surahs;
+  late final List<SurahUiEntry> _surahs;
 
   @override
   void initState() {
     super.initState();
-    _surahs = widget.controller.repository.surahMetadata;
+    _surahs = _allSurahs;
     final int targetIdx = (widget.current - 1).clamp(0, 113);
     final double initialOffset =
         (targetIdx > 0 ? (targetIdx - 1) * _itemExtent : 0.0);
@@ -441,7 +464,7 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
                 final int idx = items[i];
                 final int sNum = idx + 1;
                 final bool isSel = widget.current == sNum;
-                final QuranVerse surahMeta = _surahs[idx];
+                final SurahUiEntry surahMeta = _surahs[idx];
 
                 return SurahListTile(
                   surahNumber: sNum,

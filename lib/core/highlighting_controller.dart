@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart' as rq;
-export 'package:recite_quran/recite_quran.dart' hide HighlightingController;
+import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
+export 'package:quran_tajweedformer/quran_tajweedformer.dart'
+    hide HighlightingController;
 
 import 'app_state.dart';
 import '../audio/quran_audio_service.dart';
@@ -216,7 +217,6 @@ class HighlightingController extends rq.HighlightingController {
   int? _remoteActiveWord;
   bool _isRemoteReciting = false;
 
-
   // Manual selection state
   int _manualTargetSurah = 0;
 
@@ -232,10 +232,6 @@ class HighlightingController extends rq.HighlightingController {
   // which is what the view follows.
   bool _isRetargeting = false;
   bool get isCoordinateSettled => !_isRetargeting;
-
-  // Last (surah, ayah) the ingestion ran for — drives the coordinate-advance
-  // catch-up in [_ingestEngineState].
-  ({int surah, int ayah})? _lastIngestedCoordinate;
 
   void _beginRetarget() => _isRetargeting = true;
 
@@ -256,107 +252,72 @@ class HighlightingController extends rq.HighlightingController {
   bool _isAudioBuffering = false;
   bool _isAudioPaused = false;
 
+  StreamSubscription<rq.WordMatchedEvent>? _wordEvaluatedSub;
+  StreamSubscription<rq.AyahCompletedEvent>? _ayahCompletedSub;
+
   HighlightingController({
     required super.repository,
     required super.engine,
     super.onAyahChanged,
     super.isTajweed = true,
     super.config = const rq.TrackerConfig(),
-  });
+  }) {
+    _wordEvaluatedSub = onWordEvaluated.listen(_onEngineWordEvaluated);
+    _ayahCompletedSub = onAyahCompleted.listen(_onEngineAyahCompleted);
+  }
 
-  // ── Package → Controller ingestion (the only read boundary) ──
-
-  /// The package reports; the controller saves. Every package event ends in
-  /// [notifyListeners], so the engine's verdicts are pulled into the flat
-  /// store HERE — before any listener sees the notification. Afterwards all
-  /// queries, the paint path included, are pure O(1) store reads:
-  /// package → controller → view, one direction, no fallback reads.
   @override
-  void notifyListeners() {
-    _ingestEngineState();
-    super.notifyListeners();
+  void dispose() {
+    _wordEvaluatedSub?.cancel();
+    _wordEvaluatedSub = null;
+    _ayahCompletedSub?.cancel();
+    _ayahCompletedSub = null;
+    super.dispose();
   }
 
-  /// Receives the package's latest verdicts (word states + completed ayahs)
-  /// into the store. Idempotent and cheap: a word already saved is never
-  /// re-read from the engine or overwritten, and the gate bails instantly
-  /// whenever no package session is live.
-  void _ingestEngineState() {
-    // Gate on the package's own session state: verdicts only exist when actively tracking.
-    // Bail immediately when idle, browsing, paused, or stopped to avoid heavy
-    // verse lookups and word checks on every notifyListeners() tick.
-    if (super.state != rq.TrackerState.tracking) return;
-    // Gate on non-ASR sources: audio playback, remote Maglis packets, and retargeting
-    // drive _store directly at their own boundaries and must never query the engine.
+  // ── Package → Controller Event Stream Handlers ──
+
+  /// Pure reactive ingestion of word evaluations directly from the engine isolate.
+  void _onEngineWordEvaluated(rq.WordMatchedEvent event) {
     if (isAudioActive || isRemoteReciting || _isRetargeting) return;
-    final int? ayah = activeAyah.value;
-    if (ayah == null) return;
-    final int surah = targetSurah;
-    if (surah == 0) return;
+    final int surah = event.surah > 0 ? event.surah : targetSurah;
+    final int ayah = event.ayah;
+    final int w0 = event.wordInAyah;
+    if (surah == 0 || ayah == 0) return;
 
-    // Coordinate-advance catch-up. The package writes the next ayah into the
-    // coordinate BEFORE notifying: an ayah's last-word event both commits the
-    // word and advances the coordinate in the same synchronous block, so
-    // reading only the coordinate's ayah would lose the finished ayah's final
-    // verdicts. One general rule, reanchor jumps included: on a forward move
-    // within the same surah, ingest every ayah the coordinate passed. The
-    // store-first skip keeps verdicts already saved (e.g. by Maglis packets)
-    // untouched, and only words the package actually gave a verdict for are
-    // received — bulk-completed-but-unspoken ayahs stay unsaved.
-    final last = _lastIngestedCoordinate;
-    if (last != null && last.surah == surah && ayah > last.ayah) {
-      for (int a = last.ayah; a < ayah; a++) {
-        _ingestAyah(surah, a);
-      }
+    switch (event.verdict) {
+      case rq.WordEvaluationVerdict.correct:
+        _store.markGreen(surah, ayah, w0);
+        break;
+      case rq.WordEvaluationVerdict.tajweedWarning:
+        final errors = event.tajweedErrors != null
+            ? event.tajweedErrors!
+                .map((e) =>
+                    rq.ReciterError.fromMap(Map<String, dynamic>.from(e)))
+                .toList()
+            : <rq.ReciterError>[];
+        _store.markYellow(surah, ayah, w0, errors);
+        break;
+      case rq.WordEvaluationVerdict.mispronounced:
+        _store.markRed(surah, ayah, w0);
+        break;
+      case rq.WordEvaluationVerdict.skipped:
+        _store.markNeutral(surah, ayah, w0);
+        break;
     }
-    _lastIngestedCoordinate = (surah: surah, ayah: ayah);
-    _ingestAyah(surah, ayah);
 
-    // Receive completed-ayah marks too — including the package's bulk
-    // completion of skipped ayahs.
-    final mine = _store.completedAyahsFor(surah);
-    final engineCompleted = super.completedAyahsFor(surah);
-    if (engineCompleted.length != mine.length) {
-      for (final a in engineCompleted) {
-        if (!mine.contains(a)) {
-          _store.markAyahCompleted(surah, a);
-        }
-      }
+    if (event.isAyahCompleted) {
+      _store.markAyahCompleted(surah, ayah);
     }
+    notifyListeners();
   }
 
-  /// Receives one ayah's word verdicts from the package into the store.
-  /// Zero-allocation, single-verse fetch, and bails on the first unspoken word.
-  void _ingestAyah(int surah, int ayah) {
-    final verse = repository.getVerse(surah, ayah);
-    if (verse == null) return;
-    final int wordCount = verse.uthmaniWords.length;
-    for (int w0 = 0; w0 < wordCount; w0++) {
-      final current = _store.getWordStatus(surah, ayah, w0);
-      if (current == 1) {
-        // Already green: check if downgraded to yellow with Tajweed errors
-        if (super.isWordYellow(ayah, w0, surah: surah)) {
-          final errors = super.getWordErrors(ayah, w0, surah: surah);
-          _store.markYellow(surah, ayah, w0, errors);
-        }
-        continue;
-      }
-      if (current != 0) continue;
-
-      // Word has no verdict yet in store: check engine
-      if (super.isWordGreen(ayah, w0, surah: surah)) {
-        _store.markGreen(surah, ayah, w0);
-      } else if (super.isWordYellow(ayah, w0, surah: surah)) {
-        final errors = super.getWordErrors(ayah, w0, surah: surah);
-        _store.markYellow(surah, ayah, w0, errors);
-      } else if (super.isWordRed(ayah, w0, surah: surah)) {
-        _store.markRed(surah, ayah, w0);
-      } else if (super.isWordNeutral(ayah, w0, surah: surah)) {
-        _store.markNeutral(surah, ayah, w0);
-      } else {
-        // Sequential recitation: words after the first unspoken word cannot be spoken yet.
-        break;
-      }
+  /// Pure reactive ingestion of completed Ayahs directly from the engine isolate.
+  void _onEngineAyahCompleted(rq.AyahCompletedEvent event) {
+    if (isAudioActive || isRemoteReciting || _isRetargeting) return;
+    if (event.surah > 0 && event.ayah > 0) {
+      _store.markAyahCompleted(event.surah, event.ayah);
+      notifyListeners();
     }
   }
 
@@ -519,8 +480,6 @@ class HighlightingController extends rq.HighlightingController {
     List<int> redWords,
     Map<int, List<rq.ReciterError>>? wordErrors,
   }) extractAyahWordClassification(int surah, int ayah, int wordCount) {
-    _ingestAyah(surah, ayah);
-
     final greenWords = <int>[];
     final yellowWords = <int>[];
     final redWords = <int>[];
@@ -609,7 +568,7 @@ class HighlightingController extends rq.HighlightingController {
 
   // ── Word Status Queries (pure store reads) ──
   //
-  // The package's verdicts arrive through _ingestEngineState and live in the
+  // The package's verdicts arrive reactively through onWordEvaluated and live in the
   // store from then on; audio playback and Maglis packets write the same
   // store at their ingestion points. Every query below — the paint path
   // included — is a single O(1) lookup. No source is ever consulted at read
@@ -879,41 +838,12 @@ class HighlightingController extends rq.HighlightingController {
   }
 
   /// Instantiates a canonical [rq.TajweedRule] from a dataset [rq.WordTajweedRule]
-  /// matching the exact rule mapping used inside the `recite_quran` engine.
+  /// matching the exact rule mapping used inside the `quran_tajweedformer` engine.
   static rq.TajweedRule instantiateTajweedRule(
     rq.WordTajweedRule wRule, [
     rq.TrackerConfig config = const rq.TrackerConfig(),
-  ]) {
-    final speed = config.recitationSpeed;
-    switch (wRule.ruleId) {
-      case 1:
-        return const rq.NormalMaddRule();
-      case 2:
-        return rq.MonfaselMaddRule(speed.monfaselMaddHarakat);
-      case 3:
-        return rq.MottaselMaddRule(speed.mottaselMaddHarakat);
-      case 4:
-        return rq.MottaselMaddPauseRule(speed.mottaselMaddPauseHarakat);
-      case 5:
-        return rq.AaredMaddRule(speed.aaredMaddHarakat);
-      case 6:
-        return const rq.LazemMaddRule();
-      case 7:
-        return rq.LeenMaddRule(speed.leenMaddHarakat);
-      case 9:
-        return const rq.ShaddahRule();
-      case 10:
-        return rq.MushaddadGhunnahRule.withNames(
-          nameAr: wRule.nameAr,
-          nameEn: wRule.nameEn,
-        );
-      default:
-        return rq.MaddRule(
-          name: rq.LangName(ar: wRule.nameAr, en: wRule.nameEn),
-          goldenLen: wRule.goldenLen,
-        );
-    }
-  }
+  ]) =>
+      rq.TajweedRuleFactory.instantiate(wRule, config);
 
   /// Sets whether remote recitation is active (e.g. on floor release or peer leave).
   void setRemoteReciting(bool isReciting) {
@@ -1152,7 +1082,10 @@ class QuranHighlightPalette {
     if (_memoSig == sig) return _memoPalette!;
     final palette = QuranHighlightPalette(
       greenBand: colors.green.withValues(alpha: isDark ? 0.18 : 0.14),
-      yellowBand: colors.warning.withValues(alpha: isDark ? 0.18 : 0.20), // 0.14→0.20: amber on warm linen at 14% was near-invisible
+      yellowBand: colors.warning.withValues(
+          alpha: isDark
+              ? 0.18
+              : 0.20), // 0.14→0.20: amber on warm linen at 14% was near-invisible
       redBand: colors.red.withValues(alpha: isDark ? 0.18 : 0.14),
       leadWordBand:
           colors.wordHighlight.withValues(alpha: isDark ? 0.20 : 0.18),
@@ -1507,10 +1440,136 @@ abstract final class QuranMetadata {
     'الناس'
   ];
 
+  /// Canonical 114 Surah names in English transliteration.
+  static const List<String> surahNamesEn = [
+    'Al-Fatihah',
+    'Al-Baqarah',
+    'Ali \'Imran',
+    'An-Nisa',
+    'Al-Ma\'idah',
+    'Al-An\'am',
+    'Al-A\'raf',
+    'Al-Anfal',
+    'At-Tawbah',
+    'Yunus',
+    'Hud',
+    'Yusuf',
+    'Ar-Ra\'d',
+    'Ibrahim',
+    'Al-Hijr',
+    'An-Nahl',
+    'Al-Isra',
+    'Al-Kahf',
+    'Maryam',
+    'Ta-Ha',
+    'Al-Anbiya',
+    'Al-Hajj',
+    'Al-Mu\'minun',
+    'An-Nur',
+    'Al-Furqan',
+    'Ash-Shu\'ara',
+    'An-Naml',
+    'Al-Qasas',
+    'Al-\'Ankabut',
+    'Ar-Rum',
+    'Luqman',
+    'As-Sajdah',
+    'Al-Ahzab',
+    'Saba',
+    'Fatir',
+    'Ya-Sin',
+    'As-Saffat',
+    'Sad',
+    'Az-Zumar',
+    'Ghafir',
+    'Fussilat',
+    'Ash-Shura',
+    'Az-Zukhruf',
+    'Ad-Dukhan',
+    'Al-Jathiyah',
+    'Al-Ahqaf',
+    'Muhammad',
+    'Al-Fath',
+    'Al-Hujurat',
+    'Qaf',
+    'Adh-Dhariyat',
+    'At-Tur',
+    'An-Najm',
+    'Al-Qamar',
+    'Ar-Rahman',
+    'Al-Waqi\'ah',
+    'Al-Hadid',
+    'Al-Mujadila',
+    'Al-Hashr',
+    'Al-Mumtahanah',
+    'As-Saff',
+    'Al-Jumu\'ah',
+    'Al-Munafiqun',
+    'At-Taghabun',
+    'At-Talaq',
+    'At-Tahrim',
+    'Al-Mulk',
+    'Al-Qalam',
+    'Al-Haqqah',
+    'Al-Ma\'arij',
+    'Nuh',
+    'Al-Jinn',
+    'Al-Muzzammil',
+    'Al-Muddaththir',
+    'Al-Qiyamah',
+    'Al-Insan',
+    'Al-Mursalat',
+    'An-Naba',
+    'An-Nazi\'at',
+    '\'Abasa',
+    'At-Takwir',
+    'Al-Infitar',
+    'Al-Mutaffifin',
+    'Al-Inshiqaq',
+    'Al-Buruj',
+    'At-Tariq',
+    'Al-A\'la',
+    'Al-Ghashiyah',
+    'Al-Fajr',
+    'Al-Balad',
+    'Ash-Shams',
+    'Al-Layl',
+    'Ad-Duha',
+    'Ash-Sharh',
+    'At-Tin',
+    'Al-\'Alaq',
+    'Al-Qadr',
+    'Al-Bayyinah',
+    'Az-Zalzalah',
+    'Al-\'Adiyat',
+    'Al-Qari\'ah',
+    'At-Takathur',
+    'Al-\'Asr',
+    'Al-Humazah',
+    'Al-Fil',
+    'Quraysh',
+    'Al-Ma\'un',
+    'Al-Kawthar',
+    'Al-Kafirun',
+    'An-Nasr',
+    'Al-Masad',
+    'Al-Ikhlas',
+    'Al-Falaq',
+    'An-Nas'
+  ];
+
   /// Returns canonical Arabic Surah name (e.g. 'الفاتحة').
   static String getSurahNameArabic(int surah) {
     if (surah >= 1 && surah <= 114) {
       return surahNamesAr[surah - 1];
+    }
+    return '';
+  }
+
+  /// Returns canonical English Surah name (e.g. 'Al-Fatihah').
+  static String getSurahNameEnglish(int surah) {
+    if (surah >= 1 && surah <= 114) {
+      return surahNamesEn[surah - 1];
     }
     return '';
   }

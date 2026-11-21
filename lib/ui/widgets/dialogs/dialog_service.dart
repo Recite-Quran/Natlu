@@ -13,7 +13,8 @@ import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
 export 'app_alert_dialogs.dart' show PermissionReason;
-export 'package:recite_quran/recite_quran.dart' show VoiceSearchResult;
+export 'package:quran_tajweedformer/quran_tajweedformer.dart'
+    show VoiceSearchResult;
 export 'audio_download_dialog.dart' show AudioDownloadDialog;
 export 'dialog_base.dart';
 
@@ -84,7 +85,7 @@ abstract final class DialogService {
     return AudioDownloadDialog.show(context);
   }
 
-  /// Displays the Sherpa-ONNX model download modal dialog.
+  /// Displays the TajweedFormer model download modal dialog.
   static Future<bool?> showModelDownload(BuildContext context) {
     return showDialog<bool>(
       context: context,

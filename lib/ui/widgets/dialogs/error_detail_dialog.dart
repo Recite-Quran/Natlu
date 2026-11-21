@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import 'package:recite_quran/recite_quran.dart';
+import 'package:quran_tajweedformer/quran_tajweedformer.dart';
 import '../../../mushaf/mushaf_provider.dart';
 import '../../../audio/quran_audio_service.dart';
 import '../../../core/app_state.dart';
@@ -97,7 +97,6 @@ class ErrorDetailDialog extends StatelessWidget {
     );
   }
 
-
   /// Renders the target word using the authentic QVP Medina Mushaf vector glyphs
   /// when available, falling back gracefully to Cairo typography.
   Widget _buildWordDisplay(ThemeColors c) {
@@ -107,7 +106,9 @@ class ErrorDetailDialog extends StatelessWidget {
         final page = MushafProvider.instance.getCachedPage(pageNum);
         if (page != null && !page.isDisposed) {
           for (final w in page.words) {
-            if (w.surah == surah && w.ayah == ayah && (w.word - 1) == wordIndex) {
+            if (w.surah == surah &&
+                w.ayah == ayah &&
+                (w.word - 1) == wordIndex) {
               return QvpWordWidget(
                 page: page,
                 word: w,
@@ -302,27 +303,66 @@ class ErrorDetailDialog extends StatelessWidget {
     required bool isCompact,
   }) {
     final expected = e.expectedPh.isEmpty ? '—' : _cleanPhonetic(e.expectedPh);
-    final predicted = e.predictedPh.isEmpty ? '—' : _cleanPhonetic(e.predictedPh);
-    final bool isDurationErr = e.expectedDuration != null && e.actualDuration != null;
+    final predicted =
+        e.predictedPh.isEmpty ? '—' : _cleanPhonetic(e.predictedPh);
+    final bool isDurationErr =
+        e.expectedDuration != null && e.actualDuration != null;
 
     String title;
     Color accent;
     String advice = '';
 
     if (e.errorType == ErrorCategory.tajweed) {
-      String ruleName = isAr
-          ? (e.expectedRule?.name.ar ?? '')
-          : (e.expectedRule?.name.en ?? '');
-      if (ruleName.isEmpty) {
+      final rule = e.expectedRule;
+      String ruleName;
+      if (rule != null) {
+        ruleName = switch (rule.ruleType) {
+          TajweedRuleType.maddNormal => isAr ? 'المد الطبيعي' : 'Normal Madd',
+          TajweedRuleType.maddMonfasel =>
+            isAr ? 'المد المنفصل' : 'Monfasel Madd',
+          TajweedRuleType.maddMottasel => isAr ? 'المد المتصل' : 'Mottasel Madd',
+          TajweedRuleType.maddMottaselPause =>
+            isAr ? 'المد المتصل وقفا' : 'Mottasel Madd at Pause',
+          TajweedRuleType.maddAared =>
+            isAr ? 'المد العارض للسكون' : 'Aared Madd',
+          TajweedRuleType.maddLazem => isAr ? 'المد اللازم' : 'Lazem Madd',
+          TajweedRuleType.maddLeen => isAr ? 'مد اللين' : 'Leen Madd',
+          TajweedRuleType.ghunnah =>
+            isAr ? 'النون أو الميم المشددة' : 'Mushaddad Noon/Meem',
+          TajweedRuleType.shaddah => isAr ? 'الشدة' : 'Shaddah',
+          TajweedRuleType.qalqalah => isAr ? 'قلقلة' : 'Qalqalah',
+          TajweedRuleType.other => isAr ? 'حكم تجويد' : 'Tajweed Rule',
+        };
+      } else {
         ruleName = isAr ? 'حكم تجويد' : 'Tajweed Rule';
       }
       title = ruleName;
       accent = c.primary; // Serene theme emerald
-      advice = isAr ? e.adviceAr : e.adviceEn;
+
+      if (rule?.ruleType == TajweedRuleType.shaddah) {
+        advice = isAr
+            ? 'اضغط على مخرج الحرف المشدد'
+            : 'Hold the consonant firmly without abrupt release.';
+      } else if (rule?.ruleType == TajweedRuleType.ghunnah) {
+        advice = isAr
+            ? 'أعطِ الغنة زمن حركتين كاملتين دون استعجال'
+            : 'Give the Ghunnah a full 2-beat nasal resonance.';
+      } else if (e.durationStatus == TajweedDurationStatus.underheld) {
+        final beats = rule?.goldenLen ?? 2;
+        advice = isAr
+            ? 'أطل زمن مد الصوت بمقدار $beats ${beats <= 2 ? 'حركتين' : 'حركات'}'
+            : 'Hold the vowel elongation for the full $beats beats.';
+      } else {
+        advice = isAr
+            ? 'لا تبالغ في مد الصوت'
+            : 'Avoid over-extending the vowel past the allowed length.';
+      }
     } else if (e.errorType == ErrorCategory.tashkeel) {
       title = isAr ? 'خطأ في التشكيل' : 'Vowel Mark';
       accent = c.info;
-      advice = isAr ? e.adviceAr : e.adviceEn;
+      advice = isAr
+          ? 'احرص على ضبط الحركة الصحيحة (فتحة، ضمة، كسرة)'
+          : 'Pay attention to the correct vowel mark (Fatha, Damma, Kasra).';
     } else {
       if (e.speechErrorType == SpeechErrorType.insert) {
         title = isAr ? 'إضافة حرف زائد' : 'Extra Letter';
@@ -332,7 +372,9 @@ class ErrorDetailDialog extends StatelessWidget {
         title = isAr ? 'خطأ في النطق' : 'Pronunciation';
       }
       accent = c.red;
-      advice = isAr ? e.adviceAr : e.adviceEn;
+      advice = isAr
+          ? 'انطق الحرف بوضوح من مخرجه الصحيح'
+          : 'Articulate the letter clearly from its correct point of articulation.';
     }
 
     final Color cardBackground = isDark ? c.surfaceHigh : c.surface;
@@ -369,7 +411,8 @@ class ErrorDetailDialog extends StatelessWidget {
             ),
             decoration: BoxDecoration(
               color: accent.withValues(alpha: isDark ? 0.12 : 0.08),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(18)),
               border: Border(
                 bottom: BorderSide(
                   color: accent.withValues(alpha: isDark ? 0.22 : 0.16),
@@ -451,7 +494,8 @@ class ErrorDetailDialog extends StatelessWidget {
                     isDark: isDark,
                     isCompact: isCompact,
                   ),
-                  if (advice.isNotEmpty) SizedBox(height: isCompact ? 8 : 14), // Longer space
+                  if (advice.isNotEmpty)
+                    SizedBox(height: isCompact ? 8 : 14), // Longer space
                 ],
 
                 // ── 3. Actionable Advice Banner (Clean & Helpful guidance only) ──
@@ -518,11 +562,13 @@ class ErrorDetailDialog extends StatelessWidget {
     required bool isDark,
     required bool isCompact,
   }) {
-    final double rawRatio = expected > 0 ? (actual / expected).clamp(0.0, 1.0) : 0.0;
+    final double rawRatio =
+        expected > 0 ? (actual / expected).clamp(0.0, 1.0) : 0.0;
     final double visibleWidthFactor = rawRatio.clamp(0.05, 1.0);
 
-    final bool isUnderheld = durationStatus == TajweedDurationStatus.underheld ||
-        (durationStatus == null && actual < expected);
+    final bool isUnderheld =
+        durationStatus == TajweedDurationStatus.underheld ||
+            (durationStatus == null && actual < expected);
     final bool isOverheld = durationStatus == TajweedDurationStatus.overheld ||
         (durationStatus == null && actual > expected);
 
@@ -788,9 +834,8 @@ class ErrorDetailDialog extends StatelessWidget {
     final Color errorRed = c.red;
 
     // Display string for user attempt (clean dash if omitted)
-    final String displayPredicted = (predicted.isEmpty || predicted == '—')
-        ? '—'
-        : predicted;
+    final String displayPredicted =
+        (predicted.isEmpty || predicted == '—') ? '—' : predicted;
 
     final Widget yoursBox = Expanded(
       child: Container(
@@ -964,7 +1009,6 @@ class ErrorDetailDialog extends StatelessWidget {
     return cleaned.trim();
   }
 }
-
 
 // ────────────────────────────────────────────────────────────────────────────
 // QVP Vector Word Display Widget (Authentic Medina Mushaf Vector Rendering)

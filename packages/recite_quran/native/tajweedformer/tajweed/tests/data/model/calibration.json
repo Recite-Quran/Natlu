@@ -1,0 +1,472 @@
+{
+ "format": "quranlab.tajweed-calibration/1",
+ "model_id": "v4.0",
+ "checkpoint_sha256": "synthetic",
+ "tokens_sha256": "66fe6eb81b15506270f9e3c6efb0724cda757cd54326f26ca4bcd6be4f3b2aa4",
+ "default_context": "c16_l64",
+ "default_preset": "balanced",
+ "presets": {
+  "strict": {
+   "site_fa": 0.005
+  },
+  "balanced": {
+   "site_fa": 0.01
+  },
+  "sensitive": {
+   "site_fa": 0.02
+  },
+  "very_sensitive": {
+   "site_fa": 0.05
+  }
+ },
+ "classes": [
+  "vowel_sub",
+  "vowel_del",
+  "vowel_ins",
+  "short_to_long",
+  "long_to_short",
+  "cons_sub",
+  "cons_del",
+  "insertion"
+ ],
+ "contexts": {
+  "c16_l64": {
+   "fusion": {
+    "heads": [
+     "log_probs",
+     "inter1_log_probs"
+    ],
+    "a": {
+     "cons_sub": 0.5,
+     "cons_del": 0.5,
+     "default": 0.8
+    }
+   },
+   "sites": {
+    "vowel_sub": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 3.0,
+      "balanced": 2.0,
+      "sensitive": 1.0,
+      "very_sensitive": -0.5
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "vowel_del": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 3.25,
+      "balanced": 2.25,
+      "sensitive": 1.25,
+      "very_sensitive": -0.25
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "vowel_ins": {
+     "status": "experimental",
+     "thresholds": {
+      "strict": 3.5,
+      "balanced": 2.5,
+      "sensitive": 1.5,
+      "very_sensitive": 0.0
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "short_to_long": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 3.75,
+      "balanced": 2.75,
+      "sensitive": 1.75,
+      "very_sensitive": 0.25
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "long_to_short": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 4.0,
+      "balanced": 3.0,
+      "sensitive": 2.0,
+      "very_sensitive": 0.5
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "cons_sub": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 4.25,
+      "balanced": 3.25,
+      "sensitive": 2.25,
+      "very_sensitive": 0.75
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "cons_del": {
+     "status": "experimental",
+     "thresholds": {
+      "strict": 4.5,
+      "balanced": 3.5,
+      "sensitive": 2.5,
+      "very_sensitive": 1.0
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "insertion": {
+     "status": "off",
+     "thresholds": {
+      "strict": 4.75,
+      "balanced": 3.75,
+      "sensitive": 2.75,
+      "very_sensitive": 1.25
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    }
+   },
+   "madd": {
+    "status": "validated",
+    "unit": "median_short_vowel_segment",
+    "min_short_vowels": 3,
+    "cuts": {
+     "fixed2": {
+      "2|4": 1.6,
+      "4|6": 3.0
+     },
+     "muttasil": {
+      "2|4": 1.2,
+      "4|6": 3.0
+     },
+     "free": {
+      "2|4": 1.4,
+      "4|6": 3.0
+     },
+     "lazim": {
+      "status": "off",
+      "2|4": 1.4,
+      "4|6": 3.0
+     }
+    },
+    "preset_cuts": {
+     "strict": {
+      "fixed2": {
+       "2|4": 2.2,
+       "4|6": 3.0
+      },
+      "muttasil": {
+       "2|4": 1.0,
+       "4|6": 3.2
+      },
+      "free": {
+       "2|4": 1.4,
+       "4|6": 3.0
+      }
+     },
+     "balanced": {},
+     "sensitive": {},
+     "very_sensitive": {
+      "fixed2": {
+       "2|4": 1.2,
+       "4|6": 2.6
+      },
+      "free": {
+       "2|4": 1.3,
+       "4|6": 2.8
+      }
+     }
+    },
+    "display_ladder": {
+     "A2": 1.333,
+     "A6": 39.312
+    },
+    "source": "synthetic"
+   },
+   "qalqalah": {
+    "status": "experimental",
+    "tau": 0.2646,
+    "preset_tau": {
+     "very_sensitive": 0.66
+    },
+    "source": "synthetic"
+   },
+   "gemination": {
+    "status": "experimental",
+    "tau": 0.3
+   },
+   "ghunna": {
+    "status": "off"
+   },
+   "tafkheem": {
+    "status": "off"
+   },
+   "backend_overrides": {},
+   "word": {
+    "status": "validated",
+    "default_preset": "general",
+    "flag_rule": "score >= tau",
+    "presets": {
+     "strict": {
+      "tau": 7.0
+     },
+     "general": {
+      "tau": 5.5
+     },
+     "beginner": {
+      "tau": 1.5
+     }
+    },
+    "floor": 2.0,
+    "custom_range": [
+     2.0,
+     12.0
+    ]
+   }
+  },
+  "c24_l72": {
+   "fusion": {
+    "heads": [
+     "log_probs",
+     "inter1_log_probs"
+    ],
+    "a": {
+     "cons_sub": 0.5,
+     "cons_del": 0.5,
+     "default": 0.8
+    }
+   },
+   "sites": {
+    "vowel_sub": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 3.0,
+      "balanced": 2.0,
+      "sensitive": 1.0,
+      "very_sensitive": -0.5
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "vowel_del": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 3.25,
+      "balanced": 2.25,
+      "sensitive": 1.25,
+      "very_sensitive": -0.25
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "vowel_ins": {
+     "status": "experimental",
+     "thresholds": {
+      "strict": 3.5,
+      "balanced": 2.5,
+      "sensitive": 1.5,
+      "very_sensitive": 0.0
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "short_to_long": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 3.75,
+      "balanced": 2.75,
+      "sensitive": 1.75,
+      "very_sensitive": 0.25
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "long_to_short": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 4.0,
+      "balanced": 3.0,
+      "sensitive": 2.0,
+      "very_sensitive": 0.5
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "cons_sub": {
+     "status": "validated",
+     "thresholds": {
+      "strict": 4.25,
+      "balanced": 3.25,
+      "sensitive": 2.25,
+      "very_sensitive": 0.75
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "cons_del": {
+     "status": "experimental",
+     "thresholds": {
+      "strict": 4.5,
+      "balanced": 3.5,
+      "sensitive": 2.5,
+      "very_sensitive": 1.0
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    },
+    "insertion": {
+     "status": "off",
+     "thresholds": {
+      "strict": 4.75,
+      "balanced": 3.75,
+      "sensitive": 2.75,
+      "very_sensitive": 1.25
+     },
+     "evidence": {
+      "fit_set": "synthetic"
+     }
+    }
+   },
+   "madd": {
+    "status": "validated",
+    "unit": "median_short_vowel_segment",
+    "min_short_vowels": 3,
+    "cuts": {
+     "fixed2": {
+      "2|4": 1.6,
+      "4|6": 3.0
+     },
+     "muttasil": {
+      "2|4": 1.2,
+      "4|6": 3.0
+     },
+     "free": {
+      "2|4": 1.4,
+      "4|6": 3.0
+     },
+     "lazim": {
+      "status": "off",
+      "2|4": 1.4,
+      "4|6": 3.0
+     }
+    },
+    "preset_cuts": {
+     "strict": {
+      "fixed2": {
+       "2|4": 2.2,
+       "4|6": 3.0
+      },
+      "muttasil": {
+       "2|4": 1.0,
+       "4|6": 3.2
+      },
+      "free": {
+       "2|4": 1.4,
+       "4|6": 3.0
+      }
+     },
+     "balanced": {},
+     "sensitive": {},
+     "very_sensitive": {
+      "fixed2": {
+       "2|4": 1.2,
+       "4|6": 2.6
+      },
+      "free": {
+       "2|4": 1.3,
+       "4|6": 2.8
+      }
+     }
+    },
+    "display_ladder": {
+     "A2": 1.333,
+     "A6": 39.312
+    },
+    "source": "synthetic"
+   },
+   "qalqalah": {
+    "status": "validated",
+    "tau": 0.25,
+    "preset_tau": {
+     "very_sensitive": 0.66
+    },
+    "source": "synthetic"
+   },
+   "gemination": {
+    "status": "validated",
+    "tau": 0.3
+   },
+   "ghunna": {
+    "status": "off"
+   },
+   "tafkheem": {
+    "status": "off"
+   },
+   "backend_overrides": {
+    "fp32": {
+     "sites": {
+      "vowel_sub": {
+       "thresholds": {
+        "strict": 2.5,
+        "balanced": 1.5,
+        "sensitive": 0.5,
+        "very_sensitive": -1.0
+       }
+      }
+     }
+    },
+    "int8": {
+     "sites": {
+      "cons_sub": {
+       "thresholds": {
+        "balanced": 9.0
+       }
+      }
+     }
+    }
+   },
+   "word": {
+    "status": "experimental",
+    "default_preset": "general",
+    "flag_rule": "score >= tau",
+    "presets": {
+     "strict": {
+      "tau": 7.0
+     },
+     "general": {
+      "tau": 5.5
+     },
+     "beginner": {
+      "tau": 4.0
+     }
+    },
+    "floor": 2.0,
+    "custom_range": [
+     2.0,
+     12.0
+    ]
+   }
+  }
+ }
+}

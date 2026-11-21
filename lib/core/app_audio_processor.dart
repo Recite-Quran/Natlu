@@ -1,22 +1,23 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
-import 'package:recite_quran/recite_quran.dart' as rq;
+import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
 import '../maglis/maglis_controller.dart';
 import '../maglis/maglis_core.dart';
 
 /// AppAudioProcessor
 ///
-/// Delivers 16kHz Float32 PCM chunks to the Sherpa ASR engine.
+/// Delivers 16kHz Float32 PCM chunks to the TajweedFormer V4 ASR engine.
 /// - In Solo Recording Mode: Directly delegates to [rq.AudioProcessor] from the
-///   recite_quran package with zero modifications, raw unadulterated audio, and no telephony profiles.
+///   quran_tajweedformer package with zero modifications, raw unadulterated audio, and no telephony profiles.
 /// - In Maglis Mode: Harmonizes with active WebRTC room using [AndroidAudioSource.mic] and [AudioManagerMode.modeInCommunication]
 ///   without hardware AEC ([echoCancel: false]) to prevent buffer starvation while avoiding ducking.
 class AppAudioProcessor {
   static const int recordSampleRate = 16000;
   static const int numChannels = 1;
   static const int bytesPerSample = 2; // 16-bit PCM
-  static const int chunkMs = 480;
+  static const int chunkMs =
+      320; // 320ms matches TajweedFormer c16_l64 context native chunk size (5120 samples @ 16kHz)
   static const int recordChunkBytes =
       (recordSampleRate * numChannels * bytesPerSample * chunkMs) ~/ 1000;
 
@@ -25,7 +26,7 @@ class AppAudioProcessor {
   // Maglis-specific recorder state
   AudioRecorder? _maglisRecorder;
   StreamSubscription<Uint8List>? _maglisSubscription;
-  Uint8List _maglisBuffer = Uint8List(0);
+  int? _maglisCarryByte;
   bool _isMaglisRecording = false;
   Future<void>? _activeOp;
 
@@ -48,7 +49,7 @@ class AppAudioProcessor {
       final bool inMaglis = MaglisController.instance.inSession;
 
       if (!inMaglis) {
-        // Pure recite_quran package audio processor in Solo Mode
+        // Pure quran_tajweedformer package audio processor in Solo Mode
         await _soloAudio.start(onChunk: onChunk);
         return;
       }
@@ -81,51 +82,39 @@ class AppAudioProcessor {
       final recordStream = await _maglisRecorder!.startStream(config);
       _isMaglisRecording = true;
 
+      _maglisCarryByte = null;
       _maglisSubscription = recordStream.listen(
         (Uint8List rawData) {
-          if (rawData.offsetInBytes % 2 != 0) {
-            rawData = Uint8List.fromList(rawData);
-          }
+          if (rawData.isEmpty) return;
 
-          Uint8List allBytes;
-          if (_maglisBuffer.isEmpty) {
-            allBytes = rawData;
+          // Handle odd-byte carry across chunk boundaries (matching pumpPcm16)
+          final Uint8List bytes;
+          if (_maglisCarryByte != null) {
+            bytes = Uint8List(rawData.length + 1)
+              ..[0] = _maglisCarryByte!
+              ..setRange(1, rawData.length + 1, rawData);
+            _maglisCarryByte = null;
           } else {
-            allBytes = Uint8List(_maglisBuffer.length + rawData.length);
-            allBytes.setAll(0, _maglisBuffer);
-            allBytes.setAll(_maglisBuffer.length, rawData);
+            bytes = rawData;
           }
 
-          int offset = 0;
-          while (allBytes.length - offset >= recordChunkBytes) {
-            final byteView = Uint8List.view(
-              allBytes.buffer,
-              allBytes.offsetInBytes + offset,
-              recordChunkBytes,
-            );
-            offset += recordChunkBytes;
+          final int evenBytes = bytes.length & ~1;
+          if (bytes.length.isOdd) {
+            _maglisCarryByte = bytes[bytes.length - 1];
+          }
+          if (evenBytes == 0) return;
 
-            final int16samples = Int16List.view(
-              byteView.buffer,
-              byteView.offsetInBytes,
-              recordChunkBytes ~/ bytesPerSample,
-            );
+          final byteData = ByteData.sublistView(bytes, 0, evenBytes);
+          final int sampleCount = evenBytes ~/ bytesPerSample;
+          final float32Samples = Float32List(sampleCount);
 
-            final float32Samples = Float32List(int16samples.length);
-            for (int i = 0; i < int16samples.length; i++) {
-              float32Samples[i] = int16samples[i] / 32768.0;
-            }
-
-            onChunk(float32Samples, false);
+          for (int i = 0; i < sampleCount; i++) {
+            float32Samples[i] =
+                byteData.getInt16(i * 2, Endian.little) / 32768.0;
           }
 
-          if (offset < allBytes.length) {
-            _maglisBuffer = Uint8List.fromList(
-              Uint8List.view(allBytes.buffer, allBytes.offsetInBytes + offset),
-            );
-          } else {
-            _maglisBuffer = Uint8List(0);
-          }
+          // Stream immediately to the neural ASR engine!
+          onChunk(float32Samples, false);
         },
         onError: (err) {
           _isMaglisRecording = false;
@@ -143,7 +132,7 @@ class AppAudioProcessor {
 
   void clearBuffer() {
     _soloAudio.clearBuffer();
-    _maglisBuffer = Uint8List(0);
+    _maglisCarryByte = null;
   }
 
   Future<void> stop() async {
@@ -188,7 +177,7 @@ class AppAudioProcessor {
       await _maglisRecorder?.dispose();
     } catch (_) {}
     _maglisRecorder = null;
-    _maglisBuffer = Uint8List(0);
+    _maglisCarryByte = null;
 
     // If still in active Maglis session (and not tearing down), preserve WebRTC call speakerphone
     if (MaglisController.instance.inSession &&

@@ -17,7 +17,7 @@ import '../audio/quran_audio_service.dart';
 // Supported UI languages.
 enum AppLanguage { ar, en }
 
-// Application Mode: Word Checker (Sherpa) vs Tajweed (Muaalem)
+// Application Mode: Word Checker vs Tajweed
 enum AppMode { wordChecker, tajweed }
 
 // Available color themes: White and Black.
@@ -31,7 +31,7 @@ enum AudioFailureReason {
   unknown,
 }
 
-/// Real-time Sherpa ASR model download progress tracker for Web.
+/// Real-time ASR model download progress tracker for Web.
 class ModelDownloadProgress {
   final bool isDownloading;
   final double progress;

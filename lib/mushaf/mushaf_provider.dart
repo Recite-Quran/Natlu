@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import 'package:recite_quran/recite_quran.dart';
+import 'package:quran_tajweedformer/quran_tajweedformer.dart';
 
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart' show QuranMetadata;

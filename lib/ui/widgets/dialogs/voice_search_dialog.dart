@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:recite_quran/recite_quran.dart';
 import '../../../core/app_state.dart';
+import '../../../core/highlighting_controller.dart';
 import '../../../mushaf/mushaf_provider.dart';
 import '../../../verse_list/verse_span_builder.dart';
 import 'dialog_base.dart';
@@ -691,7 +691,9 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
         ? (surahMeta?.arabic ?? '${match.surah}')
         : (surahMeta?.latin.isNotEmpty == true
             ? surahMeta!.latin
-            : (match.surahNameEn ?? '${match.surah}'));
+            : (QuranMetadata.getSurahNameEnglish(match.surah).isNotEmpty
+                ? QuranMetadata.getSurahNameEnglish(match.surah)
+                : '${match.surah}'));
 
     return Material(
       color: Colors.transparent,

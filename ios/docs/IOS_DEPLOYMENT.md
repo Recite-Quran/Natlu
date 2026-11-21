@@ -306,7 +306,7 @@ submitting or the submission is rejected.
 
 ## Notes on the build
 
-**`recite_quran` comes from GitHub, not pub.dev.** The published 1.0.1 package
+**`quran_tajweedformer` comes from GitHub, not pub.dev.** The published 1.0.1 package
 runs the ASR model on the plain CPU execution provider on iOS. The CoreML
 provider — which uses the Neural Engine — landed in
 [`Iam-Muslim/ReciteQuran#4`](https://github.com/Iam-Muslim/ReciteQuran/pull/4)

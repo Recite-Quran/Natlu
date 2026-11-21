@@ -1,0 +1,59 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "host-dev",
+      "displayName": "This machine, development (ZF_* switches honoured)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/host-dev",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "CMAKE_C_FLAGS": "-DZF_QUANT_DIVIDE=1"}
+    },
+    {
+      "name": "host-release",
+      "displayName": "This machine, release (what an app links)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/host-release",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "ZF_RELEASE": "ON"}
+    },
+    {
+      "name": "windows-mingw-dev",
+      "displayName": "Windows, MinGW-w64 GCC, development",
+      "inherits": "host-dev",
+      "binaryDir": "${sourceDir}/build/windows-mingw-dev",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"},
+      "cacheVariables": {"CMAKE_C_COMPILER": "gcc", "CMAKE_CXX_COMPILER": "g++", "ZF_NEON_EMU": "ON"}
+    },
+    {
+      "name": "windows-clang-dev",
+      "displayName": "Windows, clang for the Microsoft C runtime, development",
+      "inherits": "host-dev",
+      "binaryDir": "${sourceDir}/build/windows-clang-dev",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"},
+      "cacheVariables": {"CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++", "ZF_NEON_EMU": "ON"}
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64-v8a (set ANDROID_NDK_HOME)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/android-arm64",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "ANDROID_ABI": "arm64-v8a", "ANDROID_PLATFORM": "android-24",
+                         "ANDROID_STL": "c++_static", "CMAKE_C_FLAGS": "-DZF_QUANT_DIVIDE=1"}
+    },
+    {
+      "name": "android-armv7",
+      "displayName": "Android armeabi-v7a (set ANDROID_NDK_HOME)",
+      "inherits": "android-arm64",
+      "binaryDir": "${sourceDir}/build/android-armv7",
+      "cacheVariables": {"ANDROID_ABI": "armeabi-v7a", "ANDROID_PLATFORM": "android-21"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "host-dev", "configurePreset": "host-dev"},
+    {"name": "host-release", "configurePreset": "host-release"},
+    {"name": "windows-mingw-dev", "configurePreset": "windows-mingw-dev"},
+    {"name": "windows-clang-dev", "configurePreset": "windows-clang-dev"},
+    {"name": "android-arm64", "configurePreset": "android-arm64"},
+    {"name": "android-armv7", "configurePreset": "android-armv7"}
+  ]
+}

@@ -1,0 +1,3 @@
+kissfft at commit febd4caeed32e33ad8b2e0bb5ea77542c40f18ec (the commit kaldi-native-fbank pins,
+sha256 of the archive 497103e664168ebe39580b757adbe616f6cf85a16572af581ca7bc42d0ab13fd), unmodified:
+kiss_fft.c kiss_fftr.c and their headers. BSD-3-Clause, see COPYING and LICENSES/.

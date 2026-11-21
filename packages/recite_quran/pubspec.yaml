@@ -1,0 +1,52 @@
+name: quran_tajweedformer
+description: Real-time on-device Quran recitation tracking, dynamic DTW word alignment, and deterministic Tajweed rule verification engine for Flutter powered by TajweedFormer V4.
+version: 1.1.0
+homepage: https://github.com/Iam-Muslim/ReciteQuran
+repository: https://github.com/Iam-Muslim/ReciteQuran
+issue_tracker: https://github.com/Iam-Muslim/ReciteQuran/issues
+
+platforms:
+  android:
+  ios:
+  windows:
+  macos:
+  linux:
+  web:
+
+topics:
+  - quran
+  - audio
+  - tajweed
+  - tajweed-former
+  - speech-to-text
+  - ai
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.3
+  path_provider: ^2.1.5
+  record: ">=6.0.0 <8.0.0"
+  path: ">=1.8.0 <2.0.0"
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
+  assets:
+    - assets/web/
+

@@ -9,7 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  recite_quran: ^1.0.5
+  quran_tajweedformer:
+    path: packages/recite_quran
   qvp_flutter:
     path: packages/qvp_flutter
   url_launcher: ^6.3.2
@@ -37,15 +38,7 @@ dependencies:
   app_links: ^7.2.2
   share_plus: ^13.3.1
 
-# PINNED, do not loosen without testing an iOS archive.
-# sherpa_onnx_ios 1.13.6 renamed the bundle to sherpa-onnx.xcframework but left
-# the framework inside it called SherpaOnnxC.framework. CocoaPods derives the
-# linker flag from the bundle name, so it emits `-framework "sherpa-onnx"` and
-# the archive dies with "Framework 'sherpa-onnx' not found". 1.13.5 ships
-# SherpaOnnxC.xcframework, where the two names agree.
-dependency_overrides:
-  sherpa_onnx: 1.13.5
-  sherpa_onnx_ios: 1.13.5
+# Dependency overrides removed (Sherpa-ONNX replaced by TajweedFormer V4).
 
 dev_dependencies:
   flutter_test:
@@ -57,7 +50,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/model/zipformer_p_arabic_v3.int8.onnx
+    - assets/model/
+    - assets/model/c16_l64/
     - assets/icon/app_icon.png
     - assets/pages.tar.xz
     - assets/audio_timings/husary/

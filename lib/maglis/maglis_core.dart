@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:recite_quran/recite_quran.dart' as rq;
+import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
 import '../core/highlighting_controller.dart';
 
 enum MaglisPacketType {
@@ -88,10 +88,10 @@ class MaglisPacket {
       surah: QuranMetadata.clampSurah((m['s'] as int?) ?? 1),
       ayah: ((m['a'] as int?) ?? 1).clamp(1, 286),
       activeWord: m['w'] as int?,
-      greenWords: (m['g'] as List<dynamic>?)?.map((e) => e as int).toList() ??
-          const [],
-      yellowWords: (m['y'] as List<dynamic>?)?.map((e) => e as int).toList() ??
-          const [],
+      greenWords:
+          (m['g'] as List<dynamic>?)?.map((e) => e as int).toList() ?? const [],
+      yellowWords:
+          (m['y'] as List<dynamic>?)?.map((e) => e as int).toList() ?? const [],
       redWords:
           (m['r'] as List<dynamic>?)?.map((e) => e as int).toList() ?? const [],
       activeReciterId: m['c'] as String?,
@@ -134,13 +134,13 @@ class MaglisPacket {
     final String expectedPh = (raw['expectedPh'] ?? raw['e'] ?? '') as String;
     final String predictedPh = (raw['predictedPh'] ?? raw['p'] ?? '') as String;
     return rq.ReciterError(
-      errorType: rq.ErrorCategory.values[
-          tIdx.clamp(0, rq.ErrorCategory.values.length - 1)],
-      speechErrorType: rq.SpeechErrorType.values[
-          sIdx.clamp(0, rq.SpeechErrorType.values.length - 1)],
+      errorType: rq.ErrorCategory
+          .values[tIdx.clamp(0, rq.ErrorCategory.values.length - 1)],
+      speechErrorType: rq.SpeechErrorType
+          .values[sIdx.clamp(0, rq.SpeechErrorType.values.length - 1)],
       durationStatus: dIdx != null
-          ? rq.TajweedDurationStatus.values[
-              dIdx.clamp(0, rq.TajweedDurationStatus.values.length - 1)]
+          ? rq.TajweedDurationStatus
+              .values[dIdx.clamp(0, rq.TajweedDurationStatus.values.length - 1)]
           : null,
       expectedPh: expectedPh,
       predictedPh: predictedPh,
@@ -501,10 +501,38 @@ class MaglisCrypto {
 
   // Internal 256-bit application pepper to prevent public relay rainbow-table attacks on 5-digit room codes
   static const List<int> _appPepper = [
-    0x51, 0x75, 0x72, 0x61, 0x6e, 0x4d, 0x61, 0x67,
-    0x6c, 0x69, 0x73, 0x53, 0x65, 0x63, 0x75, 0x72,
-    0x65, 0x50, 0x65, 0x70, 0x70, 0x65, 0x72, 0x32,
-    0x30, 0x32, 0x36, 0x5f, 0x76, 0x32, 0x21, 0x24,
+    0x51,
+    0x75,
+    0x72,
+    0x61,
+    0x6e,
+    0x4d,
+    0x61,
+    0x67,
+    0x6c,
+    0x69,
+    0x73,
+    0x53,
+    0x65,
+    0x63,
+    0x75,
+    0x72,
+    0x65,
+    0x50,
+    0x65,
+    0x70,
+    0x70,
+    0x65,
+    0x72,
+    0x32,
+    0x30,
+    0x32,
+    0x36,
+    0x5f,
+    0x76,
+    0x32,
+    0x21,
+    0x24,
   ];
 
   static int get currentEpoch =>
@@ -967,7 +995,8 @@ class MaglisPlatform {
 }
 
 /// Converts any Eastern Arabic digits (٠-٩) in [input] to standard ASCII digits (0-9).
-String normalizeArabicDigits(String input) => QuranTypography.toWesternDigits(input);
+String normalizeArabicDigits(String input) =>
+    QuranTypography.toWesternDigits(input);
 
 /// Formats a 5-digit room code according to locale:
 /// - If [isArabic] is true, converts to Eastern Arabic digits ('٠'-'٩').

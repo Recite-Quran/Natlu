@@ -612,13 +612,10 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   String _getSurahName(int surahNum, bool isArabic) {
-    final metadata = widget.controller.repository.surahMetadata;
-    if (surahNum >= 1 && surahNum <= metadata.length) {
-      final s = metadata[surahNum - 1];
-      return isArabic ? s.surahName : s.surahNameEn;
+    if (isArabic) {
+      return QuranMetadata.getSurahNameArabic(surahNum);
     }
-    final verse1 = widget.controller.repository.getVerse(surahNum, 1);
-    return isArabic ? (verse1?.surahName ?? '') : (verse1?.surahNameEn ?? '');
+    return QuranMetadata.getSurahNameEnglish(surahNum);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
