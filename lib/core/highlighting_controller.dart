@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
-export 'package:quran_tajweedformer/quran_tajweedformer.dart'
-    hide HighlightingController;
+export 'package:quran_tajweedformer/quran_tajweedformer.dart';
 
 import 'app_state.dart';
 import '../audio/quran_audio_service.dart';
@@ -209,8 +209,27 @@ class HighlightStore {
 ///
 /// Presentation layers (Mushaf, VerseList, dialogs, overlays) observe this single
 /// controller. They never need separate branches or conditional code per mode.
-class HighlightingController extends rq.HighlightingController {
+class HighlightingController extends ChangeNotifier {
+  final rq.QuranRepository repository;
+  final rq.ReciteEngine _engine;
+  final rq.QuranScorer _scorer;
+  final VoidCallback? onAyahChanged;
+  bool isTajweed;
+  rq.TrackerConfig config;
+
   final HighlightStore _store = HighlightStore();
+
+  final ValueNotifier<int?> activeAyah = ValueNotifier(null);
+  final ValueNotifier<int> globalRevision = ValueNotifier(0);
+  final ValueNotifier<String> debugRecognizedText = ValueNotifier('');
+
+  HighlightingController get tracker => this;
+  rq.TrackerState get state => rq.TrackerState.tracking;
+  rq.ReciteEngine get engine => _engine;
+  rq.QuranScorer get scorer => _scorer;
+
+  Stream<rq.WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
+  Stream<rq.AyahCompletedEvent> get onAyahCompleted => _scorer.onAyahCompleted;
 
   // Remote Maglis state
   int _remoteTargetSurah = 0;
@@ -252,18 +271,104 @@ class HighlightingController extends rq.HighlightingController {
   bool _isAudioBuffering = false;
   bool _isAudioPaused = false;
 
+  StreamSubscription? _engineTranscriptionSub;
   StreamSubscription<rq.WordMatchedEvent>? _wordEvaluatedSub;
   StreamSubscription<rq.AyahCompletedEvent>? _ayahCompletedSub;
 
   HighlightingController({
-    required super.repository,
-    required super.engine,
-    super.onAyahChanged,
-    super.isTajweed = true,
-    super.config = const rq.TrackerConfig(),
-  }) {
-    _wordEvaluatedSub = onWordEvaluated.listen(_onEngineWordEvaluated);
-    _ayahCompletedSub = onAyahCompleted.listen(_onEngineAyahCompleted);
+    required this.repository,
+    required rq.ReciteEngine engine,
+    this.onAyahChanged,
+    this.isTajweed = true,
+    this.config = const rq.TrackerConfig(),
+  })  : _engine = engine,
+        _scorer = rq.QuranScorer(
+          repository: repository,
+          config: config,
+          isTajweed: isTajweed,
+        ) {
+    _initScorerAndStreams();
+  }
+
+  Future<void> _initScorerAndStreams() async {
+    await _scorer.initialize();
+    _wordEvaluatedSub = _scorer.onWordEvaluated.listen(_onEngineWordEvaluated);
+    _ayahCompletedSub = _scorer.onAyahCompleted.listen(_onEngineAyahCompleted);
+    _engineTranscriptionSub = _engine.transcriptionStream.listen((result) {
+      if (result.streamEpoch != _engine.currentStreamEpoch) return;
+      if (result.text.isNotEmpty) {
+        debugRecognizedText.value = result.text;
+      }
+      _scorer.feedTranscript(result);
+    });
+  }
+
+  /// Feeds raw PCM audio chunk into the engine.
+  void feed(Float32List audioChunk, {bool isFinal = false}) {
+    _engine.transcribe(audioChunk, isFinal: isFinal);
+  }
+
+  void reset() {
+    _engine.resetBuffer();
+    _scorer.resetBuffer();
+    debugRecognizedText.value = '';
+    onAyahChanged?.call();
+    globalRevision.value++;
+    notifyListeners();
+  }
+
+  void finalize({bool resetEngine = true}) {
+    if (resetEngine) {
+      _engine.resetBuffer();
+    }
+    _scorer.resetBuffer();
+    debugRecognizedText.value = '';
+    globalRevision.value++;
+    notifyListeners();
+  }
+
+  void resumeTracking() {
+    final int targetAyah = activeAyah.value ?? 1;
+    clearHighlightsFromAyah(targetAyah);
+    final int s = targetSurah != 0 ? targetSurah : 1;
+    final int startGlobalWord =
+        repository.getAyahStartGlobalIndex(s, targetAyah);
+    _scorer.jumpToWord(startGlobalWord);
+    _engine.resetBuffer();
+    _scorer.resetBuffer();
+    debugRecognizedText.value = '';
+    globalRevision.value++;
+    notifyListeners();
+  }
+
+  void startRecordingSession() {
+    resumeTracking();
+  }
+
+  void updateConfig(rq.TrackerConfig newConfig) {
+    config = newConfig;
+    _scorer.updateConfig(newConfig);
+  }
+
+  void setTajweedMode(bool active) {
+    final effective = repository.isTajweedSupported && active;
+    if (isTajweed == effective) return;
+    isTajweed = effective;
+    _scorer.setTajweedMode(effective);
+    globalRevision.value++;
+    notifyListeners();
+  }
+
+  void unloadEngine() {
+    _engine.destroy();
+    _scorer.dispose();
+    notifyListeners();
+  }
+
+  Future<void> reloadEngine() async {
+    await _engine.initialize();
+    await _scorer.initialize();
+    notifyListeners();
   }
 
   @override
@@ -272,6 +377,9 @@ class HighlightingController extends rq.HighlightingController {
     _wordEvaluatedSub = null;
     _ayahCompletedSub?.cancel();
     _ayahCompletedSub = null;
+    _engineTranscriptionSub?.cancel();
+    _engineTranscriptionSub = null;
+    _scorer.dispose();
     super.dispose();
   }
 
@@ -394,13 +502,12 @@ class HighlightingController extends rq.HighlightingController {
     if (_manualTargetSurah != 0) {
       return _manualTargetSurah;
     }
-    return super.targetSurah;
+    return _scorer.targetSurah != 0 ? _scorer.targetSurah : 1;
   }
 
   /// Optional hook for reactive reading position persistence without circular state imports.
   static void Function(int surah, int ayah)? onAutoSavePosition;
 
-  @override
   Future<void> setTargetSurah(
     int surah, {
     bool preserveOtherSurahStates = false,
@@ -417,14 +524,15 @@ class HighlightingController extends rq.HighlightingController {
     // views must not follow until the merge's final write lands.
     _beginRetarget();
     try {
-      await super.setTargetSurah(
+      _scorer.setTargetSurah(
         surah,
-        preserveOtherSurahStates: preserveOtherSurahStates,
-        clearTargetSurah: clearTargetSurah,
+        forceClear: clearTargetSurah,
       );
     } finally {
       _endRetarget();
     }
+    globalRevision.value++;
+    notifyListeners();
   }
 
   static final Map<int, ({int ayah, int lastUthmaniWordIndex})>
@@ -507,7 +615,6 @@ class HighlightingController extends rq.HighlightingController {
     );
   }
 
-  @override
   void setManualAyah(int surah, int ayah) {
     // Local fields are the authoritative coordinate for every reader from
     // this moment on; a manual selection also takes the coordinate away from
@@ -523,8 +630,8 @@ class HighlightingController extends rq.HighlightingController {
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
-    if (super.targetSurah == surah) {
-      super.setManualAyah(surah, ayah);
+    if (targetSurah == surah) {
+      _applyManualAyahToScorer(surah, ayah);
     } else {
       // The engine needs its target surah loaded before it can accept the
       // ayah. Only apply if this selection is still the newest event — a
@@ -533,26 +640,29 @@ class HighlightingController extends rq.HighlightingController {
       // selection replaces it): the view must not follow the package's
       // transient coordinate writes in between.
       _beginRetarget();
-      super
-          .setTargetSurah(
-            surah,
-            preserveOtherSurahStates: true,
-            clearTargetSurah: false,
-          )
-          .then((_) {
-            if (_manualTargetSurah == surah) {
-              super.setManualAyah(surah, ayah);
-            }
-          })
-          .catchError((_) {})
-          .whenComplete(_endRetarget);
+      setTargetSurah(
+        surah,
+        preserveOtherSurahStates: true,
+        clearTargetSurah: false,
+      ).then((_) {
+        if (_manualTargetSurah == surah) {
+          _applyManualAyahToScorer(surah, ayah);
+        }
+      }).catchError((_) {}).whenComplete(_endRetarget);
     }
 
     globalRevision.value++;
     notifyListeners();
   }
 
-  @override
+  void _applyManualAyahToScorer(int surah, int ayah) {
+    _scorer.setTargetAyah(surah, ayah);
+    _engine.resetBuffer();
+    _scorer.resetBuffer();
+    debugRecognizedText.value = '';
+    onAyahChanged?.call();
+  }
+
   rq.VerseMatch? get currentMatchedVerse {
     // The mirrored coordinate IS the matched verse for every source (manual
     // selection, ASR anchor, audio playback, Maglis packets). Pure coordinate

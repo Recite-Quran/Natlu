@@ -137,7 +137,8 @@ class TajweedFormerEngine implements ReciteEngine {
     _receivePort = null;
     _sendPort = null;
 
-    final String resolvedModelDir = modelDirOverride ?? await _resolveDefaultModelDir();
+    final String resolvedModelDir =
+        modelDirOverride ?? await _resolveDefaultModelDir();
     await _ensureBundledAssetsExtracted(resolvedModelDir);
 
     final completer = Completer<void>();
@@ -277,11 +278,203 @@ class TajweedFormerEngine implements ReciteEngine {
     int audioBufCap = 4096;
     Pointer<Float> audioBuf = calloc<Float>(audioBufCap);
 
+    /// The heads the app actually reads: CTC log-probs, the 20 ms timing head,
+    /// gemination, qalqalah, and confidence. No head is faked.
+    const int appHeads = ZfTajweedHeadsFlags.logProbs |
+        ZfTajweedHeadsFlags.timing |
+        ZfTajweedHeadsFlags.gem |
+        ZfTajweedHeadsFlags.qalqalah |
+        ZfTajweedHeadsFlags.conf;
+
+    /// Decodes the whole take so far exactly as the author's decoder does:
+    /// a token is one run of equal top-1 40 ms frames `[t, e]`, covering the
+    /// 20 ms head frames `[2t, 2e + 2)`. The token end is `(e + 1) * 40 ms`,
+    /// confidence is the mean sigmoid(conf) over that span, gemination is the
+    /// mean `gem[:, 1]` over that span, and qalqalah is the mean
+    /// `attr_qalqalah[:, 1] + attr_qalqalah[:, 2]` over the 12 frames after
+    /// the letter's end.
+    TajweedFormerTranscriptionEvent? decodeTake({
+      required bool isFinal,
+      required int startTime,
+      required int epoch,
+    }) {
+      final ZfTajweedBindings? b = bindings;
+      final Pointer<Void>? s = stream;
+      if (b == null || s == null || s == nullptr) return null;
+
+      final int headsRet = b.streamHeads(s, headsPtr);
+      final int nFrames = b.streamTop2(s, top2OutPtr);
+
+      final List<String> tokenStrings = [];
+      final List<double> timestamps = [];
+      final List<double> tokenDurations = [];
+      final List<TokenNeuralAcoustics> tokenAcoustics = [];
+
+      if (nFrames > 0 && top2OutPtr.value != nullptr) {
+        final Pointer<ZfTajweedTop2> top2 = top2OutPtr.value;
+        final int n20 = headsRet >= 0 ? headsPtr.ref.n20 : 0;
+        final Pointer<Float> gem = headsPtr.ref.gem;
+        final Pointer<Float> qalqalah = headsPtr.ref.attrQalqalah;
+        final Pointer<Float> conf = headsPtr.ref.conf;
+
+        for (int t = 0; t < nFrames;) {
+          final int a = top2[t].token;
+          if (a == zfTajweedBlank) {
+            t++;
+            continue;
+          }
+          int e = t;
+          while (e + 1 < nFrames && top2[e + 1].token == a) {
+            e++;
+          }
+
+          final int start20 = 2 * t;
+          final int end20 = 2 * (e + 1);
+
+          final String name =
+              (a >= 0 && a < tokenCache.length) ? tokenCache[a] : '';
+          tokenStrings.add(name);
+          timestamps.add(end20 * 0.020);
+          tokenDurations.add((end20 - start20) * 0.020);
+
+          // Gemination: mean gem[:, 1] over the letter's span.
+          double gemSum = 0.0;
+          int gemCount = 0;
+          if (gem != nullptr && n20 > 0) {
+            final int from = math.min(start20, n20);
+            final int to = math.min(end20, n20);
+            for (int f = from; f < to; f++) {
+              gemSum += gem[f * 2 + 1];
+              gemCount++;
+            }
+          }
+
+          // Qalqalah: mean attr_qalqalah[:, 1] + [:, 2] over the 12 frames
+          // after the letter's end.
+          double qalqalahSum = 0.0;
+          int qalqalahCount = 0;
+          if (qalqalah != nullptr && n20 > 0) {
+            final int from = math.min(end20, n20);
+            final int to = math.min(end20 + 12, n20);
+            for (int f = from; f < to; f++) {
+              qalqalahSum += qalqalah[f * 3 + 1] + qalqalah[f * 3 + 2];
+              qalqalahCount++;
+            }
+          }
+
+          // Confidence: mean sigmoid(conf) over the letter's span.
+          double confSum = 0.0;
+          int confCount = 0;
+          if (conf != nullptr && n20 > 0) {
+            final int from = math.min(start20, n20);
+            final int to = math.min(end20, n20);
+            for (int f = from; f < to; f++) {
+              confSum += 1.0 / (1.0 + math.exp(-conf[f]));
+              confCount++;
+            }
+          }
+
+          tokenAcoustics.add(
+            TokenNeuralAcoustics(
+              gemScore: gemCount > 0 ? gemSum / gemCount : 0.0,
+              qalqalahScore:
+                  qalqalahCount > 0 ? qalqalahSum / qalqalahCount : 0.0,
+              confScore: confCount > 0 ? confSum / confCount : 1.0,
+            ),
+          );
+
+          t = e + 1;
+        }
+      } else {
+        // Fallback when the engine's decoded layer is unavailable: the
+        // engine's own greedy transcript, at its 40 ms frame grid.
+        final int nTokens = b.streamGreedy(s, idsBuf, maxTokens);
+        final int count = math.min(nTokens, maxTokens);
+        for (int i = 0; i < count; i++) {
+          final int tokenId = idsBuf[i];
+          final String name = (tokenId >= 0 && tokenId < tokenCache.length)
+              ? tokenCache[tokenId]
+              : '';
+          tokenStrings.add(name);
+          timestamps.add((i + 1) * 0.040);
+          tokenDurations.add(0.040);
+          tokenAcoustics.add(const TokenNeuralAcoustics());
+        }
+      }
+
+      final StringBuffer textBuf = StringBuffer();
+      for (final String tok in tokenStrings) {
+        if (tok == '|') {
+          if (textBuf.isNotEmpty && !textBuf.toString().endsWith(' ')) {
+            textBuf.write(' ');
+          }
+        } else if (tok != '<blk>' && tok != '<foreign>') {
+          textBuf.write(tok);
+        }
+      }
+
+      return TajweedFormerTranscriptionEvent(
+        text: textBuf.toString(),
+        tokens: tokenStrings,
+        timestamps: timestamps,
+        durations: tokenDurations,
+        neuralAcoustics: tokenAcoustics,
+        isFinal: isFinal,
+        startTime: startTime,
+        streamEpoch: epoch,
+      );
+    }
+
+    /// Emits the last frame of each enabled head as a diagnostic sample.
+    /// Heads that are not enabled are reported as empty, never fabricated.
+    void emitDiagnostics() {
+      final ZfTajweedBindings? b = bindings;
+      final Pointer<Void>? s = stream;
+      if (b == null || s == null || s == nullptr) return;
+
+      final int headsRet = b.streamHeads(s, headsPtr);
+      if (headsRet < 0 || headsPtr.ref.n20 <= 0) return;
+
+      final int lastF = headsPtr.ref.n20 - 1;
+      final double gemProb =
+          headsPtr.ref.gem != nullptr ? headsPtr.ref.gem[lastF * 2 + 1] : 0.0;
+      final List<double> qalqalahProbs = headsPtr.ref.attrQalqalah != nullptr
+          ? [
+              headsPtr.ref.attrQalqalah[lastF * 3 + 0],
+              headsPtr.ref.attrQalqalah[lastF * 3 + 1],
+              headsPtr.ref.attrQalqalah[lastF * 3 + 2],
+            ]
+          : const [];
+
+      mainSendPort.send(
+        TajweedFormerDiagnosticsEvent(
+          timestamp: lastF * 0.020,
+          geminationProb: gemProb,
+          qalqalahProbs: qalqalahProbs,
+          ghunnaProbs: const [],
+          tafkheemProbs: const [],
+          faceProbs: const [],
+        ),
+      );
+    }
+
+    String describeStreamError() {
+      final ZfTajweedBindings? b = bindings;
+      final Pointer<Void>? s = stream;
+      if (b == null || s == null || s == nullptr) return 'stream unavailable';
+      final Pointer<Utf8> p = b.streamLastError(s);
+      return p == nullptr ? 'unknown stream error' : p.toDartString();
+    }
+
     port.listen((msg) {
       if (msg is! TajweedFormerCommand) return;
 
       switch (msg) {
-        case TajweedFormerInitCommand(:final modelDir, :final context, :final customLibPath):
+        case TajweedFormerInitCommand(
+            :final modelDir,
+            :final context,
+            :final customLibPath
+          ):
           try {
             bindings = ZfTajweedBindings.load(customLibPath: customLibPath);
 
@@ -306,25 +499,36 @@ class TajweedFormerEngine implements ReciteEngine {
             }
 
             if (model == null || model == nullptr) {
-              final errMsg = errPtr.value != nullptr ? errPtr.value.toDartString() : 'Unknown error opening model';
+              final errMsg = errPtr.value != nullptr
+                  ? errPtr.value.toDartString()
+                  : 'Unknown error opening model';
               calloc.free(errPtr);
               throw Exception('TajweedFormer: $errMsg');
             }
 
             stream = bindings!.streamCreate(model!, errPtr);
             if (stream == null || stream == nullptr) {
-              final errMsg = errPtr.value != nullptr ? errPtr.value.toDartString() : 'Unknown error creating stream';
+              final errMsg = errPtr.value != nullptr
+                  ? errPtr.value.toDartString()
+                  : 'Unknown error creating stream';
               calloc.free(errPtr);
               throw Exception('TajweedFormer: $errMsg');
             }
             calloc.free(errPtr);
 
-            // Enable all 12 neural diagnostic heads (ZF_TAJWEED_HEADS_ALL)
-            bindings!.streamSetHeads(stream!, (1 << 12) - 1);
+            // Only the heads this app reads. `stream_set_heads` adds
+            // log_probs itself and refuses to run once audio has arrived.
+            final int headsResult = bindings!.streamSetHeads(stream!, appHeads);
+            if (headsResult != 0) {
+              throw Exception(
+                'TajweedFormer: the engine graph lacks one of the requested heads '
+                '(zf_tajweed_stream_set_heads returned $headsResult)',
+              );
+            }
 
-            // Pre-cache the 38 vocabulary tokens to eliminate repeated FFI calls per frame
+            // Pre-cache the vocabulary tokens to eliminate repeated FFI calls per frame
             tokenCache.clear();
-            for (int i = 0; i < 38; i++) {
+            for (int i = 0; i < zfTajweedVocab; i++) {
               final namePtr = bindings!.tokenName(model!, i);
               tokenCache.add(namePtr != nullptr ? namePtr.toDartString() : '');
             }
@@ -334,7 +538,11 @@ class TajweedFormerEngine implements ReciteEngine {
             mainSendPort.send(TajweedFormerInitErrorEvent(e.toString()));
           }
 
-        case TajweedFormerRecognizeCommand(:final chunk, :final isFinal, :final startTime):
+        case TajweedFormerRecognizeCommand(
+            :final chunk,
+            :final isFinal,
+            :final startTime
+          ):
           if (bindings == null || stream == null || stream == nullptr) return;
 
           try {
@@ -348,241 +556,37 @@ class TajweedFormerEngine implements ReciteEngine {
             }
             audioBuf.asTypedList(sampleCount).setAll(0, samples);
 
-            bindings!.streamPushAudio(stream!, audioBuf, sampleCount);
+            final int pushed =
+                bindings!.streamPushAudio(stream!, audioBuf, sampleCount);
+            if (pushed < 0) {
+              if (kDebugMode) {
+                debugPrint(
+                    'TajweedFormer push_audio error: ${describeStreamError()}');
+              }
+              return;
+            }
 
             if (isFinal) {
-              bindings!.streamFinish(stream!);
-            }
-
-            // Query multi-head neural diagnostics
-            final int headsRet = bindings!.streamHeads(stream!, headsPtr);
-            if (headsRet >= 0 && headsPtr.ref.n20 > 0) {
-              final int lastF = headsPtr.ref.n20 - 1;
-              final double gemProb = (headsPtr.ref.gem != nullptr)
-                  ? headsPtr.ref.gem[lastF * 2 + 1]
-                  : 0.0;
-
-              final List<double> qalqalahProbs = (headsPtr.ref.attrQalqalah != nullptr)
-                  ? [
-                      headsPtr.ref.attrQalqalah[lastF * 3 + 0],
-                      headsPtr.ref.attrQalqalah[lastF * 3 + 1],
-                      headsPtr.ref.attrQalqalah[lastF * 3 + 2],
-                    ]
-                  : const [1.0, 0.0, 0.0];
-
-              mainSendPort.send(
-                TajweedFormerDiagnosticsEvent(
-                  timestamp: lastF * 0.020,
-                  geminationProb: gemProb,
-                  qalqalahProbs: qalqalahProbs,
-                  ghunnaProbs: const [1.0, 0.0, 0.0, 0.0, 0.0],
-                  tafkheemProbs: const [1.0, 0.0, 0.0],
-                  faceProbs: const [1.0, 0.0, 0.0, 0.0],
-                ),
-              );
-            }
-
-            final int nFrames = bindings!.streamTop2(stream!, top2OutPtr);
-            final List<String> tokenStrings = [];
-            final List<double> timestamps = [];
-            final List<double> tokenDurations = [];
-            final List<TokenNeuralAcoustics> tokenAcoustics = [];
-
-            // Pre-group continuous 20ms acoustic runs from timingLogProbs (H-time chain)
-            final List<_TimingRun> timingRuns = [];
-            final int n20 = headsPtr.ref.n20;
-            final int vocab = headsPtr.ref.vocab;
-            final Pointer<Float> tlp = headsPtr.ref.timingLogProbs;
-
-            if (headsRet >= 0 && tlp != nullptr && n20 > 0 && vocab > 0) {
-              int? currRunTok;
-              int runStart = 0;
-              for (int f = 0; f < n20; f++) {
-                int maxTok = 0;
-                double maxVal = tlp[f * vocab + 0];
-                for (int v = 1; v < vocab; v++) {
-                  final double val = tlp[f * vocab + v];
-                  if (val > maxVal) {
-                    maxVal = val;
-                    maxTok = v;
-                  }
-                }
-                if (maxTok != currRunTok) {
-                  if (currRunTok != null &&
-                      currRunTok != 0 &&
-                      currRunTok < tokenCache.length) {
-                    timingRuns.add(_TimingRun(currRunTok, runStart, f));
-                  }
-                  currRunTok = maxTok;
-                  runStart = f;
-                }
-              }
-              if (currRunTok != null &&
-                  currRunTok != 0 &&
-                  currRunTok < tokenCache.length) {
-                timingRuns.add(_TimingRun(currRunTok, runStart, n20));
+              final int finished = bindings!.streamFinish(stream!);
+              if (finished < 0 && kDebugMode) {
+                debugPrint(
+                    'TajweedFormer finish error: ${describeStreamError()}');
               }
             }
 
-            if (nFrames > 0 && top2OutPtr.value != nullptr) {
-              final Pointer<ZfTajweedTop2> top2 = top2OutPtr.value;
-              int prevEnd20 = 0;
-              int trCursor = 0;
+            emitDiagnostics();
 
-              for (int t = 0; t < nFrames;) {
-                final int a = top2[t].token;
-                if (a == 0) { // BLANK = 0
-                  t++;
-                  continue;
-                }
-                int e = t;
-                while (e + 1 < nFrames && top2[e + 1].token == a) {
-                  e++;
-                }
-                int pk = t;
-                for (int k = t + 1; k <= e; k++) {
-                  if (top2[k].logProb > top2[pk].logProb) {
-                    pk = k;
-                  }
-                }
-
-                final int baseSf = 2 * t;
-                final int baseEf = 2 * (e + 1);
-
-                // Monotonic alignment to physical 20ms timingLogProbs run
-                int fineSf = math.max(baseSf, prevEnd20);
-                int fineEf = math.max(baseEf, fineSf + 1);
-
-                if (timingRuns.isNotEmpty) {
-                  int bestIdx = -1;
-                  int bestOverlap = -1;
-                  for (int idx = trCursor; idx < timingRuns.length; idx++) {
-                    final tr = timingRuns[idx];
-                    if (tr.start > baseEf + 10) break;
-                    if (tr.token == a) {
-                      final int overlap = math.max(
-                        0,
-                        math.min(tr.end, baseEf) - math.max(tr.start, baseSf),
-                      );
-                      if (overlap > bestOverlap) {
-                        bestOverlap = overlap;
-                        bestIdx = idx;
-                      }
-                    }
-                  }
-
-                  if (bestIdx != -1 && bestOverlap > 0) {
-                    fineSf = math.max(prevEnd20, timingRuns[bestIdx].start);
-                    fineEf = timingRuns[bestIdx].end;
-                    trCursor = bestIdx + 1;
-                  } else {
-                    for (int idx = trCursor; idx < timingRuns.length; idx++) {
-                      final tr = timingRuns[idx];
-                      if (tr.token == a && tr.start <= baseEf) {
-                        fineSf = math.max(prevEnd20, tr.start);
-                        fineEf = tr.end;
-                        trCursor = idx + 1;
-                        break;
-                      }
-                    }
-                  }
-                }
-
-                fineSf = math.max(prevEnd20, fineSf);
-                fineEf = math.max(fineSf + 1, fineEf);
-                prevEnd20 = fineEf;
-
-                final int finePk = math.max(fineSf, math.min(2 * pk, fineEf));
-
-                final String name =
-                    (a >= 0 && a < tokenCache.length) ? tokenCache[a] : '';
-                tokenStrings.add(name);
-                timestamps.add((finePk + 1) * 0.020); // Peak timestamp in seconds
-                tokenDurations.add((fineEf - fineSf) * 0.020); // Stretched physical acoustic span in seconds
-
-                // Qalqalah release evaluation: author calibrated window [fineEf + 2, fineEf + 14)
-                double qalqalahSum = 0.0;
-                int qalqalahCount = 0;
-                if (headsRet >= 0 &&
-                    headsPtr.ref.attrQalqalah != nullptr &&
-                    headsPtr.ref.n20 > 0 &&
-                    fineEf >= 0) {
-                  final int relStart = math.min(headsPtr.ref.n20, fineEf + 2);
-                  final int relEnd = math.min(headsPtr.ref.n20, fineEf + 14);
-                  for (int f = relStart; f < relEnd; f++) {
-                    qalqalahSum += (headsPtr.ref.attrQalqalah[f * 3 + 1] +
-                        headsPtr.ref.attrQalqalah[f * 3 + 2]);
-                    qalqalahCount++;
-                  }
-                }
-
-                // Token confidence over physical 20ms span [fineSf, fineEf)
-                double confSum = 0.0;
-                int confCount = 0;
-                if (headsRet >= 0 &&
-                    headsPtr.ref.conf != nullptr &&
-                    headsPtr.ref.n20 > 0) {
-                  final int cEnd = math.min(headsPtr.ref.n20, fineEf);
-                  for (int f = fineSf; f < cEnd; f++) {
-                    final double logit = headsPtr.ref.conf[f];
-                    confSum += 1.0 / (1.0 + math.exp(-logit));
-                    confCount++;
-                  }
-                }
-
-                tokenAcoustics.add(
-                  TokenNeuralAcoustics(
-                    qalqalahScore:
-                        qalqalahCount > 0 ? qalqalahSum / qalqalahCount : 0.0,
-                    confScore: confCount > 0 ? confSum / confCount : 1.0,
-                  ),
-                );
-
-                t = e + 1;
-              }
-            } else {
-              final int nTokens =
-                  bindings!.streamGreedy(stream!, idsBuf, maxTokens);
-              for (int i = 0; i < nTokens && i < maxTokens; i++) {
-                final int tokenId = idsBuf[i];
-                final String name = (tokenId >= 0 && tokenId < tokenCache.length)
-                    ? tokenCache[tokenId]
-                    : '';
-                tokenStrings.add(name);
-                timestamps.add((i + 1) * 0.040);
-                tokenDurations.add(0.040);
-                tokenAcoustics.add(const TokenNeuralAcoustics());
-              }
-            }
-
-            final StringBuffer textBuf = StringBuffer();
-            for (int i = 0; i < tokenStrings.length; i++) {
-              final tok = tokenStrings[i];
-              if (tok == '|') {
-                if (textBuf.isNotEmpty && !textBuf.toString().endsWith(' ')) {
-                  textBuf.write(' ');
-                }
-              } else if (tok != '<blk>' && tok != '<foreign>') {
-                textBuf.write(tok);
-              }
-            }
-            final String recognizedText = textBuf.toString();
-
-            mainSendPort.send(
-              TajweedFormerTranscriptionEvent(
-                text: recognizedText,
-                tokens: tokenStrings,
-                timestamps: timestamps,
-                durations: tokenDurations,
-                neuralAcoustics: tokenAcoustics,
-                isFinal: isFinal,
-                startTime: startTime,
-                streamEpoch: isolateStreamEpoch,
-              ),
+            final event = decodeTake(
+              isFinal: isFinal,
+              startTime: startTime,
+              epoch: isolateStreamEpoch,
             );
+            if (event != null) {
+              mainSendPort.send(event);
+            }
           } catch (e) {
             if (kDebugMode) {
-              print('TajweedFormer inference error: $e');
+              debugPrint('TajweedFormer inference error: $e');
             }
           }
 
@@ -594,7 +598,22 @@ class TajweedFormerEngine implements ReciteEngine {
 
         case TajweedFormerFlushCommand():
           if (bindings != null && stream != null && stream != nullptr) {
-            bindings!.streamFinish(stream!);
+            final int finished = bindings!.streamFinish(stream!);
+            if (finished < 0 && kDebugMode) {
+              debugPrint('TajweedFormer flush error: ${describeStreamError()}');
+            }
+
+            // The take's tail is now in the stream. Emit it as the final
+            // transcription before the buffer is wiped.
+            final event = decodeTake(
+              isFinal: true,
+              startTime: DateTime.now().millisecondsSinceEpoch,
+              epoch: isolateStreamEpoch,
+            );
+            if (event != null) {
+              mainSendPort.send(event);
+            }
+
             bindings!.streamReset(stream!);
           }
           isolateStreamEpoch++;
@@ -619,11 +638,3 @@ class TajweedFormerEngine implements ReciteEngine {
     });
   }
 }
-
-class _TimingRun {
-  final int token;
-  final int start;
-  final int end;
-  const _TimingRun(this.token, this.start, this.end);
-}
-

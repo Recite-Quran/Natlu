@@ -84,8 +84,6 @@ class AsrTokenProcessor {
 
   double get maxTokenDuration => config.maxTokenDurationAllowed;
 
-  List<String> _lastRawTokens = [];
-
   final List<String> _filteredTokens = [];
   final List<double> _filteredSpikeTimes = [];
   final List<double> _rawDurations = [];
@@ -95,7 +93,6 @@ class AsrTokenProcessor {
   final List<double> _tokenEnds = [];
 
   void reset() {
-    _lastRawTokens.clear();
     _filteredTokens.clear();
     _filteredSpikeTimes.clear();
     _rawDurations.clear();
@@ -126,28 +123,17 @@ class AsrTokenProcessor {
   /// updates filtered tokens and recomputes continuous acoustic durations.
   ProcessedAudioStream process(TranscriptionResult result) {
     final int maxCount = min(result.tokens.length, result.timestamps.length);
+    final int previousCount = _filteredTokens.length;
 
-    int commonLen = 0;
-    final int minLen = min(_lastRawTokens.length, maxCount);
-    for (int i = 0; i < minLen; i++) {
-      if (_lastRawTokens[i] == result.tokens[i]) {
-        commonLen++;
-      } else {
-        break;
-      }
-    }
+    // The engine emits the whole take on every push. Rebuild from that
+    // cumulative result so a correction to an earlier token's timing or
+    // acoustics is never left stale by an incremental append.
+    _filteredTokens.clear();
+    _filteredSpikeTimes.clear();
+    _rawDurations.clear();
+    _filteredAcoustics.clear();
 
-    if (commonLen < _lastRawTokens.length) {
-      reset();
-      commonLen = 0;
-    }
-
-    _lastRawTokens = result.tokens.sublist(0, maxCount);
-
-    final bool hasNewTokens = commonLen < maxCount;
-
-    // Ingest newly arrived non-blank tokens into filtered arrays
-    for (int i = commonLen; i < maxCount; i++) {
+    for (int i = 0; i < maxCount; i++) {
       final String tok = result.tokens[i];
       final double rawTs = result.timestamps[i];
 
@@ -164,26 +150,25 @@ class AsrTokenProcessor {
 
       _filteredTokens.add(tok);
       _filteredSpikeTimes.add(rawTs);
-      if (i < result.durations.length) {
-        _rawDurations.add(result.durations[i]);
-      }
-      if (i < result.neuralAcoustics.length) {
-        _filteredAcoustics.add(result.neuralAcoustics[i]);
-      } else {
-        _filteredAcoustics.add(const TokenNeuralAcoustics());
-      }
+      _rawDurations.add(
+        i < result.durations.length ? result.durations[i] : 0.0,
+      );
+      _filteredAcoustics.add(
+        i < result.neuralAcoustics.length
+            ? result.neuralAcoustics[i]
+            : const TokenNeuralAcoustics(),
+      );
     }
 
     // Recompute accurate acoustic durations across all filtered tokens
     _recomputeDurations();
 
-    // Debug prints:
-    if (hasNewTokens && _filteredTokens.isNotEmpty) {
-      final int startPrint = max(0, _filteredTokens.length - (maxCount - commonLen + 1));
-      for (int i = startPrint; i < _filteredTokens.length; i++) {
+    // Debug prints for the tokens that were added since the previous push.
+    if (_filteredTokens.isNotEmpty && _filteredTokens.length > previousCount) {
+      for (int i = previousCount; i < _filteredTokens.length; i++) {
         // ignore: avoid_print
         print(
-          '⏱️ [ASR TOKEN] #$i "${_filteredTokens[i]}" | Pure Peak Ts: ${_filteredSpikeTimes[i].toStringAsFixed(3)}s | Grading Dur: ${_tokenDurations[i].toStringAsFixed(3)}s [start: ${_tokenStarts[i].toStringAsFixed(3)}s -> end: ${_tokenEnds[i].toStringAsFixed(3)}s]',
+          '⏱️ [ASR TOKEN] #$i "${_filteredTokens[i]}" | Token End Ts: ${_filteredSpikeTimes[i].toStringAsFixed(3)}s | Grading Dur: ${_tokenDurations[i].toStringAsFixed(3)}s [start: ${_tokenStarts[i].toStringAsFixed(3)}s -> end: ${_tokenEnds[i].toStringAsFixed(3)}s]',
         );
       }
     }
@@ -198,17 +183,19 @@ class AsrTokenProcessor {
     );
   }
 
-  /// Recomputes acoustic durations using one proven fact from aligner ground truth:
+  /// Recomputes acoustic durations from the token end times.
   ///
-  /// **The CTC peak timestamp marks the END of the token's acoustic presence.**
+  /// **`timestamps[k]` marks the END of token k's acoustic presence.**
   ///
   /// Therefore:
-  ///   end[k]      = peak[k]
-  ///   start[k]    = peak[k-1]  (= end[k-1], contiguous)
-  ///   duration[k] = peak[k] - peak[k-1]
+  ///   end[k]      = timestamp[k]
+  ///   start[k]    = timestamp[k-1]  (= end[k-1], contiguous)
+  ///   duration[k] = timestamp[k] - timestamp[k-1]
   ///
-  /// After an inter-ayah pause (silence gap), start[k] is decoupled from the
-  /// previous token and estimated from the current peak.
+  /// When the engine supplies an exact frame-span duration, that duration is
+  /// used instead and the start is derived from it. After an inter-ayah pause
+  /// (silence gap), start[k] is decoupled from the previous token and
+  /// estimated from the current end.
   void _recomputeDurations() {
     final int count = _filteredTokens.length;
     _tokenDurations.clear();
@@ -221,17 +208,17 @@ class AsrTokenProcessor {
     final List<double> durs = List.filled(count, 0.0);
 
     for (int k = 0; k < count; k++) {
-      final double peak = _filteredSpikeTimes[k];
+      final double end = _filteredSpikeTimes[k];
 
-      // The CTC peak IS the end boundary of token k.
-      ends[k] = peak;
+      // The timestamp IS the end boundary of token k.
+      ends[k] = end;
 
       if (k == 0) {
-        // First token: no previous peak. Estimate start from peak minus a small window.
-        starts[k] = max(0.0, peak - 0.16);
+        // First token: no previous end. Estimate start from end minus a small window.
+        starts[k] = max(0.0, end - 0.16);
       } else {
-        final double peakPrev = _filteredSpikeTimes[k - 1];
-        final double gap = peak - peakPrev;
+        final double endPrev = _filteredSpikeTimes[k - 1];
+        final double gap = end - endPrev;
 
         // Accurate acoustic pause detection:
         // Prolonged vocalic sounds (Madd vowels), geminated consonants (Shaddah),
@@ -249,13 +236,13 @@ class AsrTokenProcessor {
         }
 
         if (gap > pauseThreshold) {
-          // After a genuine breath pause: start is decoupled. Estimate onset before peak.
+          // After a genuine breath pause: start is decoupled. Estimate onset before the end.
           final double onsetWindow =
               isElasticContinuant(_filteredTokens[k]) ? 0.35 : 0.16;
-          starts[k] = max(peakPrev + 0.04, peak - onsetWindow);
+          starts[k] = max(endPrev + 0.04, end - onsetWindow);
         } else {
-          // Continuous articulation: start[k] = end[k-1] = peak[k-1]
-          starts[k] = peakPrev;
+          // Continuous articulation: start[k] = end[k-1]
+          starts[k] = endPrev;
         }
       }
 

@@ -19,6 +19,7 @@ extension type TajweedWebBridgeJs(JSObject _) implements JSObject {
   external JSPromise<JSBoolean> init(JSString? key);
   external JSBoolean startSession(JSFunction callback);
   external JSBoolean pushAudio(JSFloat32Array float32);
+  external JSBoolean finish();
   external void reset();
   external void destroy();
 }
@@ -125,7 +126,13 @@ class TajweedFormerEngine implements ReciteEngine {
   bool transcribe(Float32List audioChunk, {bool isFinal = false}) {
     final bridge = tajweedWebBridge;
     if (bridge != null && _isInitialized) {
-      bridge.pushAudio(audioChunk.toJS);
+      final pushed = bridge.pushAudio(audioChunk.toJS).toDart;
+      if (!pushed) return false;
+      if (isFinal) {
+        // The take is complete: let the engine append its tail and emit the
+        // final transcription.
+        bridge.finish();
+      }
       return true;
     }
     return false;
@@ -140,7 +147,9 @@ class TajweedFormerEngine implements ReciteEngine {
   @override
   void flushThenReset() {
     _currentStreamEpoch++;
-    tajweedWebBridge?.reset();
+    // finish() appends the engine's tail, emits the final transcription, and
+    // resets the stream for the next take.
+    tajweedWebBridge?.finish();
   }
 
   @override

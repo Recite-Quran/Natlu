@@ -126,6 +126,8 @@ class QuranVerse {
 }
 
 class QuranMetadataService {
+  static const String defaultZfxAsset = 'assets/model/expected_tj3.zfx';
+
   /// Path to expected_tj3.zfx on disk, or null to load from bundled assets.
   QuranMetadataService({this.zfxFilePath});
 
@@ -139,54 +141,45 @@ class QuranMetadataService {
   Future<void> loadData() async {
     if (_reference != null) return;
 
-    try {
-      final Uint8List zfxBytes;
-      if (zfxFilePath != null) {
-        if (!kIsWeb && File(zfxFilePath!).existsSync()) {
-          zfxBytes = await File(zfxFilePath!).readAsBytes();
-        } else {
-          final data = await rootBundle.load(zfxFilePath!);
-          zfxBytes = data.buffer.asUint8List(
-            data.offsetInBytes,
-            data.lengthInBytes,
-          );
-        }
+    final Uint8List zfxBytes;
+    if (zfxFilePath != null) {
+      if (!kIsWeb && File(zfxFilePath!).existsSync()) {
+        zfxBytes = await File(zfxFilePath!).readAsBytes();
       } else {
-        File? localFile;
-        if (!kIsWeb) {
-          try {
+        final data = await rootBundle.load(zfxFilePath!);
+        zfxBytes = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
+        );
+      }
+    } else {
+      File? localFile;
+      if (!kIsWeb) {
+        try {
+          if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+            final exeDir = File(Platform.resolvedExecutable).parent.path;
+            final f = File('$exeDir/data/flutter_assets/$defaultZfxAsset');
+            if (f.existsSync()) localFile = f;
+          }
+          if (localFile == null) {
             final appDir = await getApplicationDocumentsDirectory();
             final f = File('${appDir.path}/model/expected_tj3.zfx');
             if (f.existsSync()) localFile = f;
-          } catch (_) {}
-        }
-
-        if (localFile != null) {
-          zfxBytes = await localFile.readAsBytes();
-        } else {
-          final data = await _loadZfxFromBundle();
-          zfxBytes = data.buffer.asUint8List(
-            data.offsetInBytes,
-            data.lengthInBytes,
-          );
-        }
+          }
+        } catch (_) {}
       }
-      _reference = TajweedFormerReferenceReader.fromBytes(zfxBytes);
-    } catch (e) {
-      debugPrint(
-        'ReciteQuran: expected_tj3.zfx reference table unavailable: $e',
-      );
-      _reference = null;
-    }
-  }
 
-  Future<ByteData> _loadZfxFromBundle() async {
-    try {
-      return await rootBundle.load(
-          'packages/quran_tajweedformer/assets/tajweedformer_v4/expected_tj3.zfx');
-    } catch (_) {
-      return await rootBundle.load('assets/tajweedformer_v4/expected_tj3.zfx');
+      if (localFile != null) {
+        zfxBytes = await localFile.readAsBytes();
+      } else {
+        final data = await rootBundle.load(defaultZfxAsset);
+        zfxBytes = data.buffer.asUint8List(
+          data.offsetInBytes,
+          data.lengthInBytes,
+        );
+      }
     }
+    _reference = TajweedFormerReferenceReader.fromBytes(zfxBytes);
   }
 }
 

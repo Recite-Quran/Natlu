@@ -7,10 +7,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import 'package:quran_tajweedformer/quran_tajweedformer.dart';
 
 import '../core/app_state.dart';
-import '../core/highlighting_controller.dart' show QuranMetadata;
+import '../core/highlighting_controller.dart'
+    show QuranMetadata, HighlightingController;
 import 'web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart'
     as web_storage;

@@ -2,16 +2,15 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'data/quran_data.dart';
-import 'engine/asr_token_processor.dart';
 import 'engine/core/recite_engine.dart';
 import 'engine/core/tajweed_diagnostics.dart';
 import 'engine/core/transcription_result.dart';
 import 'engine/tajweedformer_v4/tajweedformer_engine.dart';
-import 'tracking/word/phoneme_alignment_isolate.dart';
+import 'scoring.dart';
 
 export 'engine.dart';
 export 'scoring.dart';
+export 'tracking/ayah_search/voice_search_controller.dart';
 export 'utils/debug_logger.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -22,6 +21,9 @@ export 'utils/debug_logger.dart';
 /// and deterministic Tajweed verification into any Flutter application using
 /// TajweedFormer V4.
 ///
+/// Composes [QuranRecognizer] / [ReciteEngine] (acoustic ASR inference) with
+/// [QuranScorer] (phoneme alignment, DTW, Tajweed rule evaluation).
+///
 /// **Scholarly & Pedagogical Note (تنبيه وأمانة شرعية):**
 /// This engine is an assistive tool to aid individual revision and practice.
 /// It is never a substitute for direct Talaqqi and Musyafahah (reciting face-to-face
@@ -30,34 +32,28 @@ export 'utils/debug_logger.dart';
 class QuranTajweedFormer {
   final QuranRepository repository;
   final ReciteEngine _engine;
-  final PhonemeAlignmentIsolate _isolate = PhonemeAlignmentIsolate();
-  late final AsrTokenProcessor _tokenProcessor;
+  late final QuranScorer _scorer;
 
-  TrackerConfig _config;
-  bool _isTajweed;
   bool _isInitialized = false;
   bool _isDisposed = false;
-  int _targetSurah = 0;
 
   StreamSubscription? _engineSub;
-  StreamSubscription<WordMatchedEvent>? _wordSub;
-  StreamSubscription<AyahCompletedEvent>? _ayahSub;
-
-  final StreamController<WordMatchedEvent> _wordEventController =
-      StreamController<WordMatchedEvent>.broadcast();
-  final StreamController<AyahCompletedEvent> _ayahCompletedController =
-      StreamController<AyahCompletedEvent>.broadcast();
   final StreamController<String> _transcriptController =
       StreamController<String>.broadcast();
 
   // ── Public Streams & State ──
 
+  /// Access to the underlying acoustic speech recognition engine.
+  ReciteEngine get engine => _engine;
+
+  /// Access to the underlying recitation scoring and DTW alignment system.
+  QuranScorer get scorer => _scorer;
+
   /// Stream of evaluated word events (correct, tajweedWarning, mispronounced, skipped).
-  Stream<WordMatchedEvent> get onWordEvaluated => _wordEventController.stream;
+  Stream<WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
 
   /// Stream of Ayah completed events emitted immediately upon finishing all words in an Ayah.
-  Stream<AyahCompletedEvent> get onAyahCompleted =>
-      _ayahCompletedController.stream;
+  Stream<AyahCompletedEvent> get onAyahCompleted => _scorer.onAyahCompleted;
 
   /// Real-time live speech-to-text phonetic transcript from the ASR model.
   Stream<String> get onTranscript => _transcriptController.stream;
@@ -68,13 +64,13 @@ class QuranTajweedFormer {
       _engine.diagnosticsStream;
 
   /// Current active configuration.
-  TrackerConfig get config => _config;
+  TrackerConfig get config => _scorer.config;
 
   /// Current target Surah number.
-  int get targetSurah => _targetSurah;
+  int get targetSurah => _scorer.targetSurah;
 
   /// Indicates if Tajweed duration and closure evaluation is enabled.
-  bool get isTajweed => _isTajweed;
+  bool get isTajweed => _scorer.isTajweed;
 
   /// Whether the engine and background isolate have been initialized.
   bool get isInitialized => _isInitialized;
@@ -94,10 +90,12 @@ class QuranTajweedFormer {
             TajweedFormerEngine(
               modelDirOverride: modelDirOverride,
               customLibPath: customLibPath,
-            ),
-        _config = config,
-        _isTajweed = (repository?.isTajweedSupported ?? true) && isTajweed {
-    _tokenProcessor = AsrTokenProcessor(config: _config);
+            ) {
+    _scorer = QuranScorer(
+      repository: this.repository,
+      config: config,
+      isTajweed: isTajweed,
+    );
   }
 
   // ── 1. Initialization ──
@@ -110,23 +108,13 @@ class QuranTajweedFormer {
     }
     if (_isInitialized) return;
 
-    // 0. Ensure Quran reference dataset is loaded
-    if (!repository.isLoaded) {
-      await repository.service.loadData();
-    }
-
     // 1. Initialize TajweedFormer Engine
     await _engine.initialize();
 
-    // 2. Start Background Alignment Isolate
-    await _isolate.start();
-    _isolate.updateConfig(_config);
-    _isolate.setTajweedMode(_isTajweed);
+    // 2. Initialize QuranScorer (loads repository data & starts isolate)
+    await _scorer.initialize();
 
-    // 3. Subscribe to Streams
-    _wordSub = _isolate.wordStream.listen(_wordEventController.add);
-    _ayahSub =
-        _isolate.ayahCompletedStream.listen(_ayahCompletedController.add);
+    // 3. Subscribe to Engine Stream and pipe to Scorer
     _engineSub = _engine.transcriptionStream.listen(_onTranscriptionResult);
 
     _isInitialized = true;
@@ -141,43 +129,17 @@ class QuranTajweedFormer {
     bool forceClear = true,
   }) {
     if (_isDisposed) return;
-    _targetSurah = surahNumber;
-    final words = repository.getSurahWords(surahNumber);
-    if (words.isEmpty) return;
-
-    final List<String> phonemeWords = words.map((w) => w.phoneme).toList();
-    final List<List<WordTajweedRule>> wordRules =
-        words.map((w) => w.rules).toList();
-    final List<int> charRuleClasses =
-        words.expand((w) => w.charRuleClasses).toList();
-    final List<int> boundaries = _calculateBoundaries(phonemeWords);
-    final String fullPhonemes = phonemeWords.join('');
-    final List<int> ayahs = words.map((w) => w.ayah).toList();
-    final List<int> wordsInAyah = words.map((w) => w.wordInAyah).toList();
-
-    _isolate.setSurahReference(
-      fullPhonemes,
-      boundaries,
-      isTajweed: _isTajweed,
-      forceClear: forceClear,
+    _scorer.setTargetSurah(
+      surahNumber,
       startGlobalWord: startGlobalWord,
-      surahNumber: surahNumber,
-      ayahs: ayahs,
-      wordsInAyah: wordsInAyah,
-      wordRules: wordRules,
-      charRuleClasses: charRuleClasses,
+      forceClear: forceClear,
     );
   }
 
   /// Sets tracking target to a specific Ayah within a Surah.
   void setTargetAyah(int surahNumber, int ayahNumber) {
     if (_isDisposed) return;
-    if (_targetSurah != surahNumber) {
-      setTargetSurah(surahNumber);
-    }
-    final int startWord =
-        repository.getAyahStartGlobalIndex(surahNumber, ayahNumber);
-    jumpToWord(startWord);
+    _scorer.setTargetAyah(surahNumber, ayahNumber);
   }
 
   /// Sets tracking target to a specific word within a Surah and Ayah.
@@ -187,18 +149,17 @@ class QuranTajweedFormer {
     required int wordIndex,
   }) {
     if (_isDisposed) return;
-    if (_targetSurah != surah) {
-      setTargetSurah(surah);
-    }
-    final int globalWord =
-        repository.getWordGlobalIndex(surah, ayah, wordIndex);
-    jumpToWord(globalWord);
+    _scorer.setTargetWord(
+      surah: surah,
+      ayah: ayah,
+      wordIndex: wordIndex,
+    );
   }
 
   /// Jumps the tracking cursor to a specific word index.
   void jumpToWord(int globalWordIndex) {
     if (_isDisposed) return;
-    _isolate.jumpToWord(globalWordIndex);
+    _scorer.jumpToWord(globalWordIndex);
   }
 
   // ── 3. Audio & Tracking Control ──
@@ -213,59 +174,40 @@ class QuranTajweedFormer {
   bool feedAudioChunk(Float32List chunk, {bool isFinal = false}) =>
       feedAudio(chunk, isFinal: isFinal);
 
-  /// Resets the internal recognition buffer.
+  /// Resets internal recognition and scoring buffers.
   void resetBuffer() {
     if (_isDisposed) return;
     _engine.resetBuffer();
-    _tokenProcessor.reset();
+    _scorer.resetBuffer();
   }
 
   /// Toggles Tajweed evaluation on/off.
   void setTajweedMode(bool active) {
     if (_isDisposed) return;
-    final effective = repository.isTajweedSupported && active;
-    _isTajweed = effective;
-    _isolate.setTajweedMode(effective);
+    _scorer.setTajweedMode(active);
   }
 
   /// Updates difficulty and math thresholds dynamically at runtime.
   void updateConfig(TrackerConfig newConfig) {
     if (_isDisposed) return;
-    _config = newConfig;
-    _tokenProcessor.config = newConfig;
-    _isolate.updateConfig(newConfig);
+    _scorer.updateConfig(newConfig);
   }
 
   // ── 4. Internal Message Pump ──
 
   void _onTranscriptionResult(TranscriptionResult result) {
     if (_isDisposed) return;
-    if (result.streamEpoch != _engine.currentStreamEpoch) return;
+    // A final result is the flushed tail of the take that was just reset;
+    // its epoch is necessarily the one before the reset, so accept it.
+    if (!result.isFinal && result.streamEpoch != _engine.currentStreamEpoch) {
+      return;
+    }
 
     if (result.text.isNotEmpty) {
       _transcriptController.add(result.text);
     }
 
-    final processed = _tokenProcessor.process(result);
-    if (processed.isEmpty) return;
-
-    _isolate.syncStream(
-      processed.text,
-      processed.charDurations,
-      false,
-      0,
-      processed.charNeuralAcoustics,
-    );
-  }
-
-  List<int> _calculateBoundaries(List<String> phonemeWords) {
-    final List<int> boundaries = [0];
-    int currentOffset = 0;
-    for (final w in phonemeWords) {
-      currentOffset += w.length;
-      boundaries.add(currentOffset);
-    }
-    return boundaries;
+    _scorer.feedTranscript(result);
   }
 
   // ── 5. Cleanup ──
@@ -277,20 +219,10 @@ class QuranTajweedFormer {
 
     _engineSub?.cancel();
     _engineSub = null;
-    _wordSub?.cancel();
-    _wordSub = null;
-    _ayahSub?.cancel();
-    _ayahSub = null;
 
     _engine.destroy();
-    _isolate.stop();
+    _scorer.dispose();
 
-    if (!_wordEventController.isClosed) {
-      _wordEventController.close();
-    }
-    if (!_ayahCompletedController.isClosed) {
-      _ayahCompletedController.close();
-    }
     if (!_transcriptController.isClosed) {
       _transcriptController.close();
     }

@@ -11,23 +11,21 @@
 import 'dart:async';
 
 import 'data/quran_data.dart';
-import 'engine/asr_token_processor.dart';
 import 'engine/core/transcription_result.dart';
+import 'tracking/asr_token_processor.dart';
 import 'tracking/word/phoneme_alignment_isolate.dart';
 
 export 'data/quran_data.dart';
 export 'data/reference_reader.dart';
+export 'tracking/asr_token_processor.dart';
 export 'tracking/ayah_search/fuzzy_search.dart';
 export 'tracking/ayah_search/phonetic_search.dart';
-export 'tracking/ayah_search/voice_search_controller.dart';
 export 'tracking/tajweed/error_explainer.dart';
 export 'tracking/tajweed/tajweed_rule.dart';
 export 'tracking/tracker_config.dart';
 export 'tracking/word/dictation_matcher.dart';
 export 'tracking/word/dictation_sequencer.dart';
-export 'tracking/word/highlighting_controller.dart';
 export 'tracking/word/phoneme_alignment_isolate.dart';
-export 'tracking/word/surah_highlight_store.dart';
 
 /// A standalone Quran recitation evaluator and scoring system.
 ///

@@ -127,8 +127,10 @@ typedef ZfTajweedModelCloseDart = void Function(Pointer<Void> model);
 typedef ZfTajweedModelChunkMsC = Int32 Function(Pointer<Void> model);
 typedef ZfTajweedModelChunkMsDart = int Function(Pointer<Void> model);
 
-typedef ZfTajweedTokenNameC = Pointer<Utf8> Function(Pointer<Void> model, Int32 id);
-typedef ZfTajweedTokenNameDart = Pointer<Utf8> Function(Pointer<Void> model, int id);
+typedef ZfTajweedTokenNameC = Pointer<Utf8> Function(
+    Pointer<Void> model, Int32 id);
+typedef ZfTajweedTokenNameDart = Pointer<Utf8> Function(
+    Pointer<Void> model, int id);
 
 typedef ZfTajweedStreamCreateC = Pointer<Void> Function(
   Pointer<Void> model,
@@ -159,6 +161,11 @@ typedef ZfTajweedStreamPushAudioDart = int Function(
 typedef ZfTajweedStreamFinishC = Int32 Function(Pointer<Void> stream);
 typedef ZfTajweedStreamFinishDart = int Function(Pointer<Void> stream);
 
+typedef ZfTajweedStreamLastErrorC = Pointer<Utf8> Function(
+    Pointer<Void> stream);
+typedef ZfTajweedStreamLastErrorDart = Pointer<Utf8> Function(
+    Pointer<Void> stream);
+
 typedef ZfTajweedStreamHeadsC = Int32 Function(
   Pointer<Void> stream,
   Pointer<ZfTajweedHeads> out,
@@ -188,8 +195,10 @@ typedef ZfTajweedStreamTop2Dart = int Function(
   Pointer<Pointer<ZfTajweedTop2>> out,
 );
 
-typedef ZfTajweedStreamSetHeadsC = Int32 Function(Pointer<Void> stream, Uint32 heads);
-typedef ZfTajweedStreamSetHeadsDart = int Function(Pointer<Void> stream, int heads);
+typedef ZfTajweedStreamSetHeadsC = Int32 Function(
+    Pointer<Void> stream, Uint32 heads);
+typedef ZfTajweedStreamSetHeadsDart = int Function(
+    Pointer<Void> stream, int heads);
 
 typedef ZfTajweedReferenceOpenC = Pointer<Void> Function(
   Pointer<Utf8> path,
@@ -239,6 +248,7 @@ class ZfTajweedBindings {
   late final ZfTajweedStreamResetDart streamReset;
   late final ZfTajweedStreamPushAudioDart streamPushAudio;
   late final ZfTajweedStreamFinishDart streamFinish;
+  late final ZfTajweedStreamLastErrorDart streamLastError;
   late final ZfTajweedStreamHeadsDart streamHeads;
   late final ZfTajweedStreamGreedyDart streamGreedy;
   late final ZfTajweedStreamTop2Dart streamTop2;
@@ -248,25 +258,57 @@ class ZfTajweedBindings {
   late final ZfTajweedReferenceUnitsDart referenceUnits;
 
   ZfTajweedBindings(this.lib) {
-    version = lib.lookupFunction<ZfTajweedVersionC, ZfTajweedVersionDart>('zf_tajweed_version');
-    apiVersion = lib.lookupFunction<ZfTajweedApiVersionC, ZfTajweedApiVersionDart>('zf_tajweed_api_version');
-    openDefaultOptions = lib.lookupFunction<ZfTajweedOpenDefaultOptionsC, ZfTajweedOpenDefaultOptionsDart>('zf_tajweed_open_default_options');
-    modelOpen = lib.lookupFunction<ZfTajweedModelOpenC, ZfTajweedModelOpenDart>('zf_tajweed_model_open');
-    modelClose = lib.lookupFunction<ZfTajweedModelCloseC, ZfTajweedModelCloseDart>('zf_tajweed_model_close');
-    modelChunkMs = lib.lookupFunction<ZfTajweedModelChunkMsC, ZfTajweedModelChunkMsDart>('zf_tajweed_model_chunk_ms');
-    tokenName = lib.lookupFunction<ZfTajweedTokenNameC, ZfTajweedTokenNameDart>('zf_tajweed_token_name');
-    streamCreate = lib.lookupFunction<ZfTajweedStreamCreateC, ZfTajweedStreamCreateDart>('zf_tajweed_stream_create');
-    streamDestroy = lib.lookupFunction<ZfTajweedStreamDestroyC, ZfTajweedStreamDestroyDart>('zf_tajweed_stream_destroy');
-    streamReset = lib.lookupFunction<ZfTajweedStreamResetC, ZfTajweedStreamResetDart>('zf_tajweed_stream_reset');
-    streamPushAudio = lib.lookupFunction<ZfTajweedStreamPushAudioC, ZfTajweedStreamPushAudioDart>('zf_tajweed_stream_push_audio');
-    streamFinish = lib.lookupFunction<ZfTajweedStreamFinishC, ZfTajweedStreamFinishDart>('zf_tajweed_stream_finish');
-    streamHeads = lib.lookupFunction<ZfTajweedStreamHeadsC, ZfTajweedStreamHeadsDart>('zf_tajweed_stream_heads');
-    streamGreedy = lib.lookupFunction<ZfTajweedStreamGreedyC, ZfTajweedStreamGreedyDart>('zf_tajweed_stream_greedy');
-    streamTop2 = lib.lookupFunction<ZfTajweedStreamTop2C, ZfTajweedStreamTop2Dart>('zf_tajweed_stream_top2');
-    streamSetHeads = lib.lookupFunction<ZfTajweedStreamSetHeadsC, ZfTajweedStreamSetHeadsDart>('zf_tajweed_stream_set_heads');
-    referenceOpen = lib.lookupFunction<ZfTajweedReferenceOpenC, ZfTajweedReferenceOpenDart>('zf_tajweed_reference_open');
-    referenceClose = lib.lookupFunction<ZfTajweedReferenceCloseC, ZfTajweedReferenceCloseDart>('zf_tajweed_reference_close');
-    referenceUnits = lib.lookupFunction<ZfTajweedReferenceUnitsC, ZfTajweedReferenceUnitsDart>('zf_tajweed_reference_units');
+    version = lib.lookupFunction<ZfTajweedVersionC, ZfTajweedVersionDart>(
+        'zf_tajweed_version');
+    apiVersion =
+        lib.lookupFunction<ZfTajweedApiVersionC, ZfTajweedApiVersionDart>(
+            'zf_tajweed_api_version');
+    openDefaultOptions = lib.lookupFunction<ZfTajweedOpenDefaultOptionsC,
+        ZfTajweedOpenDefaultOptionsDart>('zf_tajweed_open_default_options');
+    modelOpen = lib.lookupFunction<ZfTajweedModelOpenC, ZfTajweedModelOpenDart>(
+        'zf_tajweed_model_open');
+    modelClose =
+        lib.lookupFunction<ZfTajweedModelCloseC, ZfTajweedModelCloseDart>(
+            'zf_tajweed_model_close');
+    modelChunkMs =
+        lib.lookupFunction<ZfTajweedModelChunkMsC, ZfTajweedModelChunkMsDart>(
+            'zf_tajweed_model_chunk_ms');
+    tokenName = lib.lookupFunction<ZfTajweedTokenNameC, ZfTajweedTokenNameDart>(
+        'zf_tajweed_token_name');
+    streamCreate =
+        lib.lookupFunction<ZfTajweedStreamCreateC, ZfTajweedStreamCreateDart>(
+            'zf_tajweed_stream_create');
+    streamDestroy =
+        lib.lookupFunction<ZfTajweedStreamDestroyC, ZfTajweedStreamDestroyDart>(
+            'zf_tajweed_stream_destroy');
+    streamReset =
+        lib.lookupFunction<ZfTajweedStreamResetC, ZfTajweedStreamResetDart>(
+            'zf_tajweed_stream_reset');
+    streamPushAudio = lib.lookupFunction<ZfTajweedStreamPushAudioC,
+        ZfTajweedStreamPushAudioDart>('zf_tajweed_stream_push_audio');
+    streamFinish =
+        lib.lookupFunction<ZfTajweedStreamFinishC, ZfTajweedStreamFinishDart>(
+            'zf_tajweed_stream_finish');
+    streamLastError = lib.lookupFunction<ZfTajweedStreamLastErrorC,
+        ZfTajweedStreamLastErrorDart>('zf_tajweed_stream_last_error');
+    streamHeads =
+        lib.lookupFunction<ZfTajweedStreamHeadsC, ZfTajweedStreamHeadsDart>(
+            'zf_tajweed_stream_heads');
+    streamGreedy =
+        lib.lookupFunction<ZfTajweedStreamGreedyC, ZfTajweedStreamGreedyDart>(
+            'zf_tajweed_stream_greedy');
+    streamTop2 =
+        lib.lookupFunction<ZfTajweedStreamTop2C, ZfTajweedStreamTop2Dart>(
+            'zf_tajweed_stream_top2');
+    streamSetHeads = lib.lookupFunction<ZfTajweedStreamSetHeadsC,
+        ZfTajweedStreamSetHeadsDart>('zf_tajweed_stream_set_heads');
+    referenceOpen =
+        lib.lookupFunction<ZfTajweedReferenceOpenC, ZfTajweedReferenceOpenDart>(
+            'zf_tajweed_reference_open');
+    referenceClose = lib.lookupFunction<ZfTajweedReferenceCloseC,
+        ZfTajweedReferenceCloseDart>('zf_tajweed_reference_close');
+    referenceUnits = lib.lookupFunction<ZfTajweedReferenceUnitsC,
+        ZfTajweedReferenceUnitsDart>('zf_tajweed_reference_units');
   }
 
   /// Automatically resolves and loads the native dynamic library based on platform.

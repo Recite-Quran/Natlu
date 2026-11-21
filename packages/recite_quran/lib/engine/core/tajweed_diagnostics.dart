@@ -12,12 +12,18 @@ class TajweedDiagnostics {
   final List<double> qalqalahProbs;
 
   /// Ghunnah probabilities: `[0: none, 1: plain, 2: geminate, 3: ikhfa, 4: idgham]`.
+  ///
+  /// Empty when the `attr_ghunna` head was not enabled for the session.
   final List<double> ghunnaProbs;
 
   /// Tafkheem (heavy/thin) probabilities: `[0: thin, 1: heavy, 2: low_heavy]`.
+  ///
+  /// Empty when the `attr_tafkheem` head was not enabled for the session.
   final List<double> tafkheemProbs;
 
   /// Facial/secondary rule probabilities: `[0: none, 1: imala, 2: tasheel, 3: sakt]`.
+  ///
+  /// Empty when the `attr_face` head was not enabled for the session.
   final List<double> faceProbs;
 
   /// Word/syllable boundary probability in [0.0, 1.0].
@@ -43,7 +49,8 @@ class TajweedDiagnostics {
 
   /// True if strong Qalqalah (sughra or kubra) was detected acoustically.
   bool get hasQalqalah =>
-      qalqalahProbs.length >= 3 && (qalqalahProbs[1] > 0.5 || qalqalahProbs[2] > 0.5);
+      qalqalahProbs.length >= 3 &&
+      (qalqalahProbs[1] > 0.5 || qalqalahProbs[2] > 0.5);
 
   /// True if strong Ghunnah was detected acoustically.
   bool get hasGhunnah =>
@@ -54,8 +61,7 @@ class TajweedDiagnostics {
           ghunnaProbs[4] > 0.5);
 
   /// True if consonant is heavily articulated (Tafkheem).
-  bool get isMufakhkham =>
-      tafkheemProbs.length >= 2 && tafkheemProbs[1] > 0.5;
+  bool get isMufakhkham => tafkheemProbs.length >= 2 && tafkheemProbs[1] > 0.5;
 
   /// True if consonant is geminated (Shaddah).
   bool get isGeminated => geminationProb > 0.5;

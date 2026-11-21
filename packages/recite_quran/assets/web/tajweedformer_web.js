@@ -8,6 +8,7 @@ window.TajweedWebBridge = {
   audioBufPtr: null,
   audioBufCap: 0,
   idsBufPtr: null,
+  idsBufCap: 512,
   tokens: [],
   onTranscription: null,
   isInitializing: false,
@@ -103,7 +104,8 @@ window.TajweedWebBridge = {
       // Allocate reusable buffers
       this.audioBufCap = 16000 * 2; // 2 seconds float buffer
       this.audioBufPtr = M._malloc(this.audioBufCap * 4);
-      this.idsBufPtr = M._malloc(512 * 4); // max 512 token IDs
+      this.idsBufCap = 512;
+      this.idsBufPtr = M._malloc(this.idsBufCap * 4);
 
       this.isReady = true;
       this.isInitializing = false;
@@ -130,6 +132,53 @@ window.TajweedWebBridge = {
     return !!this.streamPtr;
   },
 
+  // Reads the engine's whole greedy transcript. zft_stream_greedy returns the
+  // total count and writes at most `max`, so grow the buffer when the take has
+  // outgrown it and read again instead of walking past the allocation.
+  _greedyText() {
+    if (!this.streamPtr || !this.isReady) return null;
+    const M = this.wasmModule;
+
+    let n = M._zft_stream_greedy(this.streamPtr, this.idsBufPtr, this.idsBufCap);
+    if (n < 0) {
+      console.error('greedy error:', M.UTF8ToString(M._zft_stream_error(this.streamPtr)));
+      return null;
+    }
+    if (n > this.idsBufCap) {
+      M._free(this.idsBufPtr);
+      this.idsBufCap = n;
+      this.idsBufPtr = M._malloc(this.idsBufCap * 4);
+      n = M._zft_stream_greedy(this.streamPtr, this.idsBufPtr, this.idsBufCap);
+      if (n < 0) {
+        console.error('greedy error:', M.UTF8ToString(M._zft_stream_error(this.streamPtr)));
+        return null;
+      }
+    }
+
+    const count = Math.min(n, this.idsBufCap);
+    const ids = new Int32Array(M.HEAP32.buffer, this.idsBufPtr, count);
+    let text = '';
+    for (let i = 0; i < count; i++) {
+      const id = ids[i];
+      if (id < 0 || id >= this.tokens.length) continue;
+      const tok = this.tokens[id];
+      if (!tok || tok === '<foreign>') continue;
+      text += tok;
+    }
+    return text.trim();
+  },
+
+  _emit(isFinal) {
+    if (!this.streamPtr || !this.isReady) return false;
+    const text = this._greedyText();
+    if (text === null) return false;
+    if (text.length === 0 && !isFinal) return true;
+    if (this.onTranscription) {
+      this.onTranscription(text, isFinal);
+    }
+    return true;
+  },
+
   pushAudio(float32Array) {
     if (!this.streamPtr || !this.isReady) return false;
     const M = this.wasmModule;
@@ -150,22 +199,24 @@ window.TajweedWebBridge = {
       return false;
     }
 
-    // Decode greedy tokens
-    const maxTokens = 512;
-    const nTokens = M._zft_stream_greedy(this.streamPtr, this.idsBufPtr, maxTokens);
-    if (nTokens > 0) {
-      const ids = new Int32Array(M.HEAP32.buffer, this.idsBufPtr, nTokens);
-      let text = '';
-      for (let i = 0; i < nTokens; i++) {
-        const id = ids[i];
-        if (id >= 0 && id < this.tokens.length) {
-          text += this.tokens[id];
-        }
-      }
-      if (this.onTranscription) {
-        this.onTranscription(text.trim(), false);
-      }
+    this._emit(false);
+    return true;
+  },
+
+  // End of the take: append the engine's tail, emit the final transcription,
+  // then reset the stream for the next take.
+  finish() {
+    if (!this.streamPtr || !this.isReady) return false;
+    const M = this.wasmModule;
+
+    const finished = M._zft_stream_finish(this.streamPtr);
+    if (finished < 0) {
+      console.error('finish error:', M.UTF8ToString(M._zft_stream_error(this.streamPtr)));
+      return false;
     }
+
+    this._emit(true);
+    M._zft_stream_reset(this.streamPtr);
     return true;
   },
 
@@ -176,10 +227,24 @@ window.TajweedWebBridge = {
   },
 
   destroy() {
+    const M = this.wasmModule;
     if (this.streamPtr) {
-      this.wasmModule._zft_stream_destroy(this.streamPtr);
+      M._zft_stream_destroy(this.streamPtr);
       this.streamPtr = null;
     }
+    if (this.modelPtr) {
+      M._zft_model_close(this.modelPtr);
+      this.modelPtr = null;
+    }
+    if (this.idsBufPtr) {
+      M._free(this.idsBufPtr);
+      this.idsBufPtr = null;
+    }
+    if (this.audioBufPtr) {
+      M._free(this.audioBufPtr);
+      this.audioBufPtr = null;
+    }
     this.onTranscription = null;
+    this.isReady = false;
   }
 };
