@@ -116,3 +116,6 @@ pubspec.lock
 
 test
 .agents
+
+# Recite Quran native sources (built on CI, vendored as binaries)
+packages/recite_quran/native/

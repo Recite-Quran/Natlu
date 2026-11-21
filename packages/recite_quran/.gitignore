@@ -40,10 +40,8 @@ android/app/
 *.keystore
 *.jks
 
-# CMake & Native build artifacts
-native/**/build/
-native/**/build_win/
-native/**/CMakeFiles/
+# CMake & Native source & build artifacts (built on CI, binaries vendored)
+native/
 
 # Native iOS / macOS
 **/ios/Pods/
