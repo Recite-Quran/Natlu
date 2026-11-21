@@ -197,7 +197,12 @@ class QuranTajweedFormer {
 
   void _onTranscriptionResult(TranscriptionResult result) {
     if (_isDisposed) return;
-    if (result.streamEpoch != _engine.currentStreamEpoch) return;
+    // Non-final events from a previous take are stale. The final event of a
+    // flushed take can carry the pre-reset epoch, so accept it regardless.
+    if (!result.isFinal &&
+        result.streamEpoch != _engine.currentStreamEpoch) {
+      return;
+    }
 
     if (result.text.isNotEmpty) {
       _transcriptController.add(result.text);

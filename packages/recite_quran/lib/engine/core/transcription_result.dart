@@ -65,4 +65,3 @@ class TranscriptionResult {
     this.streamEpoch = 0,
   });
 }
-

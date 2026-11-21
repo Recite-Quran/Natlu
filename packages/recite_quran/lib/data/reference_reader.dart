@@ -138,7 +138,16 @@ class AyahReferenceUnits {
 /// Reader for expected_tj3.zfx binary table containing canonical Hafs recitation units.
 class TajweedFormerReferenceReader {
   static const int _headerSize = 160;
-  static const List<int> _magic = [0x5A, 0x46, 0x54, 0x4A, 0x45, 0x58, 0x50, 0x31]; // 'ZFTJEXP1'
+  static const List<int> _magic = [
+    0x5A,
+    0x46,
+    0x54,
+    0x4A,
+    0x45,
+    0x58,
+    0x50,
+    0x31
+  ]; // 'ZFTJEXP1'
   static const int _ayahRecordSize = 20;
 
   final Uint8List _bytes;
@@ -160,7 +169,8 @@ class TajweedFormerReferenceReader {
 
   late final List<int> _surahFirst;
 
-  TajweedFormerReferenceReader._(this._bytes) : _bd = ByteData.sublistView(_bytes) {
+  TajweedFormerReferenceReader._(this._bytes)
+      : _bd = ByteData.sublistView(_bytes) {
     _parse();
   }
 
@@ -201,7 +211,8 @@ class TajweedFormerReferenceReader {
     final headerSize = _bd.getUint32(12, Endian.little);
     final fileSize = _bd.getUint32(16, Endian.little);
     if (headerSize != _headerSize || fileSize != _bytes.length) {
-      throw const FormatException('reference data: header or size mismatch (truncated?)');
+      throw const FormatException(
+          'reference data: header or size mismatch (truncated?)');
     }
 
     surahs = _bd.getUint32(20, Endian.little);
@@ -304,42 +315,42 @@ class TajweedFormerReferenceReader {
   /// Vocabulary mapping of tj3 IDs (0-37) to standard string representations.
   static const List<String> vocabTokens = [
     '<blk>', // 0
-    '|',     // 1
-    'ء',     // 2
-    'ب',     // 3
-    'ت',     // 4
-    'ث',     // 5
-    'ج',     // 6
-    'ح',     // 7
-    'خ',     // 8
-    'د',     // 9
-    'ذ',     // 10
-    'ر',     // 11
-    'ز',     // 12
-    'س',     // 13
-    'ش',     // 14
-    'ص',     // 15
-    'ض',     // 16
-    'ط',     // 17
-    'ظ',     // 18
-    'ع',     // 19
-    'غ',     // 20
-    'ف',     // 21
-    'ق',     // 22
-    'ك',     // 23
-    'ل',     // 24
-    'م',     // 25
-    'ن',     // 26
-    'ه',     // 27
-    'و',     // 28
-    'ي',     // 29
-    'ں',     // 30
-    'a',     // 31
-    'i',     // 32
-    'u',     // 33
-    'aa',    // 34
-    'ii',    // 35
-    'uu',    // 36
+    '|', // 1
+    'ء', // 2
+    'ب', // 3
+    'ت', // 4
+    'ث', // 5
+    'ج', // 6
+    'ح', // 7
+    'خ', // 8
+    'د', // 9
+    'ذ', // 10
+    'ر', // 11
+    'ز', // 12
+    'س', // 13
+    'ش', // 14
+    'ص', // 15
+    'ض', // 16
+    'ط', // 17
+    'ظ', // 18
+    'ع', // 19
+    'غ', // 20
+    'ف', // 21
+    'ق', // 22
+    'ك', // 23
+    'ل', // 24
+    'م', // 25
+    'ن', // 26
+    'ه', // 27
+    'و', // 28
+    'ي', // 29
+    'ں', // 30
+    'a', // 31
+    'i', // 32
+    'u', // 33
+    'aa', // 34
+    'ii', // 35
+    'uu', // 36
     '<foreign>', // 37
   ];
 
@@ -421,5 +432,3 @@ class GlobalPhoneticSearchIndex {
     required this.indexArray,
   });
 }
-
-

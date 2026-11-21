@@ -66,8 +66,7 @@ class PhoneticCostEngine {
   // identity. The old Arabic glyph mappings (ن↔ں, ة↔ه, hamza variants, ...)
   // are gone: a ghunna nasal 'ں' replaced by 'ن' or a dropped hamza must be
   // caught, not silently forgiven.
-  static bool isEquivalentGlyph(int asrCode, int refCode) =>
-      asrCode == refCode;
+  static bool isEquivalentGlyph(int asrCode, int refCode) => asrCode == refCode;
 
   // ── 3. Model Acoustic Confusion Matrix (Cost = 0.25) ──
   static bool _isAcousticConfusion(int asrCode, int refCode) {
@@ -142,7 +141,8 @@ class PhoneticCostEngine {
     double standardDeletionCost = 1.0,
     double acousticConfusionCost = 0.25,
   ]) {
-    if (gRefIdx < 0 || gRefIdx >= fullPhonemes.length) return standardDeletionCost;
+    if (gRefIdx < 0 || gRefIdx >= fullPhonemes.length)
+      return standardDeletionCost;
     final int code = fullPhonemes.codeUnitAt(gRefIdx);
 
     if (_isZeroCostMarker(code)) return 0.0;
@@ -195,7 +195,7 @@ class QuranDictationMatcher {
   //             with no early breaks, no tail drainage, and no shield).
   // When TRUE:  Commits words >= 4 phonemes immediately when recognized
   //             (1-2s faster on words with prolonged Madd vowels).
-  
+
   Float64List _dp = Float64List(2048);
   Uint8List _bt = Uint8List(2048);
 
@@ -342,7 +342,8 @@ class QuranDictationMatcher {
     for (int j = 0; j < n; j++) {
       final int code = fullPhonemes.codeUnitAt(refStart + j);
       if (PhoneticCostEngine._isZeroCostMarker(code)) continue;
-      if (j > 0 && code == fullPhonemes.codeUnitAt(refStart + j - 1) &&
+      if (j > 0 &&
+          code == fullPhonemes.codeUnitAt(refStart + j - 1) &&
           PhoneticCostEngine.isMaddVowel(code)) {
         continue;
       }
@@ -372,7 +373,8 @@ class QuranDictationMatcher {
     //               exact match (`norm < bestCost` and break on `bestCost == 0.0`),
     //               saving 1-2 seconds of waiting for lingering Madd/Waqf vowels.
     // -------------------------------------------------------------------------
-    final bool allowEarlyBreak = config.enableEarlyMatching && !isTajweed && effN >= 4;
+    final bool allowEarlyBreak =
+        config.enableEarlyMatching && !isTajweed && effN >= 4;
     for (int i = 1; i <= m; i++) {
       final double norm = dp[i * stride + n] / effN;
       if (norm <= threshold) {
@@ -401,8 +403,9 @@ class QuranDictationMatcher {
       // 1. Check all trailing deletions at the stream frontier
       while (curJ > 0 && curI == bestI && bt[curI * stride + curJ] == 1) {
         final int rCode = fullPhonemes.codeUnitAt(refStart + curJ - 1);
-        final bool isRepeated = curJ > 1 && rCode == fullPhonemes.codeUnitAt(refStart + curJ - 2);
-        
+        final bool isRepeated =
+            curJ > 1 && rCode == fullPhonemes.codeUnitAt(refStart + curJ - 2);
+
         // If the trailing deleted character is a core non-repeated consonant, the word is incomplete.
         if (!PhoneticCostEngine.isTashkeel(rCode) &&
             !PhoneticCostEngine._isZeroCostMarker(rCode) &&
@@ -424,7 +427,8 @@ class QuranDictationMatcher {
         if (PhoneticCostEngine.isTashkeel(asrCode) &&
             PhoneticCostEngine.isTashkeel(refCode)) {
           isPartial = false;
-        } else if (PhoneticCostEngine.getSubstitutionCost(asrCode, refCode) > 0.0) {
+        } else if (PhoneticCostEngine.getSubstitutionCost(asrCode, refCode) >
+            0.0) {
           isPartial = true;
         }
       }
@@ -442,7 +446,7 @@ class QuranDictationMatcher {
         if (isPartial) break;
       }
     }
-    
+
     if (isPartial) {
       return const WordMatchResult(
         pathCost: 0.0,
@@ -485,7 +489,8 @@ class QuranDictationMatcher {
       if (op == 0) {
         final int asrCode = asrText.codeUnitAt(ci - 1);
         final int refCode = fullPhonemes.codeUnitAt(gRef);
-        final bool isMatch = PhoneticCostEngine.getSubstitutionCost(asrCode, refCode) == 0.0;
+        final bool isMatch =
+            PhoneticCostEngine.getSubstitutionCost(asrCode, refCode) == 0.0;
         rawTrace.add(
           PhonemeGroupAlignment(
             opType: isMatch ? 'match' : 'replace',
@@ -503,7 +508,8 @@ class QuranDictationMatcher {
         cj--;
       } else {
         rawTrace.add(
-          PhonemeGroupAlignment(opType: 'insert', refIdx: gRef, predIdx: ci - 1),
+          PhonemeGroupAlignment(
+              opType: 'insert', refIdx: gRef, predIdx: ci - 1),
         );
         ci--;
       }

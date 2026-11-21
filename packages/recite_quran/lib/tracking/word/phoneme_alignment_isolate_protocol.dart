@@ -67,8 +67,7 @@ sealed class IsolateCommand {
             : const [];
 
         return SyncStreamCommand(
-          asrText:
-              map['text'] as String? ??
+          asrText: map['text'] as String? ??
               (map['tokens'] as List?)?.join('') ??
               '',
           timestamps: (map['timestamps'] as List?)
@@ -95,8 +94,8 @@ sealed class IsolateCommand {
           config: TrackerConfig(
             recitationSpeed:
                 RecitationSpeed.fromName(map['recitationSpeed'] as String?),
-            matchingStrictness:
-                MatchingStrictness.fromName(map['matchingStrictness'] as String?),
+            matchingStrictness: MatchingStrictness.fromName(
+                map['matchingStrictness'] as String?),
             enableEarlyMatching: map['enableEarlyMatching'] as bool? ?? true,
             enableAutoReanchor: map['enableAutoReanchor'] as bool? ?? false,
             reanchorStallThreshold: map['reanchorStallThreshold'] as int? ?? 24,
@@ -143,20 +142,20 @@ class SetSurahReferenceCommand extends IsolateCommand {
 
   @override
   Map<String, dynamic> toMap() => {
-    'command': 'set_surah_reference',
-    'phonemes': fullPhonemes,
-    'boundaries': boundaries,
-    'surahNumber': surahNumber,
-    'ayahs': ayahs,
-    'wordsInAyah': wordsInAyah,
-    'isTajweed': isTajweed,
-    'forceClear': forceClear,
-    'startGlobalWord': startGlobalWord,
-    'wordRules': wordRules
-        ?.map((list) => list.map((r) => r.toMap()).toList())
-        .toList(),
-    'charRuleClasses': charRuleClasses,
-  };
+        'command': 'set_surah_reference',
+        'phonemes': fullPhonemes,
+        'boundaries': boundaries,
+        'surahNumber': surahNumber,
+        'ayahs': ayahs,
+        'wordsInAyah': wordsInAyah,
+        'isTajweed': isTajweed,
+        'forceClear': forceClear,
+        'startGlobalWord': startGlobalWord,
+        'wordRules': wordRules
+            ?.map((list) => list.map((r) => r.toMap()).toList())
+            .toList(),
+        'charRuleClasses': charRuleClasses,
+      };
 }
 
 class SyncStreamCommand extends IsolateCommand {
@@ -176,13 +175,13 @@ class SyncStreamCommand extends IsolateCommand {
 
   @override
   Map<String, dynamic> toMap() => {
-    'command': 'sync_stream',
-    'text': asrText,
-    'timestamps': timestamps,
-    'is_new_segment': isNewSegment,
-    'ayah_number': ayahNumber,
-    'neural_acoustics': neuralAcoustics,
-  };
+        'command': 'sync_stream',
+        'text': asrText,
+        'timestamps': timestamps,
+        'is_new_segment': isNewSegment,
+        'ayah_number': ayahNumber,
+        'neural_acoustics': neuralAcoustics,
+      };
 }
 
 class JumpToWordCommand extends IsolateCommand {
@@ -191,9 +190,9 @@ class JumpToWordCommand extends IsolateCommand {
 
   @override
   Map<String, dynamic> toMap() => {
-    'command': 'jump_to_word',
-    'global_word_index': globalWordIndex,
-  };
+        'command': 'jump_to_word',
+        'global_word_index': globalWordIndex,
+      };
 }
 
 class SetTajweedModeCommand extends IsolateCommand {
@@ -202,9 +201,9 @@ class SetTajweedModeCommand extends IsolateCommand {
 
   @override
   Map<String, dynamic> toMap() => {
-    'command': 'set_tajweed_mode',
-    'is_tajweed': isTajweed,
-  };
+        'command': 'set_tajweed_mode',
+        'is_tajweed': isTajweed,
+      };
 }
 
 class UpdateTrackerConfigCommand extends IsolateCommand {
@@ -213,13 +212,13 @@ class UpdateTrackerConfigCommand extends IsolateCommand {
 
   @override
   Map<String, dynamic> toMap() => {
-    'command': 'update_config',
-    'recitationSpeed': config.recitationSpeed.name,
-    'matchingStrictness': config.matchingStrictness.name,
-    'enableEarlyMatching': config.enableEarlyMatching,
-    'enableAutoReanchor': config.enableAutoReanchor,
-    'reanchorStallThreshold': config.reanchorStallThreshold,
-  };
+        'command': 'update_config',
+        'recitationSpeed': config.recitationSpeed.name,
+        'matchingStrictness': config.matchingStrictness.name,
+        'enableEarlyMatching': config.enableEarlyMatching,
+        'enableAutoReanchor': config.enableAutoReanchor,
+        'reanchorStallThreshold': config.reanchorStallThreshold,
+      };
 }
 
 class StopIsolateCommand extends IsolateCommand {
@@ -350,20 +349,20 @@ class WordMatchedEvent extends IsolateEvent {
 
   @override
   Map<String, dynamic> toMap() => {
-    'event': 'highlight',
-    'word_id': wordId,
-    'surah': surah,
-    'ayah': ayah,
-    'word_in_ayah': wordInAyah,
-    'verdict': verdict.name,
-    'score': score,
-    'clean_asr': cleanAsr,
-    'expected_phonemes': expectedPhonemes,
-    'tajweed_errors': tajweedErrors,
-    'is_ayah_completed': isAyahCompleted,
-    'is_red': isRed,
-    'is_neutral': isNeutral,
-  };
+        'event': 'highlight',
+        'word_id': wordId,
+        'surah': surah,
+        'ayah': ayah,
+        'word_in_ayah': wordInAyah,
+        'verdict': verdict.name,
+        'score': score,
+        'clean_asr': cleanAsr,
+        'expected_phonemes': expectedPhonemes,
+        'tajweed_errors': tajweedErrors,
+        'is_ayah_completed': isAyahCompleted,
+        'is_red': isRed,
+        'is_neutral': isNeutral,
+      };
 }
 
 class AyahCompletedEvent extends IsolateEvent {
@@ -379,11 +378,11 @@ class AyahCompletedEvent extends IsolateEvent {
 
   @override
   Map<String, dynamic> toMap() => {
-    'event': 'ayah_completed',
-    'surah': surah,
-    'ayah': ayah,
-    'total_words': totalWords,
-  };
+        'event': 'ayah_completed',
+        'surah': surah,
+        'ayah': ayah,
+        'total_words': totalWords,
+      };
 }
 
 class DebugLogEvent extends IsolateEvent {
@@ -394,8 +393,8 @@ class DebugLogEvent extends IsolateEvent {
 
   @override
   Map<String, dynamic> toMap() => {
-    'event': 'debug',
-    'message': message,
-    'asr_buffer': asrBuffer,
-  };
+        'event': 'debug',
+        'message': message,
+        'asr_buffer': asrBuffer,
+      };
 }

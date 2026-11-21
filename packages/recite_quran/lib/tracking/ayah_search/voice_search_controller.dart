@@ -224,7 +224,8 @@ class VoiceSearchController {
         await search.load(referenceReader: repository?.service.reference);
         if (search.isLoaded) {
           _search = search;
-          DebugLogger.logSimple('VoiceSearch', 'Index loaded. Ready for search.');
+          DebugLogger.logSimple(
+              'VoiceSearch', 'Index loaded. Ready for search.');
         } else {
           _search = null;
           DebugLogger.logSimple(
@@ -424,7 +425,8 @@ class VoiceSearchController {
     } else if (qLen < 28) {
       return 0.20; // Standard tolerance for medium phrases
     }
-    return baseRatio.clamp(0.20, 0.25); // Long recitations: allows up to baseRatio (max 0.25)
+    return baseRatio.clamp(
+        0.20, 0.25); // Long recitations: allows up to baseRatio (max 0.25)
   }
 
   Future<VoiceSearchResult?> _executeSearch(

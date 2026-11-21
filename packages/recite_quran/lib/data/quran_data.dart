@@ -298,7 +298,8 @@ class ReferenceComposer {
       final bool maddLetterBase = madd?.isMaddLetterBase ?? false;
       final int ruleId = _maddRuleId(klass, maddLetterBase);
       if (ruleId == 0) return null;
-      return _intern(rules, ruleOfClass, ruleId, canonical <= 0 ? 2 : canonical, klass);
+      return _intern(
+          rules, ruleOfClass, ruleId, canonical <= 0 ? 2 : canonical, klass);
     }
 
     if (site.ghunnaExpected > 0) {
@@ -597,4 +598,3 @@ class VerseMatch {
     return null;
   }
 }
-

@@ -265,4 +265,3 @@ class TrackerConfig {
     );
   }
 }
-

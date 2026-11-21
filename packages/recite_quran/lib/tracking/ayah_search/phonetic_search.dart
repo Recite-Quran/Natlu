@@ -199,7 +199,8 @@ class PhoneticSearch {
           try {
             if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
               final exeDir = File(Platform.resolvedExecutable).parent.path;
-              final f = File('$exeDir/data/flutter_assets/assets/model/expected_tj3.zfx');
+              final f = File(
+                  '$exeDir/data/flutter_assets/assets/model/expected_tj3.zfx');
               if (f.existsSync()) localFile = f;
             }
             if (localFile == null) {

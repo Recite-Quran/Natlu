@@ -222,11 +222,9 @@ class DictationSequencer {
       bool waitingForPartial = false;
 
       // Outer loop: how many words to SKIP (0 = no skip, 1 = skip W, etc.)
-      for (
-        int skip = 0;
-        skip <= config.maxSkipWords && targetWordCursor + skip < wordCount;
-        skip++
-      ) {
+      for (int skip = 0;
+          skip <= config.maxSkipWords && targetWordCursor + skip < wordCount;
+          skip++) {
         final int startW = targetWordCursor + skip;
 
         // Inner loop: try single word first, then try merging with the next word (Wasl handling)
@@ -425,7 +423,8 @@ class DictationSequencer {
     // edit distance (< 3), it is an ambiguous refrain/verse. Suppress the jump!
     for (int i = 1; i < candidateWords.length; i++) {
       final c = candidateWords[i];
-      if ((c.wordIndex - best.wordIndex).abs() > 2 && (c.dist - best.dist) < 3) {
+      if ((c.wordIndex - best.wordIndex).abs() > 2 &&
+          (c.dist - best.dist) < 3) {
         debugLog(
           '⚠️ [RE-ANCHOR AMBIGUITY] Suppressed jump between word ${best.wordIndex} (dist ${best.dist}) and ${c.wordIndex} (dist ${c.dist})',
         );
@@ -546,8 +545,8 @@ class DictationSequencer {
     final int surah = currentSurahNumber;
     final int ayah = (w < ayahs.length) ? ayahs[w] : 0;
     final int wInAyah = (w < wordsInAyah.length) ? wordsInAyah[w] : 0;
-    final bool isAyahCompleted = (w == _wordCount - 1) ||
-        (w + 1 < ayahs.length && ayahs[w + 1] != ayah);
+    final bool isAyahCompleted =
+        (w == _wordCount - 1) || (w + 1 < ayahs.length && ayahs[w + 1] != ayah);
 
     final bool hasTajweedErrors =
         isTajweed && tajweedErrors != null && tajweedErrors.isNotEmpty;
@@ -584,7 +583,8 @@ class DictationSequencer {
       );
     }
 
-    if (w + 1 < wordBoundaries.length && wordBoundaries[w + 1] - 1 < fullPhonemes.length) {
+    if (w + 1 < wordBoundaries.length &&
+        wordBoundaries[w + 1] - 1 < fullPhonemes.length) {
       lastMatchedPhoneme = fullPhonemes[wordBoundaries[w + 1] - 1];
     }
   }
@@ -600,8 +600,8 @@ class DictationSequencer {
     final int surah = currentSurahNumber;
     final int ayah = (w < ayahs.length) ? ayahs[w] : 0;
     final int wInAyah = (w < wordsInAyah.length) ? wordsInAyah[w] : 0;
-    final bool isAyahCompleted = (w == _wordCount - 1) ||
-        (w + 1 < ayahs.length && ayahs[w + 1] != ayah);
+    final bool isAyahCompleted =
+        (w == _wordCount - 1) || (w + 1 < ayahs.length && ayahs[w + 1] != ayah);
 
     debugLog(
       '❌ [RED] Word $w (Surah $surah Ayah $ayah WordInAyah $wInAyah | Ref: "$refText") skipped because lookahead matched Word $matchedWordIndex (Ref: "$matchedRefText")',
@@ -686,7 +686,8 @@ class DictationSequencer {
                 align.predIdx < asrText.length) {
               final int asrCode = asrText.codeUnitAt(align.predIdx);
               final int refCode = fullPhonemes.codeUnitAt(align.refIdx);
-              coreCost += PhoneticCostEngine.getSubstitutionCost(asrCode, refCode);
+              coreCost +=
+                  PhoneticCostEngine.getSubstitutionCost(asrCode, refCode);
             } else {
               coreCost += config.standardInsertionCost;
             }

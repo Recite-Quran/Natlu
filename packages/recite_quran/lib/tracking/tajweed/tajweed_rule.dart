@@ -158,18 +158,22 @@ abstract class TajweedRule {
     double durationSeconds, [
     RecitationSpeed speed = RecitationSpeed.normal,
   ]) =>
-      checkDurationStatus(durationSeconds, speed) == TajweedDurationStatus.valid;
+      checkDurationStatus(durationSeconds, speed) ==
+      TajweedDurationStatus.valid;
 
   /// Target acoustic duration in seconds for pedagogical reference.
-  double getRequiredDuration([RecitationSpeed speed = RecitationSpeed.normal]) =>
+  double getRequiredDuration(
+          [RecitationSpeed speed = RecitationSpeed.normal]) =>
       getThreshold(speed).targetSeconds;
 
   /// Minimum allowed acoustic duration in seconds before [underheld] error.
-  double getMinAllowedDuration([RecitationSpeed speed = RecitationSpeed.normal]) =>
+  double getMinAllowedDuration(
+          [RecitationSpeed speed = RecitationSpeed.normal]) =>
       getThreshold(speed).minSeconds;
 
   /// Maximum allowed acoustic duration in seconds before [overheld] error.
-  double getMaxAllowedDuration([RecitationSpeed speed = RecitationSpeed.normal]) =>
+  double getMaxAllowedDuration(
+          [RecitationSpeed speed = RecitationSpeed.normal]) =>
       getThreshold(speed).maxSeconds;
 }
 

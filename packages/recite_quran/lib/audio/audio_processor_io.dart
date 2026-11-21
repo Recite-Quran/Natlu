@@ -41,7 +41,8 @@ class AudioProcessor {
     _recorder = AudioRecorder();
     _carryByte = null;
 
-    DebugLogger.logSimple('AUDIO', '🎙️ AudioProcessor.start: initializing microphone stream @ $recordSampleRate Hz...');
+    DebugLogger.logSimple('AUDIO',
+        '🎙️ AudioProcessor.start: initializing microphone stream @ $recordSampleRate Hz...');
     final recordStream = await _recorder!.startStream(
       // Keep natural microphone preamp sensitivity while explicitly disabling
       // aggressive software noise-gating that erases breathy "ه" or subtle Tajweed.

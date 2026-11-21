@@ -267,4 +267,3 @@ List<FuzzyMatch> _filterOverlapping(List<FuzzyMatch> matches) {
   filtered.add(current);
   return filtered;
 }
-
