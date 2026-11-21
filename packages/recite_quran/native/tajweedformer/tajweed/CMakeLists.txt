@@ -46,7 +46,11 @@ if(TARGET zf_stream)
     set_target_properties(zf_tajweed PROPERTIES
       FRAMEWORK TRUE
       MACOSX_FRAMEWORK_IDENTIFIER com.recitequran.zf-tajweed
+      XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER com.recitequran.zf-tajweed
       PUBLIC_HEADER include/zf_tajweed.h
+      XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+      XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+      XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY ""
     )
   endif()
 else()

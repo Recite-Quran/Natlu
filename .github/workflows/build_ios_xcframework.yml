@@ -12,6 +12,9 @@ on:
     branches:
       - quran
 
+permissions:
+  contents: write
+
 jobs:
   build-xcframework:
     name: Build zf_tajweed.xcframework
@@ -23,21 +26,113 @@ jobs:
         with:
           ref: ${{ github.ref }}
 
-      - name: Verify Xcode and CMake
+      - name: Verify Tools & Environment
         run: |
+          echo "=== System Info ==="
+          sw_vers
+          uname -a
+          echo "=== Xcode Version ==="
           xcodebuild -version
+          echo "=== CMake Version ==="
           cmake --version
 
-      - name: Make build script executable
-        run: chmod +x packages/recite_quran/native/tajweedformer/scripts/build_ios_xcframework.sh
-
-      - name: Build XCFramework
+      - name: Configure CMake for iOS Device (arm64)
         run: |
-          ./packages/recite_quran/native/tajweedformer/scripts/build_ios_xcframework.sh xcframework_build
+          cmake -B build-ios \
+            -S packages/recite_quran/native/tajweedformer \
+            -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER=com.recitequran.zf-tajweed \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=""
 
-      - name: Archive XCFramework as ZIP
+      - name: Build zf_tajweed for iOS Device (arm64)
         run: |
-          cd xcframework_build
+          cmake --build build-ios --config Release --target zf_tajweed -- -sdk iphoneos ONLY_ACTIVE_ARCH=NO
+
+      - name: Verify iOS Device Framework
+        run: |
+          IOS_FW=$(find build-ios -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
+          if [ -z "$IOS_FW" ] || [ ! -d "$IOS_FW" ]; then
+            echo "::error::iOS Device framework was not generated!"
+            exit 1
+          fi
+          echo "Found Device Framework: $IOS_FW"
+          ls -laR "$IOS_FW"
+          file "$IOS_FW/zf_tajweed"
+          
+          # Ensure CFBundleSupportedPlatforms is present for xcodebuild
+          if [ -f "$IOS_FW/Info.plist" ]; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$IOS_FW/Info.plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string iPhoneOS" "$IOS_FW/Info.plist" 2>/dev/null || true
+          fi
+
+      - name: Configure CMake for iOS Simulator (arm64)
+        run: |
+          cmake -B build-sim \
+            -S packages/recite_quran/native/tajweedformer \
+            -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER=com.recitequran.zf-tajweed \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
+            -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY=""
+
+      - name: Build zf_tajweed for iOS Simulator (arm64)
+        run: |
+          cmake --build build-sim --config Release --target zf_tajweed -- -sdk iphonesimulator ONLY_ACTIVE_ARCH=NO
+
+      - name: Verify iOS Simulator Framework
+        run: |
+          SIM_FW=$(find build-sim -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
+          if [ -z "$SIM_FW" ] || [ ! -d "$SIM_FW" ]; then
+            echo "::error::iOS Simulator framework was not generated!"
+            exit 1
+          fi
+          echo "Found Simulator Framework: $SIM_FW"
+          ls -laR "$SIM_FW"
+          file "$SIM_FW/zf_tajweed"
+          
+          # Ensure CFBundleSupportedPlatforms is present for xcodebuild
+          if [ -f "$SIM_FW/Info.plist" ]; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms array" "$SIM_FW/Info.plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :CFBundleSupportedPlatforms:0 string iPhoneSimulator" "$SIM_FW/Info.plist" 2>/dev/null || true
+          fi
+
+      - name: Assemble zf_tajweed.xcframework
+        run: |
+          IOS_FW=$(find build-ios -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
+          SIM_FW=$(find build-sim -name "zf_tajweed.framework" -type d | grep -v "\.build" | head -n 1)
+
+          echo "--> Combining:"
+          echo "  Device:    $IOS_FW"
+          echo "  Simulator: $SIM_FW"
+
+          rm -rf zf_tajweed.xcframework
+          xcodebuild -create-xcframework \
+            -framework "$IOS_FW" \
+            -framework "$SIM_FW" \
+            -output zf_tajweed.xcframework
+
+      - name: Inspect & Verify XCFramework
+        run: |
+          echo "=== XCFramework Layout ==="
+          ls -la zf_tajweed.xcframework
+          find zf_tajweed.xcframework -type f
+          echo "=== Info.plist ==="
+          cat zf_tajweed.xcframework/Info.plist
+
+      - name: Package XCFramework as ZIP
+        run: |
           zip -r -y zf_tajweed.xcframework.zip zf_tajweed.xcframework
           ls -lh zf_tajweed.xcframework.zip
 
@@ -45,7 +140,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: zf_tajweed.xcframework
-          path: xcframework_build/zf_tajweed.xcframework.zip
+          path: zf_tajweed.xcframework.zip
           retention-days: 30
 
       - name: Commit to Repository (Optional)
@@ -53,7 +148,7 @@ jobs:
         run: |
           mkdir -p packages/recite_quran/ios/Frameworks
           rm -rf packages/recite_quran/ios/Frameworks/zf_tajweed.xcframework
-          cp -R xcframework_build/zf_tajweed.xcframework packages/recite_quran/ios/Frameworks/
+          cp -R zf_tajweed.xcframework packages/recite_quran/ios/Frameworks/
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
