@@ -275,6 +275,12 @@ class TajweedFormerEngine implements ReciteEngine {
       _isolate = null;
       _sendPort = null;
       _receivePort = null;
+      if (!_outputController.isClosed) {
+        _outputController.close();
+      }
+      if (!_diagnosticsController.isClosed) {
+        _diagnosticsController.close();
+      }
     });
   }
 

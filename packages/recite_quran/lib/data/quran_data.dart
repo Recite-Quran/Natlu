@@ -569,6 +569,12 @@ class QuranRepository {
     return null;
   }
 
+  /// Returns the number of phonetic words in the given (surah, ayah).
+  int getAyahWordCount(int surah, int ayah) {
+    final verse = getVerse(surah, ayah);
+    return verse?.phonemeWords.length ?? 0;
+  }
+
   QuranVerse? getNextVerse(int surah, int ayah) {
     final verses = getSurah(surah);
     if (ayah >= 1 && ayah < verses.length) {

@@ -123,7 +123,6 @@ class AsrTokenProcessor {
   /// updates filtered tokens and recomputes continuous acoustic durations.
   ProcessedAudioStream process(TranscriptionResult result) {
     final int maxCount = min(result.tokens.length, result.timestamps.length);
-    final int previousCount = _filteredTokens.length;
 
     // The engine emits the whole take on every push. Rebuild from that
     // cumulative result so a correction to an earlier token's timing or
@@ -162,16 +161,6 @@ class AsrTokenProcessor {
 
     // Recompute accurate acoustic durations across all filtered tokens
     _recomputeDurations();
-
-    // Debug prints for the tokens that were added since the previous push.
-    if (_filteredTokens.isNotEmpty && _filteredTokens.length > previousCount) {
-      for (int i = previousCount; i < _filteredTokens.length; i++) {
-        // ignore: avoid_print
-        print(
-          '⏱️ [ASR TOKEN] #$i "${_filteredTokens[i]}" | Token End Ts: ${_filteredSpikeTimes[i].toStringAsFixed(3)}s | Grading Dur: ${_tokenDurations[i].toStringAsFixed(3)}s [start: ${_tokenStarts[i].toStringAsFixed(3)}s -> end: ${_tokenEnds[i].toStringAsFixed(3)}s]',
-        );
-      }
-    }
 
     return ProcessedAudioStream(
       tokens: _filteredTokens,

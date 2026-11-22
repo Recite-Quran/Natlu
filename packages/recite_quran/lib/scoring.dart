@@ -43,20 +43,24 @@ class QuranScorer {
   bool _isDisposed = false;
   int _targetSurah = 0;
 
+  int? _pendingTargetSurah;
+  int _pendingStartGlobalWord = 0;
+  bool _pendingForceClear = true;
+
   StreamSubscription<WordMatchedEvent>? _wordSub;
-  StreamSubscription<AyahCompletedEvent>? _ayahSub;
+  StreamSubscription<AutoReanchorEvent>? _reanchorSub;
 
   final StreamController<WordMatchedEvent> _wordEventController =
       StreamController<WordMatchedEvent>.broadcast();
-  final StreamController<AyahCompletedEvent> _ayahCompletedController =
-      StreamController<AyahCompletedEvent>.broadcast();
+  final StreamController<AutoReanchorEvent> _autoReanchorController =
+      StreamController<AutoReanchorEvent>.broadcast();
 
   /// Stream of evaluated word events (correct, tajweedWarning, mispronounced, skipped).
   Stream<WordMatchedEvent> get onWordEvaluated => _wordEventController.stream;
 
-  /// Stream of Ayah completed events emitted immediately upon finishing all words in an Ayah.
-  Stream<AyahCompletedEvent> get onAyahCompleted =>
-      _ayahCompletedController.stream;
+  /// Stream of Auto-Reanchor events emitted when tracking synchronizes to a new verse.
+  Stream<AutoReanchorEvent> get onAutoReanchored =>
+      _autoReanchorController.stream;
 
   /// Current active tracker configuration.
   TrackerConfig get config => _config;
@@ -99,10 +103,36 @@ class QuranScorer {
     _isolate.setTajweedMode(_isTajweed);
 
     _wordSub = _isolate.wordStream.listen(_wordEventController.add);
-    _ayahSub =
-        _isolate.ayahCompletedStream.listen(_ayahCompletedController.add);
+    _reanchorSub =
+        _isolate.autoReanchorStream.listen(_autoReanchorController.add);
 
     _isInitialized = true;
+
+    if (_pendingTargetSurah != null) {
+      final int s = _pendingTargetSurah!;
+      final int sg = _pendingStartGlobalWord;
+      final bool fc = _pendingForceClear;
+      _pendingTargetSurah = null;
+      setTargetSurah(s, startGlobalWord: sg, forceClear: fc);
+    }
+  }
+
+  /// Unified target setter for recitation scoring.
+  /// Sets target by [surah], optionally focusing on [ayah] and [wordIndex].
+  void setTarget({
+    required int surah,
+    int? ayah,
+    int? wordIndex,
+    bool forceClear = true,
+  }) {
+    if (_isDisposed) return;
+    if (ayah == null && wordIndex == null) {
+      setTargetSurah(surah, forceClear: forceClear);
+    } else if (wordIndex == null) {
+      setTargetAyah(surah, ayah!);
+    } else {
+      setTargetWord(surah: surah, ayah: ayah ?? 1, wordIndex: wordIndex);
+    }
   }
 
   /// Sets the active Surah reference for recitation scoring.
@@ -113,8 +143,15 @@ class QuranScorer {
   }) {
     if (_isDisposed) return;
     _targetSurah = surahNumber;
+
     final words = repository.getSurahWords(surahNumber);
-    if (words.isEmpty) return;
+    if (words.isEmpty) {
+      _pendingTargetSurah = surahNumber;
+      _pendingStartGlobalWord = startGlobalWord;
+      _pendingForceClear = forceClear;
+      return;
+    }
+    _pendingTargetSurah = null;
 
     final List<String> phonemeWords = words.map((w) => w.phoneme).toList();
     final List<List<WordTajweedRule>> wordRules =
@@ -229,16 +266,16 @@ class QuranScorer {
 
     _wordSub?.cancel();
     _wordSub = null;
-    _ayahSub?.cancel();
-    _ayahSub = null;
+    _reanchorSub?.cancel();
+    _reanchorSub = null;
 
     _isolate.stop();
 
     if (!_wordEventController.isClosed) {
       _wordEventController.close();
     }
-    if (!_ayahCompletedController.isClosed) {
-      _ayahCompletedController.close();
+    if (!_autoReanchorController.isClosed) {
+      _autoReanchorController.close();
     }
   }
 }

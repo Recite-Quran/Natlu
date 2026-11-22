@@ -2,6 +2,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:quran_tajweedformer/tracking/ayah_search/voice_search_controller.dart';
+
 import 'engine/core/recite_engine.dart';
 import 'engine/core/tajweed_diagnostics.dart';
 import 'engine/core/transcription_result.dart';
@@ -29,6 +31,10 @@ export 'utils/debug_logger.dart';
 /// It is never a substitute for direct Talaqqi and Musyafahah (reciting face-to-face
 /// to a qualified, certified Sheikh/Muqri' with Ijaza) to verify sound Hifdh,
 /// Tajweed precision, and letter articulation points (Makharij).
+/// The primary entry point for integrating real-time Quran recitation tracking,
+/// deterministic Tajweed verification, and voice navigation into any Flutter application.
+typedef ReciteQuran = QuranTajweedFormer;
+
 class QuranTajweedFormer {
   final QuranRepository repository;
   final ReciteEngine _engine;
@@ -52,8 +58,30 @@ class QuranTajweedFormer {
   /// Stream of evaluated word events (correct, tajweedWarning, mispronounced, skipped).
   Stream<WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
 
-  /// Stream of Ayah completed events emitted immediately upon finishing all words in an Ayah.
-  Stream<AyahCompletedEvent> get onAyahCompleted => _scorer.onAyahCompleted;
+  /// Stream of Auto-Reanchor events emitted when tracking synchronizes to a new verse.
+  Stream<AutoReanchorEvent> get onAutoReanchored => _scorer.onAutoReanchored;
+
+  VoiceSearchController? _voiceSearch;
+
+  /// Access to the voice search ("Recite to Navigate") controller across all 6,236 Ayahs.
+  VoiceSearchController get voiceSearch =>
+      _voiceSearch ??= VoiceSearchController(
+        engine: _engine,
+        repository: repository,
+      );
+
+  /// Preloads the 6,236-Ayah phonetic search index for instant voice navigation.
+  Future<void> preloadVoiceSearch() => voiceSearch.preloadIndex();
+
+  /// Starts voice search mode across all 6,236 Ayahs.
+  Future<void> startVoiceSearch() => voiceSearch.startSearch();
+
+  /// Stream of real-time voice search candidate matches.
+  Stream<VoiceSearchResult> get onSearchResult => voiceSearch.onSearchResult;
+
+  /// Real-time stream of low-level transcription results (tokens, durations, timings, neural acoustics).
+  Stream<TranscriptionResult> get onTranscription =>
+      _engine.transcriptionStream;
 
   /// Real-time live speech-to-text phonetic transcript from the ASR model.
   Stream<String> get onTranscript => _transcriptController.stream;
@@ -122,6 +150,23 @@ class QuranTajweedFormer {
 
   // ── 2. Surah & Ayah Target Setup ──
 
+  /// Unified target setter for recitation tracking.
+  /// Focuses tracking on [surah], optionally focusing on [ayah] and [wordIndex].
+  void setTarget({
+    required int surah,
+    int? ayah,
+    int? wordIndex,
+    bool forceClear = true,
+  }) {
+    if (_isDisposed) return;
+    _scorer.setTarget(
+      surah: surah,
+      ayah: ayah,
+      wordIndex: wordIndex,
+      forceClear: forceClear,
+    );
+  }
+
   /// Sets the active Surah reference for recitation tracking.
   void setTargetSurah(
     int surahNumber, {
@@ -169,10 +214,6 @@ class QuranTajweedFormer {
     if (_isDisposed) return false;
     return _engine.transcribe(chunk, isFinal: isFinal);
   }
-
-  /// Feeds a normalized float audio chunk [-1.0, 1.0] (16 kHz mono) into the ASR recognizer.
-  bool feedAudioChunk(Float32List chunk, {bool isFinal = false}) =>
-      feedAudio(chunk, isFinal: isFinal);
 
   /// Resets internal recognition and scoring buffers.
   void resetBuffer() {

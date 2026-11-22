@@ -229,7 +229,6 @@ class HighlightingController extends ChangeNotifier {
   rq.QuranScorer get scorer => _scorer;
 
   Stream<rq.WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
-  Stream<rq.AyahCompletedEvent> get onAyahCompleted => _scorer.onAyahCompleted;
 
   // Remote Maglis state
   int _remoteTargetSurah = 0;
@@ -273,7 +272,9 @@ class HighlightingController extends ChangeNotifier {
 
   StreamSubscription? _engineTranscriptionSub;
   StreamSubscription<rq.WordMatchedEvent>? _wordEvaluatedSub;
-  StreamSubscription<rq.AyahCompletedEvent>? _ayahCompletedSub;
+  StreamSubscription<rq.AutoReanchorEvent>? _autoReanchorSub;
+
+  late final Future<void> initFuture;
 
   HighlightingController({
     required this.repository,
@@ -287,13 +288,13 @@ class HighlightingController extends ChangeNotifier {
           config: config,
           isTajweed: isTajweed,
         ) {
-    _initScorerAndStreams();
+    initFuture = _initScorerAndStreams();
   }
 
   Future<void> _initScorerAndStreams() async {
     await _scorer.initialize();
     _wordEvaluatedSub = _scorer.onWordEvaluated.listen(_onEngineWordEvaluated);
-    _ayahCompletedSub = _scorer.onAyahCompleted.listen(_onEngineAyahCompleted);
+    _autoReanchorSub = _scorer.onAutoReanchored.listen(_onEngineAutoReanchored);
     _engineTranscriptionSub = _engine.transcriptionStream.listen((result) {
       // A final result is the flushed tail of the take that was just reset;
       // its epoch is necessarily the one before the reset, so accept it.
@@ -379,8 +380,8 @@ class HighlightingController extends ChangeNotifier {
   void dispose() {
     _wordEvaluatedSub?.cancel();
     _wordEvaluatedSub = null;
-    _ayahCompletedSub?.cancel();
-    _ayahCompletedSub = null;
+    _autoReanchorSub?.cancel();
+    _autoReanchorSub = null;
     _engineTranscriptionSub?.cancel();
     _engineTranscriptionSub = null;
     _scorer.dispose();
@@ -388,6 +389,26 @@ class HighlightingController extends ChangeNotifier {
   }
 
   // ── Package → Controller Event Stream Handlers ──
+
+  /// Reactive ingestion of automatic re-anchoring when the reciter skips ahead or jumps verses.
+  void _onEngineAutoReanchored(rq.AutoReanchorEvent event) {
+    if (isAudioActive || isRemoteReciting || _isRetargeting) return;
+    final int surah = event.surah > 0 ? event.surah : targetSurah;
+    final int ayah = event.ayah;
+    if (surah == 0 || ayah == 0) return;
+
+    if (activeAyah.value != ayah || targetSurah != surah) {
+      if (targetSurah != surah) {
+        _manualTargetSurah = surah;
+      }
+      activeAyah.value = ayah;
+      onAyahChanged?.call();
+      onAutoSavePosition?.call(surah, ayah);
+      AppState.instance.saveLastPosition(surah, ayah);
+      globalRevision.value++;
+      notifyListeners();
+    }
+  }
 
   /// Pure reactive ingestion of word evaluations directly from the engine isolate.
   void _onEngineWordEvaluated(rq.WordMatchedEvent event) {
@@ -397,40 +418,54 @@ class HighlightingController extends ChangeNotifier {
     final int w0 = event.wordInAyah;
     if (surah == 0 || ayah == 0) return;
 
+    if (_manualTargetSurah != surah) {
+      _manualTargetSurah = surah;
+    }
+
     switch (event.verdict) {
       case rq.WordEvaluationVerdict.correct:
         _store.markGreen(surah, ayah, w0);
         break;
       case rq.WordEvaluationVerdict.tajweedWarning:
-        final errors = event.tajweedErrors != null
-            ? event.tajweedErrors!
-                .map((e) =>
-                    rq.ReciterError.fromMap(Map<String, dynamic>.from(e)))
-                .toList()
-            : <rq.ReciterError>[];
-        _store.markYellow(surah, ayah, w0, errors);
+        _store.markYellow(surah, ayah, w0, event.tajweedErrors);
         break;
       case rq.WordEvaluationVerdict.mispronounced:
         _store.markRed(surah, ayah, w0);
         break;
       case rq.WordEvaluationVerdict.skipped:
-        _store.markNeutral(surah, ayah, w0);
+        _store.markRed(surah, ayah, w0);
         break;
     }
 
-    if (event.isAyahCompleted) {
-      _store.markAyahCompleted(surah, ayah);
-    }
-    notifyListeners();
-  }
+    // Pure UI / App level Ayah completion evaluation
+    final int totalWordsInAyah = repository.getAyahWordCount(surah, ayah);
+    final bool isLastWordOfAyah =
+        totalWordsInAyah > 0 && w0 == totalWordsInAyah - 1;
 
-  /// Pure reactive ingestion of completed Ayahs directly from the engine isolate.
-  void _onEngineAyahCompleted(rq.AyahCompletedEvent event) {
-    if (isAudioActive || isRemoteReciting || _isRetargeting) return;
-    if (event.surah > 0 && event.ayah > 0) {
-      _store.markAyahCompleted(event.surah, event.ayah);
-      notifyListeners();
+    if (isLastWordOfAyah) {
+      _store.markAyahCompleted(surah, ayah);
+      final totalAyahs = QuranMetadata.getAyahCount(surah);
+      if (ayah < totalAyahs) {
+        final nextAyah = ayah + 1;
+        if (activeAyah.value != nextAyah) {
+          activeAyah.value = nextAyah;
+          onAyahChanged?.call();
+          onAutoSavePosition?.call(surah, nextAyah);
+          AppState.instance.saveLastPosition(surah, nextAyah);
+        }
+      } else if (ayah == totalAyahs) {
+        unawaited(advanceToNextSurah(isRecording: true));
+      }
+    } else {
+      if (activeAyah.value != ayah) {
+        activeAyah.value = ayah;
+        onAyahChanged?.call();
+        onAutoSavePosition?.call(surah, ayah);
+        AppState.instance.saveLastPosition(surah, ayah);
+      }
     }
+
+    notifyListeners();
   }
 
   /// The active source driving highlighting/progress.
@@ -516,6 +551,7 @@ class HighlightingController extends ChangeNotifier {
     bool preserveOtherSurahStates = false,
     bool clearTargetSurah = true,
   }) async {
+    await initFuture;
     _manualTargetSurah = surah;
     if (!preserveOtherSurahStates) {
       _store.clearAllExceptSurah(surah);

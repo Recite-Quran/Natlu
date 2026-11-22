@@ -3,7 +3,6 @@ import 'dart:math';
 import '../../data/quran_data.dart';
 import '../../engine/core/transcription_result.dart';
 import '../ayah_search/fuzzy_search.dart';
-import '../tajweed/error_explainer.dart';
 import 'dictation_matcher.dart';
 import 'phoneme_alignment_isolate.dart';
 
@@ -19,7 +18,7 @@ import 'phoneme_alignment_isolate.dart';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class DictationSequencer {
-  final void Function(Map<String, dynamic> event) onEvent;
+  final void Function(IsolateEvent event) onEvent;
 
   // ── Reference ──
   List<int> wordBoundaries = [];
@@ -74,7 +73,7 @@ class DictationSequencer {
     final buf = (asrCharAnchor < currentSegmentAsrText.length)
         ? currentSegmentAsrText.substring(asrCharAnchor)
         : '';
-    onEvent(DebugLogEvent(message: message, asrBuffer: buf).toMap());
+    onEvent(DebugLogEvent(message: message, asrBuffer: buf));
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -102,11 +101,10 @@ class DictationSequencer {
     _lastReanchorAttemptOffset = -1;
     _lastReanchorAttemptLen = -1;
 
-    if (cmd.forceClear) {
-      currentSegmentAsrText = '';
-      currentSegmentTimestamps = [];
-      currentSegmentNeuralAcoustics = [];
-    }
+    // ASR buffer from previous surah MUST NEVER bleed into the new surah.
+    currentSegmentAsrText = '';
+    currentSegmentTimestamps = [];
+    currentSegmentNeuralAcoustics = [];
 
     targetWordCursor = cmd.startGlobalWord.clamp(0, _wordCount);
     lastMatchedPhoneme = null;
@@ -114,10 +112,6 @@ class DictationSequencer {
     debugLog(
       '📖 Surah $currentSurahNumber | $_wordCount words | cursor=$targetWordCursor | tajweed=$isTajweed',
     );
-
-    if (!cmd.forceClear && currentSegmentAsrText.isNotEmpty) {
-      _processSequence();
-    }
   }
 
   void jumpToWord(JumpToWordCommand cmd) {
@@ -250,8 +244,13 @@ class DictationSequencer {
           if (result != null) {
             if (result.isPartial) {
               if (skip == 0) {
-                waitingForPartial = true;
-                break; // Stop looking ahead, wait for next segment
+                final int refLen = refEnd - refStart;
+                if (unconsumed.length < refLen + 2) {
+                  waitingForPartial = true;
+                  break; // Stop looking ahead, wait for next segment
+                } else {
+                  continue; // Buffer has exceeded this word; continue lookahead
+                }
               } else {
                 continue; // A future word is partially matched, ignore for now
               }
@@ -264,9 +263,9 @@ class DictationSequencer {
                 continue; // Reject this merge and try another combination
               }
 
-              // 1. Mark skipped words RED
+              // 1. Mark skipped words SKIPPED
               for (int s = 0; s < skip; s++) {
-                _commitRed(targetWordCursor + s, startW);
+                _commitSkipped(targetWordCursor + s, startW);
               }
               // 2. Mark the matched (or merged) words GREEN
               for (int m = 0; m < merge; m++) {
@@ -328,10 +327,10 @@ class DictationSequencer {
 
       if (!matched) {
         // [AUTO RE-ANCHOR - LOSS OF TRACKING RECOVERY: START]
-        // In Dictation mode (Tajweed OFF), recover synchrony when reciter skips ahead.
+        // Recover synchrony when reciter skips ahead or stalls.
         // If unconsumed speech exceeds the stall threshold, any local partial match
         // on the current word was merely an accidental prefix collision.
-        if (config.enableAutoReanchor && !isTajweed) {
+        if (config.enableAutoReanchor) {
           final int oldCursor = targetWordCursor;
           _attemptAutoReanchor();
           if (targetWordCursor != oldCursor) {
@@ -436,7 +435,7 @@ class DictationSequencer {
   }
 
   void _attemptAutoReanchor() {
-    if (!config.enableAutoReanchor || isTajweed) return;
+    if (!config.enableAutoReanchor) return;
     if (wordBoundaries.isEmpty || fullPhonemes.isEmpty) return;
 
     final int unconsumedLen = currentSegmentAsrText.length - asrCharAnchor;
@@ -473,6 +472,7 @@ class DictationSequencer {
 
     if (result == null) return;
 
+    final int oldCursor = targetWordCursor;
     debugLog(
       '⚓ [AUTO RE-ANCHOR] Stalled at word $targetWordCursor -> Re-anchoring to word ${result.wordIndex} (dist: ${result.dist}, offset: ${result.probeOffset})',
     );
@@ -483,6 +483,32 @@ class DictationSequencer {
     lastMatchedPhoneme = null;
     committedGreenWords.removeWhere((w) => w >= targetWordCursor);
     committedRedWords.removeWhere((w) => w >= targetWordCursor);
+
+    // If advancing forward, commit skipped words as SKIPPED
+    if (result.wordIndex > oldCursor) {
+      for (int s = oldCursor; s < result.wordIndex; s++) {
+        _commitSkipped(s, result.wordIndex);
+      }
+    }
+
+    final int surah = currentSurahNumber;
+    final int ayah =
+        (result.wordIndex < ayahs.length) ? ayahs[result.wordIndex] : 0;
+    final int wInAyah = (result.wordIndex < wordsInAyah.length)
+        ? wordsInAyah[result.wordIndex]
+        : 0;
+
+    onEvent(
+      AutoReanchorEvent(
+        previousWordIndex: oldCursor,
+        newWordIndex: result.wordIndex,
+        surah: surah,
+        ayah: ayah,
+        wordInAyah: wInAyah,
+        editDistance: result.dist,
+        probeOffset: result.probeOffset,
+      ),
+    );
   }
   // ─────────────────────────────────────────────────────────────────────────────
   // [AUTO RE-ANCHORING - RECOVERY HELPER: END]
@@ -504,7 +530,7 @@ class DictationSequencer {
     committedRedWords.remove(w);
 
     // Tajweed evaluation
-    List<Map<String, dynamic>>? tajweedErrors;
+    List<ReciterError>? tajweedErrors;
     if (isTajweed && result.trace.isNotEmpty) {
       final List<WordTajweedRule> expectedWordRules =
           (surahWordRules != null && w < surahWordRules!.length)
@@ -537,7 +563,7 @@ class DictationSequencer {
         config: config,
       );
       if (errors.containsKey(w)) {
-        tajweedErrors = errors[w]!.map((e) => e.toMap()).toList();
+        tajweedErrors = errors[w];
       }
     }
 
@@ -545,8 +571,6 @@ class DictationSequencer {
     final int surah = currentSurahNumber;
     final int ayah = (w < ayahs.length) ? ayahs[w] : 0;
     final int wInAyah = (w < wordsInAyah.length) ? wordsInAyah[w] : 0;
-    final bool isAyahCompleted =
-        (w == _wordCount - 1) || (w + 1 < ayahs.length && ayahs[w + 1] != ayah);
 
     final bool hasTajweedErrors =
         isTajweed && tajweedErrors != null && tajweedErrors.isNotEmpty;
@@ -557,6 +581,11 @@ class DictationSequencer {
     debugLog(
       '✅ [GREEN] Word $w (Surah $surah Ayah $ayah WordInAyah $wInAyah | Ref: "$refText") -> ASR: "${result.cleanAsr}" (cost=${result.pathCost.toStringAsFixed(2)})',
     );
+
+    final double startTs =
+        result.timestamps.isNotEmpty ? result.timestamps.first : 0.0;
+    final double endTs =
+        result.timestamps.isNotEmpty ? result.timestamps.last : 0.0;
 
     onEvent(
       WordMatchedEvent(
@@ -569,19 +598,10 @@ class DictationSequencer {
         cleanAsr: result.cleanAsr,
         expectedPhonemes: refText,
         tajweedErrors: tajweedErrors,
-        isAyahCompleted: isAyahCompleted,
-      ).toMap(),
+        startTimestamp: startTs,
+        endTimestamp: endTs,
+      ),
     );
-
-    if (isAyahCompleted && ayah > 0) {
-      onEvent(
-        AyahCompletedEvent(
-          surah: surah,
-          ayah: ayah,
-          totalWords: wInAyah + 1,
-        ).toMap(),
-      );
-    }
 
     if (w + 1 < wordBoundaries.length &&
         wordBoundaries[w + 1] - 1 < fullPhonemes.length) {
@@ -589,7 +609,12 @@ class DictationSequencer {
     }
   }
 
-  void _commitRed(int w, int matchedWordIndex) {
+  void _commitSkipped(
+    int w,
+    int matchedWordIndex, {
+    bool isMispronounced = false,
+    String cleanAsr = '',
+  }) {
     if (committedRedWords.contains(w) || committedGreenWords.contains(w)) {
       return;
     }
@@ -600,11 +625,15 @@ class DictationSequencer {
     final int surah = currentSurahNumber;
     final int ayah = (w < ayahs.length) ? ayahs[w] : 0;
     final int wInAyah = (w < wordsInAyah.length) ? wordsInAyah[w] : 0;
-    final bool isAyahCompleted =
-        (w == _wordCount - 1) || (w + 1 < ayahs.length && ayahs[w + 1] != ayah);
+
+    final verdict = isMispronounced
+        ? WordEvaluationVerdict.mispronounced
+        : WordEvaluationVerdict.skipped;
 
     debugLog(
-      '❌ [RED] Word $w (Surah $surah Ayah $ayah WordInAyah $wInAyah | Ref: "$refText") skipped because lookahead matched Word $matchedWordIndex (Ref: "$matchedRefText")',
+      isMispronounced
+          ? '❌ [MISPRONOUNCED] Word $w (Surah $surah Ayah $ayah WordInAyah $wInAyah | Ref: "$refText")'
+          : '⏭️ [SKIPPED] Word $w (Surah $surah Ayah $ayah WordInAyah $wInAyah | Ref: "$refText") skipped because lookahead matched Word $matchedWordIndex (Ref: "$matchedRefText")',
     );
 
     onEvent(
@@ -613,31 +642,22 @@ class DictationSequencer {
         surah: surah,
         ayah: ayah,
         wordInAyah: wInAyah,
-        verdict: WordEvaluationVerdict.skipped,
+        verdict: verdict,
         score: 0.0,
-        cleanAsr: '',
+        cleanAsr: cleanAsr,
         expectedPhonemes: refText,
         tajweedErrors: [
           ReciterError(
             errorType: ErrorCategory.normal,
-            speechErrorType: SpeechErrorType.delete,
+            speechErrorType: isMispronounced
+                ? SpeechErrorType.replace
+                : SpeechErrorType.delete,
             expectedPh: refText,
-            predictedPh: '',
-          ).toMap(),
+            predictedPh: cleanAsr,
+          ),
         ],
-        isAyahCompleted: isAyahCompleted,
-      ).toMap(),
+      ),
     );
-
-    if (isAyahCompleted && ayah > 0) {
-      onEvent(
-        AyahCompletedEvent(
-          surah: surah,
-          ayah: ayah,
-          totalWords: wInAyah + 1,
-        ).toMap(),
-      );
-    }
   }
 
   String _getWordReference(int w) {

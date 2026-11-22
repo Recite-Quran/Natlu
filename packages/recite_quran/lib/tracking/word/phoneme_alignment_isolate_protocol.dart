@@ -1,8 +1,10 @@
 // lib/tracking/word/phoneme_alignment_isolate_protocol.dart
 import '../../data/quran_data.dart';
 import '../../engine/core/transcription_result.dart';
+import '../tajweed/error_explainer.dart';
 import '../tracker_config.dart';
 
+export '../tajweed/error_explainer.dart';
 export '../tracker_config.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -256,6 +258,18 @@ sealed class IsolateEvent {
           verdict = WordEvaluationVerdict.correct;
         }
 
+        final rawErrors = map['tajweed_errors'] as List?;
+        final List<ReciterError>? tajweedErrors = rawErrors
+            ?.map((e) {
+              if (e is ReciterError) return e;
+              if (e is Map) {
+                return ReciterError.fromMap(e.cast<String, dynamic>());
+              }
+              return null;
+            })
+            .whereType<ReciterError>()
+            .toList();
+
         return WordMatchedEvent(
           wordId: map['word_id'] as int,
           surah: map['surah'] as int? ?? 0,
@@ -265,17 +279,20 @@ sealed class IsolateEvent {
           score: (map['score'] as num?)?.toDouble() ?? 0.0,
           cleanAsr: map['clean_asr'] as String? ?? '',
           expectedPhonemes: map['expected_phonemes'] as String? ?? '',
-          tajweedErrors: (map['tajweed_errors'] as List?)
-              ?.map((e) => (e as Map).cast<String, dynamic>())
-              .toList(),
-          isAyahCompleted: map['is_ayah_completed'] as bool? ?? false,
+          tajweedErrors: tajweedErrors,
+          startTimestamp: (map['start_ts'] as num?)?.toDouble() ?? 0.0,
+          endTimestamp: (map['end_ts'] as num?)?.toDouble() ?? 0.0,
         );
 
-      case 'ayah_completed':
-        return AyahCompletedEvent(
+      case 'auto_reanchor':
+        return AutoReanchorEvent(
+          previousWordIndex: map['previous_word_index'] as int? ?? 0,
+          newWordIndex: map['new_word_index'] as int? ?? 0,
           surah: map['surah'] as int? ?? 0,
           ayah: map['ayah'] as int? ?? 0,
-          totalWords: map['total_words'] as int? ?? 0,
+          wordInAyah: map['word_in_ayah'] as int? ?? 0,
+          editDistance: map['edit_distance'] as int? ?? 0,
+          probeOffset: map['probe_offset'] as int? ?? 0,
         );
 
       case 'debug':
@@ -299,8 +316,9 @@ class WordMatchedEvent extends IsolateEvent {
   final double score;
   final String cleanAsr;
   final String expectedPhonemes;
-  final List<Map<String, dynamic>>? tajweedErrors;
-  final bool isAyahCompleted;
+  final List<ReciterError>? tajweedErrors;
+  final double startTimestamp;
+  final double endTimestamp;
 
   const WordMatchedEvent({
     required this.wordId,
@@ -312,9 +330,8 @@ class WordMatchedEvent extends IsolateEvent {
     required this.cleanAsr,
     this.expectedPhonemes = '',
     this.tajweedErrors,
-    this.isAyahCompleted = false,
-    bool? isRed,
-    bool? isNeutral,
+    this.startTimestamp = 0.0,
+    this.endTimestamp = 0.0,
   });
 
   /// Whether the word was recited correctly (Right).
@@ -334,18 +351,15 @@ class WordMatchedEvent extends IsolateEvent {
   /// Actual transcribed phonemes uttered by the reciter for this word.
   String get recognizedPhonemes => cleanAsr;
 
-  /// Whether this is the last word of the targeted Ayah.
-  bool get isLastWordOfAyah => isAyahCompleted;
+  /// Semantic verdict helpers
+  bool get isCorrect => verdict == WordEvaluationVerdict.correct;
+  bool get hasTajweedWarning => verdict == WordEvaluationVerdict.tajweedWarning;
+  bool get isMispronounced => verdict == WordEvaluationVerdict.mispronounced;
+  bool get isSkipped => verdict == WordEvaluationVerdict.skipped;
 
-  bool get isRed =>
-      verdict == WordEvaluationVerdict.mispronounced ||
-      verdict == WordEvaluationVerdict.skipped;
-
-  bool get isNeutral => verdict == WordEvaluationVerdict.skipped;
-
-  bool get isGreen => verdict == WordEvaluationVerdict.correct;
-
-  bool get isYellow => verdict == WordEvaluationVerdict.tajweedWarning;
+  /// Acoustic duration of this spoken word in seconds.
+  double get durationSeconds =>
+      endTimestamp > startTimestamp ? endTimestamp - startTimestamp : 0.0;
 
   @override
   Map<String, dynamic> toMap() => {
@@ -358,30 +372,43 @@ class WordMatchedEvent extends IsolateEvent {
         'score': score,
         'clean_asr': cleanAsr,
         'expected_phonemes': expectedPhonemes,
-        'tajweed_errors': tajweedErrors,
-        'is_ayah_completed': isAyahCompleted,
-        'is_red': isRed,
-        'is_neutral': isNeutral,
+        'tajweed_errors': tajweedErrors?.map((e) => e.toMap()).toList(),
+        'start_ts': startTimestamp,
+        'end_ts': endTimestamp,
       };
 }
 
-class AyahCompletedEvent extends IsolateEvent {
+/// Emitted whenever the recitation tracker automatically re-anchors to a new
+/// position after a reciter skips ahead or jumps verses.
+class AutoReanchorEvent extends IsolateEvent {
+  final int previousWordIndex;
+  final int newWordIndex;
   final int surah;
   final int ayah;
-  final int totalWords;
+  final int wordInAyah;
+  final int editDistance;
+  final int probeOffset;
 
-  const AyahCompletedEvent({
+  const AutoReanchorEvent({
+    required this.previousWordIndex,
+    required this.newWordIndex,
     required this.surah,
     required this.ayah,
-    this.totalWords = 0,
+    required this.wordInAyah,
+    required this.editDistance,
+    required this.probeOffset,
   });
 
   @override
   Map<String, dynamic> toMap() => {
-        'event': 'ayah_completed',
+        'event': 'auto_reanchor',
+        'previous_word_index': previousWordIndex,
+        'new_word_index': newWordIndex,
         'surah': surah,
         'ayah': ayah,
-        'total_words': totalWords,
+        'word_in_ayah': wordInAyah,
+        'edit_distance': editDistance,
+        'probe_offset': probeOffset,
       };
 }
 

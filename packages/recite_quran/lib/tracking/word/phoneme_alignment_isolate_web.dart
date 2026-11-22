@@ -16,34 +16,24 @@ export 'phoneme_alignment_isolate_protocol.dart';
 
 /// Web asynchronous message loop manager for alignment without dart:isolate.
 class PhonemeAlignmentIsolate {
-  StreamController<Map<String, dynamic>>? _commandPort;
-  StreamController<Map<String, dynamic>>? _receivePort;
+  StreamController<IsolateCommand>? _commandPort;
+  final List<IsolateCommand> _pendingCommands = [];
 
   final StreamController<WordMatchedEvent> _wordStreamController =
       StreamController<WordMatchedEvent>.broadcast();
-  final StreamController<AyahCompletedEvent> _ayahCompletedStreamController =
-      StreamController<AyahCompletedEvent>.broadcast();
+  final StreamController<AutoReanchorEvent> _autoReanchorStreamController =
+      StreamController<AutoReanchorEvent>.broadcast();
 
   Stream<WordMatchedEvent> get wordStream => _wordStreamController.stream;
-  Stream<AyahCompletedEvent> get ayahCompletedStream =>
-      _ayahCompletedStreamController.stream;
+  Stream<AutoReanchorEvent> get autoReanchorStream =>
+      _autoReanchorStreamController.stream;
 
   Future<void> start() async {
-    _commandPort = StreamController<Map<String, dynamic>>();
-    _receivePort = StreamController<Map<String, dynamic>>();
+    _commandPort = StreamController<IsolateCommand>();
 
-    final sequencer = DictationSequencer((eventMap) {
-      _receivePort?.add(eventMap);
-    });
+    final sequencer = DictationSequencer(_routeEvent);
 
-    _commandPort!.stream.listen((rawMessage) {
-      final IsolateCommand command;
-      try {
-        command = IsolateCommand.fromMap(rawMessage);
-      } catch (_) {
-        return;
-      }
-
+    _commandPort!.stream.listen((command) {
       try {
         switch (command) {
           case SetSurahReferenceCommand():
@@ -65,35 +55,39 @@ class PhonemeAlignmentIsolate {
             break;
         }
       } catch (e, stack) {
-        _receivePort?.add(
+        _routeEvent(
           DebugLogEvent(
             message: '⚠️ [WEB WORKER ERROR] Handled exception: $e\n$stack',
             asrBuffer: sequencer.currentSegmentAsrText,
-          ).toMap(),
+          ),
         );
       }
     });
 
-    _receivePort!.stream.listen((message) {
-      try {
-        final event = IsolateEvent.fromMap(message);
-        switch (event) {
-          case WordMatchedEvent():
-            _wordStreamController.add(event);
-          case AyahCompletedEvent():
-            _ayahCompletedStreamController.add(event);
-          case DebugLogEvent(:final message, :final asrBuffer):
-            DebugLogger.updateAsrBuffer(asrBuffer);
-            DebugLogger.log('DP', message);
-        }
-      } catch (_) {
-        // Ignore malformed event
-      }
-    });
+    for (final cmd in _pendingCommands) {
+      _commandPort!.add(cmd);
+    }
+    _pendingCommands.clear();
+  }
+
+  void _routeEvent(IsolateEvent event) {
+    switch (event) {
+      case WordMatchedEvent():
+        _wordStreamController.add(event);
+      case AutoReanchorEvent():
+        _autoReanchorStreamController.add(event);
+      case DebugLogEvent(:final message, :final asrBuffer):
+        DebugLogger.updateAsrBuffer(asrBuffer);
+        DebugLogger.log('DP', message);
+    }
   }
 
   void send(IsolateCommand command) {
-    _commandPort?.add(command.toMap());
+    if (_commandPort != null) {
+      _commandPort!.add(command);
+    } else {
+      _pendingCommands.add(command);
+    }
   }
 
   void setSurahReference(
@@ -156,11 +150,10 @@ class PhonemeAlignmentIsolate {
 
   void stop() {
     send(const StopIsolateCommand());
+    _pendingCommands.clear();
     _wordStreamController.close();
-    _ayahCompletedStreamController.close();
+    _autoReanchorStreamController.close();
     _commandPort?.close();
-    _receivePort?.close();
     _commandPort = null;
-    _receivePort = null;
   }
 }

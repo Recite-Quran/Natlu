@@ -156,5 +156,8 @@ class TajweedFormerEngine implements ReciteEngine {
   void destroy() {
     tajweedWebBridge?.destroy();
     _isInitialized = false;
+    if (!_outputController.isClosed) {
+      _outputController.close();
+    }
   }
 }

@@ -45,13 +45,6 @@ class WordMatchResult {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Matcher configuration type alias for backwards compatibility.
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Type alias pointing legacy AlignmentConfig references to the unified TrackerConfig.
-typedef AlignmentConfig = TrackerConfig;
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // PHONETIC & TAJWEED COST ENGINE (MODEL-SPECIFIC ACOUSTIC MATRIX)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -92,6 +85,8 @@ class PhoneticCostEngine {
         return refCode == 0x0635; // ص
       case 0x0642: // ق
         return refCode == 0x0643; // ك
+      case 0x0646: // ن
+        return refCode == 0x06BA; // ں (nasal nun / Ghunnah)
       default:
         return false;
     }
@@ -141,13 +136,18 @@ class PhoneticCostEngine {
     double standardDeletionCost = 1.0,
     double acousticConfusionCost = 0.25,
   ]) {
-    if (gRefIdx < 0 || gRefIdx >= fullPhonemes.length)
+    if (gRefIdx < 0 || gRefIdx >= fullPhonemes.length) {
       return standardDeletionCost;
+    }
     final int code = fullPhonemes.codeUnitAt(gRefIdx);
 
-    if (_isZeroCostMarker(code)) return 0.0;
+    if (_isZeroCostMarker(code)) {
+      return 0.0;
+    }
 
-    if (code == 0x621) return acousticConfusionCost; // ء - soft glottal stop
+    if (code == 0x621) {
+      return acousticConfusionCost; // ء - soft glottal stop
+    }
 
     if (gRefIdx > 0 && code == fullPhonemes.codeUnitAt(gRefIdx - 1)) {
       // In CTC, repeated phonetic features (like Madd vowels or Shaddah consonants)
@@ -432,7 +432,7 @@ class QuranDictationMatcher {
           isPartial = true;
         }
       }
-    } else if (bestI < 0) {
+    } else if (bestI < 0 && m < n + 2) {
       // ── 1. Prefix Match (For words that failed the full cost threshold) ──
       int minJ = n > 2 ? 2 : 1;
       int startI = max(1, m - 2);
