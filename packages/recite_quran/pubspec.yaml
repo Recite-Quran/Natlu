@@ -1,9 +1,9 @@
 name: quran_tarteel
 description: Real-time on-device Quran recitation tracking, dynamic DTW word alignment, and deterministic Tajweed rule verification engine for Flutter powered by TajweedFormer V4.
 version: 1.0.0
-homepage: https://github.com/Iam-Muslim/ReciteQuran
-repository: https://github.com/Iam-Muslim/ReciteQuran
-issue_tracker: https://github.com/Iam-Muslim/ReciteQuran/issues
+homepage: https://github.com/Iam-Muslim/quran_tarteel
+repository: https://github.com/Iam-Muslim/quran_tarteel
+issue_tracker: https://github.com/Iam-Muslim/quran_tarteel/issues
 
 platforms:
   android:

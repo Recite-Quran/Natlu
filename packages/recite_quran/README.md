@@ -175,7 +175,7 @@ Designed for seamless, responsive page reading:
   >
   > The engine is protected by an **Anti-Ambiguity Guard** ($\Delta\text{dist} < 3$) and multi-stage window probing, ensuring that false jumps are suppressed even across repeated refrains (*فَبِأَيِّ آلَاءِ رَبِّكُمَا تُكَذِّبَانِ* in Surah Ar-Rahman). Enjoy the magical hands-free experience!
 
-👉 [**Deep Dive: Dictation Integration Guide →**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/DICTATION_SYSTEM_GUIDE.md)
+👉 [**Deep Dive: Dictation Integration Guide →**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/DICTATION_SYSTEM_GUIDE.md)
 
 ---
 
@@ -186,7 +186,7 @@ Evaluates reciter pronunciation against an acoustic matrix:
 - **Shaddah**: Measures consonant closure duration (~1.5 Harakat) and doubling.
 - **Pedagogical Feedback**: Emits bilingual explanations (Arabic & English) via `ErrorExplainer` and the pre-built `TajweedErrorSheet`.
 
-👉 [**Deep Dive: Tajweed Verification Guide →**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/TAJWEED_GUIDE.md)
+👉 [**Deep Dive: Tajweed Verification Guide →**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/TAJWEED_GUIDE.md)
 
 ---
 
@@ -196,7 +196,7 @@ Search across all **6,236 Ayahs** in $< 5\text{ ms}$:
 - **Prefix Stripping**: Intelligently removes *Isti'adha* and *Basmalah* if recited before the verse.
 - **Auto-Navigation**: Emits live candidate verses and navigates immediately upon detecting a unique match.
 
-👉 [**Deep Dive: Voice Search & Ayah Finder Guide →**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/VOICE_SEARCH_GUIDE.md)
+👉 [**Deep Dive: Voice Search & Ayah Finder Guide →**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/VOICE_SEARCH_GUIDE.md)
 
 ---
 
@@ -207,7 +207,7 @@ Build a full digital memorization companion:
 - **Omission Detection**: Built-in skip lookahead pinpoints skipped or forgotten words.
 - **Hint System**: Peek at the next word for 2 seconds or reveal the first letter.
 
-👉 [**Deep Dive: Memorization & Mistake Detection Guide →**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/MEMORIZATION_MODE_GUIDE.md)
+👉 [**Deep Dive: Memorization & Mistake Detection Guide →**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/MEMORIZATION_MODE_GUIDE.md)
 
 ---
 
@@ -217,7 +217,7 @@ Studio-grade audio recording tailored for Quranic speech:
 - **Automatic 16kHz Resampling**: Resamples hardware streams to 16,000 Hz Mono Float32 `[-1.0, 1.0]`.
 - **Audio Interruption Resilience**: Gracefully handles incoming phone calls, Siri/Google Assistant, and Bluetooth AirPods switches.
 
-👉 [**Deep Dive: Production Audio Pipeline Guide →**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/AUDIO_PIPELINE_GUIDE.md)
+👉 [**Deep Dive: Production Audio Pipeline Guide →**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/AUDIO_PIPELINE_GUIDE.md)
 
 ---
 
@@ -227,7 +227,7 @@ Render authentic Islamic typography in Flutter:
 - **Uthmanic Fonts**: Guidance on integrating `KFGQPC Uthman Taha Naskh` and handling diacritics and verse end markers (۝).
 - **Smooth Auto-Scroll & Page Turns**: Automatically flips pages when the reciter reaches the last word of a page.
 
-👉 [**Deep Dive: Interactive Mus'haf UI & Layout Guide →**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/MUSHAF_UI_GUIDE.md)
+👉 [**Deep Dive: Interactive Mus'haf UI & Layout Guide →**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/MUSHAF_UI_GUIDE.md)
 
 ---
 
@@ -269,26 +269,26 @@ final examConfig = const TrackerConfig(
 final fastConfig = TrackerConfig.fast();
 ```
 
-👉 **Need quick method signatures?** [Check the API Quick Reference Cheat Sheet →](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/API_REFERENCE.md)
+👉 **Need quick method signatures?** [Check the API Quick Reference Cheat Sheet →](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/API_REFERENCE.md)
 
 ---
 
 ## 📚 Full Documentation Suite
 
-All in-depth documentation is housed in the [`doc/`](https://github.com/Iam-Muslim/ReciteQuran/tree/HEAD/doc) directory:
+All in-depth documentation is housed in the [`doc/`](https://github.com/Iam-Muslim/quran_tarteel/tree/HEAD/doc) directory:
 
 | Guide | Description |
 | :--- | :--- |
-| 🗺️ [**Documentation Hub**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/README.md) | Master directory index and structured learning pathways |
-| 📖 [**Dictation Integration Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/DICTATION_SYSTEM_GUIDE.md) | Early Matching, Auto Re-anchoring, 24 vs 30 phoneme threshold |
-| 🎯 [**Tajweed Verification Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/TAJWEED_GUIDE.md) | Madd rules, Ghunnah, Shaddah, speed calibration, `ErrorExplainer` |
-| 🎙️ [**Voice Search Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/VOICE_SEARCH_GUIDE.md) | "Recite to Navigate", 6,236 Ayah Myers bit-parallel search |
-| 🧠 [**Memorization & Mistake Detection Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/MEMORIZATION_MODE_GUIDE.md) | Tarteel-style Hifdh testing, hidden words, built-in omission lookahead |
-| 🎧 [**Production Audio Pipeline Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/AUDIO_PIPELINE_GUIDE.md) | 16kHz Float32 streaming, bypassing DSP filters, interruptions |
-| 📜 [**Interactive Mus'haf UI & Layout Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/MUSHAF_UI_GUIDE.md) | 15-line Madani layout, Uthmanic fonts, line centering, page turns |
-| 📱 [**Complete App Integration Guide**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/APP_INTEGRATION_GUIDE.md) | State management (Riverpod/Bloc), lifecycle, 1-file minimal app |
-| ⚡ [**API Quick Reference & Cheat Sheet**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/API_REFERENCE.md) | High-density method signatures, streams, configs, models |
-| 🛠️ [**Troubleshooting & FAQ**](https://github.com/Iam-Muslim/ReciteQuran/blob/HEAD/doc/TROUBLESHOOTING_FAQ.md) | Debugging microphone silence, alignment lag, repeated refrain jumping |
+| 🗺️ [**Documentation Hub**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/README.md) | Master directory index and structured learning pathways |
+| 📖 [**Dictation Integration Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/DICTATION_SYSTEM_GUIDE.md) | Early Matching, Auto Re-anchoring, 24 vs 30 phoneme threshold |
+| 🎯 [**Tajweed Verification Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/TAJWEED_GUIDE.md) | Madd rules, Ghunnah, Shaddah, speed calibration, `ErrorExplainer` |
+| 🎙️ [**Voice Search Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/VOICE_SEARCH_GUIDE.md) | "Recite to Navigate", 6,236 Ayah Myers bit-parallel search |
+| 🧠 [**Memorization & Mistake Detection Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/MEMORIZATION_MODE_GUIDE.md) | Tarteel-style Hifdh testing, hidden words, built-in omission lookahead |
+| 🎧 [**Production Audio Pipeline Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/AUDIO_PIPELINE_GUIDE.md) | 16kHz Float32 streaming, bypassing DSP filters, interruptions |
+| 📜 [**Interactive Mus'haf UI & Layout Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/MUSHAF_UI_GUIDE.md) | 15-line Madani layout, Uthmanic fonts, line centering, page turns |
+| 📱 [**Complete App Integration Guide**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/APP_INTEGRATION_GUIDE.md) | State management (Riverpod/Bloc), lifecycle, 1-file minimal app |
+| ⚡ [**API Quick Reference & Cheat Sheet**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/API_REFERENCE.md) | High-density method signatures, streams, configs, models |
+| 🛠️ [**Troubleshooting & FAQ**](https://github.com/Iam-Muslim/quran_tarteel/blob/HEAD/doc/TROUBLESHOOTING_FAQ.md) | Debugging microphone silence, alignment lag, repeated refrain jumping |
 
 ---
 
