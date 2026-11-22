@@ -43,22 +43,41 @@ class _TajweedRulesSheetState extends State<TajweedRulesSheet> {
 
   void _applyConfig(TajweedConfig newConfig) {
     setState(() => _config = newConfig);
-    AppState.instance.setTajweedConfig(newConfig, widget.controller);
+    final app = AppState.instance;
+    if (newConfig.isAllDisabled) {
+      app.setMode(AppMode.wordChecker);
+      widget.controller?.setTajweedMode(false);
+    } else {
+      if (app.currentMode != AppMode.tajweed) {
+        app.setMode(AppMode.tajweed);
+        widget.controller?.setTajweedMode(true);
+      }
+    }
+    app.setTajweedConfig(newConfig, widget.controller);
   }
 
   int _getPresetIndex() {
+    final app = AppState.instance;
+    if (app.currentMode != AppMode.tajweed || _config.isAllDisabled) {
+      return 2; // None
+    }
     if (_config.isAllEnabled) return 0; // All
-    if (_config.isAllDisabled) return 2; // None
     return 1; // Custom
   }
 
   void _onPresetSelected(int index) {
+    final app = AppState.instance;
     if (index == 0) {
+      app.setMode(AppMode.tajweed);
+      widget.controller?.setTajweedMode(true);
       _applyConfig(const TajweedConfig.all());
     } else if (index == 2) {
+      app.setMode(AppMode.wordChecker);
+      widget.controller?.setTajweedMode(false);
       _applyConfig(const TajweedConfig.none());
     } else {
-      // If was none, enable standard set as custom start
+      app.setMode(AppMode.tajweed);
+      widget.controller?.setTajweedMode(true);
       if (_config.isAllDisabled) {
         _applyConfig(const TajweedConfig.all());
       }

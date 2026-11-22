@@ -14,9 +14,7 @@ import '../../utils/debug_logger.dart';
 import '../word/dictation_matcher.dart';
 import 'tajweed_rule.dart';
 
-export 'tajweed_checkers.dart';
 export 'tajweed_config.dart';
-export 'tajweed_engine.dart';
 export 'tajweed_rule.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────

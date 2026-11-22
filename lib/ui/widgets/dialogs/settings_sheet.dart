@@ -244,17 +244,24 @@ class TajweedRulesTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<TajweedConfig>(
-      valueListenable: AppState.instance.tajweedConfigNotifier,
-      builder: (context, config, _) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        AppState.instance.tajweedConfigNotifier,
+        AppState.instance.modeNotifier,
+      ]),
+      builder: (context, _) {
+        final app = AppState.instance;
+        final config = app.tajweedConfig;
+        final isTajweedActive = app.currentMode == AppMode.tajweed;
+
         final String statusLabel;
         final Color statusColor;
-        if (config.isAllEnabled) {
-          statusLabel = isAr ? 'الكل (معياري)' : 'All (Standard)';
-          statusColor = const Color(0xFF10B981);
-        } else if (config.isAllDisabled) {
+        if (!isTajweedActive || config.isAllDisabled) {
           statusLabel = isAr ? 'إيقاف' : 'Disabled';
           statusColor = c.muted;
+        } else if (config.isAllEnabled) {
+          statusLabel = isAr ? 'الكل (معياري)' : 'All (Standard)';
+          statusColor = const Color(0xFF10B981);
         } else {
           statusLabel = isAr ? 'مخصص' : 'Custom';
           statusColor = const Color(0xFF0D9488);
