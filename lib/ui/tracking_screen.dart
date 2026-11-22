@@ -1,20 +1,15 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../core/highlighting_controller.dart';
-import '../audio/quran_timing_service.dart';
-import '../audio/quran_audio_service.dart';
-import '../audio/quran_download_service.dart';
 import '../core/platform_utils.dart';
 import 'widgets/dialogs/dialog_service.dart';
 import '../core/app_state.dart';
 import 'widgets/mic_bar.dart';
 import '../mushaf/mushaf_view.dart';
 import '../verse_list/verse_list_view.dart';
-import '../maglis/maglis_controller.dart';
 
 /// Main interactive screen for real-time recitation tracking and reading.
 /// Supports high-performance vector Mushaf and dedicated Verse List modes.
@@ -56,9 +51,6 @@ class TrackingScreen extends StatefulWidget {
 
 class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  static const MethodChannel _lifecycleChannel =
-      MethodChannel('com.recitequran.app/audio_lifecycle');
-
   final ValueNotifier<String> _voiceSearchNotifier = ValueNotifier('');
   final GlobalKey<VerseListViewState> _verseListKey =
       GlobalKey<VerseListViewState>();
@@ -87,7 +79,6 @@ class _TrackingScreenState extends State<TrackingScreen>
       app.blurModeNotifier,
       app.modeNotifier,
       _surahNotifier,
-      MaglisController.instance.sessionListenable,
     ]);
     if (!PlatformCapabilities.isWeb) {
       WidgetsBinding.instance.addObserver(this);
@@ -97,14 +88,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     widget.controller.activeAyah.addListener(_onActiveAyahChanged);
     AppState.instance.mushafModeNotifier.addListener(_onMushafModeChanged);
     AppState.instance.currentMushafPage.addListener(_onMushafPageChanged);
-
-    // Warm up Surah timings and Ayah 1 audio in memory/disk in the background for zero-latency instant play
-    unawaited(QuranTimingService.instance
-        .ensureSurahLoaded(widget.controller.targetSurah));
-    if (!PlatformCapabilities.isWeb) {
-      unawaited(QuranAudioService.ensureAyahDownloaded(
-          widget.controller.targetSurah, 1));
-    }
   }
 
   @override
@@ -114,7 +97,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     final bool isDesktop = PlatformCapabilities.isDesktop;
 
     if (state == AppLifecycleState.detached) {
-      QuranAudioService.instance.stop();
       if (widget.isRecording) widget.onToggleRecord();
       if (widget.isVoiceSearching) widget.onVoiceSearchToggle();
       return;
@@ -127,17 +109,6 @@ class _TrackingScreenState extends State<TrackingScreen>
       } else if (state == AppLifecycleState.paused ||
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
-        if (widget.isRecording || QuranAudioService.instance.isSingleWordMode) {
-          QuranAudioService.instance.stop();
-        } else if (state == AppLifecycleState.paused) {
-          // TODO(playstore-fgs): While FOREGROUND_SERVICE_MEDIA_PLAYBACK is disabled,
-          // allow audio on screen-off/lock (like v1.2.0+22) and stop if user minimized app.
-          if (defaultTargetPlatform == TargetPlatform.android) {
-            unawaited(_checkAndStopAudioIfMinimized());
-          } else if (defaultTargetPlatform != TargetPlatform.iOS) {
-            QuranAudioService.instance.stop();
-          }
-        }
         // Microphone recording and voice search are suspended.
         if (widget.isRecording) {
           widget.onToggleRecord();
@@ -149,22 +120,8 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
   }
 
-  Future<void> _checkAndStopAudioIfMinimized() async {
-    try {
-      final isOffOrLocked =
-          await _lifecycleChannel.invokeMethod<bool>('isScreenOffOrLocked') ??
-              false;
-      if (!isOffOrLocked) {
-        await QuranAudioService.instance.stop();
-      }
-    } catch (_) {
-      await QuranAudioService.instance.stop();
-    }
-  }
-
   @override
   void dispose() {
-    AppState.instance.stopVerseAudio();
     if (!PlatformCapabilities.isWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
@@ -239,8 +196,6 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _onActiveAyahChanged() {
-    if (QuranAudioService.instance.isSingleWordMode) return;
-
     final active = widget.controller.activeAyah.value;
     if (active != null && active != _lastAyah) {
       _lastAyah = active;
@@ -318,7 +273,6 @@ class _TrackingScreenState extends State<TrackingScreen>
       onToggleRecord: widget.onToggleRecord,
       onVoiceSearchToggle: widget.onVoiceSearchToggle,
       onPick: (n, {ayah}) async {
-          QuranAudioService.instance.stop();
           if (widget.isRecording) {
             widget.onToggleRecord();
           }
@@ -340,8 +294,6 @@ class _TrackingScreenState extends State<TrackingScreen>
           if (mappedPage != null) {
             AppState.instance.saveMushafPage(mappedPage);
           }
-          unawaited(QuranTimingService.instance.ensureSurahLoaded(n));
-          unawaited(QuranAudioService.ensureAyahDownloaded(n, 1));
 
           setState(() {
             _lastAyah = null;
@@ -407,8 +359,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                               final effectiveSurah = _effectiveSurah;
                               final surahName =
                                   _getSurahName(effectiveSurah, app.isArabic);
-                              final maglis = MaglisController.instance;
-                              final int peerCount = maglis.participantCount;
 
                               return BottomActionBar(
                                 key: const ValueKey('unified_dock_bar'),
@@ -444,34 +394,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                                 onSettingsTap: () {
                                   _showSettingsDialog();
                                 },
-                                isInMaglis: maglis.inSession,
-                                maglisRoomCode: maglis.roomCode,
-                                maglisPeerCount: peerCount,
-                                isRemoteReciting: maglis.isRemoteReciting,
-                                onMaglisTap: () async {
-                                  app.recordMaglisTap();
-                                  if (!app.hasSeenMaglisExplanation) {
-                                    await DialogService.showMaglisExplanation(context);
-                                    if (context.mounted) {
-                                      DialogService.showMaglisEntry(context);
-                                    }
-                                  } else {
-                                    DialogService.showMaglisEntry(context);
-                                  }
-                                },
-                                onMaglisExitTap: () async {
-                                  if (widget.isRecording) {
-                                    widget.onToggleRecord();
-                                  }
-                                  app.exitMaglisSession();
-                                  await maglis.leaveSession();
-                                  app.showBanner(AppBannerInfo(
-                                    id: 'maglis_left',
-                                    messageAr: 'تمت مغادرة المجلس بنجاح',
-                                    messageEn: 'Left Maglis session',
-                                    icon: Icons.exit_to_app_rounded,
-                                  ));
-                                },
                               );
                             },
                           ),
@@ -504,99 +426,9 @@ class _TrackingScreenState extends State<TrackingScreen>
                           _buildModernBottomBanner(c, app, bottom, activeBanner),
                     ),
 
-                    // Floating Download Progress Pill (appears when download dialog is minimized)
-                    _buildMinimizedDownloadPill(c, app, bottom),
                   ],
                 );
               },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  /// Floating pill shown when Quran audio download is minimized.
-  Widget _buildMinimizedDownloadPill(
-      ThemeColors c, AppState app, double bottom) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        QuranDownloadService.instance.isDownloading,
-        QuranDownloadService.instance.isMinimized,
-        QuranDownloadService.instance.progress,
-      ]),
-      builder: (context, _) {
-        final isDownloading = QuranDownloadService.instance.isDownloading.value;
-        final isMinimized = QuranDownloadService.instance.isMinimized.value;
-        if (!isDownloading || !isMinimized) {
-          return const SizedBox.shrink();
-        }
-
-        final progress = QuranDownloadService.instance.progress.value;
-        final percent = (progress * 100).toInt();
-        final isAr = app.isArabic;
-        final isDark = app.isDarkMode;
-
-        return Positioned(
-          bottom: bottom + 12,
-          left: 16,
-          right: 16,
-          child: Center(
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: () => AudioDownloadDialog.show(context),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: c.primary.withValues(alpha: isDark ? 0.40 : 0.25),
-                      width: 1.2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black
-                            .withValues(alpha: isDark ? 0.35 : 0.12),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.2,
-                          value: progress.clamp(0.0, 1.0),
-                          valueColor: AlwaysStoppedAnimation<Color>(c.primary),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        isAr
-                            ? 'جاري تحميل التلاوة: ${QuranTypography.toArabicDigits(percent)}٪'
-                            : 'Downloading Audio: $percent%',
-                        style: TextStyle(
-                          fontFamily: 'cairo',
-                          color: c.text,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(Icons.open_in_full_rounded,
-                          size: 14, color: c.muted),
-                    ],
-                  ),
-                ),
-              ),
             ),
           ),
         );
@@ -783,7 +615,7 @@ class _AutoScrollFloatingButtonState extends State<_AutoScrollFloatingButton> {
     final isDark = widget.app.isDarkMode;
     final isScroll = widget.isAutoScrolling;
 
-    // Matches the styling and color semantics of the mic bar buttons (like community/maglis button)
+    // Matches the styling and color semantics of the mic bar action buttons
     final Color bgColor = isScroll
         ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.22 : 0.15)
         : (isDark ? const Color(0xFF1B2430) : const Color(0xFFF1F5F9));

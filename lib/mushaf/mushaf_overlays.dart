@@ -6,7 +6,7 @@ import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 
 /// Ultra-lightweight, zero-allocation single-pass overlay/underlay painters
-/// for Surah headers, Ayah audio indicators, and Tajweed tutorial tooltips.
+/// for Surah headers and Tajweed tutorial tooltips.
 class MushafOverlays {
   MushafOverlays._();
 
@@ -110,8 +110,7 @@ class MushafOverlays {
 
     // 2. Resolve Active / Waited Lead Word on this page with zero FFI calls.
     int? activeWordPageIdx;
-    final bool isSessionActive =
-        isRecording || controller.isAudioActive || controller.isRemoteReciting;
+    final bool isSessionActive = isRecording;
     if (isSessionActive) {
       final maxWordOnPage =
           cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
@@ -429,7 +428,7 @@ class MushafOverlays {
       final List<_BadgePosition> lineBadges = [];
 
       for (final wordIdx in wordsOnLine) {
-        final box = page.wordBoxView(wordIdx, layout: layout);
+        final box = page.wordBoxFast(wordIdx, layout: layout);
         final double centerX = (box.x0 + box.x1) / 2.0;
         final double idealX = centerX - tooltipWidth / 2.0;
         final double tooltipY = (box.y1 + 1.0).roundToDouble();
@@ -577,7 +576,7 @@ class _PageWordLayoutCache {
 
       final boxes = List<QvpBox>.generate(
         k,
-        (i) => page.wordBoxView(lineWords[i].index, layout: layout),
+        (i) => page.wordBoxFast(lineWords[i].index, layout: layout),
       );
 
       double lineX0 = double.infinity;
@@ -629,5 +628,41 @@ class _PageWordLayoutCache {
     }
 
     return _lineGeometriesCache[ayahKey] = list;
+  }
+}
+
+/// Standalone extension providing zero-FFI layout box calculation on [QvpPage].
+/// Guarantees 100% decoupling from any vendor fork modifications to [QvpPage].
+extension QvpPageWordBoxExtension on QvpPage {
+  QvpBox wordBoxFast(int i, {double padY = 2.0, QvpLayout? layout}) {
+    final w = words[i];
+    final l = layout ?? currentLayout;
+    if (l != null && !l.reflowed) {
+      final dy = (w.lineIndex >= 0 && w.lineIndex < l.lineDy.length)
+          ? l.lineDy[w.lineIndex]
+          : 0.0;
+      final scale = l.scale;
+      return QvpBox(
+        id: i,
+        line: w.line,
+        x0: l.offsetX + w.x0 * scale,
+        y0: l.offsetY + (w.y0 + dy) * scale - padY,
+        x1: l.offsetX + w.x1 * scale,
+        y1: l.offsetY + (w.y1 + dy) * scale + padY,
+        color: 0,
+        radius: 0.0,
+      );
+    }
+    final b = wordBoundsView(i);
+    return QvpBox(
+      id: i,
+      line: w.line,
+      x0: b.x0,
+      y0: b.y0 - padY,
+      x1: b.x1,
+      y1: b.y1 + padY,
+      color: 0,
+      radius: 0.0,
+    );
   }
 }

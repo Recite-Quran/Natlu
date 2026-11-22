@@ -10,9 +10,7 @@ import 'dialog_base.dart';
 /// Ultra-lightweight user guide explaining:
 /// 1. Voice recitation with mic & word status colors.
 /// 2. Hifz / Hide Verse Mode (revealing words on recitation).
-/// 3. Audio recitation & word pronunciation.
-/// 4. Voice search inside Surah list.
-/// 5. Quran Maglis live peer rooms.
+/// 3. Voice search inside Surah list.
 class AppGuideDialog extends StatelessWidget {
   const AppGuideDialog({super.key});
 
@@ -107,19 +105,7 @@ class AppGuideDialog extends StatelessWidget {
             ),
             divider,
 
-            // 3. Audio Recitation
-            _buildRow(
-              icon: Icons.play_circle_fill_rounded,
-              iconColor: isDark ? c.gold : const Color(0xFFD97706),
-              title: isAr ? 'تشغيل الصوت' : 'Audio Playback',
-              text: isAr
-                  ? 'اضغط رقم الآية للاستماع للشيخ، واضغط أي كلمة لسماع نطقها.'
-                  : 'Tap Ayah number to hear recitation, or tap any word to hear pronunciation.',
-              c: c,
-            ),
-            divider,
-
-            // 4. Voice Search
+            // 3. Voice Search
             _buildRow(
               icon: Icons.graphic_eq_rounded,
               iconColor: const Color(0xFF10B981),

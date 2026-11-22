@@ -21,8 +21,6 @@ class VerseRow extends StatefulWidget {
   final bool isAutoScrolling;
   final VoidCallback? onTap;
   final VoidCallback? onWordErrorTap;
-  final bool? isAudioPlaying;
-  final VoidCallback? onAudioPlayToggle;
   final void Function(int ayah, int wordIndex, Rect globalWordRect)?
       onActiveWordPositioned;
 
@@ -34,38 +32,12 @@ class VerseRow extends StatefulWidget {
     required this.isAutoScrolling,
     this.onTap,
     this.onWordErrorTap,
-    this.isAudioPlaying,
-    this.onAudioPlayToggle,
     this.onActiveWordPositioned,
   });
 
   /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
   static String toArabicDigits(Object number) =>
       QuranTypography.toArabicDigits(number);
-
-  /// Checks if audio is currently actively playing or buffering on this Ayah.
-  static bool isAyahAudioActive({
-    required int surah,
-    required int ayah,
-    required HighlightingController controller,
-  }) =>
-      controller.isAyahAudioActive(surah, ayah);
-
-  /// Checks if the audio player is currently actively playing this Ayah.
-  static bool isAyahAudioPlaying({
-    required int surah,
-    required int ayah,
-    required HighlightingController controller,
-  }) =>
-      controller.isAyahAudioPlaying(surah, ayah);
-
-  /// Checks if the audio player is currently buffering this Ayah.
-  static bool isAyahAudioBuffering({
-    required int surah,
-    required int ayah,
-    required HighlightingController controller,
-  }) =>
-      controller.isAyahAudioBuffering(surah, ayah);
 
   /// Handles selecting/tapping an Ayah: manual selection, and persisting last position.
   static Future<void> selectAyah({
@@ -120,24 +92,6 @@ class VerseRow extends StatefulWidget {
     );
   }
 
-  /// Toggles Ayah audio playback with buffering debounce.
-  static Future<void> toggleAyahAudio({
-    required int surah,
-    required int ayah,
-    required HighlightingController controller,
-    required bool isRecording,
-    VoidCallback? onTap,
-    VoidCallback? onExplicitToggle,
-  }) =>
-      QuranInteractionService.toggleAyahAudio(
-        surah: surah,
-        ayah: ayah,
-        controller: controller,
-        isRecording: isRecording,
-        onTap: onTap,
-        onExplicitToggle: onExplicitToggle,
-      );
-
   /// Generates the active Ayah gold border without background band.
   static BoxDecoration activeAyahBorderDecoration({
     required bool isActive,
@@ -168,7 +122,6 @@ class _VerseRowState extends State<VerseRow> {
   /// Cached TextSpan list — avoids re-allocating on every build.
   List<InlineSpan>? _cachedSpans;
   bool _isListeningToController = false;
-  bool _wasAudioActive = false;
 
   /// Fast O(1) word colors hash cache for idle/unrecited verses.
   int? _cachedWordColorsHash;
@@ -225,10 +178,6 @@ class _VerseRowState extends State<VerseRow> {
       _onStateChanged();
       _scheduleWordPositionCheck();
     }
-    if (oldWidget.isAudioPlaying != widget.isAudioPlaying) {
-      _scheduleWordPositionCheck();
-      setState(() {});
-    }
   }
 
   void _disposeRecognizers() {
@@ -261,8 +210,7 @@ class _VerseRowState extends State<VerseRow> {
 
     // Fast check: If this verse is far away from the active ayah and was not previously active/listening,
     // skip recomputation completely.
-    final bool isNear = (myAyah >= effectiveActive - 1 && myAyah <= effectiveActive + 1) ||
-        (widget.controller.audioAyah == myAyah);
+    final bool isNear = (myAyah >= effectiveActive - 1 && myAyah <= effectiveActive + 1);
     if (!isNear && !_isListeningToController && _lastFingerprint != -1) {
       return;
     }
@@ -280,12 +228,10 @@ class _VerseRowState extends State<VerseRow> {
     final int? active = widget.controller.activeAyah.value;
     final int myAyah = widget.verse.ayah;
 
-    // Listen to highlights selectively: ONLY active, preceding, upcoming, or audio-playing Ayah subscribe
+    // Listen to highlights selectively: ONLY active, preceding, or upcoming Ayah subscribe
     bool shouldListen = false;
     final int effectiveActive = active ?? (widget.isRecording ? 1 : -999);
-    final int? audioAyah = widget.controller.audioAyah;
-    if (myAyah == audioAyah ||
-        myAyah == effectiveActive ||
+    if (myAyah == effectiveActive ||
         myAyah == effectiveActive - 1 ||
         myAyah == effectiveActive + 1) {
       shouldListen = true;
@@ -457,12 +403,6 @@ class _VerseRowState extends State<VerseRow> {
     final surah = widget.verse.surah;
     final bool isSelected =
         !widget.isAutoScrolling && ctrl.activeAyah.value == ayah;
-    final bool isAudioActive = VerseRow.isAyahAudioActive(
-        surah: surah, ayah: ayah, controller: widget.controller);
-    final bool isAudioPlaying = VerseRow.isAyahAudioPlaying(
-        surah: surah, ayah: ayah, controller: widget.controller);
-    final bool isAudioBuffering = VerseRow.isAyahAudioBuffering(
-        surah: surah, ayah: ayah, controller: widget.controller);
     final bool isActive = VerseRow.isAyahActive(
       surah: surah,
       ayah: ayah,
@@ -474,9 +414,6 @@ class _VerseRowState extends State<VerseRow> {
 
     int hash = isActive ? 1 : 0;
     hash = hash * 31 + (isSelected ? 1 : 0);
-    hash = hash * 31 + (isAudioActive ? 1 : 0);
-    hash = hash * 31 + (isAudioPlaying ? 1 : 0);
-    hash = hash * 31 + (isAudioBuffering ? 1 : 0);
     hash = hash * 31 + (isCompleted ? 1 : 0);
     hash = hash * 31 + (widget.isRecording ? 1 : 0);
 
@@ -491,15 +428,12 @@ class _VerseRowState extends State<VerseRow> {
         app.isBlurEffective(isRecording: widget.isRecording);
 
     final bool hasHighlights = isActive ||
-        isAudioActive ||
-        _wasAudioActive ||
         isCompleted ||
         (widget.isRecording && isActive) ||
         ctrl.hasAyahHighlights(surah, ayah);
 
     final int wordColorsHash;
-    final bool couldHaveNewHighlights =
-        isActive || isAudioActive || _wasAudioActive || isNearActive;
+    final bool couldHaveNewHighlights = isActive || isNearActive;
 
     if (!couldHaveNewHighlights && _cachedWordColorsHash != null) {
       wordColorsHash = _cachedWordColorsHash!;
@@ -510,7 +444,7 @@ class _VerseRowState extends State<VerseRow> {
       _cachedWordColorsRevision = currentRevision;
     } else {
       final bool isLiveActive =
-          (widget.isRecording || isAudioActive) && (isActive || isNearActive);
+          widget.isRecording && (isActive || isNearActive);
       final bool needsWordScan = isLiveActive ||
           _cachedWordColorsRevision != currentRevision ||
           _cachedWordColorsHash == null;
@@ -561,12 +495,6 @@ class _VerseRowState extends State<VerseRow> {
     final words = widget.verse.uthmaniWords;
     final surah = widget.verse.surah;
     final ayah = widget.verse.ayah;
-    final bool isAudioActive = VerseRow.isAyahAudioActive(
-        surah: surah, ayah: ayah, controller: widget.controller);
-    final bool isAudioPlaying = VerseRow.isAyahAudioPlaying(
-        surah: surah, ayah: ayah, controller: widget.controller);
-    final bool isAudioBuffering = VerseRow.isAyahAudioBuffering(
-        surah: surah, ayah: ayah, controller: widget.controller);
     final bool isActive = VerseRow.isAyahActive(
       surah: surah,
       ayah: ayah,
@@ -574,9 +502,7 @@ class _VerseRowState extends State<VerseRow> {
       app: app,
       isAutoScrolling: widget.isAutoScrolling,
     );
-    _wasAudioActive = isAudioActive;
     final bool hasHighlights = isActive ||
-        isAudioActive ||
         (widget.isRecording && isActive) ||
         widget.controller.completedAyahsFor(surah).contains(ayah) ||
         widget.controller.hasAyahHighlights(surah, ayah);
@@ -608,7 +534,7 @@ class _VerseRowState extends State<VerseRow> {
             onAyahTap: widget.onTap,
           );
         },
-        onWordAudioTap: (ayah, wordIdx) {
+        onWordTap: (ayah, wordIdx) {
           VerseRow.handleWordTap(
             context: context,
             surah: widget.verse.surah,
@@ -657,9 +583,7 @@ class _VerseRowState extends State<VerseRow> {
                   ),
                   child: CustomPaint(
                     painter: _cachedSpans != null &&
-                            ((isActive && widget.isRecording) ||
-                                isAudioActive ||
-                                hasHighlights)
+                            ((isActive && widget.isRecording) || hasHighlights)
                         ? _ActiveWordHighlightPainter(
                             surah: widget.verse.surah,
                             ayah: widget.verse.ayah,
@@ -667,7 +591,6 @@ class _VerseRowState extends State<VerseRow> {
                             controller: widget.controller,
                             app: app,
                             cachedSpans: _cachedSpans!,
-                            isAudioMode: isAudioActive,
                             isRecording: widget.isRecording,
                             isActive: isActive,
                             getWordLayout: _getOrCreateWordLayout,
@@ -695,192 +618,43 @@ class _VerseRowState extends State<VerseRow> {
                   ),
                 ),
 
-                // Injected Ayah number & audio play button with expanded comfortable touch area
+                // Injected Ayah number with comfortable touch area
                 Positioned(
                   left: 0,
                   bottom: 2,
                   width: 38,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      if (!widget.isAutoScrolling) ...[
-                        _VerseAudioButton(
-                          surah: widget.verse.surah,
-                          ayah: widget.verse.ayah,
-                          colors: c,
-                          isDark: app.isDarkMode,
-                          isRecording: widget.isRecording,
-                          controller: widget.controller,
-                          onTapVerse: widget.onTap,
-                          isPlaying: isAudioPlaying,
-                          isBuffering: isAudioBuffering,
-                        ),
-                      ],
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => VerseRow.toggleAyahAudio(
-                          surah: widget.verse.surah,
-                          ayah: widget.verse.ayah,
-                          controller: widget.controller,
-                          isRecording: widget.isRecording,
-                          onTap: widget.onTap,
-                          onExplicitToggle: widget.onAudioPlayToggle,
-                        ),
-                        child: Container(
-                          width: 38,
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          color: Colors.transparent,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              QuranTypography.toArabicDigits(widget.verse.ayah),
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontFamily: QuranTypography.quranWordsFont,
-                                fontSize: 21.5,
-                                fontWeight: FontWeight.bold,
-                                height: 1.0,
-                                color: isActive
-                                    ? c.gold
-                                    : c.textSecondary.withValues(alpha: 0.75),
-                              ),
-                            ),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => VerseRow.selectAyah(
+                      surah: widget.verse.surah,
+                      ayah: widget.verse.ayah,
+                      controller: widget.controller,
+                      onTap: widget.onTap,
+                    ),
+                    child: Container(
+                      width: 38,
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      color: Colors.transparent,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          QuranTypography.toArabicDigits(widget.verse.ayah),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: QuranTypography.quranWordsFont,
+                            fontSize: 21.5,
+                            fontWeight: FontWeight.bold,
+                            height: 1.0,
+                            color: isActive
+                                ? c.gold
+                                : c.textSecondary.withValues(alpha: 0.75),
                           ),
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Injected minimal audio play/pause button located above the Ayah number.
-///
-/// Designed with:
-/// - Zero disruption to verse layout & typography (fitted inside the 42px left margin).
-/// - Eye-comfortable palettes adaptive to both White (Linen) and Black (OLED) themes.
-/// - Lightweight StatelessWidget with zero redundant allocations.
-class _VerseAudioButton extends StatelessWidget {
-  final int surah;
-  final int ayah;
-  final ThemeColors colors;
-  final bool isDark;
-  final bool isRecording;
-  final HighlightingController controller;
-  final VoidCallback? onTapVerse;
-  final bool isPlaying;
-  final bool isBuffering;
-
-  const _VerseAudioButton({
-    required this.surah,
-    required this.ayah,
-    required this.colors,
-    required this.isDark,
-    required this.isRecording,
-    required this.controller,
-    this.onTapVerse,
-    required this.isPlaying,
-    required this.isBuffering,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final Color iconColor;
-    final Color bgColor;
-    final Color borderColor;
-
-    if (isPlaying || isBuffering) {
-      // Active / Connecting state: Serene, dignified emerald accent across both themes
-      if (isDark) {
-        bgColor = colors.primary.withValues(alpha: 0.22);
-        borderColor = colors.primary.withValues(alpha: 0.60);
-        iconColor = colors.primary;
-      } else {
-        bgColor = colors.primary.withValues(alpha: 0.12);
-        borderColor = colors.primary.withValues(alpha: 0.45);
-        iconColor = colors.primary;
-      }
-    } else {
-      // Idle state: Subtle, gentle, eye-comforting — never competing with the Quran text
-      if (isDark) {
-        bgColor = colors.surfaceHigh.withValues(alpha: 0.35);
-        borderColor = colors.border.withValues(alpha: 0.28);
-        iconColor = colors.textSecondary.withValues(alpha: 0.60);
-      } else {
-        bgColor = colors.surfaceHigh.withValues(alpha: 0.50);
-        borderColor = colors.border.withValues(alpha: 0.55);
-        iconColor = colors.textSecondary.withValues(alpha: 0.65);
-      }
-    }
-
-    return Semantics(
-      button: true,
-      label: isPlaying ? 'إيقاف مؤقت' : 'تشغيل التلاوة',
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => VerseRow.toggleAyahAudio(
-          surah: surah,
-          ayah: ayah,
-          controller: controller,
-          isRecording: isRecording,
-          onTap: onTapVerse,
-        ),
-        child: Container(
-          width: 38,
-          height: 38,
-          color: Colors.transparent,
-          child: Center(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              width: 21.5,
-              height: 21.5,
-              decoration: BoxDecoration(
-                color: bgColor,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: borderColor,
-                  width: 0.85,
-                ),
-              ),
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 150),
-                  transitionBuilder: (child, anim) => FadeTransition(
-                    opacity: anim,
-                    child: ScaleTransition(scale: anim, child: child),
-                  ),
-                  child: isBuffering
-                      ? SizedBox(
-                          key: const ValueKey('buffering'),
-                          width: 10.5,
-                          height: 10.5,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(iconColor),
-                          ),
-                        )
-                      : Padding(
-                          key: ValueKey(isPlaying),
-                          padding: EdgeInsets.only(left: isPlaying ? 0 : 0.8),
-                          child: Icon(
-                            isPlaying
-                                ? Icons.stop_rounded
-                                : Icons.play_arrow_rounded,
-                            size: 13.0,
-                            color: iconColor,
-                          ),
-                        ),
-                ),
-              ),
             ),
           ),
         ),
@@ -941,7 +715,6 @@ class _ActiveWordHighlightPainter extends CustomPainter {
   final HighlightingController controller;
   final AppState app;
   final List<InlineSpan> cachedSpans;
-  final bool isAudioMode;
   final bool isRecording;
   final bool isActive;
   final _AyahWordLayout? Function(double width) getWordLayout;
@@ -953,13 +726,10 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     required this.controller,
     required this.app,
     required this.cachedSpans,
-    required this.isAudioMode,
     required this.isRecording,
     required this.isActive,
     required this.getWordLayout,
-  }) : super(
-            repaint:
-                (isActive || isAudioMode) ? controller : null);
+  }) : super(repaint: isActive ? controller : null);
 
   static final Paint _greenPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _yellowPaint = Paint()..style = PaintingStyle.fill;
@@ -1155,7 +925,6 @@ class _ActiveWordHighlightPainter extends CustomPainter {
     return oldDelegate.surah != surah ||
         oldDelegate.ayah != ayah ||
         oldDelegate.cachedSpans != cachedSpans ||
-        oldDelegate.isAudioMode != isAudioMode ||
         oldDelegate.isRecording != isRecording ||
         oldDelegate.isActive != isActive;
   }

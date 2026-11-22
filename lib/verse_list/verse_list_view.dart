@@ -1,12 +1,8 @@
-import 'dart:async';
 import 'dart:math' as math;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:super_sliver_list/super_sliver_list.dart';
 import '../core/highlighting_controller.dart';
-import '../audio/quran_audio_service.dart';
-import '../audio/quran_timing_service.dart';
 import '../core/app_state.dart';
 import '../ui/widgets/dialogs/dialog_service.dart';
 import '../mushaf/mushaf_provider.dart';
@@ -135,8 +131,6 @@ class VerseListViewState extends State<VerseListView>
   }
 
   void _onActiveAyahChanged() {
-    if (QuranAudioService.instance.isSingleWordMode) return;
-
     final active = widget.controller.activeAyah.value;
     if (active != null && active != _lastAyah) {
       _lastAyah = active;
@@ -204,9 +198,7 @@ class VerseListViewState extends State<VerseListView>
       final double ayahHeight = renderBox.size.height;
       final double ayahBottom = ayahTop + ayahHeight;
 
-      if ((isManualTap || QuranAudioService.instance.isSingleWordMode) &&
-          ayahBottom >= upperSafeY &&
-          ayahTop <= lowerSafeY) {
+      if (isManualTap && ayahBottom >= upperSafeY && ayahTop <= lowerSafeY) {
         return;
       }
 
@@ -318,7 +310,6 @@ class VerseListViewState extends State<VerseListView>
     if (_isAutoScrolling) {
       stopAutoScrolling();
     } else {
-      QuranAudioService.instance.stop();
       if (!AppState.instance.hasChosenAutoScrollSpeed && mounted) {
         DialogService.showSpeedSelection(
           context,
@@ -339,7 +330,6 @@ class VerseListViewState extends State<VerseListView>
   }
 
   void startAutoScrolling() {
-    QuranAudioService.instance.stop();
     widget.controller.clearHighlights();
     widget.controller.finalize();
     setState(() => _isAutoScrolling = true);
@@ -414,7 +404,6 @@ class VerseListViewState extends State<VerseListView>
   // ── Surah Navigation ───────────────────────────────────────────────────────
   void _navigateToSurah(int newSurah) async {
     if (!QuranMetadata.isValidSurah(newSurah)) return;
-    QuranAudioService.instance.stop();
 
     if (widget.isRecording) {
       widget.onToggleRecord();
@@ -431,10 +420,6 @@ class VerseListViewState extends State<VerseListView>
     final mappedPage = MushafProvider.instance.getPageForAyah(newSurah, 1);
     if (mappedPage != null) {
       AppState.instance.saveMushafPage(mappedPage);
-    }
-    unawaited(QuranTimingService.instance.ensureSurahLoaded(newSurah));
-    if (!kIsWeb) {
-      unawaited(QuranAudioService.ensureAyahDownloaded(newSurah, 1));
     }
 
     if (mounted) {
@@ -486,53 +471,53 @@ class VerseListViewState extends State<VerseListView>
         physics: _isAutoScrolling
             ? const NeverScrollableScrollPhysics()
             : const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SuperSliverList(
-              listController: _listController,
-              delegate: SliverChildBuilderDelegate(
-                (_, i) {
-                  if (i == 0) {
-                    return SizedBox(height: topPadding);
-                  }
+        slivers: [
+          SuperSliverList(
+            listController: _listController,
+            delegate: SliverChildBuilderDelegate(
+              (_, i) {
+                if (i == 0) {
+                  return SizedBox(height: topPadding);
+                }
 
-                  if (i == displayVerses.length + 2) {
-                    return SizedBox(height: bottomClearance);
-                  }
+                if (i == displayVerses.length + 2) {
+                  return SizedBox(height: bottomClearance);
+                }
 
-                  if (i == displayVerses.length + 1) {
-                    return _buildEndOfSurahSection(c, app);
-                  }
+                if (i == displayVerses.length + 1) {
+                  return _buildEndOfSurahSection(c, app);
+                }
 
-                  final v = displayVerses[i - 1];
+                final v = displayVerses[i - 1];
 
-                  return RepaintBoundary(
-                    key: _keys.putIfAbsent(v.ayah, () => GlobalKey()),
-                    child: VerseRow(
-                      key: ValueKey('verse_${v.surah}_${v.ayah}'),
-                      verse: v,
-                      controller: widget.controller,
-                      isRecording: widget.isRecording,
-                      isAutoScrolling: _isAutoScrolling,
-                      onTap: () {
-                        _lastAyah = v.ayah;
-                        final mapped = MushafProvider.instance
-                            .getPageForAyah(v.surah, v.ayah);
-                        if (mapped != null) {
-                          AppState.instance.saveMushafPage(mapped);
-                        }
-                        _ensureAyahVisibleSmart(v.ayah, isManualTap: true);
-                      },
-                      onWordErrorTap: null,
-                      onActiveWordPositioned: _maintainWordInEyeView,
-                    ),
-                  );
-                },
-                childCount: displayVerses.length + 3,
-              ),
+                return RepaintBoundary(
+                  key: _keys.putIfAbsent(v.ayah, () => GlobalKey()),
+                  child: VerseRow(
+                    key: ValueKey('verse_${v.surah}_${v.ayah}'),
+                    verse: v,
+                    controller: widget.controller,
+                    isRecording: widget.isRecording,
+                    isAutoScrolling: _isAutoScrolling,
+                    onTap: () {
+                      _lastAyah = v.ayah;
+                      final mapped = MushafProvider.instance
+                          .getPageForAyah(v.surah, v.ayah);
+                      if (mapped != null) {
+                        AppState.instance.saveMushafPage(mapped);
+                      }
+                      _ensureAyahVisibleSmart(v.ayah, isManualTap: true);
+                    },
+                    onWordErrorTap: null,
+                    onActiveWordPositioned: _maintainWordInEyeView,
+                  ),
+                );
+              },
+              childCount: displayVerses.length + 3,
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
   }
 
   // ── End of Surah Navigation Section ────────────────────────────────────────

@@ -12,7 +12,6 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'highlighting_controller.dart';
-import '../audio/quran_audio_service.dart';
 
 // Supported UI languages.
 enum AppLanguage { ar, en }
@@ -22,14 +21,6 @@ enum AppMode { wordChecker, tajweed }
 
 // Available color themes: White and Black.
 enum AppTheme { white, black }
-
-// Failure reasons for audio streaming & API fetch.
-enum AudioFailureReason {
-  networkOffline,
-  serverUnavailable,
-  rateLimited,
-  unknown,
-}
 
 /// Real-time ASR model download progress tracker for Web.
 class ModelDownloadProgress {
@@ -247,9 +238,6 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     final prefs = await _getPrefs();
     await prefs.setBool('mushafMode', isMushafMode);
-    if (isMushafMode && !hasClickedMushafAudioAyah) {
-      showMushafAudioBanner();
-    }
   }
 
   void setMushafMode(bool value) async {
@@ -259,9 +247,6 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       final prefs = await _getPrefs();
       await prefs.setBool('mushafMode', isMushafMode);
-      if (isMushafMode && !hasClickedMushafAudioAyah) {
-        showMushafAudioBanner();
-      }
     }
   }
 
@@ -333,18 +318,6 @@ class AppState extends ChangeNotifier {
       final prefs = await _getPrefs();
       await prefs.setDouble('fontSize', size);
     } catch (_) {}
-  }
-
-  int mushafAudioClickCount = 0;
-  bool get hasClickedMushafAudioAyah => mushafAudioClickCount >= 10;
-
-  Future<void> markMushafAudioAyahClicked() async {
-    if (mushafAudioClickCount < 10) {
-      mushafAudioClickCount++;
-      notifyListeners();
-      final prefs = await _getPrefs();
-      await prefs.setInt('mushaf_audio_click_count', mushafAudioClickCount);
-    }
   }
 
   Future<void> saveMushafPage(int page) async {
@@ -421,54 +394,11 @@ class AppState extends ChangeNotifier {
   TrackerConfig get trackerConfig =>
       _trackerConfig.copyWith(tajweed: _tajweedConfig);
 
-  // ── Verse Audio Playback (Backward-compatible reactive bridge to QuranAudioService) ──
-  final ValueNotifier<int?> activeAudioAyah = ValueNotifier<int?>(null);
-  final ValueNotifier<int?> activeAudioSurah = ValueNotifier<int?>(null);
-  final ValueNotifier<bool> isAudioPlaying = ValueNotifier<bool>(false);
-  final ValueNotifier<bool> isAudioBuffering = ValueNotifier<bool>(false);
-  final ValueNotifier<int?> activeAudioWordIndex = ValueNotifier<int?>(null);
-  final ValueNotifier<bool> isContinuousPlayback = ValueNotifier<bool>(true);
-
-  void toggleVerseAudio({
-    required int surah,
-    required int ayah,
-    bool continuous = true,
-  }) {
-    QuranAudioService.instance.play(
-      surah: surah,
-      ayah: ayah,
-      continuous: continuous,
-    );
-  }
-
-  void stopVerseAudio() {
-    isAudioBuffering.value = false;
-    QuranAudioService.instance.stop();
-  }
-
-  void updateAudioState({
-    int? surah,
-    int? ayah,
-    int? wordIndex,
-    required bool isPlaying,
-    required bool isBuffering,
-  }) {
-    activeAudioSurah.value = surah;
-    activeAudioAyah.value = ayah;
-    activeAudioWordIndex.value = wordIndex;
-    isAudioPlaying.value = isPlaying;
-    isAudioBuffering.value = isBuffering;
-  }
-
   /// Currently active modern banner (replaces old SnackBars and unifies feedback).
   AppBannerInfo? currentBanner;
   Timer? _bannerTimer;
 
   bool get isBannerVisible => currentBanner != null;
-
-  /// Whether audio failure banner is visible (backward compatibility).
-  bool get isAudioErrorBannerVisible => currentBanner?.id == 'audio_error';
-  AudioFailureReason lastAudioFailureReason = AudioFailureReason.networkOffline;
 
   /// Set of banner IDs already seen by the user to provide adaptive display durations.
   final Set<String> _seenBannerIds = <String>{};
@@ -529,52 +459,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Dispatches an audio failure event to display the modern serene banner.
-  void triggerAudioError(
-      [AudioFailureReason reason = AudioFailureReason.networkOffline]) {
-    lastAudioFailureReason = reason;
-
-    final String arMsg;
-    final String enMsg;
-    final IconData icon;
-    switch (reason) {
-      case AudioFailureReason.serverUnavailable:
-        icon = Icons.cloud_off_rounded;
-        arMsg = 'تعذر الوصول إلى خادم التلاوة • يرجى المحاولة لاحقاً';
-        enMsg = 'Audio server temporarily unavailable • Please try again later';
-        break;
-      case AudioFailureReason.rateLimited:
-        icon = Icons.hourglass_top_rounded;
-        arMsg = 'تم تجاوز حد الطلبات المؤقت • يرجى الانتظار قليلاً';
-        enMsg = 'Rate limit reached • Please wait a moment and try again';
-        break;
-      case AudioFailureReason.networkOffline:
-      case AudioFailureReason.unknown:
-        icon = Icons.wifi_off_rounded;
-        arMsg =
-            'يتطلب تشغيل التلاوة اتصالاً بالإنترنت • تحقق من الشبكة وحاول ثانية';
-        enMsg =
-            'Audio playback requires internet • Check connection and try again';
-        break;
-    }
-
-    showBanner(AppBannerInfo(
-      id: 'audio_error',
-      messageAr: arMsg,
-      messageEn: enMsg,
-      icon: icon,
-      isWarning: true,
-      customDuration: const Duration(milliseconds: 3600),
-    ));
-  }
-
-  /// Immediately dismisses the audio error banner.
-  void dismissAudioError() {
-    if (currentBanner?.id == 'audio_error') {
-      dismissBanner();
-    }
-  }
-
   /// Dispatches the modern Tajweed mode enabled banner.
   void showTajweedBanner() {
     showBanner(const AppBannerInfo(
@@ -626,26 +510,6 @@ class AppState extends ChangeNotifier {
         icon: Icons.visibility_off_rounded,
         isWarning: false,
       ));
-    }
-  }
-
-  /// Dispatches the Mushaf Ayah audio hint banner (shows until user clicks ayah audio 10 times).
-  void showMushafAudioBanner() {
-    if (hasClickedMushafAudioAyah) return;
-    showBanner(const AppBannerInfo(
-      id: 'mushaf_audio_hint',
-      messageAr: 'المس رقم الآية للاستماع إلى التلاوة',
-      messageEn: 'Tap Ayah number to listen to recitation',
-      icon: Icons.headphones_rounded,
-      isWarning: false,
-      customDuration: Duration(milliseconds: 4000),
-    ));
-  }
-
-  /// Dismisses the Mushaf Ayah audio hint banner.
-  void dismissMushafAudioBanner() {
-    if (currentBanner?.id == 'mushaf_audio_hint') {
-      dismissBanner();
     }
   }
 
@@ -790,8 +654,6 @@ class AppState extends ChangeNotifier {
         tajweedClickCount = 10;
       }
       hasClickedTajweedNotifier.value = (tajweedClickCount >= 10);
-
-      mushafAudioClickCount = prefs.getInt('mushaf_audio_click_count') ?? 0;
 
       final seenBanners = prefs.getStringList('seen_banner_ids');
       if (seenBanners != null) {

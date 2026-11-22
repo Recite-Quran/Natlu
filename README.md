@@ -55,14 +55,13 @@ Natlu serves as the flagship reference application for [`package:quran_tajweedfo
 
 - **100% On-Device Neural Inference**: Powered by a quantized INT8 Zipformer model (`zipformer_p_arabic_v3.int8.onnx`). Zero audio frames ever leave the physical device.
 - **Zero Telemetry & Zero Accounts**: No tracking, no user identifiers, no remote database, and no mandatory internet connection.
-- **Collaborative Study Circles (Maglis P2P)**: Decentralized, serverless group recitation for up to 4 participants with synchronized Mus'haf tracking, custom binary DataChannel serialization, and WebRTC voice calls.
 - **Dedicated for Allah Alone**: 100% free forever—no ads, no paywalls, no subscriptions, and no commercialization.
 
 ---
 
 ## Architecture
 
-Natlu separates high-performance presentation, native vector rendering, decentralized real-time networking, and neural acoustic modeling into strictly decoupled layers:
+Natlu separates high-performance presentation, native vector rendering, and neural acoustic modeling into strictly decoupled layers:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -74,7 +73,7 @@ Natlu separates high-performance presentation, native vector rendering, decentra
                 │                            │
                 ▼                            ▼
 ┌──────────────────────────────┐  ┌──────────────────────────────────────┐
-│     package:qvp_flutter      │  │        package:quran_tajweedformer          │
+│     package:qvp_flutter      │  │        package:quran_tajweedformer   │
 │  (Native Vector Engine)      │  │  (ASR & Acoustic Tajweed Pipeline)   │
 │  ├── C++/Rust FFI & WASM     │  │  ├── SherpaEngine (ONNX Isolate)     │
 │  ├── Sub-ms HafsSmart layout │  │  ├── AudioProcessor (16 kHz PCM)     │
@@ -82,15 +81,6 @@ Natlu separates high-performance presentation, native vector rendering, decentra
 └──────────────────────────────┘  │  ├── TajweedValidator (Acoustic ms)  │
                                   │  └── QuranData (Myers Search, 6236 v)│
                                   └──────────────────────────────────────┘
-                                                     ▲
-                                                     │ Direct WebRTC & Data
-┌────────────────────────────────────────────────────┴───────────────────┐
-│                     Maglis P2P Engine (lib/maglis/)                    │
-│  ├── MaglisBinaryPacker (Custom varint wire protocol, >60% payload drop)│
-│  ├── MaglisPeerSession (Dual SCTP DataChannels, WebRTC Opus conference)│
-│  ├── MaglisRelayFleet (Hybrid signaling: Cloudflare DO + 7 Nostr nodes) │
-│  └── MaglisConfigManager (Remote fleet discovery & dynamic TURN cache) │
-└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -133,148 +123,6 @@ Unlike applications that render rasterized PNG page scans (which blur on high-DP
 ### 6. Master Reference Audio & Multi-Riwayah
 - **Reference Audio**: High-clarity unified audio playback by Sheikh Mahmoud Khalil Al-Husary via the MP3Quran API, featuring sample-accurate timestamp seeking.
 - **Multi-Riwayah Ready**: Architectural foundations designed to support the 10 Mutawatir Qira'at and canonical verse-counting traditions.
-
----
-
-## Collaborative Recitation Circles — Maglis P2P ( القران العظيم)
-
-**Maglis (مجلس)** is Natlu's decentralized, real-time collaboration engine for Quran study circles, teacher-student revision, and group recitation. It operates with zero user accounts, zero databases, and zero centralized servers.
-
-<div align="center">
-<table style="width: 100%; max-width: 900px; margin: 16px auto; border: none; border-collapse: collapse; text-align: center;">
-  <tr style="border: none;">
-    <td style="width: 25%; padding: 4px; border: none;">
-      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630236-695024-screenshot-20261102-074333-recite-quran.jpg" alt="Create Maglis Room" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
-    </td>
-    <td style="width: 25%; padding: 4px; border: none;">
-      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630236-848205-1.jpg" alt="Join via 5-Digit Code" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
-    </td>
-    <td style="width: 25%; padding: 4px; border: none;">
-      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630236-986731-2.jpg" alt="Synchronized Mushaf Canvas" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
-    </td>
-    <td style="width: 25%; padding: 4px; border: none;">
-      <img src="https://community.itqan.dev/assets/files/2026-11-02/1793630237-129526-3.jpg" alt="Real-Time Word Highlighting & Error Tracking" style="height: 220px; max-height: 220px; width: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e5e7eb;" />
-    </td>
-  </tr>
-</table>
-
-[![Maglis Demo Video](https://img.shields.io/badge/YouTube-Watch%20Demo%20Video-red?logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=3UEUPgECl5s)
-</div>
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                     Natlu Maglis Session (5-Digit Room Code)           │
-│                                                                        │
-│   Peer A (Active Reciter) ◄── Direct WebRTC DataChannel (Sync) ──► Peer B (Student)
-│   Peer A (Microphone)     ◄── Direct WebRTC Opus (48 kHz)      ──► Peer B (Speaker)
-│             │                                                            │
-│             └─────────────────────┬──────────────────────────────────────┘
-│                                   │ Direct WebRTC Full Mesh
-│                                   ▼
-│                        Peer C (Teacher / Listener)
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Ephemeral BIP-340 Signaling
-                                    ▼
-                    ┌───────────────────────────────┐
-                    │     Decentralized Fleet       │
-                    ├───────────────────────────────┤
-                    │ 1. Cloudflare Edge Relay (DO) │
-                    │ 2. Public Nostr Relays (7x)   │
-                    │ 3. Dynamic STUN/TURN Engine   │
-                    └───────────────────────────────┘
-```
-
-### 1. Frictionless User Experience
-- **5-Digit Room Codes**: Connect instantly by sharing a simple 5-digit room code (supports Eastern Arabic numerals `٠-٩`). No phone numbers, email addresses, or account registrations.
-- **Up to 4 Participants**: Optimized full-mesh peer topology for family halaqas, teacher-student evaluations, and study circles.
-- **Turn-Taking Floor Control**: Tap "Record / تلاوة" to claim the active recitation floor (`floorClaim`). The Mus'haf page, active verse, and word-by-word highlights automatically synchronize to all participant screens in real time.
-
-### 2. High-Efficiency Binary Wire Protocol (`MaglisBinaryPacker`)
-To eliminate the overhead and JSON parsing latency over WebRTC SCTP DataChannels, Maglis implements a custom binary serialization format:
-
-| Byte Offset | Field | Format / Encoding | Purpose |
-| :--- | :--- | :--- | :--- |
-| `0x00` | Magic | `0x51` (ASCII 'Q') | Wire protocol identifier |
-| `0x01` | Version | `0x01` | Protocol versioning |
-| `0x02` | Packet Type | `uint8` enum (0-5) | `snapshot`, `recitationUpdate`, `floorClaim`, `floorRelease`, `ping`, `pong` |
-| `0x03+` | Sequence & Sender | Varint + Length-prefixed UTF-8 | Monotonic ordering & peer ID |
-| `Offset` | Navigation | 3x Varints (`page`, `surah`, `ayah`) | Viewport page & verse coordinate |
-| `Offset` | Bit Flags | `uint8` bitmask | Indicates presence of words, errors, active reciter, and cumulative maps |
-| `Offset` | Packed Word Arrays | Varint lengths + Varint IDs | Delta-compressed green, yellow, and red word indices |
-| `End` | Epoch Timestamp | Varint (platform-safe division) | 41-bit+ millisecond timestamp safe from 32-bit truncation on Web |
-
-> **Performance Impact**: Achieves a **>60% payload reduction** compared to equivalent JSON payloads, cutting DataChannel transmission latency down to **sub-15 milliseconds**.
-
-### 3. Dedicated Quranic Opus Audio Pipeline
-General VoIP algorithms (like Zoom or Discord) aggressively gate background sound and cut off soft frequencies, causing prolonged Madd (up to 6 harakat) and quiet Ghunnah to stutter. Maglis custom-tunes the audio stack specifically for Quran recitation:
-- **Sample Rate**: Full-band 48 kHz / 16-bit PCM mono.
-- **Tailored APM Constraints**: Echo cancellation (`echoCancellation: true`) and automatic gain control (`autoGainControl: true`) are enforced for loud loudspeaker output across Android, iOS, Windows, and Web.
-- **Preserved Vocal Warmth**: Telephony noise suppression (`noiseSuppression: false`) and telephony highpass filters (`highpassFilter: false`) are intentionally disabled to preserve subtle vocal resonance and breath pauses.
-- **Custom SDP Munging**: Injects Opus parameters (`useinbandfec=1`, `usedtx=0`, `maxaveragebitrate=48000`, `ptime=20`) to eliminate audio gating and guarantee forward error recovery over lossy cellular networks.
-- **Hardware Routing**: Automatic loudspeaker enforcement, headphone unplug protection (`becomingNoisyEventStream`), and automatic audio recovery after incoming phone calls.
-
-### 4. Synchronized Mus'haf & Collaborative Tajweed Tooltips
-- As the active reciter reads, all connected peers follow the exact page turns, scrolling, and word-level coloring live.
-- **Remote Tajweed Inspector**: When an acoustic Tajweed error occurs, the word turns yellow on everyone's screen, and an on-canvas tooltip ("اضغط هنا") appears. Any participant can tap the word to inspect the error diagnostics in real time.
-- **Cumulative Session History**: Highlights from earlier verses in the current session are retained across page turns and cleared deterministically upon new passage recitation.
-
-### 5. Resilient Hybrid Signaling Fleet
-- **Tier 1 (Sub-30ms Edge)**: Private Cloudflare Edge Worker utilizing SQLite-backed **Durable Objects** and WebSocket Hibernation (zero compute costs when idle).
-- **Tier 2 (Decentralized Backbone)**: Connects to a quorum of 7 public Nostr relays (`relay.damus.io`, `relay.primal.net`, `nos.lol`, `nostr.mom`, etc.) ensuring censorship resistance and high availability even if custom servers are unreachable.
-- **Smart Socket Sleep**: Once WebRTC direct peer connections are established, signaling WebSocket connections automatically sleep, dropping idle network traffic to **0 KB/s**.
-
-### 6. End-to-End Cryptographic Privacy
-- **BIP-340 Schnorr Cryptography**: Ephemeral keypairs are generated per session for Nostr signaling event authorization.
-- **Rotating Blinded Room Tags**: 15-minute epoch-based blinded tags (`blindedTag`) derived via HMAC-SHA256 with an internal 256-bit application pepper prevent public relay observers from rainbow-tabling or tracking 5-digit room codes.
-- **AES-256-GCM Payload Encryption**: All signaling payloads (SDP offers, answers, and ICE candidate batches) are symmetrically encrypted before leaving the device.
-
-### 7. Dynamic Fleet Configuration (Zero App Updates)
-Natlu synchronizes its relay list and STUN/TURN ICE fleet dynamically on startup via `maglis_config.json`:
-- **Multi-Tier CDN Fallback**: `Edge Worker (/config)` ➔ `jsDelivr CDN` ➔ `GitHub Raw` ➔ `SharedPreferences Cache` ➔ `Hardcoded Fallback`.
-- **Zero Store Delays**: Maintainers can cycle, optimize, or replace STUN/TURN servers remotely in seconds without waiting for Google Play or Apple App Store review cycles.
-
-### 8. Mesh Self-Healing & Glare Resolution
-- **Deterministic Glare Resolution**: When two peers initiate connections simultaneously, the peer with the lexicographically lower peer ID acts as the designated offerer, cleanly preventing WebRTC offer glare.
-- **1-Hop Deduplicated Mesh Relay**: If a peer is temporarily blocked behind symmetric NAT or mid-negotiation, other connected peers relay floor claims and recitation packets transparently over active DataChannels.
-- **Bounded 15s Recovery Window**: Disconnections trigger paced ICE restarts (at 2s and 6.5s) before tearing down peer state, absorbing transient Wi-Fi/cellular handoffs.
-
----
-
-## Deploying Your Own Maglis Relay (`maglis_relay/`)
-
-The `maglis_relay/` directory contains a self-contained Cloudflare Worker with SQLite-backed Durable Objects and WebSocket Hibernation. It runs within Cloudflare's free tier with zero ongoing hosting costs.
-
-### 1. Prerequisites
-- [Node.js](https://nodejs.org/) v18 or later.
-- A free [Cloudflare Account](https://dash.cloudflare.com/sign-up).
-
-### 2. Deploy the Worker
-From the repository root:
-```bash
-cd maglis_relay
-npx wrangler deploy
-```
-- Wrangler will authenticate via your browser.
-- Authorize your account, and Wrangler will provision the Durable Object binding and output your live endpoint:
-  ```text
-  Deployed quran-maglis triggers
-    https://quran-maglis.<your-account>.workers.dev
-  ```
-
-### 3. Update the Dynamic Fleet
-Edit `maglis_relay/maglis_config.json`:
-```json
-{
-  "version": 1,
-  "relays": [
-    "wss://quran-maglis.<your-account>.workers.dev",
-    "wss://relay.primal.net",
-    "wss://nos.lol",
-    "wss://relay.damus.io"
-  ]
-}
-```
-Push changes to your repository. Connected client applications will automatically ingest the new relay fleet upon launch.
 
 ---
 

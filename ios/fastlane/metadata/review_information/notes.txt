@@ -12,7 +12,6 @@ No account, login, or credentials needed. No paid content, subscriptions, in-app
 2. Select any surah from the list.
 3. Tap the microphone button and recite verses aloud.
 4. Words highlight in real time: green (correct), red (skipped/misread), yellow (Tajweed timing). Tap yellow/red words for details.
-5. Maglis (Collaborative Recitation): Tap the Maglis icon on the home/mushaf screen, enter a 5-digit room code (or create a room) to test the peer-to-peer session. No account or registration is required.
 
 NOTE FOR REVIEWER: The app only responds to recited Quranic Arabic (the on-device model is trained exclusively on it). If you do not recite Arabic, you can test it completely by playing a recording of the chosen verses aloud from a second device held near the iPhone.
 
@@ -20,7 +19,6 @@ EXTERNAL SERVICES USED
 
 - Recitation Audio: Public domain verse recordings (Mahmoud Khalil Al-Husary) streamed/cached on-demand from everyayah.com for playback.
 - Speech recognition (100% on-device): Zipformer CTC acoustic model bundled locally via ONNX Runtime (CoreML). No audio ever leaves the device.
-- Collaborative Recitation (Maglis): Ephemeral peer-to-peer WebRTC connections (using decentralized relays for initial handshakes). No audio or room data is stored on any server.
 - Privacy: No user tracking, no authentication, no user accounts, no analytics or ads SDKs. Microphone audio is processed strictly in memory, never written to disk or transmitted over the network.
 
 REGIONAL DIFFERENCES

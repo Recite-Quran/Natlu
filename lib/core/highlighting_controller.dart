@@ -5,14 +5,12 @@ import 'package:quran_tarteel/quran_tarteel.dart' as rq;
 export 'package:quran_tarteel/quran_tarteel.dart';
 
 import 'app_state.dart';
-import '../audio/quran_audio_service.dart';
 import '../ui/widgets/dialogs/dialog_service.dart';
 
-/// Recitation & Audio playback source.
+/// Recitation source.
 enum RecitationSource {
   none,
   localAsr,
-  audioPlayback,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +47,7 @@ abstract final class QuranCoordinate {
 ///
 /// High-performance flat O(1) bit-packed key store for Quran word highlight states
 /// (1: Green, 2: Yellow, 3: Red, 4: Neutral) and Tajweed recitation errors.
-/// Serves as the single source of truth for all producers (Local ASR and Audio Playback).
+/// Serves as the single source of truth for Local ASR.
 class HighlightStore {
   // Key: QuranCoordinate.packWordKey(surah, ayah, word0) -> status (1..4)
   final Map<int, int> _states = {};
@@ -203,8 +201,8 @@ class HighlightStore {
 /// HighlightingController
 ///
 /// Decoupled, single-source-of-truth recitation and playback controller.
-/// Extends [rq.HighlightingController] to serve local ASR dictation, collaborative
-/// Maglis WebRTC sessions, and audio playback tracking through a unified API.
+/// Extends [rq.HighlightingController] to serve local ASR dictation and audio playback
+/// tracking through a unified API.
 ///
 /// Presentation layers (Mushaf, VerseList, dialogs, overlays) observe this single
 /// controller. They never need separate branches or conditional code per mode.
@@ -255,14 +253,6 @@ class HighlightingController extends ChangeNotifier {
     // re-follows whatever coordinate is settled now.
     notifyListeners();
   }
-
-  // Audio Playback state
-  int? _audioSurah;
-  int? _audioAyah;
-  int? _audioWordIndex;
-  bool _isAudioPlaying = false;
-  bool _isAudioBuffering = false;
-  bool _isAudioPaused = false;
 
   StreamSubscription? _engineTranscriptionSub;
   StreamSubscription<rq.WordMatchedEvent>? _wordEvaluatedSub;
@@ -396,7 +386,7 @@ class HighlightingController extends ChangeNotifier {
 
   /// Reactive ingestion of automatic re-anchoring when the reciter skips ahead or jumps verses.
   void _onEngineAutoReanchored(rq.AutoReanchorEvent event) {
-    if (isAudioActive || _isRetargeting) return;
+    if (_isRetargeting) return;
     final int surah = event.surah > 0 ? event.surah : targetSurah;
     final int ayah = event.ayah;
     if (surah == 0 || ayah == 0) return;
@@ -416,7 +406,7 @@ class HighlightingController extends ChangeNotifier {
 
   /// Pure reactive ingestion of word evaluations directly from the engine isolate.
   void _onEngineWordEvaluated(rq.WordMatchedEvent event) {
-    if (isAudioActive || _isRetargeting) return;
+    if (_isRetargeting) return;
     final int surah = event.surah > 0 ? event.surah : targetSurah;
     final int ayah = event.ayah;
     final int w0 = event.wordInAyah;
@@ -474,45 +464,10 @@ class HighlightingController extends ChangeNotifier {
 
   /// The active source driving highlighting/progress.
   RecitationSource get activeSource {
-    if (isAudioActive) return RecitationSource.audioPlayback;
-    if (activeAyah.value != null && !isAudioActive) {
+    if (activeAyah.value != null) {
       return RecitationSource.localAsr;
     }
     return RecitationSource.none;
-  }
-
-  // ── Audio Playback State ──
-
-  /// Whether Quran verse/word audio playback or buffering is currently active.
-  bool get isAudioActive =>
-      (_isAudioPlaying || _isAudioBuffering) &&
-      _audioSurah != null &&
-      _audioAyah != null;
-
-  bool get isAudioPlaying => _isAudioPlaying;
-  bool get isAudioBuffering => _isAudioBuffering;
-  bool get isAudioPaused =>
-      _isAudioPaused && _audioSurah != null && _audioAyah != null;
-  int? get audioSurah => _audioSurah;
-  int? get audioAyah => _audioAyah;
-  int? get audioWordIndex => _audioWordIndex;
-
-  /// Checks if audio playback or buffering is currently active for [surah, ayah].
-  bool isAyahAudioActive(int surah, int ayah) =>
-      isAudioActive && _audioSurah == surah && _audioAyah == ayah;
-
-  /// Checks if audio playback is currently playing for [surah, ayah].
-  bool isAyahAudioPlaying(int surah, int ayah) =>
-      _isAudioPlaying && _audioSurah == surah && _audioAyah == ayah;
-
-  /// Checks if audio playback is currently buffering for [surah, ayah].
-  bool isAyahAudioBuffering(int surah, int ayah) =>
-      _isAudioBuffering && _audioSurah == surah && _audioAyah == ayah;
-
-  /// The active recitation or audio lead word index (0-based in active ayah).
-  int? get activeWordIndex {
-    if (isAudioActive) return _audioWordIndex;
-    return null;
   }
 
   /// The active coordinate (surah, ayah) driving playback or recitation.
@@ -531,9 +486,8 @@ class HighlightingController extends ChangeNotifier {
   HighlightStore get highlightStore => _store;
 
   int get targetSurah {
-    // Single coordinate: every source (manual selection, ASR, audio playback,
-    // Maglis packets) mirrors into _manualTargetSurah at its merge point, so
-    // there is nothing to disambiguate here.
+    // Single coordinate: every source (manual selection, ASR, audio playback)
+    // mirrors into _manualTargetSurah at its merge point, so there is nothing to disambiguate here.
     if (_manualTargetSurah != 0) {
       return _manualTargetSurah;
     }
@@ -617,7 +571,7 @@ class HighlightingController extends ChangeNotifier {
   }
 
   /// Extracts word classification lists (green, yellow, red, wordErrors) for an ayah.
-  /// Used for network sync (Maglis) and evaluation snapshots.
+  /// Used for evaluation snapshots and progress summaries.
   ({
     List<int> greenWords,
     List<int> yellowWords,
@@ -653,16 +607,9 @@ class HighlightingController extends ChangeNotifier {
 
   void setManualAyah(int surah, int ayah) {
     // Local fields are the authoritative coordinate for every reader from
-    // this moment on; a manual selection also takes the coordinate away from
-    // any running audio playback.
+    // this moment on.
     _manualTargetSurah = surah;
     activeAyah.value = ayah;
-    _audioSurah = null;
-    _audioAyah = null;
-    _audioWordIndex = null;
-    _isAudioPlaying = false;
-    _isAudioBuffering = false;
-    _isAudioPaused = false;
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
@@ -701,7 +648,7 @@ class HighlightingController extends ChangeNotifier {
 
   rq.VerseMatch? get currentMatchedVerse {
     // The mirrored coordinate IS the matched verse for every source (manual
-    // selection, ASR anchor, audio playback, Maglis packets). Pure coordinate
+    // selection, ASR anchor, audio playback). Pure coordinate
     // read - no fallback into the package.
     if (_manualTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
@@ -715,8 +662,8 @@ class HighlightingController extends ChangeNotifier {
   // ── Word Status Queries (pure store reads) ──
   //
   // The package's verdicts arrive reactively through onWordEvaluated and live in the
-  // store from then on; audio playback and Maglis packets write the same
-  // store at their ingestion points. Every query below — the paint path
+  // store from then on; audio playback writes the same
+  // store at its ingestion point. Every query below — the paint path
   // included — is a single O(1) lookup. No source is ever consulted at read
   // time: package → controller → view, one direction.
 
@@ -827,99 +774,6 @@ class HighlightingController extends ChangeNotifier {
   ]) =>
       rq.TajweedRuleFactory.instantiate(wRule, config);
 
-  // ── Audio Playback Ingestion ──
-
-  /// Ingests audio playback state updates from the audio player.
-  void applyAudioProgress({
-    int? surah,
-    int? ayah,
-    int? wordIndex,
-    bool? isPlaying,
-    bool? isBuffering,
-    bool? isPaused,
-  }) {
-    // If playback completely stopped or was reset to idle:
-    if (isPlaying == false &&
-        isBuffering == false &&
-        isPaused != true &&
-        surah == null &&
-        ayah == null) {
-      clearAudio();
-      return;
-    }
-
-    bool changed = false;
-
-    if (_audioSurah != surah) {
-      _audioSurah = surah;
-      changed = true;
-    }
-    if (_audioAyah != ayah) {
-      _audioAyah = ayah;
-      changed = true;
-    }
-    if (_audioWordIndex != wordIndex) {
-      _audioWordIndex = wordIndex;
-      changed = true;
-    }
-    if (isPlaying != null && _isAudioPlaying != isPlaying) {
-      _isAudioPlaying = isPlaying;
-      changed = true;
-    }
-    if (isBuffering != null && _isAudioBuffering != isBuffering) {
-      _isAudioBuffering = isBuffering;
-      changed = true;
-    }
-    if (isPaused != null && _isAudioPaused != isPaused) {
-      _isAudioPaused = isPaused;
-      changed = true;
-    }
-
-    // Align base controller targetSurah and activeAyah with audio playback verse only when actively playing/buffering
-    if ((_isAudioPlaying || _isAudioBuffering) &&
-        surah != null &&
-        surah != 0) {
-      if (_manualTargetSurah != surah) {
-        _manualTargetSurah = surah;
-        changed = true;
-      }
-      if (ayah != null && ayah != 0 && activeAyah.value != ayah) {
-        activeAyah.value = ayah;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      if ((_isAudioPlaying || _isAudioBuffering) &&
-          _audioSurah != null &&
-          _audioAyah != null) {
-        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
-        AppState.instance.saveLastPosition(_audioSurah!, _audioAyah!);
-      }
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
-
-  /// Clears audio playback state when audio stops.
-  void clearAudio() {
-    if (_audioSurah != null ||
-        _audioAyah != null ||
-        _audioWordIndex != null ||
-        _isAudioPlaying ||
-        _isAudioBuffering ||
-        _isAudioPaused) {
-      _audioSurah = null;
-      _audioAyah = null;
-      _audioWordIndex = null;
-      _isAudioPlaying = false;
-      _isAudioBuffering = false;
-      _isAudioPaused = false;
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
-
   // ── Clearing & Synchronization ──
 
   void clearHighlightsFromAyah(int startAyah, {int? surah}) {
@@ -963,7 +817,6 @@ class HighlightingController extends ChangeNotifier {
         (targetSurah != 0 && targetSurah != surah)) {
       return null;
     }
-    if (isAudioActive) return audioWordIndex;
     if (isRecording) {
       for (int i = 0; i < totalWords; i++) {
         if (!isWordRead(ayah, i, surah: surah)) {
@@ -982,8 +835,8 @@ class HighlightingController extends ChangeNotifier {
 
   /// The single coordinate every recitation source currently drives.
   ///
-  /// Audio progress and Maglis packets are mirrored into
-  /// [targetSurah]/[activeAyah] by their merge points — the same fields live
+  /// Audio progress is mirrored into
+  /// [targetSurah]/[activeAyah] by its merge point — the same fields live
   /// local ASR writes — so any host that renders pages follows this one pair
   /// to stay in sync through ayahs, pages and surahs. Surah 0 means no
   /// coordinate exists yet (fresh app, nothing selected or recited).
@@ -1609,10 +1462,6 @@ abstract final class QuranInteractionService {
     required HighlightingController controller,
     VoidCallback? onTap,
   }) async {
-    if (controller.isAudioActive) {
-      QuranAudioService.instance.stop();
-      controller.clearAudio();
-    }
     controller.setManualAyah(surah, ayah);
     onTap?.call();
   }
@@ -1671,44 +1520,14 @@ abstract final class QuranInteractionService {
       return;
     }
 
-    // ── 2. Word Play ──
-    // Always needs ayah selection first.
+    // ── 2. Normal Word Tap ──
+    // Selects the ayah if not already selected.
     if (!isAlreadySelected) {
       selectAyah(
         surah: surah,
         ayah: ayah,
         controller: controller,
         onTap: onAyahTap,
-      );
-      return;
-    }
-
-    QuranAudioService.instance.playWord(
-      surah: surah,
-      ayah: ayah,
-      wordIndex: wordIndex,
-    );
-  }
-
-  /// Toggles Ayah audio playback.
-  static Future<void> toggleAyahAudio({
-    required int surah,
-    required int ayah,
-    required HighlightingController controller,
-    required bool isRecording,
-    VoidCallback? onTap,
-    VoidCallback? onExplicitToggle,
-  }) async {
-    if (onExplicitToggle != null) {
-      onTap?.call();
-      onExplicitToggle();
-    } else {
-      await QuranAudioService.instance.toggleAyah(
-        surah: surah,
-        ayah: ayah,
-        controller: controller,
-        continuous: !isRecording,
-        onTap: onTap,
       );
     }
   }
