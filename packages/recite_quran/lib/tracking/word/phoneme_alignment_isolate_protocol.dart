@@ -92,6 +92,11 @@ sealed class IsolateCommand {
         );
 
       case 'update_config':
+        final rawTajweed = map['tajweed'];
+        final tajweedConfig = rawTajweed is Map
+            ? TajweedConfig.fromMap(rawTajweed)
+            : const TajweedConfig();
+
         return UpdateTrackerConfigCommand(
           config: TrackerConfig(
             recitationSpeed:
@@ -101,8 +106,16 @@ sealed class IsolateCommand {
             enableEarlyMatching: map['enableEarlyMatching'] as bool? ?? true,
             enableAutoReanchor: map['enableAutoReanchor'] as bool? ?? false,
             reanchorStallThreshold: map['reanchorStallThreshold'] as int? ?? 24,
+            tajweed: tajweedConfig,
           ),
         );
+
+      case 'update_tajweed_config':
+        final rawTajweed = map['tajweed'];
+        final tajweedConfig = rawTajweed is Map
+            ? TajweedConfig.fromMap(rawTajweed)
+            : const TajweedConfig();
+        return UpdateTajweedConfigCommand(tajweed: tajweedConfig);
 
       case 'stop':
         return const StopIsolateCommand();
@@ -220,6 +233,18 @@ class UpdateTrackerConfigCommand extends IsolateCommand {
         'enableEarlyMatching': config.enableEarlyMatching,
         'enableAutoReanchor': config.enableAutoReanchor,
         'reanchorStallThreshold': config.reanchorStallThreshold,
+        'tajweed': config.tajweed.toMap(),
+      };
+}
+
+class UpdateTajweedConfigCommand extends IsolateCommand {
+  final TajweedConfig tajweed;
+  const UpdateTajweedConfigCommand({required this.tajweed});
+
+  @override
+  Map<String, dynamic> toMap() => {
+        'command': 'update_tajweed_config',
+        'tajweed': tajweed.toMap(),
       };
 }
 

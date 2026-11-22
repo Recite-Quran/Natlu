@@ -20,10 +20,11 @@ class DebugLogger {
   }
 
   /// Central logging method with structured AI-readable layout.
-  static void log(String tag, String message) {
+  static void log(String tag, String message, {String? asrBuffer}) {
     String logLine = '[${_timestamp()}] [$tag] $message';
-    if (_currentAsrBuffer.isNotEmpty) {
-      logLine += ' | ASR: $_currentAsrBuffer';
+    final effectiveBuffer = asrBuffer ?? _currentAsrBuffer;
+    if (effectiveBuffer.isNotEmpty) {
+      logLine += ' | ASR: $effectiveBuffer';
     }
     if (kIsWeb) {
       // ignore: avoid_print

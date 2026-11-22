@@ -30,7 +30,7 @@ export 'engine/tajweedformer_v4/tajweedformer_engine.dart';
 /// real-time phonetic transcriptions.
 class QuranRecognizer {
   final ReciteEngine _engine;
-  final AudioProcessor _audioProcessor = AudioProcessor();
+  AudioProcessor? _audioProcessor;
 
   QuranRecognizer({
     ReciteEngine? engine,
@@ -48,6 +48,9 @@ class QuranRecognizer {
 
   /// Access to the underlying low-level [ReciteEngine].
   ReciteEngine get engine => _engine;
+
+  /// Optional audio processor for microphone capture. Lazily instantiated.
+  AudioProcessor get audioProcessor => _audioProcessor ??= AudioProcessor();
 
   /// Whether the neural engine has finished loading weights into memory.
   bool get isInitialized => _engine.isInitialized;
@@ -84,7 +87,7 @@ class QuranRecognizer {
     bool autoFeed = true,
     void Function(Float32List chunk, bool isFinal)? onChunk,
   }) async {
-    await _audioProcessor.start(
+    await audioProcessor.start(
       onChunk: (chunk, isFinal) {
         if (autoFeed) {
           acceptWaveform(chunk, isFinal: isFinal);
@@ -95,11 +98,12 @@ class QuranRecognizer {
   }
 
   /// Stops microphone capture.
-  Future<void> stopMicrophoneCapture() => _audioProcessor.stop();
+  Future<void> stopMicrophoneCapture() =>
+      _audioProcessor?.stop() ?? Future.value();
 
   /// Destroys the recognizer and frees native FFI / WASM resources.
   void destroy() {
-    _audioProcessor.stop();
+    _audioProcessor?.stop();
     _engine.destroy();
   }
 }

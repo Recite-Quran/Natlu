@@ -14,6 +14,9 @@ import '../../utils/debug_logger.dart';
 import '../word/dictation_matcher.dart';
 import 'tajweed_rule.dart';
 
+export 'tajweed_checkers.dart';
+export 'tajweed_config.dart';
+export 'tajweed_engine.dart';
 export 'tajweed_rule.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -335,17 +338,19 @@ class DurationEvaluator {
     required String predText,
     required double spanDuration,
     required RecitationSpeed speed,
+    int wordBaseCount = 0,
   }) {
     final rule = const ShaddahRule();
     final double minReq = rule.getMinAllowedDuration(speed);
     final double req = rule.getRequiredDuration(speed);
     final int predBaseCount = countBaseOccurrences(predText, span.baseChar);
 
-    final bool shaddahHeld = spanDuration >= minReq || predBaseCount >= 2;
+    final bool shaddahHeld =
+        spanDuration >= minReq || predBaseCount >= 2 || wordBaseCount >= 2;
 
     DebugLogger.log(
       'Tajweed',
-      '🎯 [GRADING SHADDAH] Span: "${span.refText}" | ASR: "$predText" | Dur: ${spanDuration.toStringAsFixed(3)}s (req: ${req.toStringAsFixed(3)}s) | Held: $shaddahHeld',
+      '🎯 [GRADING SHADDAH] Span: "${span.refText}" | ASR: "$predText" | Dur: ${spanDuration.toStringAsFixed(3)}s (req: ${req.toStringAsFixed(3)}s) | Held: $shaddahHeld (predBase: $predBaseCount, wordBase: $wordBaseCount)',
     );
 
     if (!shaddahHeld) {
@@ -503,10 +508,12 @@ class SpanEvaluator {
     required bool hasDelete,
     required String wordText,
     required int wordRefEnd,
+    int wordBaseCount = 0,
     TrackerConfig config = const TrackerConfig(),
   }) {
     final List<ReciterError> errors = [];
     final speed = config.recitationSpeed;
+    final tajweedConfig = config.tajweed;
 
     // ── Phase 1: Base Character Verification (Letter Identity & Deletion) ──
     if (span.refText.isNotEmpty) {
@@ -548,7 +555,8 @@ class SpanEvaluator {
           ),
         );
         return errors;
-      } else if (span.baseChar != predText[0] &&
+      } else if (tajweedConfig.checkLetterSwap &&
+          span.baseChar != predText[0] &&
           !PhoneticCostEngine.isEquivalentGlyph(
             span.baseChar.codeUnitAt(0),
             predText.codeUnitAt(0),
@@ -566,7 +574,7 @@ class SpanEvaluator {
     }
 
     // ── Phase 2: Tajweed Duration & Multi-Head Neural Diagnostics ──
-    if (span.isMadd) {
+    if (span.isMadd && tajweedConfig.checkMadd) {
       if (spanDuration <= 0.0) return errors;
 
       final rule = span.matchedWordRule != null
@@ -586,7 +594,7 @@ class SpanEvaluator {
       return errors;
     }
 
-    if (span.isGhunnah) {
+    if (span.isGhunnah && tajweedConfig.checkGhunnah) {
       if (spanDuration <= 0.0) return errors;
 
       final rule = span.matchedWordRule != null
@@ -605,18 +613,19 @@ class SpanEvaluator {
       return errors;
     }
 
-    if (span.isShaddah) {
+    if (span.isShaddah && tajweedConfig.checkShaddah) {
       final err = DurationEvaluator.evaluateShaddah(
         span: span,
         predText: predText,
         spanDuration: spanDuration,
         speed: speed,
+        wordBaseCount: wordBaseCount,
       );
       if (err != null) errors.add(err);
       return errors;
     }
 
-    if (span.isQalqalah) {
+    if (span.isQalqalah && tajweedConfig.checkQalqalah) {
       final err = QalqalahEvaluator.evaluate(
         span: span,
         predText: predText,
@@ -628,13 +637,15 @@ class SpanEvaluator {
     }
 
     // ── Phase 3: Tashkeel / Harakat Evaluation on Matching Base Consonants ──
-    final tashkeelErr = TashkeelEvaluator.evaluate(
-      span: span,
-      predText: predText,
-      wordRefEnd: wordRefEnd,
-    );
-    if (tashkeelErr != null) {
-      errors.add(tashkeelErr);
+    if (tajweedConfig.checkTashkeel) {
+      final tashkeelErr = TashkeelEvaluator.evaluate(
+        span: span,
+        predText: predText,
+        wordRefEnd: wordRefEnd,
+      );
+      if (tashkeelErr != null) {
+        errors.add(tashkeelErr);
+      }
     }
 
     return errors;
@@ -761,6 +772,67 @@ class ErrorExplainer {
           }
         }
 
+        int wordBaseCount = 0;
+        // For Shaddah spans, check if the matched word's ASR contains repeated/held base consonants:
+        if (span.isShaddah && span.baseChar.isNotEmpty) {
+          int baseOccurrencesInAsr = 0;
+          double baseConsonantDuration = 0.0;
+          for (int i = 0; i < currentAsrText.length; i++) {
+            final int c = currentAsrText.codeUnitAt(i);
+            if (c == span.baseChar.codeUnitAt(0) ||
+                PhoneticCostEngine.isEquivalentGlyph(
+                    c, span.baseChar.codeUnitAt(0))) {
+              baseOccurrencesInAsr++;
+              if (i < trackingTimestamps.length) {
+                baseConsonantDuration += trackingTimestamps[i];
+              }
+            }
+          }
+          wordBaseCount = baseOccurrencesInAsr;
+          if (baseOccurrencesInAsr >= 2) {
+            totalSpanDuration = max(totalSpanDuration, baseConsonantDuration);
+            if (predChunks.length < 2) {
+              predChunks.add(span.baseChar);
+            }
+          } else if (baseConsonantDuration > totalSpanDuration) {
+            totalSpanDuration = baseConsonantDuration;
+          }
+        }
+
+        // For Madd spans, ensure multi-char token duration ('aa', 'ii', 'uu') or repeated
+        // vowel articulation in the word is credited in full:
+        if (span.isMadd) {
+          double vowelDurationSum = 0.0;
+          for (int i = 0; i < currentAsrText.length; i++) {
+            final int ch = currentAsrText.codeUnitAt(i);
+            if (PhoneticCostEngine.isVowelChar(ch) ||
+                PhoneticCostEngine.isMaddVowel(ch)) {
+              if (i < trackingTimestamps.length) {
+                vowelDurationSum += trackingTimestamps[i];
+              }
+            }
+          }
+          if (vowelDurationSum > totalSpanDuration) {
+            totalSpanDuration = vowelDurationSum;
+          }
+        }
+
+        // For Ghunnah spans, ensure held nasals ('ں', 'ن', 'م') are credited in full:
+        if (span.isGhunnah) {
+          double nasalDurationSum = 0.0;
+          for (int i = 0; i < currentAsrText.length; i++) {
+            final int ch = currentAsrText.codeUnitAt(i);
+            if (ch == 0x6BA || ch == 0x646 || ch == 0x645) { // ں, ن, م
+              if (i < trackingTimestamps.length) {
+                nasalDurationSum += trackingTimestamps[i];
+              }
+            }
+          }
+          if (nasalDurationSum > totalSpanDuration) {
+            totalSpanDuration = nasalDurationSum;
+          }
+        }
+
         final TokenNeuralAcoustics spanAcoustics = acousticsCount > 0
             ? TokenNeuralAcoustics(
                 qalqalahScore: sumQalqalah / acousticsCount,
@@ -778,6 +850,7 @@ class ErrorExplainer {
           hasDelete: hasDelete,
           wordText: wordText,
           wordRefEnd: wordRefEnd,
+          wordBaseCount: wordBaseCount,
           config: config,
         );
 

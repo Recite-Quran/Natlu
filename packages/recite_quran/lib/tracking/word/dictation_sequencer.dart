@@ -4,7 +4,7 @@ import '../../data/quran_data.dart';
 import '../../engine/core/transcription_result.dart';
 import '../ayah_search/fuzzy_search.dart';
 import 'dictation_matcher.dart';
-import 'phoneme_alignment_isolate.dart';
+import 'phoneme_alignment_isolate_protocol.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Forward Dictation Sequencer (Direct Continuous String Matching)
@@ -65,6 +65,11 @@ class DictationSequencer {
   /// Updates the tracking configuration dynamically at runtime.
   void updateConfig(TrackerConfig newConfig) {
     config = newConfig;
+  }
+
+  /// Updates the Tajweed verification configuration dynamically at runtime.
+  void updateTajweedConfig(TajweedConfig newTajweedConfig) {
+    config = config.copyWith(tajweed: newTajweedConfig);
   }
 
   int get _wordCount => max(0, wordBoundaries.length - 1);
@@ -531,7 +536,7 @@ class DictationSequencer {
 
     // Tajweed evaluation
     List<ReciterError>? tajweedErrors;
-    if (isTajweed && result.trace.isNotEmpty) {
+    if (isTajweed && config.tajweed.isAnyCheckEnabled && result.trace.isNotEmpty) {
       final List<WordTajweedRule> expectedWordRules =
           (surahWordRules != null && w < surahWordRules!.length)
               ? surahWordRules![w]
@@ -572,8 +577,10 @@ class DictationSequencer {
     final int ayah = (w < ayahs.length) ? ayahs[w] : 0;
     final int wInAyah = (w < wordsInAyah.length) ? wordsInAyah[w] : 0;
 
-    final bool hasTajweedErrors =
-        isTajweed && tajweedErrors != null && tajweedErrors.isNotEmpty;
+    final bool hasTajweedErrors = isTajweed &&
+        config.tajweed.isAnyCheckEnabled &&
+        tajweedErrors != null &&
+        tajweedErrors.isNotEmpty;
     final verdict = hasTajweedErrors
         ? WordEvaluationVerdict.tajweedWarning
         : WordEvaluationVerdict.correct;

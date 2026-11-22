@@ -21,6 +21,9 @@ export 'tracking/asr_token_processor.dart';
 export 'tracking/ayah_search/fuzzy_search.dart';
 export 'tracking/ayah_search/phonetic_search.dart';
 export 'tracking/tajweed/error_explainer.dart';
+export 'tracking/tajweed/tajweed_checkers.dart';
+export 'tracking/tajweed/tajweed_config.dart';
+export 'tracking/tajweed/tajweed_engine.dart';
 export 'tracking/tajweed/tajweed_rule.dart';
 export 'tracking/tracker_config.dart';
 export 'tracking/word/dictation_matcher.dart';
@@ -246,6 +249,16 @@ class QuranScorer {
     _config = newConfig;
     _tokenProcessor.config = newConfig;
     _isolate.updateConfig(newConfig);
+  }
+
+  /// Current active Tajweed rule verification toggles.
+  TajweedConfig get tajweedConfig => _config.tajweed;
+
+  /// Updates specific Tajweed check toggles dynamically at runtime.
+  void updateTajweedConfig(TajweedConfig newTajweedConfig) {
+    if (_isDisposed) return;
+    _config = _config.copyWith(tajweed: newTajweedConfig);
+    _isolate.updateTajweedConfig(newTajweedConfig);
   }
 
   List<int> _calculateBoundaries(List<String> phonemeWords) {

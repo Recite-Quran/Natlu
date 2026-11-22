@@ -305,11 +305,13 @@ class TajweedFormerEngine implements ReciteEngine {
     int audioBufCap = 4096;
     Pointer<Float> audioBuf = calloc<Float>(audioBufCap);
 
-    /// The heads the app actually reads: CTC log-probs, the 20 ms timing head,
-    /// gemination, qalqalah, and confidence. No head is faked.
+    /// The heads the app actually reads: CTC log-probs for normal tokens,
+    /// 20 ms timing and identity heads for held tokens (Madd, Ghunnah, Shaddah),
+    /// neural release burst for Qalqalah, and token confidence.
     const int appHeads = ZfTajweedHeadsFlags.logProbs |
         ZfTajweedHeadsFlags.timing |
-        ZfTajweedHeadsFlags.gem |
+        ZfTajweedHeadsFlags.id |
+        ZfTajweedHeadsFlags.inter4 |
         ZfTajweedHeadsFlags.qalqalah |
         ZfTajweedHeadsFlags.conf;
 
@@ -340,7 +342,9 @@ class TajweedFormerEngine implements ReciteEngine {
       if (nFrames > 0 && top2OutPtr.value != nullptr) {
         final Pointer<ZfTajweedTop2> top2 = top2OutPtr.value;
         final int n20 = headsRet >= 0 ? headsPtr.ref.n20 : 0;
-        final Pointer<Float> gem = headsPtr.ref.gem;
+        final Pointer<Float> timing = headsPtr.ref.timingLogProbs;
+        final Pointer<Float> idProbs = headsPtr.ref.idLogProbs;
+        final Pointer<Float> inter4Probs = headsPtr.ref.inter4LogProbs;
         final Pointer<Float> qalqalah = headsPtr.ref.attrQalqalah;
         final Pointer<Float> conf = headsPtr.ref.conf;
 
@@ -356,7 +360,99 @@ class TajweedFormerEngine implements ReciteEngine {
           }
 
           final int start20 = 2 * t;
-          final int end20 = 2 * (e + 1);
+          int end20 = 2 * (e + 1);
+
+          // Held tokens (Madd, Ghunnah, Shaddah) depend on timing_log_probs and id_log_probs
+          // (plus inter4_log_probs) to measure the true acoustic holding span across 20 ms frames:
+          if (timing != nullptr && n20 > 0) {
+            int holdLimit = end20;
+            int gapCount = 0;
+            const int gapTolerance = 4; // tolerate up to 4 frames (80 ms) for vocal tract closure/transition
+
+            for (int f = start20; f < n20; f++) {
+              final int offset = f * zfTajweedVocab;
+
+              // Argmax from timing_log_probs (20 ms H-time chain)
+              int timingTok = 0;
+              double maxTimingLp = timing[offset];
+              for (int v = 1; v < zfTajweedVocab; v++) {
+                final double lp = timing[offset + v];
+                if (lp > maxTimingLp) {
+                  maxTimingLp = lp;
+                  timingTok = v;
+                }
+              }
+
+              // Argmax from id_log_probs (20 ms identity CTC) if available
+              int idTok = 0;
+              if (idProbs != nullptr) {
+                double maxIdLp = idProbs[offset];
+                for (int v = 1; v < zfTajweedVocab; v++) {
+                  final double lp = idProbs[offset + v];
+                  if (lp > maxIdLp) {
+                    maxIdLp = lp;
+                    idTok = v;
+                  }
+                }
+              }
+
+              // Inter4 check at 40 ms frame grid
+              bool inter4Match = false;
+              if (inter4Probs != nullptr && (f ~/ 2) < headsPtr.ref.n40) {
+                final int off40 = (f ~/ 2) * zfTajweedVocab;
+                int inter4Tok = 0;
+                double maxInter4 = inter4Probs[off40];
+                for (int v = 1; v < zfTajweedVocab; v++) {
+                  final double lp = inter4Probs[off40 + v];
+                  if (lp > maxInter4) {
+                    maxInter4 = lp;
+                    inter4Tok = v;
+                  }
+                }
+                inter4Match = inter4Tok == a;
+              }
+
+              final double aTimingLp = timing[offset + a];
+              final double aIdLp = idProbs != nullptr ? idProbs[offset + a] : -999.0;
+              final bool neuralDirectMatch = timingTok == a ||
+                  idTok == a ||
+                  inter4Match ||
+                  aTimingLp > -2.3 ||
+                  aIdLp > -2.3 ||
+                  aTimingLp > timing[offset]; // higher than blank/pause
+
+              final bool matchesSound;
+              if (neuralDirectMatch) {
+                matchesSound = true;
+              } else if (a == 34 || a == 35 || a == 36) {
+                // Madd continuations ('aa': 34, 'ii': 35, 'uu': 36, or vowels 'a': 31, 'i': 32, 'u': 33)
+                matchesSound = (timingTok == 34 || timingTok == 35 || timingTok == 36 ||
+                    timingTok == 31 || timingTok == 32 || timingTok == 33 ||
+                    idTok == 34 || idTok == 35 || idTok == 36 ||
+                    idTok == 31 || idTok == 32 || idTok == 33);
+              } else if (a == 30 || a == 26 || a == 25) {
+                // Ghunnah continuations (nasal nun 'ں': 30, nun 'ن': 26, meem 'م': 25)
+                matchesSound = (timingTok == 30 || timingTok == 26 || timingTok == 25 ||
+                    idTok == 30 || idTok == 26 || idTok == 25);
+              } else {
+                matchesSound = false;
+              }
+
+              if (matchesSound) {
+                holdLimit = f + 1;
+                gapCount = 0;
+              } else if (timingTok == zfTajweedBlank) {
+                gapCount++;
+                if (gapCount > gapTolerance) break;
+              } else {
+                // A different distinct sound has started -> holding ended
+                break;
+              }
+            }
+            if (holdLimit > end20) {
+              end20 = holdLimit;
+            }
+          }
 
           final String name =
               (a >= 0 && a < tokenCache.length) ? tokenCache[a] : '';
@@ -364,20 +460,8 @@ class TajweedFormerEngine implements ReciteEngine {
           timestamps.add(end20 * 0.020);
           tokenDurations.add((end20 - start20) * 0.020);
 
-          // Gemination: mean gem[:, 1] over the letter's span.
-          double gemSum = 0.0;
-          int gemCount = 0;
-          if (gem != nullptr && n20 > 0) {
-            final int from = math.min(start20, n20);
-            final int to = math.min(end20, n20);
-            for (int f = from; f < to; f++) {
-              gemSum += gem[f * 2 + 1];
-              gemCount++;
-            }
-          }
-
           // Qalqalah: mean attr_qalqalah[:, 1] + [:, 2] over the 12 frames
-          // after the letter's end.
+          // after the letter's end. Only attr_qalqalah is used for Qalqalah.
           double qalqalahSum = 0.0;
           int qalqalahCount = 0;
           if (qalqalah != nullptr && n20 > 0) {
@@ -403,7 +487,6 @@ class TajweedFormerEngine implements ReciteEngine {
 
           tokenAcoustics.add(
             TokenNeuralAcoustics(
-              gemScore: gemCount > 0 ? gemSum / gemCount : 0.0,
               qalqalahScore:
                   qalqalahCount > 0 ? qalqalahSum / qalqalahCount : 0.0,
               confScore: confCount > 0 ? confSum / confCount : 1.0,

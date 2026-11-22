@@ -94,6 +94,9 @@ class QuranTajweedFormer {
   /// Current active configuration.
   TrackerConfig get config => _scorer.config;
 
+  /// Current active Tajweed rule verification toggles.
+  TajweedConfig get tajweedConfig => _scorer.tajweedConfig;
+
   /// Current target Surah number.
   int get targetSurah => _scorer.targetSurah;
 
@@ -232,6 +235,12 @@ class QuranTajweedFormer {
   void updateConfig(TrackerConfig newConfig) {
     if (_isDisposed) return;
     _scorer.updateConfig(newConfig);
+  }
+
+  /// Updates specific Tajweed check toggles dynamically at runtime.
+  void updateTajweedConfig(TajweedConfig newTajweedConfig) {
+    if (_isDisposed) return;
+    _scorer.updateTajweedConfig(newTajweedConfig);
   }
 
   // ── 4. Internal Message Pump ──

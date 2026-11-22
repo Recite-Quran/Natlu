@@ -355,6 +355,16 @@ class HighlightingController extends ChangeNotifier {
     _scorer.updateConfig(newConfig);
   }
 
+  /// Current active Tajweed check toggles.
+  rq.TajweedConfig get tajweedConfig => _scorer.tajweedConfig;
+
+  /// Dynamically updates Tajweed check toggles (Madd, Tashkeel, Ghunnah, Shaddah, Qalqalah, Letter swap).
+  void updateTajweedConfig(rq.TajweedConfig newTajweedConfig) {
+    _scorer.updateTajweedConfig(newTajweedConfig);
+    globalRevision.value++;
+    notifyListeners();
+  }
+
   void setTajweedMode(bool active) {
     final effective = repository.isTajweedSupported && active;
     if (isTajweed == effective) return;
@@ -962,7 +972,10 @@ class HighlightingController extends ChangeNotifier {
       }
 
       if (durStatus == null) {
-        if (e.expectedPh.length > e.predictedPh.length ||
+        if (rule != null && e.actualDuration != null) {
+          durStatus =
+              rule.checkDurationStatus(e.actualDuration!, config.recitationSpeed);
+        } else if (e.expectedPh.length > e.predictedPh.length ||
             e.predictedPh.isEmpty) {
           durStatus = rq.TajweedDurationStatus.underheld;
         } else if (e.predictedPh.length > e.expectedPh.length) {

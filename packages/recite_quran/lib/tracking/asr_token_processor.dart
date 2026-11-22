@@ -235,10 +235,17 @@ class AsrTokenProcessor {
         }
       }
 
-      // Duration from exact acoustic frame span when available, else end - start
-      if (k < _rawDurations.length && _rawDurations[k] > 0.0) {
+      // Duration from exact acoustic frame span when available, else end - start.
+      // High-precision neural duration from timing_log_probs (>= 0.12s) takes priority.
+      if (k < _rawDurations.length && _rawDurations[k] >= 0.12) {
         durs[k] = _rawDurations[k].clamp(0.04, maxTokenDuration);
         starts[k] = max(0.0, ends[k] - durs[k]);
+      } else if (isElasticContinuant(_filteredTokens[k]) && k + 1 < count) {
+        // Holding window for Madd / Ghunnah continuants held until the next token:
+        final double nextSpike = _filteredSpikeTimes[k + 1];
+        final double elapsedHold = nextSpike - starts[k];
+        durs[k] = (elapsedHold - 0.04).clamp(0.12, maxTokenDuration);
+        ends[k] = starts[k] + durs[k];
       } else {
         durs[k] = (ends[k] - starts[k]).clamp(0.04, maxTokenDuration);
       }

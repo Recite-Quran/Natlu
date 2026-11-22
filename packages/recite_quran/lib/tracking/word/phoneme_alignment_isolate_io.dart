@@ -51,6 +51,9 @@ void alignmentWorkerEntrypoint(SendPort mainSendPort) {
         case UpdateTrackerConfigCommand(:final config):
           sequencer.updateConfig(config);
 
+        case UpdateTajweedConfigCommand(:final tajweed):
+          sequencer.updateTajweedConfig(tajweed);
+
         case StopIsolateCommand():
           Isolate.current.kill();
       }
@@ -131,8 +134,7 @@ class PhonemeAlignmentIsolate {
       case AutoReanchorEvent():
         _autoReanchorStreamController.add(event);
       case DebugLogEvent(:final message, :final asrBuffer):
-        DebugLogger.updateAsrBuffer(asrBuffer);
-        DebugLogger.log('DP', message);
+        DebugLogger.log('DP', message, asrBuffer: asrBuffer);
     }
   }
 
@@ -200,6 +202,10 @@ class PhonemeAlignmentIsolate {
 
   void updateConfig(TrackerConfig config) {
     send(UpdateTrackerConfigCommand(config: config));
+  }
+
+  void updateTajweedConfig(TajweedConfig tajweedConfig) {
+    send(UpdateTajweedConfigCommand(tajweed: tajweedConfig));
   }
 
   void stop() {

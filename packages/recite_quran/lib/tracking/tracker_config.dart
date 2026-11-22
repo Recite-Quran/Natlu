@@ -1,5 +1,9 @@
 import 'package:flutter/foundation.dart';
 
+import 'tajweed/tajweed_config.dart';
+
+export 'tajweed/tajweed_config.dart';
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. RECITATION SPEED (مراتب التلاوة للتجويد والمدود)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -183,12 +187,16 @@ class TrackerConfig {
   /// Minimum unconsumed phonetic tokens required to declare a tracking stall (default: 24).
   final int reanchorStallThreshold;
 
+  /// Granular configuration for Tajweed rule verification toggles.
+  final TajweedConfig tajweed;
+
   const TrackerConfig({
     this.recitationSpeed = RecitationSpeed.normal,
     this.matchingStrictness = MatchingStrictness.normal,
     this.enableEarlyMatching = true,
     this.enableAutoReanchor = false,
     this.reanchorStallThreshold = 24,
+    this.tajweed = const TajweedConfig(),
   });
 
   /// Standard baseline configuration (Tadweer pacing + Balanced matching).
@@ -197,6 +205,7 @@ class TrackerConfig {
     bool enableEarlyMatching = true,
     bool enableAutoReanchor = false,
     int reanchorStallThreshold = 24,
+    TajweedConfig tajweed = const TajweedConfig(),
   }) =>
       TrackerConfig(
         recitationSpeed: speed,
@@ -204,6 +213,7 @@ class TrackerConfig {
         enableEarlyMatching: enableEarlyMatching,
         enableAutoReanchor: enableAutoReanchor,
         reanchorStallThreshold: reanchorStallThreshold,
+        tajweed: tajweed,
       );
 
   /// Easy mode for beginners, children, or noisy microphones.
@@ -212,6 +222,7 @@ class TrackerConfig {
     bool enableEarlyMatching = true,
     bool enableAutoReanchor = false,
     int reanchorStallThreshold = 20,
+    TajweedConfig tajweed = const TajweedConfig.standard(),
   }) =>
       TrackerConfig(
         recitationSpeed: speed,
@@ -219,6 +230,7 @@ class TrackerConfig {
         enableEarlyMatching: enableEarlyMatching,
         enableAutoReanchor: enableAutoReanchor,
         reanchorStallThreshold: reanchorStallThreshold,
+        tajweed: tajweed,
       );
 
   /// Strict mode for advanced reciters, exams, or Tajweed certification.
@@ -227,6 +239,7 @@ class TrackerConfig {
     bool enableEarlyMatching = false,
     bool enableAutoReanchor = false,
     int reanchorStallThreshold = 30,
+    TajweedConfig tajweed = const TajweedConfig.all(),
   }) =>
       TrackerConfig(
         recitationSpeed: speed,
@@ -234,6 +247,7 @@ class TrackerConfig {
         enableEarlyMatching: enableEarlyMatching,
         enableAutoReanchor: enableAutoReanchor,
         reanchorStallThreshold: reanchorStallThreshold,
+        tajweed: tajweed,
       );
 
   // ── Delegated ASR Thresholds from [matchingStrictness] ──
@@ -254,6 +268,7 @@ class TrackerConfig {
     bool? enableEarlyMatching,
     bool? enableAutoReanchor,
     int? reanchorStallThreshold,
+    TajweedConfig? tajweed,
   }) {
     return TrackerConfig(
       recitationSpeed: recitationSpeed ?? this.recitationSpeed,
@@ -262,6 +277,7 @@ class TrackerConfig {
       enableAutoReanchor: enableAutoReanchor ?? this.enableAutoReanchor,
       reanchorStallThreshold:
           reanchorStallThreshold ?? this.reanchorStallThreshold,
+      tajweed: tajweed ?? this.tajweed,
     );
   }
 }

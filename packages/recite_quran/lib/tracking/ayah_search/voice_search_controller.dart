@@ -47,13 +47,7 @@ class AyahSearchMatch {
   /// 0-indexed word offset within the matched Ayah where alignment ended.
   final int endWordIdx;
 
-  /// Arabic Surah name (e.g. "الفاتحة"), populated if [QuranRepository] was provided.
-  final String? surahNameAr;
-
-  /// English transliterated Surah name (e.g. "Al-Fatihah").
-  final String? surahNameEn;
-
-  /// Full Arabic Uthmani text of this Ayah, populated if [QuranRepository] was provided.
+  /// Full Arabic text/preview of this Ayah, populated if [QuranRepository] was provided.
   final String? textUthmani;
 
   /// Whether the match spans across multiple verses (e.g. Wasl recitation across Ayah boundary).
@@ -69,8 +63,6 @@ class AyahSearchMatch {
     this.endWordIdx = 0,
     int? startAyah,
     int? endAyah,
-    this.surahNameAr,
-    this.surahNameEn,
     this.textUthmani,
   })  : startAyah = startAyah ?? ayah,
         endAyah = endAyah ?? ayah;

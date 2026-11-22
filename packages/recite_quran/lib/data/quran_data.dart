@@ -595,12 +595,4 @@ class VerseMatch {
   final double score;
 
   const VerseMatch({required this.verse, required this.score});
-
-  dynamic operator [](String key) {
-    if (key == 'surah') return verse.surah;
-    if (key == 'ayah') return verse.ayah;
-    if (key == 'score') return score;
-    if (key == 'text' || key == 'text_uthmani') return verse.textUthmani;
-    return null;
-  }
 }
