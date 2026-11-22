@@ -7,105 +7,17 @@ import 'dialog_base.dart';
 // TAJWEED VERIFICATION RULES MODAL DIALOG
 // ══════════════════════════════════════════════════════════════════════════════
 
-class _TajweedRuleItem {
-  final String titleAr;
-  final String titleEn;
-  final String subAr;
-  final String subEn;
-  final IconData icon;
-  final bool Function(TajweedConfig) getter;
-  final TajweedConfig Function(TajweedConfig, bool) setter;
-
-  const _TajweedRuleItem(
-    this.titleAr,
-    this.titleEn,
-    this.subAr,
-    this.subEn,
-    this.icon,
-    this.getter,
-    this.setter,
-  );
-}
-
-const List<_TajweedRuleItem> _kRules = [
-  _TajweedRuleItem(
-    'المدود',
-    'Madd (Elongations)',
-    'طبيعي، متصل، منفصل، عارض، لازم، لين',
-    'Normal, Monfasel, Mottasel, Aared, Lazem, Leen',
-    Icons.linear_scale_rounded,
-    _getMadd,
-    _setMadd,
-  ),
-  _TajweedRuleItem(
-    'التشكيل والحركات',
-    'Tashkeel (Vowel Diacritics)',
-    'الفتحة والكسرة والضمة على الحروف وأواخر الكلمات',
-    'Short vowels (Fathah, Kasrah, Dammah)',
-    Icons.format_size_rounded,
-    _getTashkeel,
-    _setTashkeel,
-  ),
-  _TajweedRuleItem(
-    'الغنة',
-    'Ghunnah (Nasalization)',
-    'زمن الغنة للنون والميم المشددتين والإدغام',
-    'Nasal holding for doubled Noon & Meem',
-    Icons.graphic_eq_rounded,
-    _getGhunnah,
-    _setGhunnah,
-  ),
-  _TajweedRuleItem(
-    'الشدة',
-    'Shaddah (Gemination)',
-    'النبر والضغط الصوتي على الحروف المشددة',
-    'Consonant doubling and acoustic closure',
-    Icons.flash_on_rounded,
-    _getShaddah,
-    _setShaddah,
-  ),
-  _TajweedRuleItem(
-    'القلقلة',
-    'Qalqalah (Echo / Burst)',
-    'نبر واضطراب مخرج حروف (ق، ط، ب، ج، د)',
-    'Acoustic release burst for Qalqalah letters',
-    Icons.waves_rounded,
-    _getQalqalah,
-    _setQalqalah,
-  ),
-  _TajweedRuleItem(
-    'مخارج وإبدال الحروف',
-    'Makharij & Letter Swaps',
-    'تنبيه إبدال الحروف المتقاربة (ص/س، ض/د، ذ/ز)',
-    'Flagging letter substitutions and close Makharij',
-    Icons.spellcheck_rounded,
-    _getLetterSwap,
-    _setLetterSwap,
-  ),
-];
-
-bool _getMadd(TajweedConfig c) => c.checkMadd;
-TajweedConfig _setMadd(TajweedConfig c, bool v) => c.copyWith(checkMadd: v);
-bool _getTashkeel(TajweedConfig c) => c.checkTashkeel;
-TajweedConfig _setTashkeel(TajweedConfig c, bool v) => c.copyWith(checkTashkeel: v);
-bool _getGhunnah(TajweedConfig c) => c.checkGhunnah;
-TajweedConfig _setGhunnah(TajweedConfig c, bool v) => c.copyWith(checkGhunnah: v);
-bool _getShaddah(TajweedConfig c) => c.checkShaddah;
-TajweedConfig _setShaddah(TajweedConfig c, bool v) => c.copyWith(checkShaddah: v);
-bool _getQalqalah(TajweedConfig c) => c.checkQalqalah;
-TajweedConfig _setQalqalah(TajweedConfig c, bool v) => c.copyWith(checkQalqalah: v);
-bool _getLetterSwap(TajweedConfig c) => c.checkLetterSwap;
-TajweedConfig _setLetterSwap(TajweedConfig c, bool v) => c.copyWith(checkLetterSwap: v);
-
-/// Modal dialog for granular Tajweed rule verification toggles.
+/// Ultra-lightweight modal dialog for toggling Tajweed verification rules.
 ///
-/// Built on [AppDialog] and [DialogTokens] for 100% theme consistency with
-/// [AudioDownloadDialog] and other application dialogs.
+/// Fingerprint:
+/// - Built on [AppDialog] and [DialogTokens] for 100% theme consistency with [AudioDownloadDialog].
+/// - Single unified rule column with instant reactive state persistence.
 class TajweedRulesDialog extends StatefulWidget {
   final HighlightingController? controller;
 
   const TajweedRulesDialog({super.key, this.controller});
 
+  /// Displays the Tajweed rules dialog modally.
   static Future<void> show(
     BuildContext context, {
     HighlightingController? controller,
@@ -124,35 +36,97 @@ class TajweedRulesDialog extends StatefulWidget {
 class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
   late TajweedConfig _config;
 
+  static const _rules = [
+    (
+      'checkMadd',
+      'المدود',
+      'Madd (Elongations)',
+      'طبيعي، متصل، منفصل، عارض، لازم، لين',
+      Icons.linear_scale_rounded,
+    ),
+    (
+      'checkTashkeel',
+      'التشكيل والحركات',
+      'Tashkeel (Diacritics)',
+      'الفتحة والكسرة والضمة على الحروف',
+      Icons.format_size_rounded,
+    ),
+    (
+      'checkGhunnah',
+      'الغنة',
+      'Ghunnah (Nasalization)',
+      'زمن الغنة للنون والميم المشددتين والإدغام',
+      Icons.graphic_eq_rounded,
+    ),
+    (
+      'checkShaddah',
+      'الشدة',
+      'Shaddah (Gemination)',
+      'النبر والضغط الصوتي على الحروف المشددة',
+      Icons.flash_on_rounded,
+    ),
+    (
+      'checkQalqalah',
+      'القلقلة',
+      'Qalqalah (Echo / Burst)',
+      'نبر واضطراب مخرج حروف (ق، ط، ب، ج، د)',
+      Icons.waves_rounded,
+    ),
+    (
+      'checkLetterSwap',
+      'مخارج وإبدال الحروف',
+      'Makharij & Letters',
+      'تنبيه إبدال الحروف المتقاربة (ص/س، ض/د، ذ/ز)',
+      Icons.spellcheck_rounded,
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
     _config = AppState.instance.tajweedConfig;
   }
 
-  int get _selectedCount =>
-      _kRules.where((r) => r.getter(_config)).length;
+  bool _isChecked(String key) => switch (key) {
+        'checkMadd' => _config.checkMadd,
+        'checkTashkeel' => _config.checkTashkeel,
+        'checkGhunnah' => _config.checkGhunnah,
+        'checkShaddah' => _config.checkShaddah,
+        'checkQalqalah' => _config.checkQalqalah,
+        _ => _config.checkLetterSwap,
+      };
 
-  bool get _allSelected => _selectedCount == _kRules.length;
+  void _toggle(String key) {
+    _applyConfig(switch (key) {
+      'checkMadd' => _config.copyWith(checkMadd: !_config.checkMadd),
+      'checkTashkeel' =>
+        _config.copyWith(checkTashkeel: !_config.checkTashkeel),
+      'checkGhunnah' => _config.copyWith(checkGhunnah: !_config.checkGhunnah),
+      'checkShaddah' => _config.copyWith(checkShaddah: !_config.checkShaddah),
+      'checkQalqalah' =>
+        _config.copyWith(checkQalqalah: !_config.checkQalqalah),
+      _ => _config.copyWith(checkLetterSwap: !_config.checkLetterSwap),
+    });
+  }
 
-  void _applyConfig(TajweedConfig newConfig) {
-    setState(() => _config = newConfig);
+  bool get _allSelected => _config.isAllEnabled;
+
+  void _applyConfig(TajweedConfig cfg) {
+    setState(() => _config = cfg);
     final app = AppState.instance;
-    if (newConfig.isAllDisabled) {
+    if (cfg.isAllDisabled) {
       app.setMode(AppMode.wordChecker);
       widget.controller?.setTajweedMode(false);
     } else if (app.currentMode != AppMode.tajweed) {
       app.setMode(AppMode.tajweed);
       widget.controller?.setTajweedMode(true);
     }
-    app.setTajweedConfig(newConfig, widget.controller);
+    app.setTajweedConfig(cfg, widget.controller);
   }
 
-  void _toggleAll() {
-    _applyConfig(
-      _allSelected ? const TajweedConfig.none() : const TajweedConfig.all(),
-    );
-  }
+  void _toggleAll() => _applyConfig(
+        _allSelected ? const TajweedConfig.none() : const TajweedConfig.all(),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -160,9 +134,8 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
     final c = app.colors;
     final isAr = app.isArabic;
     final isDark = app.isDarkMode;
-
     final allSelected = _allSelected;
-    final selectedCount = _selectedCount;
+    final selectedCount = _rules.where((r) => _isChecked(r.$1)).length;
 
     return Directionality(
       textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
@@ -175,16 +148,13 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
           padding: 12,
         ),
         title: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
-        subtitle: isAr
-            ? 'التحقق الصوتي من أحكام التلاوة ومخارج الحروف'
-            : 'Acoustic verification of Tajweed rules and letter points',
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 12),
 
-            // ── Toolbar: Select All Checkbox + Counter (same as AudioDownloadDialog) ──
+            // ── Toolbar: Select All Checkbox + Counter ──
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -197,13 +167,9 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
                       Icon(
                         allSelected
                             ? Icons.check_box_rounded
-                            : (selectedCount == 0
-                                ? Icons.check_box_outline_blank_rounded
-                                : Icons.indeterminate_check_box_rounded),
+                            : Icons.check_box_outline_blank_rounded,
                         size: 21,
-                        color: allSelected || selectedCount > 0
-                            ? const Color(0xFF10B981)
-                            : c.muted,
+                        color: allSelected ? const Color(0xFF10B981) : c.muted,
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -211,7 +177,7 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
                             ? (isAr ? 'إلغاء تحديد الكل' : 'Deselect All')
                             : (isAr ? 'تحديد الكل' : 'Select All'),
                         style: TextStyle(
-                          fontFamily: isAr ? 'cairo' : null,
+                          fontFamily: 'cairo',
                           color: c.text,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -225,7 +191,7 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
                       ? '${QuranTypography.toArabicDigits(selectedCount)} / ٦'
                       : '$selectedCount / 6',
                   style: TextStyle(
-                    fontFamily: isAr ? 'cairo' : null,
+                    fontFamily: 'cairo',
                     color: c.muted,
                     fontSize: 12.5,
                     fontWeight: FontWeight.w500,
@@ -253,21 +219,21 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(DialogTokens.cardRadius),
                 child: Column(
-                  children: List.generate(_kRules.length, (idx) {
-                    final item = _kRules[idx];
-                    final isSel = item.getter(_config);
+                  children: List.generate(_rules.length, (idx) {
+                    final (key, titleAr, titleEn, subAr, icon) = _rules[idx];
+                    final isSel = _isChecked(key);
 
                     return Material(
                       color: Colors.transparent,
                       child: InkWell(
-                        onTap: () => _applyConfig(item.setter(_config, !isSel)),
+                        onTap: () => _toggle(key),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            border: idx < _kRules.length - 1
+                            border: idx < _rules.length - 1
                                 ? Border(
                                     bottom: BorderSide(
                                       color: isDark
@@ -301,7 +267,7 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Icon(
-                                  item.icon,
+                                  icon,
                                   size: 17,
                                   color: isSel
                                       ? const Color(0xFF10B981)
@@ -315,7 +281,7 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Text(
-                                      isAr ? item.titleAr : item.titleEn,
+                                      isAr ? titleAr : titleEn,
                                       style: TextStyle(
                                         color: c.text,
                                         fontSize: 14,
@@ -324,7 +290,7 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
                                     ),
                                     const SizedBox(height: 1.5),
                                     Text(
-                                      isAr ? item.subAr : item.subEn,
+                                      subAr,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(

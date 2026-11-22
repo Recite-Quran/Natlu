@@ -231,82 +231,30 @@ class QuranDownloadTile extends StatelessWidget {
 class TajweedRulesTile extends StatelessWidget {
   final ThemeColors c;
   final bool isAr;
-  final bool isDark;
   final HighlightingController? controller;
 
   const TajweedRulesTile({
     super.key,
     required this.c,
     required this.isAr,
-    required this.isDark,
     this.controller,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        AppState.instance.tajweedConfigNotifier,
-        AppState.instance.modeNotifier,
-      ]),
-      builder: (context, _) {
-        final app = AppState.instance;
-        final config = app.tajweedConfig;
-        final isTajweedActive = app.currentMode == AppMode.tajweed;
-
-        final String statusLabel;
-        final Color statusColor;
-        if (!isTajweedActive || config.isAllDisabled) {
-          statusLabel = isAr ? 'إيقاف' : 'Disabled';
-          statusColor = c.muted;
-        } else if (config.isAllEnabled) {
-          statusLabel = isAr ? 'الكل (معياري)' : 'All (Standard)';
-          statusColor = const Color(0xFF10B981);
-        } else {
-          statusLabel = isAr ? 'مخصص' : 'Custom';
-          statusColor = const Color(0xFF0D9488);
-        }
-
-        return SettingTile(
-          icon: Icons.record_voice_over_rounded,
-          title: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
-          c: c,
-          onTap: () {
-            DialogService.showTajweedSettings(context, controller: controller);
-          },
-          trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: isDark ? 0.20 : 0.12),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: statusColor.withValues(alpha: isDark ? 0.40 : 0.25),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  statusLabel,
-                  style: TextStyle(
-                    fontFamily: isAr ? 'cairo' : null,
-                    color: statusColor,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 11,
-                  color: statusColor,
-                ),
-              ],
-            ),
-          ),
-        );
+    return SettingTile(
+      icon: Icons.record_voice_over_rounded,
+      title: isAr ? 'أحكام التجويد' : 'Tajweed Rules',
+      c: c,
+      onTap: () {
+        Navigator.of(context).pop();
+        DialogService.showTajweedSettings(context, controller: controller);
       },
+      trailing: Icon(
+        Icons.arrow_forward_ios_rounded,
+        size: 15,
+        color: c.muted,
+      ),
     );
   }
 }
@@ -431,11 +379,10 @@ class SettingsSheet extends StatelessWidget {
                       ),
                       SettingDivider(c: c),
 
-                      // 3. Tajweed Rules (All / Custom / None)
+                      // 3. Tajweed Rules
                       TajweedRulesTile(
                         c: c,
                         isAr: isAr,
-                        isDark: isDark,
                         controller: controller,
                       ),
                       SettingDivider(c: c),
