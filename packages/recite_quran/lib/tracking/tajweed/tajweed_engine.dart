@@ -340,25 +340,67 @@ class TajweedEngine {
         }
 
         // Selective CTC blank allocation exclusively for held rule spans (from expected_tj3.zfx):
-        // 1. Shaddah (rule 9): consonant closure occurs in the blanks preceding the consonant release.
+        // 1. Shaddah (rule 9): consonant closure occurs in blanks preceding consonant release,
+        //    or prolongation occurs in blanks following fricative/liquid consonant.
         if (span.isShaddah &&
             tokenStarts != null &&
             tokenEnds != null &&
             touchedTokens.isNotEmpty) {
           final int firstT = touchedTokens.reduce(min);
+          final int lastT = touchedTokens.reduce(max);
+          double shaddahBlanks = 0.0;
           if (firstT > 0 &&
               firstT < tokenStarts.length &&
               (firstT - 1) < tokenEnds.length) {
-            final double closureGap =
+            final double gapBefore =
                 tokenStarts[firstT] - tokenEnds[firstT - 1];
-            if (closureGap >= 0.040 && closureGap < 1.25) {
-              spanDuration += closureGap;
+            if (gapBefore >= 0.040 && gapBefore < 1.25) {
+              shaddahBlanks += gapBefore;
             }
           }
+          if (lastT >= 0 &&
+              lastT < tokenEnds.length &&
+              (lastT + 1) < tokenStarts.length) {
+            final double gapAfter =
+                tokenStarts[lastT + 1] - tokenEnds[lastT];
+            if (gapAfter >= 0.040 && gapAfter < 1.25) {
+              shaddahBlanks += gapAfter;
+            }
+          }
+          spanDuration += min(1.25, shaddahBlanks);
         }
 
-        // 2. Ghunnah (rule 10) or Madd (rules 1-7): acoustic holding continues forward in the blanks following the sound.
-        if ((span.isGhunnah || span.isMadd) &&
+        // 2. Ghunnah (rule 10): nasal holding between preceding vowel and following consonant.
+        if (span.isGhunnah &&
+            tokenStarts != null &&
+            tokenEnds != null &&
+            touchedTokens.isNotEmpty) {
+          final int firstT = touchedTokens.reduce(min);
+          final int lastT = touchedTokens.reduce(max);
+          double ghunnahBlanks = 0.0;
+          if (firstT > 0 &&
+              firstT < tokenStarts.length &&
+              (firstT - 1) < tokenEnds.length) {
+            final double gapBefore =
+                tokenStarts[firstT] - tokenEnds[firstT - 1];
+            if (gapBefore >= 0.040 && gapBefore < 1.25) {
+              ghunnahBlanks += gapBefore;
+            }
+          }
+          if (lastT >= 0 &&
+              lastT < tokenEnds.length &&
+              (lastT + 1) < tokenStarts.length) {
+            final double gapAfter =
+                tokenStarts[lastT + 1] - tokenEnds[lastT];
+            if (gapAfter >= 0.040 && gapAfter < 1.25) {
+              ghunnahBlanks += gapAfter;
+            }
+          }
+          spanDuration += min(1.25, ghunnahBlanks);
+        }
+
+        // 3. Madd (rules 1-7): acoustic holding continues forward in the blanks following the sound.
+        if (span.isMadd &&
             tokenStarts != null &&
             tokenEnds != null &&
             touchedTokens.isNotEmpty) {

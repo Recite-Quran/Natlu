@@ -78,5 +78,7 @@ test/*.dll
 test/logs.txt
 
 # Local temporary assets
-assets/
+/assets/model/
+!/assets/json/
+!example/assets/**
 *.tmp

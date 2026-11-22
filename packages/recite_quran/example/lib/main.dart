@@ -2,241 +2,236 @@
 // Real-time Quran Recitation Tracking, Tajweed Verification & Voice Navigation Engine Demo
 // Powered by quran_tarteel (TajweedFormer V4 / Quran Lab SDK 4.0)
 
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:quran_tarteel/quran_tarteel.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const QuranTarteelExampleApp());
+  runApp(const QuranTarteelApp());
 }
 
-class QuranTarteelExampleApp extends StatelessWidget {
-  const QuranTarteelExampleApp({super.key});
+class QuranTarteelApp extends StatelessWidget {
+  const QuranTarteelApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Quran Tarteel Engine Demo',
+      title: 'Quran Tarteel',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: const Color(0xFFFBFBFB),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0F766E),
-          brightness: Brightness.dark,
+          seedColor: const Color(0xFF10B981),
+          brightness: Brightness.light,
         ),
+        fontFamily: 'HafsSmart',
         useMaterial3: true,
       ),
-      home: const QuranTarteelMainScreen(),
+      home: const QuranRecitationScreen(),
     );
   }
 }
 
-class QuranTarteelMainScreen extends StatefulWidget {
-  const QuranTarteelMainScreen({super.key});
+class QuranRecitationScreen extends StatefulWidget {
+  const QuranRecitationScreen({super.key});
 
   @override
-  State<QuranTarteelMainScreen> createState() => _QuranTarteelMainScreenState();
+  State<QuranRecitationScreen> createState() => _QuranRecitationScreenState();
 }
 
-class WordTrackItem {
-  final String text;
-  WordEvaluationVerdict? verdict;
-  double? score;
-  String? cleanAsr;
-  List<ReciterError>? tajweedErrors;
-  String expectedPhonemes;
-
-  WordTrackItem({
-    required this.text,
-    this.expectedPhonemes = '',
-  });
-}
-
-class AyahTarget {
-  final String title;
+class SessionMistake {
   final int surah;
   final int ayah;
-  final List<String> words;
+  final int wordIndex;
+  final String wordText;
+  final WordEvaluationVerdict verdict;
+  final String expectedPh;
+  final String recognizedPh;
+  final List<ReciterError>? tajweedErrors;
+  final DateTime timestamp;
 
-  const AyahTarget({
-    required this.title,
+  SessionMistake({
     required this.surah,
     required this.ayah,
-    required this.words,
+    required this.wordIndex,
+    required this.wordText,
+    required this.verdict,
+    required this.expectedPh,
+    required this.recognizedPh,
+    this.tajweedErrors,
+    required this.timestamp,
   });
 }
 
-class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
-    with SingleTickerProviderStateMixin {
-  // Official developer key from sdk.quranlab.ai (can override with --dart-define=QURANLAB_KEY=...)
+class _QuranRecitationScreenState extends State<QuranRecitationScreen> {
+  // Developer key from sdk.quranlab.ai (can override with --dart-define=QURANLAB_KEY=...)
   static const String _defaultApiKey =
       'qlk_v1_kn2gmnitsiua_R002fODh50Laz7Epx0gvyD';
-
-  late final TabController _tabController;
 
   QuranTarteel? _engine;
   final AudioProcessor _audio = AudioProcessor();
 
-  bool _isInitializing = true;
+  bool _isEngineReady = false;
   String? _initError;
   bool _isRecording = false;
 
-  // ── Tab 1: Recitation Tracking State ──
-  final List<AyahTarget> _targets = const [
-    AyahTarget(
-      title: 'سورة الإخلاص (١١٢: ١)',
-      surah: 112,
-      ayah: 1,
-      words: ['قُلْ', 'هُوَ', 'ٱللَّهُ', 'أَحَدٌ'],
-    ),
-    AyahTarget(
-      title: 'سورة الناس (١١٤: ١)',
-      surah: 114,
-      ayah: 1,
-      words: ['قُلْ', 'أَعُوذُ', 'بِرَبِّ', 'ٱلنَّاسِ'],
-    ),
-    AyahTarget(
-      title: 'سورة الفاتحة (١: ١)',
-      surah: 1,
-      ayah: 1,
-      words: ['بِسْمِ', 'ٱللَّهِ', 'ٱلرَّحْمَٰنِ', 'ٱلرَّحِيمِ'],
-    ),
+  // Authentic Quran Words Dataset: Map<Surah, Map<Ayah, List<Word>>>
+  final Map<int, Map<int, List<String>>> _quranWords = {};
+  bool _isLoadingWords = true;
+
+  // Active Navigation Target
+  int _currentSurah = 1;
+  int _activeAyah = 1;
+  int _activeWordIndex = 0;
+
+  // Word Evaluation State Tracking: key "$surah:$ayah:$wordIndex" -> verdict
+  final Map<String, WordEvaluationVerdict> _wordVerdicts = {};
+  final List<SessionMistake> _sessionMistakes = [];
+
+  final ScrollController _scrollController = ScrollController();
+
+  static const List<String> _surahNamesAr = [
+    'الفَاتِحة', 'البَقَرَة', 'آل عِمرَان', 'النِّسَاء', 'المَائدة', 'الأنعَام',
+    'الأعرَاف', 'الأَنفَال', 'التَّوبَة', 'يُونس', 'هُود', 'يُوسُف', 'الرَّعد',
+    'إِبرَاهيم', 'الحِجر', 'النَّحل', 'الإِسرَاء', 'الكَهف', 'مَريَم', 'طه',
+    'الأَنبيَاء', 'الحَجّ', 'المُؤمِنون', 'النُّور', 'الفُرقَان', 'الشُّعَرَاء',
+    'النَّمل', 'القَصَص', 'العَنكبوت', 'الرُّوم', 'لُقمَان', 'السَّجدَة',
+    'الأَحزَاب', 'سَبَأ', 'فَاطِر', 'يس', 'الصَّافَّات', 'ص', 'الزُّمَر',
+    'غَافِر', 'فُصِّلَت', 'الشُّورَى', 'الزُّخرُف', 'الدُّخَان', 'الجَاثِية',
+    'الأَحقَاف', 'مُحَمَّد', 'الفَتح', 'الحُجُرَات', 'ق', 'الذَّاريَات',
+    'الطُّور', 'النَّجم', 'القَمَر', 'الرَّحمَٰن', 'الوَاقِعَة', 'الحَديد',
+    'المُجَادلة', 'الحَشر', 'المُمتَحنَة', 'الصَّف', 'الجُمُعَة', 'المُنَافِقون',
+    'التَّغَابُن', 'الطَّلَاق', 'التَّحريم', 'المُلك', 'القَلَم', 'الحَاقَّة',
+    'المَعَارِج', 'نُوح', 'الجِنّ', 'المُزَّمِّل', 'المُدَّثِّر', 'القِيَامَة',
+    'الإِنسَان', 'المُرسَلَات', 'النَّبَأ', 'النَّازِعَات', 'عَبَس', 'التَّكوير',
+    'الانفِطَار', 'المُطَفِّفِين', 'الانشِقَاق', 'البُرُوج', 'الطَّارِق',
+    'الأَعلَى', 'الغَاشِية', 'الفَجر', 'البَلَد', 'الشَّمس', 'اللَّيل',
+    'الضُّحَى', 'الشَّرح', 'التِّين', 'العَلَق', 'القَدر', 'البَيِّنَة',
+    'الزَّلزَلَة', 'العَاديَات', 'القَارِعَة', 'التَّكَاثُر', 'العَصر',
+    'الهُمَزَة', 'الفِيل', 'قُرَيش', 'المَاعُون', 'الكَوثَر', 'الكافِرُون',
+    'النَّصر', 'المَسَد', 'الإِخلَاص', 'الفَلَق', 'النَّاس'
   ];
-
-  int _selectedTargetIndex = 0;
-  AyahTarget get _currentTarget => _targets[_selectedTargetIndex];
-  late List<WordTrackItem> _wordItems;
-  int _awaitedWordIndex = 0;
-  String _liveTranscript = '';
-  WordMatchedEvent? _lastEvaluatedEvent;
-
-  // ── Tab 2: Voice Search ("Recite to Navigate") State ──
-  bool _isVoiceSearching = false;
-  String _searchQuery = '';
-  List<AyahSearchMatch> _searchCandidates = [];
-  bool _isSearchUnique = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(_onTabChanged);
-    _resetWordItems();
+    _loadQuranWordsDataset();
     _initEngine();
   }
 
-  void _onTabChanged() {
-    if (_isRecording) {
-      _stopRecording();
-    }
-    setState(() {});
-  }
+  Future<void> _loadQuranWordsDataset() async {
+    try {
+      final jsonStr =
+          await rootBundle.loadString('assets/model/quran_words.json');
+      final Map<String, dynamic> raw = jsonDecode(jsonStr);
 
-  void _resetWordItems() {
-    _wordItems =
-        _currentTarget.words.map((w) => WordTrackItem(text: w)).toList();
-    _awaitedWordIndex = 0;
-    _liveTranscript = '';
-    _lastEvaluatedEvent = null;
+      for (final entry in raw.entries) {
+        final parts = entry.key.split(':');
+        if (parts.length == 2) {
+          final s = int.parse(parts[0]);
+          final a = int.parse(parts[1]);
+          final words = List<String>.from(entry.value);
+          _quranWords.putIfAbsent(s, () => {})[a] = words;
+        }
+      }
+
+      if (mounted) {
+        setState(() => _isLoadingWords = false);
+      }
+    } catch (e) {
+      debugPrint('Error loading quran_words.json: $e');
+      if (mounted) {
+        setState(() => _isLoadingWords = false);
+      }
+    }
   }
 
   Future<void> _initEngine() async {
-    setState(() {
-      _isInitializing = true;
-      _initError = null;
-    });
-
     try {
       const envKey = String.fromEnvironment('QURANLAB_KEY');
       final apiKey = envKey.isNotEmpty ? envKey : _defaultApiKey;
 
-      // 1. Initialize QuranTarteel engine with QuranLab SDK 4.0
       _engine = QuranTarteel.sdk(
         apiKey: apiKey,
         isTajweed: true, // Enables full deterministic Tajweed matrix
       );
 
       await _engine!.initialize();
-
-      // 2. Preload 6,236 Ayah phonetic voice search index in background isolate
       _engine!.preloadVoiceSearch();
 
-      // 3. Set initial Ayah target for recitation scoring
-      _engine!.setTargetAyah(_currentTarget.surah, _currentTarget.ayah);
-
-      // 4. Subscribe to word evaluation stream
+      _engine!.setTargetAyah(_currentSurah, _activeAyah);
       _engine!.onWordEvaluated.listen(_onWordEvaluated);
-
-      // 5. Subscribe to live speech transcript stream
-      _engine!.onTranscript.listen((text) {
-        if (mounted && text.isNotEmpty) {
-          setState(() {
-            _liveTranscript = text;
-            if (_tabController.index == 1) {
-              _searchQuery = text;
-            }
-          });
-        }
-      });
-
-      // 6. Subscribe to real-time voice search candidate stream
-      _engine!.onSearchResult.listen((VoiceSearchResult result) {
+      _engine!.onAutoReanchored.listen((event) {
         if (!mounted) return;
         setState(() {
-          _searchQuery = result.queryText;
-          _searchCandidates = result.candidates;
-          _isSearchUnique = result.isUnique;
+          _activeAyah = event.ayah;
+          _activeWordIndex = event.wordInAyah;
         });
       });
 
-      // 7. Subscribe to auto-reanchor events (verse jumps)
-      _engine!.onAutoReanchored.listen((event) {
-        if (mounted) {
-          debugPrint('Engine reanchored to Ayah: ${event.ayah}, Word: ${event.wordInAyah}');
-        }
-      });
-
       if (mounted) {
-        setState(() => _isInitializing = false);
+        setState(() => _isEngineReady = true);
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isInitializing = false;
-          _initError = e.toString();
-        });
+        setState(() => _initError = e.toString());
       }
     }
   }
 
   void _onWordEvaluated(WordMatchedEvent event) {
-    if (!mounted || _tabController.index != 0) return;
+    if (!mounted) return;
 
-    final idx = event.wordIndex;
-    if (idx < 0 || idx >= _wordItems.length) return;
+    final s = event.surah > 0 ? event.surah : _currentSurah;
+    final a = event.ayah;
+    final wIdx = event.wordIndex;
+    final key = '$s:$a:$wIdx';
+
+    final words = _quranWords[s]?[a];
+    final wordText = (words != null && wIdx < words.length)
+        ? words[wIdx]
+        : event.cleanAsr;
 
     setState(() {
-      _lastEvaluatedEvent = event;
-      final item = _wordItems[idx];
-      item.verdict = event.verdict;
-      item.score = event.score;
-      item.cleanAsr = event.cleanAsr;
-      item.expectedPhonemes = event.expectedPhonemes;
-      item.tajweedErrors = event.tajweedErrors;
+      _wordVerdicts[key] = event.verdict;
+      _activeAyah = a;
 
       if (event.isRight) {
-        _awaitedWordIndex = idx + 1;
+        _activeWordIndex = wIdx + 1;
+      }
+
+      // Record any Tajweed slips or mispronunciations in the session mistakes list
+      if (event.verdict == WordEvaluationVerdict.tajweedWarning ||
+          event.verdict == WordEvaluationVerdict.mispronounced) {
+        _sessionMistakes.add(SessionMistake(
+          surah: s,
+          ayah: a,
+          wordIndex: wIdx,
+          wordText: wordText,
+          verdict: event.verdict,
+          expectedPh: event.expectedPhonemes,
+          recognizedPh: event.cleanAsr,
+          tajweedErrors: event.tajweedErrors,
+          timestamp: DateTime.now(),
+        ));
       }
     });
   }
 
-  void _selectTarget(int index) {
+  void _switchSurah(int surah) {
     if (_isRecording) _stopRecording();
     setState(() {
-      _selectedTargetIndex = index;
-      _resetWordItems();
+      _currentSurah = surah;
+      _activeAyah = 1;
+      _activeWordIndex = 0;
+      _wordVerdicts.clear();
+      _sessionMistakes.clear();
     });
-    _engine?.setTargetAyah(_currentTarget.surah, _currentTarget.ayah);
+    _engine?.setTargetAyah(_currentSurah, 1);
   }
 
   Future<void> _toggleRecording() async {
@@ -248,30 +243,29 @@ class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
   }
 
   Future<void> _startRecording() async {
-    final hasPermission = await _audio.hasPermission();
-    if (!hasPermission) {
+    if (!_isEngineReady) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone permission denied.')),
+          SnackBar(
+            content: Text(_initError != null
+                ? 'فشل تهيئة المحرك: $_initError'
+                : 'المحرك قيد التهيئة، يرجى الانتظار...'),
+          ),
+        );
+      }
+      return;
+    }
+    final hasPerm = await _audio.hasPermission();
+    if (!hasPerm) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission required.')),
         );
       }
       return;
     }
 
-    if (_tabController.index == 0) {
-      // Tab 0: Word Recitation Scoring
-      _engine?.setTargetAyah(_currentTarget.surah, _currentTarget.ayah);
-      _resetWordItems();
-    } else {
-      // Tab 1: Voice Search Across all 6,236 Ayahs
-      setState(() {
-        _searchQuery = '';
-        _searchCandidates = [];
-        _isSearchUnique = false;
-        _isVoiceSearching = true;
-      });
-      await _engine?.startVoiceSearch();
-    }
+    _engine?.setTargetAyah(_currentSurah, _activeAyah);
 
     await _audio.start(
       onChunk: (Float32List chunk, bool isFinal) {
@@ -284,151 +278,144 @@ class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
 
   Future<void> _stopRecording() async {
     await _audio.stop();
-    setState(() {
-      _isRecording = false;
-      _isVoiceSearching = false;
-    });
+    setState(() => _isRecording = false);
   }
 
-  /// Opens the detailed Tajweed Error Modal Sheet (like in Natlu)
-  void _openTajweedErrorSheet(WordTrackItem item) {
+  /// Opens the "أخطاء" (Mistakes) session summary modal sheet
+  void _openSessionMistakesSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        final errors = item.tajweedErrors ?? [];
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(20.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Header with word text & verdict badge
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      item.text,
+                      'أخطاء وملاحظات التلاوة (${_sessionMistakes.length})',
                       style: const TextStyle(
-                        fontSize: 32,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        fontFamily: 'cairo',
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: item.verdict == WordEvaluationVerdict.tajweedWarning
-                            ? const Color(0x33FBBF24)
-                            : const Color(0x33EF4444),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        item.verdict == WordEvaluationVerdict.tajweedWarning
-                            ? 'تنبيه تجويد (Tajweed Notice)'
-                            : 'خطأ نطق (Mispronounced)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: item.verdict == WordEvaluationVerdict.tajweedWarning
-                              ? const Color(0xFFFBBF24)
-                              : const Color(0xFFEF4444),
-                        ),
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
-                const Divider(color: Colors.white12),
-                const SizedBox(height: 12),
+                const Divider(),
+                Expanded(
+                  child: _sessionMistakes.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'ما شاء الله! لا توجد أخطاء مسجلة في هذه الجلسة.',
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: Colors.black54,
+                              fontFamily: 'cairo',
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: _sessionMistakes.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 16),
+                          itemBuilder: (ctx, i) {
+                            final m = _sessionMistakes[i];
+                            final isTajweed =
+                                m.verdict == WordEvaluationVerdict.tajweedWarning;
 
-                // Phoneme Comparison
-                Row(
-                  children: [
-                    Expanded(
-                      child: _infoColumn('المطلوب (Expected)', item.expectedPhonemes),
-                    ),
-                    Expanded(
-                      child: _infoColumn('المسموع (Heard)', item.cleanAsr ?? '-'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Tajweed Rules Breakdown
-                if (errors.isNotEmpty) ...[
-                  const Text(
-                    'الملاحظات التجويدية (Diagnostic Rules):',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white70,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  for (final err in errors)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white10),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.info_outline,
-                                  size: 16, color: Color(0xFFFBBF24)),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  err.errorCode,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFFBBF24),
+                            return Directionality(
+                              textDirection: TextDirection.rtl,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        m.wordText,
+                                        style: const TextStyle(
+                                          fontSize: 26,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isTajweed
+                                              ? const Color(0xFFFEF3C7)
+                                              : const Color(0xFFFEE2E2),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          isTajweed
+                                              ? 'تنبيه تجويدي'
+                                              : 'خطأ نطق',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: isTajweed
+                                                ? const Color(0xFFB45309)
+                                                : const Color(0xFFB91C1C),
+                                            fontFamily: 'cairo',
+                                          ),
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        'آية ${m.ayah}',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black45,
+                                          fontFamily: 'cairo',
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'المطلوب: "${m.expectedPh}" | المسموع: "${m.recognizedPh}"',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black87,
+                                      fontFamily: 'cairo',
+                                    ),
+                                  ),
+                                  if (m.tajweedErrors?.isNotEmpty ?? false)
+                                    for (final err in m.tajweedErrors!)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2.0),
+                                        child: Text(
+                                          '• ${err.errorCode}',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: Color(0xFFD97706),
+                                            fontFamily: 'cairo',
+                                          ),
+                                        ),
+                                      ),
+                                ],
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _getTajweedAdvice(err),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.white70,
-                            ),
-                          ),
-                          if (err.expectedDuration != null &&
-                              err.actualDuration != null) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'الزمن المطلوب: ${(err.expectedDuration! * 1000).toInt()}ms | المنطوق: ${(err.actualDuration! * 1000).toInt()}ms',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white38,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                ] else
-                  const Text(
-                    'تم نطق الكلمة بحروف صحيحة دون أخطاء تجويدية مسجلة.',
-                    style: TextStyle(color: Colors.white60, fontSize: 13),
-                  ),
+                            );
+                          },
+                        ),
+                ),
               ],
             ),
           ),
@@ -437,37 +424,19 @@ class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
     );
   }
 
-  String _getTajweedAdvice(ReciterError err) {
-    final code = err.errorCode.toLowerCase();
-    if (code.contains('qalqalah')) {
-      return 'توجيه: إظهار ارتداد واضطراب المخرج عند سكون حرف القلقلة (ق، ط، ب، ج، د) دون خلطه بحركة.';
-    } else if (code.contains('ghunnah')) {
-      return 'توجيه: مد زمن الغنة بمقدار حركتين كاملتين من الخيشوم (في النون والميم المشددتين أو الإخفاء).';
-    } else if (code.contains('madd')) {
-      return 'توجيه: الحفاظ على زمن المد كاملاً حسب الرواية (حركتان للمد الطبيعي أو ٤-٥ للمتصل والمنفصل).';
-    } else if (code.contains('shaddah')) {
-      return 'توجيه: إعطاء الحرف المشدد حقه من النبر والزمن لبيان تضعيف الحرف.';
-    } else if (code.contains('tashkeel')) {
-      return 'توجيه: ضبط حركة الحرف (فتحة، ضمة، كسرة) بدقة وتجنب اختلاس الحركة.';
-    }
-    return 'توجيه: تحقق من مخرج الحرف وصفته الصوتية وفق قواعد التجويد.';
-  }
-
-  Widget _infoColumn(String title, String val) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontSize: 11, color: Colors.white38)),
-        const SizedBox(height: 2),
-        Text(
-          val.isEmpty ? '-' : val,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ],
+  /// Opens the Voice Search ("Recite to Navigate") dialog
+  void _openVoiceSearchDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => _VoiceSearchDialog(
+        engine: _engine,
+        audio: _audio,
+        onAyahSelected: (surah, ayah) {
+          Navigator.pop(ctx);
+          _switchSurah(surah);
+          setState(() => _activeAyah = ayah);
+        },
+      ),
     );
   }
 
@@ -475,402 +444,284 @@ class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
   void dispose() {
     _audio.stop();
     _engine?.dispose();
-    _tabController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final surahMap = _quranWords[_currentSurah] ?? {};
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Quran Tarteel Engine Demo'),
-        centerTitle: true,
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xFF0D9488),
-          tabs: const [
-            Tab(icon: Icon(Icons.check_circle_outline), text: 'Recitation Scoring'),
-            Tab(icon: Icon(Icons.search), text: 'Voice Search (6,236 Ayahs)'),
-          ],
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        leading: IconButton(
+          icon: const Icon(Icons.search, color: Colors.black87),
+          tooltip: 'البحث بالصوت',
+          onPressed: _openVoiceSearchDialog,
         ),
-      ),
-      body: SafeArea(
-        child: _isInitializing
-            ? const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(color: Color(0xFF0D9488)),
-                    SizedBox(height: 16),
-                    Text(
-                      'Connecting to QuranLab SDK 4.0...',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  ],
-                ),
-              )
-            : _initError != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Text(
-                        'Initialization Error: $_initError',
-                        style: const TextStyle(color: Color(0xFFEF4444)),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  )
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildScoringTab(),
-                      _buildVoiceSearchTab(),
-                    ],
-                  ),
-      ),
-    );
-  }
-
-  // ── 1. Recitation Scoring Tab ──
-  Widget _buildScoringTab() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-      child: Column(
-        children: [
-          // Target Verses Presets
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: List.generate(_targets.length, (i) {
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: ChoiceChip(
-                    label: Text(_targets[i].title),
-                    selected: i == _selectedTargetIndex,
-                    onSelected: (_) => _selectTarget(i),
-                  ),
-                );
-              }),
+        title: DropdownButtonHideUnderline(
+          child: DropdownButton<int>(
+            value: _currentSurah,
+            icon: const Icon(Icons.keyboard_arrow_down, color: Colors.black87),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+              fontFamily: 'cairo',
             ),
+            items: List.generate(114, (i) {
+              final sNum = i + 1;
+              return DropdownMenuItem<int>(
+                value: sNum,
+                child: Text('سُورَةُ ${_surahNamesAr[i]} ($sNum)'),
+              );
+            }),
+            onChanged: (val) {
+              if (val != null) _switchSurah(val);
+            },
           ),
-          const SizedBox(height: 20),
-
-          // Word Cards (Tap any word to inspect Tajweed details!)
-          Directionality(
-            textDirection: TextDirection.rtl,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20.0),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E293B),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _isRecording ? const Color(0xFF0F766E) : Colors.white10,
-                  width: 2,
-                ),
-              ),
-              child: Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 12,
-                runSpacing: 16,
-                children: List.generate(_wordItems.length, (i) {
-                  final w = _wordItems[i];
-                  final isAwaited = _isRecording && i == _awaitedWordIndex;
-
-                  return InkWell(
-                    onTap: () => _openTajweedErrorSheet(w),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _getWordBgColor(w.verdict, isAwaited),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isAwaited
-                              ? const Color(0xFF38BDF8)
-                              : Colors.transparent,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            w.text,
-                            style: TextStyle(
-                              fontSize: 30,
-                              fontWeight: FontWeight.bold,
-                              color: _getWordTextColor(w.verdict, isAwaited),
-                            ),
-                          ),
-                          if (w.verdict == WordEvaluationVerdict.tajweedWarning)
-                            const Text(
-                              '⚠️ تجويد (tap)',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFFFBBF24),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Live Stream Diagnostics Card
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14.0),
-              decoration: BoxDecoration(
-                color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Live ASR Stream: ${_liveTranscript.isEmpty ? "(speak to begin...)" : _liveTranscript}',
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF38BDF8),
-                      ),
-                    ),
-                    const Divider(height: 20, color: Colors.white10),
-                    if (_lastEvaluatedEvent != null) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Verdict: ${_lastEvaluatedEvent!.verdict.name.toUpperCase()}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: _getVerdictColor(_lastEvaluatedEvent!.verdict),
-                            ),
-                          ),
-                          Text(
-                            'Score: ${(_lastEvaluatedEvent!.score * 100).toStringAsFixed(1)}%',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Expected: "${_lastEvaluatedEvent!.expectedPhonemes}" | Heard: "${_lastEvaluatedEvent!.cleanAsr}"',
-                        style: const TextStyle(fontSize: 12, color: Colors.white60),
-                      ),
-                      if (_lastEvaluatedEvent!.tajweedErrors?.isNotEmpty ?? false) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Notice: ${_lastEvaluatedEvent!.tajweedErrors!.first.errorCode} (Tap word for advice)',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFFFBBF24),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ] else
-                      const Text(
-                        'Tap Start Reciting to stream live audio into the scoring isolate.',
-                        style: TextStyle(fontSize: 12, color: Colors.white38),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Mic Action Button
-          _buildMicButton(
-            label: _isRecording ? 'Stop Recitation' : 'Start Reciting',
-            color: _isRecording ? const Color(0xFFDC2626) : const Color(0xFF0D9488),
-            onPressed: _toggleRecording,
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.black54),
+            tooltip: 'إعادة ضبط التظليل',
+            onPressed: () {
+              setState(() {
+                _wordVerdicts.clear();
+                _sessionMistakes.clear();
+                _activeWordIndex = 0;
+              });
+            },
           ),
         ],
       ),
-    );
-  }
-
-  // ── 2. Voice Search Tab ("Recite to Navigate") ──
-  Widget _buildVoiceSearchTab() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E293B),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: Row(
+      body: _isLoadingWords
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF10B981)),
+            )
+          : Stack(
               children: [
-                Icon(
-                  _isVoiceSearching ? Icons.mic : Icons.search,
-                  color: const Color(0xFF38BDF8),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Recite to Navigate (ابحث بصوتك في ٦,٢٣٦ آية)',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _searchQuery.isEmpty
-                            ? 'Recite any portion of any Ayah...'
-                            : 'Query: "$_searchQuery"',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _searchQuery.isEmpty ? Colors.white38 : const Color(0xFF38BDF8),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_isSearchUnique)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0x3322C55E),
-                      borderRadius: BorderRadius.circular(6),
+                // ── Verse List Flow (Authentic Display Words) ──
+                Positioned.fill(
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.only(
+                      left: 16.0,
+                      right: 16.0,
+                      top: 16.0,
+                      bottom: 120.0,
                     ),
-                    child: const Text(
-                      'Unique Match!',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF22C55E),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
+                    itemCount: surahMap.length,
+                    itemBuilder: (context, idx) {
+                      final ayahNum = idx + 1;
+                      final words = surahMap[ayahNum] ?? [];
 
-          const Text(
-            'MATCHING AYAH CANDIDATES (REAL-TIME ISOLATE RANKING):',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.1,
-              color: Colors.white38,
-            ),
-          ),
-          const SizedBox(height: 8),
+                      return Directionality(
+                        textDirection: TextDirection.rtl,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 8.0),
+                          padding: const EdgeInsets.all(16.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: (_isRecording && _activeAyah == ayahNum)
+                                  ? const Color(0xFF10B981)
+                                  : Colors.black.withValues(alpha: 0.06),
+                              width: (_isRecording && _activeAyah == ayahNum)
+                                  ? 1.5
+                                  : 1.0,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.02),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // Ayah Header Badge
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'آية $ayahNum',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black45,
+                                      fontFamily: 'cairo',
+                                    ),
+                                  ),
+                                  if (_isRecording && _activeAyah == ayahNum)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFECFDF5),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Text(
+                                        'جارِ الاستماع',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Color(0xFF059669),
+                                          fontFamily: 'cairo',
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
 
-          Expanded(
-            child: _searchCandidates.isEmpty
-                ? Center(
-                    child: Text(
-                      _isVoiceSearching
-                          ? 'Listening and searching across all 6,236 Ayahs...'
-                          : 'Tap "Start Voice Search" and recite any phrase from the Quran.',
-                      style: const TextStyle(color: Colors.white38, fontSize: 13),
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: _searchCandidates.length,
-                    itemBuilder: (ctx, i) {
-                      final c = _searchCandidates[i];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: i == 0 ? const Color(0xFF0D9488) : Colors.white10,
-                          ),
-                        ),
-                        child: ListTile(
-                          title: Text(
-                            'سورة رقم ${c.surah} — آية ${c.ayah}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                          subtitle: Text(
-                            'Edit Distance: ${c.distance} | Offset Word: ${c.startWordIdx}',
-                            style: const TextStyle(fontSize: 12, color: Colors.white60),
-                          ),
-                          trailing: Text(
-                            '${(c.score * 100).toStringAsFixed(1)}%',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: i == 0 ? const Color(0xFF22C55E) : Colors.white70,
-                            ),
+                              // Ayah Words Wrap
+                              Wrap(
+                                alignment: WrapAlignment.start,
+                                spacing: 8,
+                                runSpacing: 10,
+                                children: List.generate(words.length, (wIdx) {
+                                  final wordText = words[wIdx];
+                                  final key =
+                                      '$_currentSurah:$ayahNum:$wIdx';
+                                  final verdict = _wordVerdicts[key];
+
+                                  final isAwaited = _isRecording &&
+                                      _activeAyah == ayahNum &&
+                                      _activeWordIndex == wIdx;
+
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _getWordBgColor(
+                                          verdict, isAwaited),
+                                      borderRadius:
+                                          BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: isAwaited
+                                            ? const Color(0xFF38BDF8)
+                                            : Colors.transparent,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      wordText,
+                                      style: TextStyle(
+                                        fontSize: 26,
+                                        color: _getWordTextColor(
+                                            verdict, isAwaited),
+                                      ),
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ],
                           ),
                         ),
                       );
                     },
                   ),
-          ),
-          const SizedBox(height: 16),
+                ),
 
-          // Voice Search Mic Button
-          _buildMicButton(
-            label: _isRecording ? 'Stop Search' : 'Start Voice Search',
-            color: _isRecording ? const Color(0xFFDC2626) : const Color(0xFF0284C7),
-            onPressed: _toggleRecording,
-          ),
-        ],
-      ),
-    );
-  }
+                // ── Bottom Floating Bar (Matching Screenshot) ──
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 24,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // "أخطاء" (Mistakes) Pill Button
+                      ElevatedButton.icon(
+                        onPressed: _openSessionMistakesSheet,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black87,
+                          elevation: 3,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 14,
+                          ),
+                        ),
+                        icon: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: _sessionMistakes.isEmpty
+                                ? const Color(0xFFE2E8F0)
+                                : const Color(0xFFEF4444),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '${_sessionMistakes.length}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _sessionMistakes.isEmpty
+                                  ? Colors.black54
+                                  : Colors.white,
+                              fontFamily: 'cairo',
+                            ),
+                          ),
+                        ),
+                        label: const Text(
+                          'أخطاء',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'cairo',
+                          ),
+                        ),
+                      ),
 
-  Widget _buildMicButton({
-    required String label,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-        label: Text(
-          label,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-        ),
-      ),
+                      // Circular Record Button
+                      GestureDetector(
+                        onTap: _toggleRecording,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 68,
+                          height: 68,
+                          decoration: BoxDecoration(
+                            color: _isRecording
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF10B981),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: (_isRecording
+                                        ? const Color(0xFFDC2626)
+                                        : const Color(0xFF10B981))
+                                    .withValues(alpha: 0.35),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            _isRecording ? Icons.stop : Icons.mic,
+                            size: 34,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -878,7 +729,7 @@ class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
     if (isAwaited) return const Color(0x3338BDF8);
     switch (verdict) {
       case WordEvaluationVerdict.correct:
-        return const Color(0x3322C55E);
+        return const Color(0x2210B981);
       case WordEvaluationVerdict.tajweedWarning:
         return const Color(0x33FBBF24);
       case WordEvaluationVerdict.mispronounced:
@@ -889,28 +740,161 @@ class _QuranTarteelMainScreenState extends State<QuranTarteelMainScreen>
   }
 
   Color _getWordTextColor(WordEvaluationVerdict? verdict, bool isAwaited) {
-    if (isAwaited) return const Color(0xFF38BDF8);
+    if (isAwaited) return const Color(0xFF0284C7);
     switch (verdict) {
       case WordEvaluationVerdict.correct:
-        return const Color(0xFF22C55E);
+        return const Color(0xFF059669);
       case WordEvaluationVerdict.tajweedWarning:
-        return const Color(0xFFFBBF24);
+        return const Color(0xFFD97706);
       case WordEvaluationVerdict.mispronounced:
-        return const Color(0xFFEF4444);
+        return const Color(0xFFDC2626);
       default:
-        return Colors.white70;
+        return Colors.black87;
     }
   }
+}
 
-  Color _getVerdictColor(WordEvaluationVerdict verdict) {
-    switch (verdict) {
-      case WordEvaluationVerdict.correct:
-        return const Color(0xFF22C55E);
-      case WordEvaluationVerdict.tajweedWarning:
-        return const Color(0xFFFBBF24);
-      case WordEvaluationVerdict.mispronounced:
-      case WordEvaluationVerdict.skipped:
-        return const Color(0xFFEF4444);
-    }
+// ── Voice Search ("Recite to Navigate") Dialog ──
+class _VoiceSearchDialog extends StatefulWidget {
+  final QuranTarteel? engine;
+  final AudioProcessor audio;
+  final void Function(int surah, int ayah) onAyahSelected;
+
+  const _VoiceSearchDialog({
+    required this.engine,
+    required this.audio,
+    required this.onAyahSelected,
+  });
+
+  @override
+  State<_VoiceSearchDialog> createState() => _VoiceSearchDialogState();
+}
+
+class _VoiceSearchDialogState extends State<_VoiceSearchDialog> {
+  bool _isListening = false;
+  String _searchQuery = '';
+  List<AyahSearchMatch> _matches = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _startSearchSession();
+  }
+
+  Future<void> _startSearchSession() async {
+    final hasPerm = await widget.audio.hasPermission();
+    if (!hasPerm) return;
+
+    await widget.engine?.startVoiceSearch();
+    widget.engine?.onSearchResult.listen((res) {
+      if (mounted) {
+        setState(() {
+          _searchQuery = res.queryText;
+          _matches = res.candidates;
+        });
+      }
+    });
+
+    await widget.audio.start(
+      onChunk: (chunk, isFinal) {
+        widget.engine?.feedAudio(chunk, isFinal: isFinal);
+      },
+    );
+
+    setState(() => _isListening = true);
+  }
+
+  @override
+  void dispose() {
+    widget.audio.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.mic, color: Color(0xFF10B981)),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'ابحث بتلاوتك (Recite to Navigate)',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'cairo',
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              _searchQuery.isEmpty
+                  ? 'اتلُ أي مقطع من أي آية للبحث عبر ٦,٢٣٦ آية...'
+                  : 'النص المسموع: "$_searchQuery"',
+              style: TextStyle(
+                fontSize: 13,
+                color: _searchQuery.isEmpty ? Colors.black45 : Colors.black87,
+                fontFamily: 'cairo',
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 220,
+              child: _matches.isEmpty
+                  ? Center(
+                      child: Text(
+                        _isListening
+                            ? 'جارِ الاستماع والبحث في المصحف...'
+                            : 'جارِ تهيئة الميكروفون...',
+                        style: const TextStyle(
+                            color: Colors.black38, fontFamily: 'cairo'),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _matches.length,
+                      itemBuilder: (ctx, i) {
+                        final m = _matches[i];
+                        return ListTile(
+                          title: Text(
+                            'سورة رقم ${m.surah} — آية ${m.ayah}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'cairo',
+                            ),
+                          ),
+                          trailing: Text(
+                            '${(m.score * 100).toInt()}%',
+                            style: const TextStyle(
+                              color: Color(0xFF10B981),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          onTap: () =>
+                              widget.onAyahSelected(m.surah, m.ayah),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -1,5 +1,5 @@
 name: quran_tarteel_example
-description: Demonstrates real-time Quran recitation tracking and Tajweed verification using quran_tarteel.
+description: Demonstrates real-time Quran recitation tracking, Tajweed verification and voice navigation using quran_tarteel.
 publish_to: 'none'
 version: 1.1.0
 
@@ -20,3 +20,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/model/quran_words.json
+
+  fonts:
+    - family: HafsSmart
+      fonts:
+        - asset: assets/fonts/HafsSmart_08.ttf

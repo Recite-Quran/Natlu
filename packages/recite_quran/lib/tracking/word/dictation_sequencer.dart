@@ -52,6 +52,8 @@ class DictationSequencer {
   final Set<int> committedGreenWords = {};
   final Set<int> committedRedWords = {};
   String? lastMatchedPhoneme;
+  int _consecutiveUnchangedFrames = 0;
+  String _lastSeenAsrText = '';
 
   // =========================================================================
   // [EARLY MATCHING / FAST WORD COMMITTING - TAJWEED OFF]
@@ -109,6 +111,8 @@ class DictationSequencer {
     _pendingTail = null;
     _lastReanchorAttemptOffset = -1;
     _lastReanchorAttemptLen = -1;
+    _consecutiveUnchangedFrames = 0;
+    _lastSeenAsrText = '';
 
     // ASR buffer from previous surah MUST NEVER bleed into the new surah.
     currentSegmentAsrText = '';
@@ -141,6 +145,8 @@ class DictationSequencer {
     _pendingTail = null;
     _lastReanchorAttemptOffset = -1;
     _lastReanchorAttemptLen = -1;
+    _consecutiveUnchangedFrames = 0;
+    _lastSeenAsrText = '';
     lastMatchedPhoneme = null;
     committedGreenWords.removeWhere((w) => w >= targetWordCursor);
     committedRedWords.removeWhere((w) => w >= targetWordCursor);
@@ -161,7 +167,16 @@ class DictationSequencer {
       _pendingTail = null;
       _lastReanchorAttemptOffset = -1;
       _lastReanchorAttemptLen = -1;
+      _consecutiveUnchangedFrames = 0;
+      _lastSeenAsrText = '';
       debugLog('🔄 New segment');
+    } else {
+      if (cmd.asrText == _lastSeenAsrText) {
+        _consecutiveUnchangedFrames++;
+      } else {
+        _consecutiveUnchangedFrames = 0;
+        _lastSeenAsrText = cmd.asrText;
+      }
     }
     currentSegmentAsrText = cmd.asrText.substring(_trimmedOffset);
     final int tsStart = min(_trimmedOffset, cmd.timestamps.length);
@@ -293,6 +308,20 @@ class DictationSequencer {
               if (merge > 1 &&
                   !_isValidMerge(result, startW, endW, unconsumed)) {
                 continue; // Reject this merge and try another combination
+              }
+
+              // [TAJWEED HELD SOUND FRONTIER SHIELD]
+              // When Tajweed is active and the reciter reached a terminal held sound (Madd, Ghunnah,
+              // or Shaddah) at the stream frontier (result.tokensConsumed >= unconsumed.length):
+              // do NOT prematurely commit while the reciter is actively holding into the mic!
+              // Wait until subsequent phonemes arrive (unconsumed > consumed) or silence confirms pause.
+              if (isTajweed &&
+                  skip == 0 &&
+                  result.tokensConsumed >= unconsumed.length &&
+                  _isWordTailHeldSite(endW) &&
+                  _consecutiveUnchangedFrames < 5) {
+                waitingForPartial = true;
+                break;
               }
 
               // 1. Mark skipped words SKIPPED
@@ -763,5 +792,39 @@ class DictationSequencer {
       }
     }
     return true;
+  }
+
+  /// Checks if the terminal span of word [w] is a held duration site (Madd, Ghunnah, or Shaddah)
+  /// according to canonical rules from expected_tj3.zfx.
+  bool _isWordTailHeldSite(int w) {
+    if (w < 0 || w >= wordBoundaries.length) return false;
+    final int refEnd = (w + 1 < wordBoundaries.length)
+        ? wordBoundaries[w + 1]
+        : fullPhonemes.length;
+    if (refEnd <= 0 || refEnd > fullPhonemes.length) return false;
+    final int lastIdx = refEnd - 1;
+
+    // 1. Check canonical rule classes from expected_tj3.zfx:
+    if (surahCharRuleClasses != null &&
+        lastIdx < surahCharRuleClasses!.length) {
+      final int cls = surahCharRuleClasses![lastIdx];
+      if (cls > 0 &&
+          surahWordRules != null &&
+          w < surahWordRules!.length &&
+          cls - 1 < surahWordRules![w].length) {
+        final int ruleId = surahWordRules![w][cls - 1].ruleId;
+        if ((ruleId >= 1 && ruleId <= 7) || ruleId == 9 || ruleId == 10) {
+          return true;
+        }
+      }
+    }
+
+    // 2. Trailing Madd vowel (aa, ii, uu) or nasal nun (ں) directly in fullPhonemes:
+    final int code = fullPhonemes.codeUnitAt(lastIdx);
+    if (PhoneticCostEngine.isMaddVowel(code) || code == 0x06BA) {
+      return true;
+    }
+
+    return false;
   }
 }
