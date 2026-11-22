@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   quran_tajweedformer:
     path: packages/recite_quran
+  offline_engine:
+    path: offline_engine
   qvp_flutter:
     path: packages/qvp_flutter
   url_launcher: ^6.3.2

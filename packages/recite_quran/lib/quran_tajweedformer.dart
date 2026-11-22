@@ -7,10 +7,11 @@ import 'package:quran_tajweedformer/tracking/ayah_search/voice_search_controller
 import 'engine/core/recite_engine.dart';
 import 'engine/core/tajweed_diagnostics.dart';
 import 'engine/core/transcription_result.dart';
-import 'engine/tajweedformer_v4/tajweedformer_engine.dart';
+import 'engine/quranlab_sdk/quranlab_sdk_engine.dart';
 import 'scoring.dart';
 
 export 'engine.dart';
+export 'engine/quranlab_sdk/quranlab_sdk_engine.dart';
 export 'scoring.dart';
 export 'tracking/ayah_search/voice_search_controller.dart';
 export 'utils/debug_logger.dart';
@@ -110,20 +111,49 @@ class QuranTajweedFormer {
   bool get isDisposed => _isDisposed;
 
   QuranTajweedFormer({
+    required ReciteEngine engine,
     QuranRepository? repository,
-    ReciteEngine? engine,
     TrackerConfig config = const TrackerConfig(),
     bool isTajweed = true,
-    String? modelDirOverride,
-    String? customLibPath,
   })  : repository = repository ?? QuranRepository(QuranMetadataService()),
-        _engine = engine ??
-            TajweedFormerEngine(
-              modelDirOverride: modelDirOverride,
-              customLibPath: customLibPath,
-            ) {
+        _engine = engine {
     _scorer = QuranScorer(
       repository: this.repository,
+      config: config,
+      isTajweed: isTajweed,
+    );
+  }
+
+  /// Official Quran Lab SDK 4.0 constructor (recommended for public releases).
+  ///
+  /// Connects to sdk.quranlab.ai using your [apiKey] (`qlk_v1_...`), downloads
+  /// the encrypted model on first launch, manages offline leases, and streams
+  /// neural acoustic chunks into the scoring engine.
+  factory QuranTajweedFormer.sdk({
+    String? apiKey,
+    QuranRepository? repository,
+    String contextProfile = 'c16_l64',
+    int? endOnSilenceMs,
+    TrackerConfig config = const TrackerConfig(),
+    bool isTajweed = true,
+  }) {
+    final String resolvedKey =
+        apiKey ?? const String.fromEnvironment('QURANLAB_KEY');
+    if (resolvedKey.isEmpty) {
+      throw ArgumentError(
+        'QuranTajweedFormer: An API key is required to use the Quran Lab SDK. '
+        'Pass apiKey: "qlk_v1_..." or compile with --dart-define=QURANLAB_KEY=qlk_v1_... '
+        'Obtain your free key at https://sdk.quranlab.ai',
+      );
+    }
+
+    return QuranTajweedFormer(
+      repository: repository,
+      engine: QuranLabSdkEngine(
+        apiKey: resolvedKey,
+        contextProfile: contextProfile,
+        endOnSilenceMs: endOnSilenceMs,
+      ),
       config: config,
       isTajweed: isTajweed,
     );

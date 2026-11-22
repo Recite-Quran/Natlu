@@ -37,6 +37,10 @@ class DictationSequencer {
   String currentSegmentAsrText = '';
   List<double> currentSegmentTimestamps = [];
   List<TokenNeuralAcoustics> currentSegmentNeuralAcoustics = [];
+  List<int> currentSegmentCharTokenIndices = [];
+  List<double> currentSegmentTokenDurations = [];
+  List<double> currentSegmentTokenStarts = [];
+  List<double> currentSegmentTokenEnds = [];
   int asrCharAnchor = 0;
   int _trimmedOffset = 0;
   String? _pendingTail;
@@ -110,6 +114,10 @@ class DictationSequencer {
     currentSegmentAsrText = '';
     currentSegmentTimestamps = [];
     currentSegmentNeuralAcoustics = [];
+    currentSegmentCharTokenIndices = [];
+    currentSegmentTokenDurations = [];
+    currentSegmentTokenStarts = [];
+    currentSegmentTokenEnds = [];
 
     targetWordCursor = cmd.startGlobalWord.clamp(0, _wordCount);
     lastMatchedPhoneme = null;
@@ -124,6 +132,10 @@ class DictationSequencer {
     currentSegmentAsrText = '';
     currentSegmentTimestamps = [];
     currentSegmentNeuralAcoustics = [];
+    currentSegmentCharTokenIndices = [];
+    currentSegmentTokenDurations = [];
+    currentSegmentTokenStarts = [];
+    currentSegmentTokenEnds = [];
     asrCharAnchor = 0;
     _trimmedOffset = 0;
     _pendingTail = null;
@@ -140,6 +152,10 @@ class DictationSequencer {
       currentSegmentAsrText = '';
       currentSegmentTimestamps = [];
       currentSegmentNeuralAcoustics = [];
+      currentSegmentCharTokenIndices = [];
+      currentSegmentTokenDurations = [];
+      currentSegmentTokenStarts = [];
+      currentSegmentTokenEnds = [];
       asrCharAnchor = 0;
       _trimmedOffset = 0;
       _pendingTail = null;
@@ -152,6 +168,13 @@ class DictationSequencer {
     currentSegmentTimestamps = cmd.timestamps.sublist(tsStart);
     final int naStart = min(_trimmedOffset, cmd.neuralAcoustics.length);
     currentSegmentNeuralAcoustics = cmd.neuralAcoustics.sublist(naStart);
+    final int tiStart = min(_trimmedOffset, cmd.charTokenIndices?.length ?? 0);
+    currentSegmentCharTokenIndices = cmd.charTokenIndices != null
+        ? cmd.charTokenIndices!.sublist(tiStart)
+        : [];
+    currentSegmentTokenDurations = cmd.tokenDurations ?? [];
+    currentSegmentTokenStarts = cmd.tokenStarts ?? [];
+    currentSegmentTokenEnds = cmd.tokenEnds ?? [];
     _processSequence();
   }
 
@@ -216,6 +239,10 @@ class DictationSequencer {
           min(asrCharAnchor, currentSegmentNeuralAcoustics.length);
       final unconsumedAcoustics =
           currentSegmentNeuralAcoustics.sublist(naStart);
+      final int tiStart =
+          min(asrCharAnchor, currentSegmentCharTokenIndices.length);
+      final unconsumedTokenIndices =
+          currentSegmentCharTokenIndices.sublist(tiStart);
 
       bool matched = false;
       bool waitingForPartial = false;
@@ -281,6 +308,7 @@ class DictationSequencer {
                   unconsumed,
                   unconsumedTs,
                   unconsumedAcoustics,
+                  unconsumedTokenIndices,
                 );
               }
 
@@ -361,6 +389,9 @@ class DictationSequencer {
       );
       currentSegmentNeuralAcoustics = currentSegmentNeuralAcoustics.sublist(
         min(trim, currentSegmentNeuralAcoustics.length),
+      );
+      currentSegmentCharTokenIndices = currentSegmentCharTokenIndices.sublist(
+        min(trim, currentSegmentCharTokenIndices.length),
       );
       asrCharAnchor = keepCushion;
     }
@@ -529,6 +560,7 @@ class DictationSequencer {
     String slicedAsr,
     List<double> slicedTs, [
     List<TokenNeuralAcoustics>? slicedAcoustics,
+    List<int>? slicedTokenIndices,
   ]) {
     if (committedGreenWords.contains(w)) return;
     committedGreenWords.add(w);
@@ -558,6 +590,10 @@ class DictationSequencer {
         currentAsrText: slicedAsr,
         trackingTimestamps: slicedTs,
         trackingAcoustics: slicedAcoustics,
+        charTokenIndices: slicedTokenIndices,
+        tokenDurations: currentSegmentTokenDurations,
+        tokenStarts: currentSegmentTokenStarts,
+        tokenEnds: currentSegmentTokenEnds,
         bestAsrStartIdx: 0,
         targetCharCursor: 0,
         startWordId: w,

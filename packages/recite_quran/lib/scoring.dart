@@ -226,6 +226,10 @@ class QuranScorer {
       false,
       0,
       processed.charNeuralAcoustics,
+      processed.charTokenIndices,
+      processed.durations,
+      processed.starts,
+      processed.ends,
     );
   }
 

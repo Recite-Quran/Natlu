@@ -102,15 +102,20 @@ class AsrTokenProcessor {
     _tokenEnds.clear();
   }
 
-  /// Determines if a token is a prolonged vocalic Madd sound (tj3: 'aa', 'ii', 'uu').
+  /// Determines if a token is a prolonged vocalic Madd sound (tj3: 'aa', 'ii', 'uu' or vowels 'a', 'i', 'u').
   static bool isMaddToken(String tok) {
-    return tok == 'aa' || tok == 'ii' || tok == 'uu';
+    return tok == 'aa' ||
+        tok == 'ii' ||
+        tok == 'uu' ||
+        tok == 'a' ||
+        tok == 'i' ||
+        tok == 'u';
   }
 
   /// Determines if a token represents an acoustic Ghunnah (held nasal sound):
-  /// tj3 encodes the nasal as the dedicated dotless noon 'ں'.
+  /// tj3 encodes the nasal as dotless noon 'ں', standard noon 'ن', or meem 'م'.
   static bool isGhunnahToken(String tok) {
-    return tok == 'ں';
+    return tok == 'ں' || tok == 'ن' || tok == 'م';
   }
 
   /// Identifies sounds that can absorb acoustic prolongation (Madd vowels, Ghunnah).
@@ -236,15 +241,26 @@ class AsrTokenProcessor {
       }
 
       // Duration from exact acoustic frame span when available, else end - start.
-      // High-precision neural duration from timing_log_probs (>= 0.12s) takes priority.
-      if (k < _rawDurations.length && _rawDurations[k] >= 0.12) {
-        durs[k] = _rawDurations[k].clamp(0.04, maxTokenDuration);
-        starts[k] = max(0.0, ends[k] - durs[k]);
-      } else if (isElasticContinuant(_filteredTokens[k]) && k + 1 < count) {
+      // For elastic continuants (Madd, Ghunnah), acoustic duration reflects the true
+      // held articulation time between the continuant onset and the next sound.
+      final bool isContinuant = isElasticContinuant(_filteredTokens[k]);
+      final double rawDur = (k < _rawDurations.length) ? _rawDurations[k] : 0.0;
+
+      if (isContinuant && k + 1 < count) {
         // Holding window for Madd / Ghunnah continuants held until the next token:
         final double nextSpike = _filteredSpikeTimes[k + 1];
         final double elapsedHold = nextSpike - starts[k];
-        durs[k] = (elapsedHold - 0.04).clamp(0.12, maxTokenDuration);
+        final double measuredHold = max(rawDur, elapsedHold - 0.04);
+        durs[k] = measuredHold.clamp(0.12, maxTokenDuration);
+        ends[k] = starts[k] + durs[k];
+      } else if (rawDur >= 0.12) {
+        // High-precision neural duration from timing_log_probs
+        durs[k] = rawDur.clamp(0.04, maxTokenDuration);
+        starts[k] = max(0.0, ends[k] - durs[k]);
+      } else if (isContinuant && k + 1 == count) {
+        // Terminal Waqf / End-of-take elastic continuant (preserves neural hold duration):
+        final double terminalDur = max(rawDur, ends[k] - starts[k]);
+        durs[k] = terminalDur.clamp(0.12, maxTokenDuration);
         ends[k] = starts[k] + durs[k];
       } else {
         durs[k] = (ends[k] - starts[k]).clamp(0.04, maxTokenDuration);

@@ -393,30 +393,26 @@ class QuranDictationMatcher {
     // ═════════════════════════════════════════════════════════════════════════
     bool isPartial = false;
     // Strict Frontier Rule: If Tajweed is ON, and we consumed the entire buffer (bestI == m),
-    // we ONLY wait if a core consonant or vowel is missing/incomplete at the trailing edge.
-    // If the trailing error is merely Tashkeel/Waqf, the word is complete and commits immediately.
+    // we MUST wait if trailing word phonemes (consonants, Madd vowels, or Tajweed sites)
+    // are still incomplete at the stream frontier.
     if (isTajweed && bestI > 0 && bestI == m) {
       int curJ = n;
       int curI = bestI;
-      bool hasCoreConsonantMissing = false;
+      bool hasIncompleteSound = false;
 
-      // 1. Check all trailing deletions at the stream frontier
+      // 1. Check all trailing deletions at the stream frontier:
+      // If trailing reference phonemes (including prolonged Madd vowels) were not yet uttered,
+      // the word is still in progress at the frontier.
       while (curJ > 0 && curI == bestI && bt[curI * stride + curJ] == 1) {
         final int rCode = fullPhonemes.codeUnitAt(refStart + curJ - 1);
-        final bool isRepeated =
-            curJ > 1 && rCode == fullPhonemes.codeUnitAt(refStart + curJ - 2);
-
-        // If the trailing deleted character is a core non-repeated consonant, the word is incomplete.
-        if (!PhoneticCostEngine.isTashkeel(rCode) &&
-            !PhoneticCostEngine._isZeroCostMarker(rCode) &&
-            !isRepeated) {
-          hasCoreConsonantMissing = true;
+        if (!PhoneticCostEngine._isZeroCostMarker(rCode)) {
+          hasIncompleteSound = true;
           break;
         }
         curJ--;
       }
 
-      if (hasCoreConsonantMissing) {
+      if (hasIncompleteSound) {
         isPartial = true;
       } else if (curJ > 0 && bt[curI * stride + curJ] == 0) {
         // 2. Trailing substitution at the frontier

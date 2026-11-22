@@ -184,6 +184,10 @@ class PhonemeAlignmentIsolate {
     bool isNewSegment = false,
     int? ayahNumber,
     List<TokenNeuralAcoustics>? neuralAcoustics,
+    List<int>? charTokenIndices,
+    List<double>? tokenDurations,
+    List<double>? tokenStarts,
+    List<double>? tokenEnds,
   ]) {
     send(
       SyncStreamCommand(
@@ -192,6 +196,10 @@ class PhonemeAlignmentIsolate {
         isNewSegment: isNewSegment,
         ayahNumber: ayahNumber ?? 0,
         neuralAcoustics: neuralAcoustics ?? const [],
+        charTokenIndices: charTokenIndices,
+        tokenDurations: tokenDurations,
+        tokenStarts: tokenStarts,
+        tokenEnds: tokenEnds,
       ),
     );
   }

@@ -15,13 +15,13 @@ import 'audio/audio_processor.dart';
 import 'engine/core/recite_engine.dart';
 import 'engine/core/tajweed_diagnostics.dart';
 import 'engine/core/transcription_result.dart';
-import 'engine/tajweedformer_v4/tajweedformer_engine.dart';
+import 'engine/quranlab_sdk/quranlab_sdk_engine.dart';
 
 export 'audio/audio_processor.dart';
 export 'engine/core/recite_engine.dart';
 export 'engine/core/tajweed_diagnostics.dart';
 export 'engine/core/transcription_result.dart';
-export 'engine/tajweedformer_v4/tajweedformer_engine.dart';
+export 'engine/quranlab_sdk/quranlab_sdk_engine.dart';
 
 /// A high-level, streaming Quran speech recognizer modelled after modern ASR
 /// interfaces (such as sherpa-onnx).
@@ -34,16 +34,12 @@ class QuranRecognizer {
 
   QuranRecognizer({
     ReciteEngine? engine,
-    String? modelDirOverride,
-    String? customLibPath,
+    String? apiKey,
     String contextProfile = 'c16_l64',
-    String? webApiKey,
   }) : _engine = engine ??
-            TajweedFormerEngine(
-              modelDirOverride: modelDirOverride,
-              customLibPath: customLibPath,
+            QuranLabSdkEngine(
+              apiKey: apiKey ?? const String.fromEnvironment('QURANLAB_KEY'),
               contextProfile: contextProfile,
-              webApiKey: webApiKey,
             );
 
   /// Access to the underlying low-level [ReciteEngine].

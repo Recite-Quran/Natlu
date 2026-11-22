@@ -45,6 +45,7 @@ import 'audio/quran_audio_handler.dart';
 import 'audio/quran_audio_service.dart';
 import 'audio/quran_download_service.dart';
 import 'ui/widgets/dialogs/dialog_service.dart';
+import 'package:offline_engine/offline_engine.dart';
 
 void main() async {
   runZonedGuarded(
@@ -232,7 +233,28 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
-  final TajweedFormerEngine _engine = TajweedFormerEngine();
+  static ReciteEngine _resolveEngine() {
+    const bool forceOffline =
+        bool.fromEnvironment('OFFLINE_ENGINE', defaultValue: false);
+    const String quranLabApiKey = String.fromEnvironment(
+      'QURANLAB_KEY',
+      defaultValue: 'qlk_v1_kn2gmnitsiua_R002fODh50Laz7Epx0gvyD',
+    );
+
+    // Online Quran Lab SDK mode for Android/iOS mobile releases:
+    if (!forceOffline &&
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS) &&
+        quranLabApiKey.isNotEmpty) {
+      return QuranLabSdkEngine(apiKey: quranLabApiKey);
+    }
+
+    // Offline bundled FFI mode for local PC testing & desktop builds:
+    return TajweedFormerEngine();
+  }
+
+  final ReciteEngine _engine = _resolveEngine();
   final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
 

@@ -79,6 +79,16 @@ sealed class IsolateCommand {
           isNewSegment: map['is_new_segment'] as bool? ?? false,
           ayahNumber: map['ayah_number'] as int? ?? 0,
           neuralAcoustics: neuralAcoustics,
+          charTokenIndices: (map['char_token_indices'] as List?)?.cast<int>(),
+          tokenDurations: (map['token_durations'] as List?)
+              ?.map((e) => (e as num?)?.toDouble() ?? 0.0)
+              .toList(),
+          tokenStarts: (map['token_starts'] as List?)
+              ?.map((e) => (e as num?)?.toDouble() ?? 0.0)
+              .toList(),
+          tokenEnds: (map['token_ends'] as List?)
+              ?.map((e) => (e as num?)?.toDouble() ?? 0.0)
+              .toList(),
         );
 
       case 'jump_to_word':
@@ -179,6 +189,10 @@ class SyncStreamCommand extends IsolateCommand {
   final bool isNewSegment;
   final int ayahNumber;
   final List<TokenNeuralAcoustics> neuralAcoustics;
+  final List<int>? charTokenIndices;
+  final List<double>? tokenDurations;
+  final List<double>? tokenStarts;
+  final List<double>? tokenEnds;
 
   const SyncStreamCommand({
     required this.asrText,
@@ -186,6 +200,10 @@ class SyncStreamCommand extends IsolateCommand {
     this.isNewSegment = false,
     this.ayahNumber = 0,
     this.neuralAcoustics = const [],
+    this.charTokenIndices,
+    this.tokenDurations,
+    this.tokenStarts,
+    this.tokenEnds,
   });
 
   @override
@@ -196,6 +214,10 @@ class SyncStreamCommand extends IsolateCommand {
         'is_new_segment': isNewSegment,
         'ayah_number': ayahNumber,
         'neural_acoustics': neuralAcoustics,
+        'char_token_indices': charTokenIndices,
+        'token_durations': tokenDurations,
+        'token_starts': tokenStarts,
+        'token_ends': tokenEnds,
       };
 }
 

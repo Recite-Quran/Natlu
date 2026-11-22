@@ -119,3 +119,6 @@ test
 
 # Recite Quran native sources (built on CI, vendored as binaries)
 packages/recite_quran/native/
+
+# Private offline FFI engine and model weights (Local only; never push to Git)
+offline_engine/

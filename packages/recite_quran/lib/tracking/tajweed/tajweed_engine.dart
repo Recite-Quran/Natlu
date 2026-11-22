@@ -259,6 +259,10 @@ class TajweedEngine {
     required String currentAsrText,
     required List<double> trackingTimestamps,
     List<TokenNeuralAcoustics>? trackingAcoustics,
+    List<int>? charTokenIndices,
+    List<double>? tokenDurations,
+    List<double>? tokenStarts,
+    List<double>? tokenEnds,
     required int bestAsrStartIdx,
     required int targetCharCursor,
     required int startWordId,
@@ -303,6 +307,7 @@ class TajweedEngine {
 
         final List<String> predChunks = [];
         final Set<int> usedPredIndices = {};
+        final Set<int> touchedTokens = {};
         double totalSpanDuration = 0.0;
         bool hasDelete = false;
         double sumQalqalah = 0.0;
@@ -318,6 +323,10 @@ class TajweedEngine {
             predChunks.add(currentAsrText[absPred]);
             if (!usedPredIndices.contains(absPred)) {
               usedPredIndices.add(absPred);
+              if (charTokenIndices != null &&
+                  absPred < charTokenIndices.length) {
+                touchedTokens.add(charTokenIndices[absPred]);
+              }
               if (absPred < trackingTimestamps.length) {
                 totalSpanDuration += trackingTimestamps[absPred];
               }
@@ -329,6 +338,33 @@ class TajweedEngine {
                 acousticsCount++;
               }
             }
+          }
+        }
+
+        // High-precision acoustic holding duration for Tajweed continuants (Madd, Ghunnah, Shaddah):
+        // If the span aligned to tokens whose duration was tracked in the neural acoustic pipeline,
+        // use the exact token holding duration rather than summing chopped character fractions.
+        if (tokenDurations != null && touchedTokens.isNotEmpty) {
+          double neuralTokenHold = 0.0;
+          if (tokenStarts != null &&
+              tokenEnds != null &&
+              touchedTokens.length > 1) {
+            final int minTok = touchedTokens.reduce(min);
+            final int maxTok = touchedTokens.reduce(max);
+            if (minTok < tokenStarts.length && maxTok < tokenEnds.length) {
+              neuralTokenHold =
+                  max(0.0, tokenEnds[maxTok] - tokenStarts[minTok]);
+            }
+          }
+          if (neuralTokenHold <= 0.0) {
+            for (final t in touchedTokens) {
+              if (t < tokenDurations.length) {
+                neuralTokenHold += tokenDurations[t];
+              }
+            }
+          }
+          if (neuralTokenHold > 0.0) {
+            totalSpanDuration = max(totalSpanDuration, neuralTokenHold);
           }
         }
 
@@ -446,3 +482,4 @@ class TajweedEngine {
     return errorsByWord;
   }
 }
+
