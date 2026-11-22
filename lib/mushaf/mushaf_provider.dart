@@ -100,7 +100,6 @@ class MushafProvider {
 
     final spec = mushafLayout.toSpec(targetSize.width, targetSize.height);
     if (page.currentLayout == null ||
-        page.currentLayoutSpec != spec ||
         _pageLayoutSizes[neighborPage] != targetSize) {
       page.layout(spec);
       _pageLayoutSizes[neighborPage] = targetSize;
@@ -110,8 +109,6 @@ class MushafProvider {
       inkColor: inkColor,
       surahFrames: mushafLayout.surahFrames,
       dpr: dpr,
-      width: targetSize.width,
-      height: targetSize.height,
     );
   }
 
@@ -123,7 +120,6 @@ class MushafProvider {
     }
 
     _preloadingTargetPage = pageNumber;
-    QvpPageView.setCurrentPage(pageNumber);
 
     final targetSize = lastViewportSize;
     if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) {
@@ -382,7 +378,7 @@ class MushafProvider {
       }
 
       if (pageBytes != null && pageBytes.isNotEmpty) {
-        final page = await _engine!.loadPageAsync(pageBytes);
+        final page = _engine!.loadPage(pageBytes);
         page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
         final currentInkColor = AppState.instance.colors.text;
         page.setDefaultColor(currentInkColor);
