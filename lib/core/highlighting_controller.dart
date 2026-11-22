@@ -200,8 +200,8 @@ class HighlightStore {
 
 /// HighlightingController
 ///
-/// Decoupled, single-source-of-truth recitation and playback controller.
-/// Extends [rq.HighlightingController] to serve local ASR dictation and audio playback
+/// Decoupled, single-source-of-truth recitation controller.
+/// Extends [rq.HighlightingController] to serve local ASR dictation
 /// tracking through a unified API.
 ///
 /// Presentation layers (Mushaf, VerseList, dialogs, overlays) observe this single
@@ -470,11 +470,9 @@ class HighlightingController extends ChangeNotifier {
     return RecitationSource.none;
   }
 
-  /// The active coordinate (surah, ayah) driving playback or recitation.
+  /// The active coordinate (surah, ayah) driving recitation.
   ///
-  /// Pure controller truth: the mirrored coordinate, nothing else. Audio has
-  /// no separate branch — applyAudioProgress mirrors the playing verse into
-  /// targetSurah/activeAyah in the same event that makes isAudioActive true.
+  /// Pure controller truth: the mirrored coordinate, nothing else.
   (int surah, int ayah)? get activeAyahCoordinate {
     if (activeAyah.value != null && targetSurah != 0) {
       return (targetSurah, activeAyah.value!);
@@ -486,7 +484,7 @@ class HighlightingController extends ChangeNotifier {
   HighlightStore get highlightStore => _store;
 
   int get targetSurah {
-    // Single coordinate: every source (manual selection, ASR, audio playback)
+    // Single coordinate: every source (manual selection, ASR)
     // mirrors into _manualTargetSurah at its merge point, so there is nothing to disambiguate here.
     if (_manualTargetSurah != 0) {
       return _manualTargetSurah;
@@ -648,7 +646,7 @@ class HighlightingController extends ChangeNotifier {
 
   rq.VerseMatch? get currentMatchedVerse {
     // The mirrored coordinate IS the matched verse for every source (manual
-    // selection, ASR anchor, audio playback). Pure coordinate
+    // selection, ASR anchor). Pure coordinate
     // read - no fallback into the package.
     if (_manualTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
@@ -662,8 +660,7 @@ class HighlightingController extends ChangeNotifier {
   // ── Word Status Queries (pure store reads) ──
   //
   // The package's verdicts arrive reactively through onWordEvaluated and live in the
-  // store from then on; audio playback writes the same
-  // store at its ingestion point. Every query below — the paint path
+  // store from then on. Every query below — the paint path
   // included — is a single O(1) lookup. No source is ever consulted at read
   // time: package → controller → view, one direction.
 
@@ -802,7 +799,6 @@ class HighlightingController extends ChangeNotifier {
 
   /// Returns the 0-based lead ("waited") word index — the one word the
   /// reciter is about to say, rendered as the anticipatory cursor:
-  /// - audio playback: the player's word cursor
   /// - live local ASR while recording: the first not-yet-read word
   ///
   /// The lead word only exists inside the live coordinate; everything outside
@@ -1452,8 +1448,8 @@ abstract final class QuranTypography {
 
 /// Centralized Quran User Interaction Service.
 ///
-/// Handles Ayah selection, word clicks (Tajweed error dialog vs word audio audition),
-/// and continuous Ayah audio playback across both Mushaf Vector and Verse List views.
+/// Handles Ayah selection and word clicks (Tajweed error dialog)
+/// across both Mushaf Vector and Verse List views.
 abstract final class QuranInteractionService {
   /// Handles selecting/tapping an Ayah: manual selection, and persisting last position.
   static Future<void> selectAyah({

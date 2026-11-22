@@ -15,7 +15,7 @@ import 'web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart'
     as web_storage;
 
-/// Typed word reference within a Mushaf page for tracking and playback.
+/// Typed word reference within a Mushaf page for recitation tracking.
 class MushafWordRef {
   final int surah;
   final int ayah;

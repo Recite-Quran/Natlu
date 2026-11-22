@@ -354,9 +354,8 @@ class _MushafViewState extends State<MushafView> {
     }
 
     // NOTE: Page-turn sync is unified in _onActiveAyahChanged (_syncPageFollow).
-    // Audio playback writes the same coordinate into the controller (activeAyah +
-    // targetSurah — applyAudioProgress mirrors it), so it is followed by that one
-    // rule like every other source. There is no audio-specific page branch here.
+    // Recitation writes the coordinate into the controller (activeAyah +
+    // targetSurah), so it is followed by that one rule.
 
     final ctrl = widget.controller;
     final (int activeSurah, int? activeAyah) = ctrl.recitationCoordinate;
@@ -454,11 +453,9 @@ class _MushafViewState extends State<MushafView> {
     _lastHandledAyah = activeAyah;
     _lastHandledSurah = activeSurah;
 
-    // The one page-sync rule for every recitation source. Local ASR, audio
-    // playback all write the same coordinate into the
-    // controller (activeAyah + targetSurah), so whenever that coordinate
-    // changes, the mushaf follows it — through ayahs, pages and surahs — with
-    // no per-source branch. A manual page turn never rewrites the coordinate:
+    // The one page-sync rule for recitation: whenever activeAyah + targetSurah
+    // changes, the mushaf follows it — through ayahs, pages and surahs.
+    // A manual page turn never rewrites the coordinate:
     // the newest event wins, each event only applies once, as it is received.
     _syncPageFollow(activeSurah, activeAyah);
 
@@ -466,10 +463,7 @@ class _MushafViewState extends State<MushafView> {
     _notifyUnderlayIfRelevant();
   }
 
-  /// Follows the controller's current coordinate to its page. This is the only
-  /// place a source (audio playback, local ASR recitation)
-  /// moves the mushaf by itself: they all write (surah, ayah) into the
-  /// controller, so the rule is source-agnostic.
+  /// Follows the controller's current coordinate to its page.
   void _syncPageFollow(int surah, int? ayah) {
     // One base rule for every source: never chase the coordinate while the
     // controller is mid-merge — a surah retarget emits transient writes
