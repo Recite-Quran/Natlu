@@ -339,6 +339,41 @@ class TajweedEngine {
           }
         }
 
+        // Selective CTC blank allocation exclusively for held rule spans (from expected_tj3.zfx):
+        // 1. Shaddah (rule 9): consonant closure occurs in the blanks preceding the consonant release.
+        if (span.isShaddah &&
+            tokenStarts != null &&
+            tokenEnds != null &&
+            touchedTokens.isNotEmpty) {
+          final int firstT = touchedTokens.reduce(min);
+          if (firstT > 0 &&
+              firstT < tokenStarts.length &&
+              (firstT - 1) < tokenEnds.length) {
+            final double closureGap =
+                tokenStarts[firstT] - tokenEnds[firstT - 1];
+            if (closureGap >= 0.040 && closureGap < 1.25) {
+              spanDuration += closureGap;
+            }
+          }
+        }
+
+        // 2. Ghunnah (rule 10) or Madd (rules 1-7): acoustic holding continues forward in the blanks following the sound.
+        if ((span.isGhunnah || span.isMadd) &&
+            tokenStarts != null &&
+            tokenEnds != null &&
+            touchedTokens.isNotEmpty) {
+          final int lastT = touchedTokens.reduce(max);
+          if (lastT >= 0 &&
+              lastT < tokenEnds.length &&
+              (lastT + 1) < tokenStarts.length) {
+            final double continuationGap =
+                tokenStarts[lastT + 1] - tokenEnds[lastT];
+            if (continuationGap >= 0.040 && continuationGap < 1.25) {
+              spanDuration += continuationGap;
+            }
+          }
+        }
+
         final TokenNeuralAcoustics spanAcoustics = acousticsCount > 0
             ? TokenNeuralAcoustics(
                 qalqalahScore: sumQalqalah / acousticsCount,

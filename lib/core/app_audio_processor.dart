@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
-import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
+import 'package:quran_tarteel/quran_tarteel.dart' as rq;
 import '../maglis/maglis_controller.dart';
 import '../maglis/maglis_core.dart';
 

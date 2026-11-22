@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
-export 'package:quran_tajweedformer/quran_tajweedformer.dart';
+import 'package:quran_tarteel/quran_tarteel.dart' as rq;
+export 'package:quran_tarteel/quran_tarteel.dart';
 
 import 'app_state.dart';
 import '../audio/quran_audio_service.dart';

@@ -1,14 +1,16 @@
-// lib/quran_tajweedformer.dart
+// lib/quran_tarteel.dart
+// Real-time Quran Recitation Tracking, Dynamic DTW Alignment & Deterministic Tajweed Matrix
+// Powered by TajweedFormer V4 / Quran Lab SDK 4.0
+
 import 'dart:async';
 import 'dart:typed_data';
-
-import 'package:quran_tajweedformer/tracking/ayah_search/voice_search_controller.dart';
 
 import 'engine/core/recite_engine.dart';
 import 'engine/core/tajweed_diagnostics.dart';
 import 'engine/core/transcription_result.dart';
 import 'engine/quranlab_sdk/quranlab_sdk_engine.dart';
 import 'scoring.dart';
+import 'tracking/ayah_search/voice_search_controller.dart';
 
 export 'engine.dart';
 export 'engine/quranlab_sdk/quranlab_sdk_engine.dart';
@@ -17,26 +19,22 @@ export 'tracking/ayah_search/voice_search_controller.dart';
 export 'utils/debug_logger.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// QURAN TAJWEEDFORMER SDK (MAIN PUBLIC FACADE)
+// QURAN TARTEEL SDK (MAIN PUBLIC FACADE)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// The primary entry point for integrating real-time Quran recitation tracking
 /// and deterministic Tajweed verification into any Flutter application using
 /// TajweedFormer V4.
 ///
-/// Composes [QuranRecognizer] / [ReciteEngine] (acoustic ASR inference) with
-/// [QuranScorer] (phoneme alignment, DTW, Tajweed rule evaluation).
-///
 /// **Scholarly & Pedagogical Note (تنبيه وأمانة شرعية):**
 /// This engine is an assistive tool to aid individual revision and practice.
 /// It is never a substitute for direct Talaqqi and Musyafahah (reciting face-to-face
 /// to a qualified, certified Sheikh/Muqri' with Ijaza) to verify sound Hifdh,
 /// Tajweed precision, and letter articulation points (Makharij).
-/// The primary entry point for integrating real-time Quran recitation tracking,
-/// deterministic Tajweed verification, and voice navigation into any Flutter application.
-typedef ReciteQuran = QuranTajweedFormer;
+typedef QuranTajweedFormer = QuranTarteel;
+typedef ReciteQuran = QuranTarteel;
 
-class QuranTajweedFormer {
+class QuranTarteel {
   final QuranRepository repository;
   final ReciteEngine _engine;
   late final QuranScorer _scorer;
@@ -110,7 +108,7 @@ class QuranTajweedFormer {
   /// Whether the instance has been disposed.
   bool get isDisposed => _isDisposed;
 
-  QuranTajweedFormer({
+  QuranTarteel({
     required ReciteEngine engine,
     QuranRepository? repository,
     TrackerConfig config = const TrackerConfig(),
@@ -129,7 +127,7 @@ class QuranTajweedFormer {
   /// Connects to sdk.quranlab.ai using your [apiKey] (`qlk_v1_...`), downloads
   /// the encrypted model on first launch, manages offline leases, and streams
   /// neural acoustic chunks into the scoring engine.
-  factory QuranTajweedFormer.sdk({
+  factory QuranTarteel.sdk({
     String? apiKey,
     QuranRepository? repository,
     String contextProfile = 'c16_l64',
@@ -141,13 +139,13 @@ class QuranTajweedFormer {
         apiKey ?? const String.fromEnvironment('QURANLAB_KEY');
     if (resolvedKey.isEmpty) {
       throw ArgumentError(
-        'QuranTajweedFormer: An API key is required to use the Quran Lab SDK. '
+        'QuranTarteel: An API key is required to use the Quran Lab SDK. '
         'Pass apiKey: "qlk_v1_..." or compile with --dart-define=QURANLAB_KEY=qlk_v1_... '
         'Obtain your free key at https://sdk.quranlab.ai',
       );
     }
 
-    return QuranTajweedFormer(
+    return QuranTarteel(
       repository: repository,
       engine: QuranLabSdkEngine(
         apiKey: resolvedKey,
@@ -164,27 +162,20 @@ class QuranTajweedFormer {
   /// Initializes the on-device TajweedFormer ASR engine and background phoneme alignment isolate.
   Future<void> initialize() async {
     if (_isDisposed) {
-      throw StateError(
-          'Cannot initialize a disposed QuranTajweedFormer instance.');
+      throw StateError('Cannot initialize a disposed QuranTarteel instance.');
     }
     if (_isInitialized) return;
 
-    // 1. Initialize TajweedFormer Engine
     await _engine.initialize();
-
-    // 2. Initialize QuranScorer (loads repository data & starts isolate)
     await _scorer.initialize();
 
-    // 3. Subscribe to Engine Stream and pipe to Scorer
     _engineSub = _engine.transcriptionStream.listen(_onTranscriptionResult);
-
     _isInitialized = true;
   }
 
   // ── 2. Surah & Ayah Target Setup ──
 
   /// Unified target setter for recitation tracking.
-  /// Focuses tracking on [surah], optionally focusing on [ayah] and [wordIndex].
   void setTarget({
     required int surah,
     int? ayah,
@@ -261,26 +252,24 @@ class QuranTajweedFormer {
     _scorer.setTajweedMode(active);
   }
 
-  /// Updates difficulty and math thresholds dynamically at runtime.
+  /// Updates active tracker configuration.
   void updateConfig(TrackerConfig newConfig) {
     if (_isDisposed) return;
     _scorer.updateConfig(newConfig);
   }
 
-  /// Updates specific Tajweed check toggles dynamically at runtime.
+  /// Updates active Tajweed rule checks.
   void updateTajweedConfig(TajweedConfig newTajweedConfig) {
     if (_isDisposed) return;
     _scorer.updateTajweedConfig(newTajweedConfig);
   }
 
-  // ── 4. Internal Message Pump ──
+  // ── 4. Internal Handlers ──
 
   void _onTranscriptionResult(TranscriptionResult result) {
     if (_isDisposed) return;
-    // Non-final events from a previous take are stale. The final event of a
-    // flushed take can carry the pre-reset epoch, so accept it regardless.
-    if (!result.isFinal &&
-        result.streamEpoch != _engine.currentStreamEpoch) {
+
+    if (!result.isFinal && result.streamEpoch != _engine.currentStreamEpoch) {
       return;
     }
 
@@ -291,21 +280,24 @@ class QuranTajweedFormer {
     _scorer.feedTranscript(result);
   }
 
-  // ── 5. Cleanup ──
+  // ── 5. Lifecycle ──
 
+  /// Disposes background isolates, audio listeners, and controllers.
   void dispose() {
     if (_isDisposed) return;
     _isDisposed = true;
-    _isInitialized = false;
 
     _engineSub?.cancel();
     _engineSub = null;
 
-    _engine.destroy();
-    _scorer.dispose();
+    _voiceSearch?.dispose();
+    _voiceSearch = null;
 
     if (!_transcriptController.isClosed) {
       _transcriptController.close();
     }
+
+    _scorer.dispose();
+    _engine.destroy();
   }
 }

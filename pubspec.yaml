@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  quran_tajweedformer:
+  quran_tarteel:
     path: packages/recite_quran
   offline_engine:
     path: offline_engine

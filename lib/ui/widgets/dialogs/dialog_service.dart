@@ -14,7 +14,7 @@ import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
 export 'app_alert_dialogs.dart' show PermissionReason;
-export 'package:quran_tajweedformer/quran_tajweedformer.dart'
+export 'package:quran_tarteel/quran_tarteel.dart'
     show VoiceSearchResult;
 export 'audio_download_dialog.dart' show AudioDownloadDialog;
 export 'tajweed_rules_dialog.dart' show TajweedRulesDialog;

@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:quran_tajweedformer/quran_tajweedformer.dart' as rq;
+import 'package:quran_tarteel/quran_tarteel.dart' as rq;
 import '../core/highlighting_controller.dart';
 
 enum MaglisPacketType {

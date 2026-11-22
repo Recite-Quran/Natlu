@@ -1,0 +1,22 @@
+name: quran_tarteel_example
+description: Demonstrates real-time Quran recitation tracking and Tajweed verification using quran_tarteel.
+publish_to: 'none'
+version: 1.1.0
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  quran_tarteel:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
-import 'package:quran_tajweedformer/quran_tajweedformer.dart';
+import 'package:quran_tarteel/quran_tarteel.dart';
 import '../../../mushaf/mushaf_provider.dart';
 import '../../../audio/quran_audio_service.dart';
 import '../../../core/app_state.dart';

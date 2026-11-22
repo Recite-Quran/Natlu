@@ -4,17 +4,23 @@
 # و ما اسالكم عليه من اجر ان اجري الا على رب العالمين
 ### الحمد لله رب العالمين • بفضل الله و برحمته
 
-# ReciteQuran — اتلو القرآن
+# QuranTarteel — ترتيل القرآن
 ### Real-Time On-Device Quran Recitation Tracking, Tajweed Verification & Voice Navigation for Flutter
 
 [![License](https://img.shields.io/badge/License-For%20The%20Sake%20Of%20Allah%20Subhanu-purple.svg)](#-sacred-covenant--license-لوجه-الله-تعالى)
-[![pub package](https://img.shields.io/badge/pub.dev-recite__quran%20v1.0.5-blue.svg)](https://pub.dev/packages/quran_tajweedformer)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-green.svg)](https://pub.dev/packages/quran_tajweedformer)
+[![pub package](https://img.shields.io/badge/pub.dev-quran__tarteel%20v1.1.0-blue.svg)](https://pub.dev/packages/quran_tarteel)
+[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-green.svg)](https://pub.dev/packages/quran_tarteel)
 [![SDK](https://img.shields.io/badge/Engine-QuranLab%20SDK%204.0-blue.svg)](https://pub.dev/packages/quranlab_tajweedformer)
 
 *Neural engine:* Powered by **QuranLab TajweedFormer SDK 4.0** with on-device cached neural inference.
 
 </div>
+
+---
+
+> [!NOTE]
+> **Naming & Independence Notice (تسمية حرة لوجه الله):**
+> `quran_tarteel` is an independent, non-commercial open-source engine dedicated for the sake of Allah alone (لوجه الله تعالى). The name derives from the divine Quranic commandment in Surah Al-Muzzammil: **{وَرَتِّلِ الْقُرْآنَ تَرْتِيلًا}**. This project is not affiliated with, sponsored by, or associated with Tarteel Inc.
 
 ---
 
@@ -51,7 +57,7 @@ Get deterministic word recitation verification running in your Flutter app in fo
 ### 1. Add Dependency
 ```yaml
 dependencies:
-  quran_tajweedformer: ^1.0.5
+  quran_tarteel: ^1.1.0
 ```
 
 ### 2. Initialize & Evaluate Target Word

@@ -1,4 +1,4 @@
-name: quran_tajweedformer
+name: quran_tarteel
 description: Real-time on-device Quran recitation tracking, dynamic DTW word alignment, and deterministic Tajweed rule verification engine for Flutter powered by TajweedFormer V4.
 version: 1.1.0
 homepage: https://github.com/Iam-Muslim/ReciteQuran
@@ -15,9 +15,9 @@ platforms:
 
 topics:
   - quran
-  - audio
+  - tarteel
   - tajweed
-  - tajweed-former
+  - audio
   - speech-to-text
   - ai
 
@@ -39,6 +39,3 @@ dev_dependencies:
   flutter_lints: ^6.0.0
 
 flutter:
-
-
-
