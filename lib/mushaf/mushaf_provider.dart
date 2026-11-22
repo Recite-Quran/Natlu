@@ -47,7 +47,7 @@ class MushafProvider {
     lineSpacing: 1.0,
     fillHeight: true,
     maxAspectSlack: 0.0,
-    surahFrames: false,
+    surahFrames: true,
   );
 
   QvpEngine? _engine;

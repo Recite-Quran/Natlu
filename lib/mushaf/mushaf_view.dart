@@ -75,8 +75,7 @@ class MushafView extends StatefulWidget {
   State<MushafView> createState() => _MushafViewState();
 }
 
-class _MushafViewState extends State<MushafView>
-    with SingleTickerProviderStateMixin {
+class _MushafViewState extends State<MushafView> {
   int _currentPage = 1;
   QvpPage? _currentPageObject;
   bool _isLoading = true;
@@ -101,10 +100,8 @@ class _MushafViewState extends State<MushafView>
     _settleOnPage(_currentPage);
   }
 
-  // Audio spinner animation & fine-grained layer repaint triggers
-  late final AnimationController _spinnerController;
+  // Fine-grained layer repaint triggers
   final ValueNotifier<int> _underlayRepaintTrigger = ValueNotifier<int>(0);
-  final ValueNotifier<int> _staticRepaintTrigger = ValueNotifier<int>(0);
   final ValueNotifier<int> _overlayRepaintTrigger = ValueNotifier<int>(0);
   late final Listenable _underlayRepaintListenable;
   late final Listenable _overlayRepaintListenable;
@@ -119,8 +116,6 @@ class _MushafViewState extends State<MushafView>
     int rev,
     bool recording,
   })? _lastUnderlayState;
-  ({bool buffering, bool playing, int? surah, int? ayah})?
-      _lastAudioOverlayState;
 
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
@@ -170,16 +165,7 @@ class _MushafViewState extends State<MushafView>
     _pageController = PageController(initialPage: _currentPage - 1);
     _isLoading = !provider.isReady;
 
-    _spinnerController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    );
-
     final app = AppState.instance;
-    // NOTE: _spinnerController is deliberately NOT in these merges. Each layer
-    // has its own dedicated RepaintBoundary driven only by the state it paints:
-    // underlay (highlights), static ink (base glyphs, headers, neutral rings),
-    // and dynamic overlay (active audio rings, tooltips).
     _underlayRepaintListenable = Listenable.merge([
       _underlayRepaintTrigger,
       app.modeNotifier,
@@ -229,9 +215,6 @@ class _MushafViewState extends State<MushafView>
           _currentPage,
           MushafProvider.instance.lastViewportSize,
         );
-        if (!AppState.instance.hasClickedMushafAudioAyah) {
-          AppState.instance.showMushafAudioBanner();
-        }
       }
     });
   }
@@ -246,7 +229,6 @@ class _MushafViewState extends State<MushafView>
       widget.controller.activeAyah.addListener(_onActiveAyahChanged);
       _syncVisuals();
       _notifyUnderlayIfRelevant();
-      _syncAudioOverlayState();
     }
     if (!oldWidget.isRecording && widget.isRecording) {
       final active = widget.controller.activeAyah.value;

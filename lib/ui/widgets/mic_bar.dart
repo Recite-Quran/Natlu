@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/platform_utils.dart';
 import '../../core/app_state.dart';
-import '../../maglis/maglis_core.dart';
 
-enum MicBarMode { recording, maglis, normal }
+enum MicBarMode { recording, normal }
 
 class BottomActionBar extends StatelessWidget {
   final bool isRecording;
@@ -19,12 +18,6 @@ class BottomActionBar extends StatelessWidget {
   final String surahName;
   final VoidCallback onSurahTap;
   final VoidCallback onSettingsTap;
-  final bool isInMaglis;
-  final VoidCallback? onMaglisTap;
-  final VoidCallback? onMaglisExitTap;
-  final String? maglisRoomCode;
-  final int maglisPeerCount;
-  final bool isRemoteReciting;
 
   const BottomActionBar({
     super.key,
@@ -39,17 +32,10 @@ class BottomActionBar extends StatelessWidget {
     required this.surahName,
     required this.onSurahTap,
     required this.onSettingsTap,
-    this.isInMaglis = false,
-    this.onMaglisTap,
-    this.onMaglisExitTap,
-    this.maglisRoomCode,
-    this.maglisPeerCount = 0,
-    this.isRemoteReciting = false,
   });
 
-  MicBarMode get mode => isInMaglis
-      ? MicBarMode.maglis
-      : (isRecording ? MicBarMode.recording : MicBarMode.normal);
+  MicBarMode get mode =>
+      isRecording ? MicBarMode.recording : MicBarMode.normal;
 
   static Color _btnBg(bool isDark, {bool isActive = false}) => isActive
       ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.22 : 0.15)
@@ -92,7 +78,6 @@ class BottomActionBar extends StatelessWidget {
 
             final double stdBtnWidth = isNarrow ? 38.0 : 42.0;
             final double gap = isNarrow ? 5.0 : 6.0;
-            final double maglisGap = isNarrow ? 4.0 : 5.0;
 
             final double normalWidth = math.min(maxW - 20.0, 480.0);
             final double recordingWidth = hPad +
@@ -104,25 +89,15 @@ class BottomActionBar extends StatelessWidget {
                 stdBtnWidth +
                 1.0;
 
-            // Ensures 3-digit page numbers on narrow screens remain visible and right next to the bar
-            final double maglisLeftClearance = isNarrow ? 64.0 : 50.0;
-            final double maglisWidth =
-                math.max(200.0, maxW - maglisLeftClearance);
-
             final double targetWidth = switch (mode) {
               MicBarMode.recording => recordingWidth,
-              MicBarMode.maglis => maglisWidth,
               MicBarMode.normal => normalWidth,
             };
 
-            final double normalRightMargin =
-                math.max(10.0, (maxW - normalWidth) / 2.0);
             final double rightMargin =
-                mode == MicBarMode.maglis ? 8.0 : normalRightMargin;
+                math.max(10.0, (maxW - normalWidth) / 2.0);
 
-            final double minNormalActionWidth =
-                (stdBtnWidth * 2.0) + (gap * 2.0) + 68.0;
-            const double minMaglisActionWidth = 145.0;
+            final double minNormalActionWidth = stdBtnWidth + gap + 68.0;
 
             final Color pillBg =
                 isDark ? const Color(0xF40F151D) : const Color(0xFAFFFFFF);
@@ -185,8 +160,7 @@ class BottomActionBar extends StatelessWidget {
                                 width: micWidth - rightTuck - borderW,
                               ),
                               SizedBox(
-                                width:
-                                    mode == MicBarMode.maglis ? maglisGap : gap,
+                                width: gap,
                               ),
                               Expanded(
                                 child: AnimatedSwitcher(
@@ -267,125 +241,13 @@ class BottomActionBar extends StatelessWidget {
                                         ),
                                       ),
 
-                                    // CASE 2: MAGLIS SESSION
-                                    MicBarMode.maglis =>
-                                      _NonOverflowingActionRow(
-                                        key: const ValueKey('mode_maglis'),
-                                        minWidth: minMaglisActionWidth,
-                                        child: Row(
-                                          children: [
-                                            Expanded(
-                                              flex: 10,
-                                              child: _buildActionButton(
-                                                child: Icon(
-                                                  isBlur
-                                                      ? Icons
-                                                          .visibility_off_rounded
-                                                      : Icons
-                                                          .visibility_rounded,
-                                                  size: 18.0,
-                                                  color: _btnFg(
-                                                    isDark,
-                                                    isActive: isBlur,
-                                                  ),
-                                                ),
-                                                tooltip: isAr
-                                                    ? 'إخفاء الآيات'
-                                                    : 'Hide Verses',
-                                                isActive: isBlur,
-                                                isDark: isDark,
-                                                height: btnHeight,
-                                                dockHeight: dockHeight,
-                                                onTap: onToggleBlur,
-                                              ),
-                                            ),
-                                            SizedBox(width: maglisGap),
-                                            Expanded(
-                                              flex: 10,
-                                              child: _buildActionButton(
-                                                child: Icon(
-                                                  isTajweed
-                                                      ? Icons
-                                                          .record_voice_over_rounded
-                                                      : Icons
-                                                          .record_voice_over_outlined,
-                                                  size: 18.0,
-                                                  color: _btnFg(
-                                                    isDark,
-                                                    isActive: isTajweed,
-                                                  ),
-                                                ),
-                                                tooltip: isAr
-                                                    ? 'أحكام التجويد'
-                                                    : 'Tajweed Rules',
-                                                isActive: isTajweed,
-                                                isDark: isDark,
-                                                height: btnHeight,
-                                                dockHeight: dockHeight,
-                                                onTap: onToggleTajweed,
-                                              ),
-                                            ),
-                                            SizedBox(width: maglisGap),
-                                            Expanded(
-                                              flex: 10,
-                                              child: _buildActionButton(
-                                                child: _EmptyMushafIcon(
-                                                  size: 18.0,
-                                                  color: _btnFg(isDark),
-                                                ),
-                                                tooltip: isAr
-                                                    ? 'اختيار السورة'
-                                                    : 'Select Surah',
-                                                isActive: false,
-                                                isDark: isDark,
-                                                height: btnHeight,
-                                                dockHeight: dockHeight,
-                                                onTap: onSurahTap,
-                                              ),
-                                            ),
-                                            SizedBox(width: maglisGap),
-                                            Expanded(
-                                              flex: 25,
-                                              child: _buildMaglisSessionBox(
-                                                height: btnHeight,
-                                                dockHeight: dockHeight,
-                                                isDark: isDark,
-                                                isAr: isAr,
-                                                isNarrow: isNarrow,
-                                              ),
-                                            ),
-                                            SizedBox(width: maglisGap),
-                                            Expanded(
-                                              flex: 11,
-                                              child: _buildLeaveButton(
-                                                height: btnHeight,
-                                                dockHeight: dockHeight,
-                                                isAr: isAr,
-                                                onTap: onMaglisExitTap ?? () {},
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-
-                                    // CASE 3: NORMAL READING
+                                    // CASE 2: NORMAL READING
                                     MicBarMode.normal =>
                                       _NonOverflowingActionRow(
                                         key: const ValueKey('mode_normal'),
                                         minWidth: minNormalActionWidth,
                                         child: Row(
                                           children: [
-                                            _buildMaglisEntryButton(
-                                              isDark: isDark,
-                                              isAr: isAr,
-                                              width: stdBtnWidth,
-                                              height: btnHeight,
-                                              dockHeight: dockHeight,
-                                              showNewBadge:
-                                                  app.showMaglisNewBadge,
-                                              onTap: onMaglisTap ?? () {},
-                                            ),
-                                            SizedBox(width: gap),
                                             Expanded(
                                               child: _buildSurahPill(
                                                 isDark: isDark,
