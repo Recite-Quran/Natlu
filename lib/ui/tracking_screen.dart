@@ -351,7 +351,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _showSettingsDialog() {
-    DialogService.showSettings(context);
+    DialogService.showSettings(context, controller: widget.controller);
   }
 
   void _showSpeedSelectionDialog() {
@@ -445,6 +445,12 @@ class _TrackingScreenState extends State<TrackingScreen>
                                     widget.controller.setTajweedMode(false);
                                     app.dismissTajweedBanner();
                                   }
+                                },
+                                onTajweedLongPress: () {
+                                  DialogService.showTajweedSettings(
+                                    context,
+                                    controller: widget.controller,
+                                  );
                                 },
                                 surahName: surahName,
                                 onSurahTap: _showSurahPicker,

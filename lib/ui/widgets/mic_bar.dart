@@ -16,6 +16,7 @@ class BottomActionBar extends StatelessWidget {
   final VoidCallback onToggleBlur;
   final bool isTajweed;
   final VoidCallback onToggleTajweed;
+  final VoidCallback? onTajweedLongPress;
   final String surahName;
   final VoidCallback onSurahTap;
   final VoidCallback onSettingsTap;
@@ -36,6 +37,7 @@ class BottomActionBar extends StatelessWidget {
     required this.onToggleBlur,
     required this.isTajweed,
     required this.onToggleTajweed,
+    this.onTajweedLongPress,
     required this.surahName,
     required this.onSurahTap,
     required this.onSettingsTap,
@@ -262,6 +264,7 @@ class BottomActionBar extends StatelessWidget {
                                               height: btnHeight,
                                               dockHeight: dockHeight,
                                               onTap: onToggleTajweed,
+                                              onLongPress: onTajweedLongPress,
                                             ),
                                           ],
                                         ),
@@ -323,6 +326,7 @@ class BottomActionBar extends StatelessWidget {
                                                 height: btnHeight,
                                                 dockHeight: dockHeight,
                                                 onTap: onToggleTajweed,
+                                                onLongPress: onTajweedLongPress,
                                               ),
                                             ),
                                             SizedBox(width: maglisGap),
@@ -562,29 +566,34 @@ class BottomActionBar extends StatelessWidget {
     required double height,
     required double dockHeight,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     return Tooltip(
       message: tooltip,
       waitDuration: const Duration(milliseconds: 350),
-      child: _TapScale(
-        onTap: onTap,
-        child: SizedBox(
-          width: width,
-          height: dockHeight,
-          child: Center(
-            child: Container(
-              width: width ?? double.infinity,
-              height: height,
-              decoration: BoxDecoration(
-                color: _btnBg(isDark, isActive: isActive),
-                borderRadius: BorderRadius.circular(10.0),
-                border: Border.all(
-                  color: _btnBorder(isDark, isActive: isActive),
-                  width: isActive ? 1.2 : 1.0,
+      child: GestureDetector(
+        onLongPress: onLongPress,
+        behavior: HitTestBehavior.opaque,
+        child: _TapScale(
+          onTap: onTap,
+          child: SizedBox(
+            width: width,
+            height: dockHeight,
+            child: Center(
+              child: Container(
+                width: width ?? double.infinity,
+                height: height,
+                decoration: BoxDecoration(
+                  color: _btnBg(isDark, isActive: isActive),
+                  borderRadius: BorderRadius.circular(10.0),
+                  border: Border.all(
+                    color: _btnBorder(isDark, isActive: isActive),
+                    width: isActive ? 1.2 : 1.0,
+                  ),
                 ),
+                alignment: Alignment.center,
+                child: child,
               ),
-              alignment: Alignment.center,
-              child: child,
             ),
           ),
         ),

@@ -222,7 +222,7 @@ class TrackerConfig {
     bool enableEarlyMatching = true,
     bool enableAutoReanchor = false,
     int reanchorStallThreshold = 20,
-    TajweedConfig tajweed = const TajweedConfig.standard(),
+    TajweedConfig tajweed = const TajweedConfig.all(),
   }) =>
       TrackerConfig(
         recitationSpeed: speed,

@@ -411,6 +411,30 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  // ── Tajweed Configuration (All, None, or Custom Rules) ─────────────────────
+  TajweedConfig _tajweedConfig = const TajweedConfig.all();
+  TajweedConfig get tajweedConfig => _tajweedConfig;
+  final ValueNotifier<TajweedConfig> tajweedConfigNotifier =
+      ValueNotifier<TajweedConfig>(const TajweedConfig.all());
+
+  void setTajweedConfig(TajweedConfig config, [HighlightingController? controller]) async {
+    if (_tajweedConfig == config) return;
+    _tajweedConfig = config;
+    tajweedConfigNotifier.value = config;
+    controller?.updateTajweedConfig(config);
+    notifyListeners();
+
+    try {
+      final prefs = await _getPrefs();
+      await prefs.setBool('tajweed_check_madd', config.checkMadd);
+      await prefs.setBool('tajweed_check_tashkeel', config.checkTashkeel);
+      await prefs.setBool('tajweed_check_ghunnah', config.checkGhunnah);
+      await prefs.setBool('tajweed_check_shaddah', config.checkShaddah);
+      await prefs.setBool('tajweed_check_qalqalah', config.checkQalqalah);
+      await prefs.setBool('tajweed_check_letter_swap', config.checkLetterSwap);
+    } catch (_) {}
+  }
+
   // ── Tracker Configuration ──────────────────────────────────────────────────
   // Tajweed and Dictation modes use standard normal calibration with auto-reanchor enabled (stall threshold: 50).
   TrackerConfig _trackerConfig = TrackerConfig.normal(
@@ -418,7 +442,8 @@ class AppState extends ChangeNotifier {
     enableAutoReanchor: true,
     reanchorStallThreshold: 100,
   );
-  TrackerConfig get trackerConfig => _trackerConfig;
+  TrackerConfig get trackerConfig =>
+      _trackerConfig.copyWith(tajweed: _tajweedConfig);
 
   // ── Verse Audio Playback (Backward-compatible reactive bridge to QuranAudioService) ──
   final ValueNotifier<int?> activeAudioAyah = ValueNotifier<int?>(null);
@@ -836,6 +861,21 @@ class AppState extends ChangeNotifier {
       if (prefs.containsKey('fontSize')) {
         fontSizeNotifier.value = prefs.getDouble('fontSize') ?? 28.0;
       }
+
+      if (prefs.containsKey('tajweed_check_madd') ||
+          prefs.containsKey('tajweed_check_tashkeel')) {
+        _tajweedConfig = TajweedConfig(
+          checkMadd: prefs.getBool('tajweed_check_madd') ?? true,
+          checkTashkeel: prefs.getBool('tajweed_check_tashkeel') ?? true,
+          checkGhunnah: prefs.getBool('tajweed_check_ghunnah') ?? true,
+          checkShaddah: prefs.getBool('tajweed_check_shaddah') ?? true,
+          checkQalqalah: prefs.getBool('tajweed_check_qalqalah') ?? true,
+          checkLetterSwap: prefs.getBool('tajweed_check_letter_swap') ?? true,
+        );
+      } else {
+        _tajweedConfig = const TajweedConfig.all();
+      }
+      tajweedConfigNotifier.value = _tajweedConfig;
 
       themeNotifier.value = _theme;
       languageNotifier.value = _lang;

@@ -53,27 +53,37 @@ class TajweedConfig {
           checkLetterSwap: false,
         );
 
-  /// Standard everyday practice mode (checks Madd, Tashkeel, Ghunnah, and Qalqalah).
-  const TajweedConfig.standard()
-      : this(
-          checkMadd: true,
-          checkTashkeel: true,
-          checkGhunnah: true,
-          checkShaddah: false,
-          checkQalqalah: true,
-          checkLetterSwap: true,
+  /// Custom combination of Tajweed and phonetic checks.
+  const TajweedConfig.custom({
+    bool checkMadd = true,
+    bool checkTashkeel = true,
+    bool checkGhunnah = true,
+    bool checkShaddah = true,
+    bool checkQalqalah = true,
+    bool checkLetterSwap = true,
+  }) : this(
+          checkMadd: checkMadd,
+          checkTashkeel: checkTashkeel,
+          checkGhunnah: checkGhunnah,
+          checkShaddah: checkShaddah,
+          checkQalqalah: checkQalqalah,
+          checkLetterSwap: checkLetterSwap,
         );
 
-  /// Checks only essential acoustic durations (Madd and Ghunnah).
-  const TajweedConfig.durationsOnly()
-      : this(
-          checkMadd: true,
-          checkTashkeel: false,
-          checkGhunnah: true,
-          checkShaddah: false,
-          checkQalqalah: false,
-          checkLetterSwap: true,
-        );
+  /// Whether all Tajweed and phonetic checks are active (standard Quran mode).
+  bool get isAllEnabled =>
+      checkMadd &&
+      checkTashkeel &&
+      checkGhunnah &&
+      checkShaddah &&
+      checkQalqalah &&
+      checkLetterSwap;
+
+  /// Whether all Tajweed checks are disabled (pure memorization / word tracking only).
+  bool get isAllDisabled => !isAnyCheckEnabled;
+
+  /// Whether a custom subset of checks is active.
+  bool get isCustom => !isAllEnabled && !isAllDisabled;
 
   /// Whether at least one check is active.
   bool get isAnyCheckEnabled =>
