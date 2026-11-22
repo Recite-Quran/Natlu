@@ -222,7 +222,7 @@ class QuranScorer {
 
     _isolate.syncStream(
       processed.text,
-      processed.charDurations,
+      processed.charTimestamps,
       false,
       0,
       processed.charNeuralAcoustics,

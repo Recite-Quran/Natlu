@@ -481,16 +481,6 @@ class QalqalahRule extends TajweedRule {
 
 /// Factory for instantiating and serializing TajweedRule entities deterministically.
 class TajweedRuleFactory {
-  /// Derives an appropriate MaddRule instance based on elongation character length.
-  static TajweedRule deriveMaddRuleFromLength(
-    int len, [
-    TrackerConfig config = const TrackerConfig(),
-  ]) {
-    if (len >= 6) return const LazemMaddRule();
-    if (len >= 4) return AaredMaddRule(config.recitationSpeed.aaredMaddHarakat);
-    return const NormalMaddRule();
-  }
-
   /// Instantiates a typed TajweedRule from a canonical WordTajweedRule reference entry.
   static TajweedRule instantiate(
     WordTajweedRule wRule, [

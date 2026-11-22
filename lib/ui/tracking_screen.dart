@@ -434,19 +434,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                                 },
                                 isTajweed: app.currentMode == AppMode.tajweed,
                                 onToggleTajweed: () {
-                                  final bool newIsTajweed =
-                                      app.currentMode != AppMode.tajweed;
-                                  if (newIsTajweed) {
-                                    app.setMode(AppMode.tajweed);
-                                    widget.controller.setTajweedMode(true);
-                                    app.showTajweedBanner();
-                                  } else {
-                                    app.setMode(AppMode.wordChecker);
-                                    widget.controller.setTajweedMode(false);
-                                    app.dismissTajweedBanner();
-                                  }
-                                },
-                                onTajweedLongPress: () {
                                   DialogService.showTajweedSettings(
                                     context,
                                     controller: widget.controller,

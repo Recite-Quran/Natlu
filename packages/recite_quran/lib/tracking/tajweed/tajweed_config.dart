@@ -39,52 +39,6 @@ class TajweedConfig {
     this.checkLetterSwap = true,
   });
 
-  /// All Tajweed and phonetic checks enabled (full verification / certification mode).
-  const TajweedConfig.all() : this();
-
-  /// All Tajweed and phonetic checks disabled (pure pronunciation / memorization tracking only).
-  const TajweedConfig.none()
-      : this(
-          checkMadd: false,
-          checkTashkeel: false,
-          checkGhunnah: false,
-          checkShaddah: false,
-          checkQalqalah: false,
-          checkLetterSwap: false,
-        );
-
-  /// Custom combination of Tajweed and phonetic checks.
-  const TajweedConfig.custom({
-    bool checkMadd = true,
-    bool checkTashkeel = true,
-    bool checkGhunnah = true,
-    bool checkShaddah = true,
-    bool checkQalqalah = true,
-    bool checkLetterSwap = true,
-  }) : this(
-          checkMadd: checkMadd,
-          checkTashkeel: checkTashkeel,
-          checkGhunnah: checkGhunnah,
-          checkShaddah: checkShaddah,
-          checkQalqalah: checkQalqalah,
-          checkLetterSwap: checkLetterSwap,
-        );
-
-  /// Whether all Tajweed and phonetic checks are active (standard Quran mode).
-  bool get isAllEnabled =>
-      checkMadd &&
-      checkTashkeel &&
-      checkGhunnah &&
-      checkShaddah &&
-      checkQalqalah &&
-      checkLetterSwap;
-
-  /// Whether all Tajweed checks are disabled (pure memorization / word tracking only).
-  bool get isAllDisabled => !isAnyCheckEnabled;
-
-  /// Whether a custom subset of checks is active.
-  bool get isCustom => !isAllEnabled && !isAllDisabled;
-
   /// Whether at least one check is active.
   bool get isAnyCheckEnabled =>
       checkMadd ||

@@ -57,10 +57,7 @@ class WordSpanBuilder {
             refEnd: end,
             refText: refText,
             baseChar: refText.isNotEmpty ? refText[0] : '',
-            isMadd: (ruleId >= 1 && ruleId <= 7) ||
-                refText.startsWith('aa') ||
-                refText.startsWith('ii') ||
-                refText.startsWith('uu'),
+            isMadd: ruleId >= 1 && ruleId <= 7,
             isShaddah: ruleId == 9,
             isGhunnah: ruleId == 10,
             isQalqalah: ruleId == 8,
@@ -127,7 +124,6 @@ class TajweedEngine {
     required bool hasDelete,
     required String wordText,
     required int wordRefEnd,
-    int wordBaseCount = 0,
   }) {
     if (!config.isAnyCheckEnabled) return const [];
     final List<ReciterError> errors = [];
@@ -144,14 +140,11 @@ class TajweedEngine {
           final rule = span.matchedWordRule != null
               ? TajweedRuleFactory.instantiate(
                   span.matchedWordRule!, trackerConfig)
-              : (span.isMadd
-                  ? TajweedRuleFactory.deriveMaddRuleFromLength(
-                      span.refText.length, trackerConfig)
-                  : (span.isShaddah
-                      ? const ShaddahRule()
-                      : (span.isGhunnah
-                          ? const MushaddadGhunnahRule()
-                          : const QalqalahRule())));
+              : (span.isShaddah
+                  ? const ShaddahRule()
+                  : (span.isGhunnah
+                      ? const MushaddadGhunnahRule()
+                      : const QalqalahRule()));
           errors.add(
             ReciterError(
               errorType: ErrorCategory.tajweed,
@@ -219,7 +212,6 @@ class TajweedEngine {
         predText: predText,
         spanDuration: spanDuration,
         speed: speed,
-        wordBaseCount: wordBaseCount,
       );
       if (err != null) errors.add(err);
       return errors;
@@ -308,7 +300,6 @@ class TajweedEngine {
         final List<String> predChunks = [];
         final Set<int> usedPredIndices = {};
         final Set<int> touchedTokens = {};
-        double totalSpanDuration = 0.0;
         bool hasDelete = false;
         double sumQalqalah = 0.0;
         double sumConf = 0.0;
@@ -327,9 +318,6 @@ class TajweedEngine {
                   absPred < charTokenIndices.length) {
                 touchedTokens.add(charTokenIndices[absPred]);
               }
-              if (absPred < trackingTimestamps.length) {
-                totalSpanDuration += trackingTimestamps[absPred];
-              }
               if (trackingAcoustics != null &&
                   absPred < trackingAcoustics.length) {
                 final ac = trackingAcoustics[absPred];
@@ -341,87 +329,13 @@ class TajweedEngine {
           }
         }
 
-        // High-precision acoustic holding duration for Tajweed continuants (Madd, Ghunnah, Shaddah):
-        // If the span aligned to tokens whose duration was tracked in the neural acoustic pipeline,
-        // use the exact token holding duration rather than summing chopped character fractions.
+        // Acoustic holding duration strictly for the aligned tokens of this span:
+        double spanDuration = 0.0;
         if (tokenDurations != null && touchedTokens.isNotEmpty) {
-          double neuralTokenHold = 0.0;
-          if (tokenStarts != null &&
-              tokenEnds != null &&
-              touchedTokens.length > 1) {
-            final int minTok = touchedTokens.reduce(min);
-            final int maxTok = touchedTokens.reduce(max);
-            if (minTok < tokenStarts.length && maxTok < tokenEnds.length) {
-              neuralTokenHold =
-                  max(0.0, tokenEnds[maxTok] - tokenStarts[minTok]);
+          for (final t in touchedTokens) {
+            if (t >= 0 && t < tokenDurations.length) {
+              spanDuration += tokenDurations[t];
             }
-          }
-          if (neuralTokenHold <= 0.0) {
-            for (final t in touchedTokens) {
-              if (t < tokenDurations.length) {
-                neuralTokenHold += tokenDurations[t];
-              }
-            }
-          }
-          if (neuralTokenHold > 0.0) {
-            totalSpanDuration = max(totalSpanDuration, neuralTokenHold);
-          }
-        }
-
-        int wordBaseCount = 0;
-        if (span.isShaddah && span.baseChar.isNotEmpty) {
-          int baseOccurrencesInAsr = 0;
-          double baseConsonantDuration = 0.0;
-          for (int i = 0; i < currentAsrText.length; i++) {
-            final int c = currentAsrText.codeUnitAt(i);
-            if (c == span.baseChar.codeUnitAt(0) ||
-                PhoneticCostEngine.isEquivalentGlyph(
-                    c, span.baseChar.codeUnitAt(0))) {
-              baseOccurrencesInAsr++;
-              if (i < trackingTimestamps.length) {
-                baseConsonantDuration += trackingTimestamps[i];
-              }
-            }
-          }
-          wordBaseCount = baseOccurrencesInAsr;
-          if (baseOccurrencesInAsr >= 2) {
-            totalSpanDuration = max(totalSpanDuration, baseConsonantDuration);
-            if (predChunks.length < 2) {
-              predChunks.add(span.baseChar);
-            }
-          } else if (baseConsonantDuration > totalSpanDuration) {
-            totalSpanDuration = baseConsonantDuration;
-          }
-        }
-
-        if (span.isMadd) {
-          double vowelDurationSum = 0.0;
-          for (int i = 0; i < currentAsrText.length; i++) {
-            final int ch = currentAsrText.codeUnitAt(i);
-            if (PhoneticCostEngine.isVowelChar(ch) ||
-                PhoneticCostEngine.isMaddVowel(ch)) {
-              if (i < trackingTimestamps.length) {
-                vowelDurationSum += trackingTimestamps[i];
-              }
-            }
-          }
-          if (vowelDurationSum > totalSpanDuration) {
-            totalSpanDuration = vowelDurationSum;
-          }
-        }
-
-        if (span.isGhunnah) {
-          double nasalDurationSum = 0.0;
-          for (int i = 0; i < currentAsrText.length; i++) {
-            final int ch = currentAsrText.codeUnitAt(i);
-            if (ch == 0x6BA || ch == 0x646 || ch == 0x645) { // ں, ن, م
-              if (i < trackingTimestamps.length) {
-                nasalDurationSum += trackingTimestamps[i];
-              }
-            }
-          }
-          if (nasalDurationSum > totalSpanDuration) {
-            totalSpanDuration = nasalDurationSum;
           }
         }
 
@@ -437,12 +351,11 @@ class TajweedEngine {
         final spanErrors = evaluateSpan(
           span: span,
           predText: predText,
-          spanDuration: totalSpanDuration,
+          spanDuration: spanDuration,
           spanAcoustics: spanAcoustics,
           hasDelete: hasDelete,
           wordText: wordText,
           wordRefEnd: wordRefEnd,
-          wordBaseCount: wordBaseCount,
         );
 
         wordErrors.addAll(spanErrors);

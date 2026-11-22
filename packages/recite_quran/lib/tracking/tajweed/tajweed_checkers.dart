@@ -53,34 +53,16 @@ class DurationEvaluator {
     required String predText,
     required double spanDuration,
     required RecitationSpeed speed,
-    int wordBaseCount = 0,
   }) {
-    final rule = const ShaddahRule();
-    final double minReq = rule.getMinAllowedDuration(speed);
-    final double req = rule.getRequiredDuration(speed);
-    final int predBaseCount = countBaseOccurrences(predText, span.baseChar);
-
-    final bool shaddahHeld =
-        spanDuration >= minReq || predBaseCount >= 2 || wordBaseCount >= 2;
-
-    DebugLogger.log(
-      'Tajweed',
-      '🎯 [GRADING SHADDAH] Span: "${span.refText}" | ASR: "$predText" | Dur: ${spanDuration.toStringAsFixed(3)}s (req: ${req.toStringAsFixed(3)}s) | Held: $shaddahHeld (predBase: $predBaseCount, wordBase: $wordBaseCount)',
+    // Gemination (Shaddah) is calculated the exact same way as Madd and Ghunnah
+    return evaluateRule(
+      rule: const ShaddahRule(),
+      span: span,
+      predText: predText,
+      spanDuration: spanDuration,
+      speed: speed,
+      categoryTag: 'SHADDAH',
     );
-
-    if (!shaddahHeld) {
-      return ReciterError(
-        errorType: ErrorCategory.tajweed,
-        speechErrorType: SpeechErrorType.replace,
-        durationStatus: TajweedDurationStatus.underheld,
-        expectedPh: span.refText,
-        predictedPh: predText,
-        expectedRule: rule,
-        expectedDuration: req,
-        actualDuration: spanDuration,
-      );
-    }
-    return null;
   }
 
   static int countBaseOccurrences(String text, String baseChar) {
@@ -190,14 +172,9 @@ class MaddChecker {
     required RecitationSpeed speed,
     required TrackerConfig config,
   }) {
-    if (spanDuration <= 0.0) return null;
+    if (spanDuration <= 0.0 || span.matchedWordRule == null) return null;
 
-    final rule = span.matchedWordRule != null
-        ? TajweedRuleFactory.instantiate(span.matchedWordRule!, config)
-        : TajweedRuleFactory.deriveMaddRuleFromLength(
-            span.refText.length,
-            config,
-          );
+    final rule = TajweedRuleFactory.instantiate(span.matchedWordRule!, config);
 
     return DurationEvaluator.evaluateRule(
       rule: rule,
@@ -243,14 +220,12 @@ class ShaddahChecker {
     required String predText,
     required double spanDuration,
     required RecitationSpeed speed,
-    int wordBaseCount = 0,
   }) {
     return DurationEvaluator.evaluateShaddah(
       span: span,
       predText: predText,
       spanDuration: spanDuration,
       speed: speed,
-      wordBaseCount: wordBaseCount,
     );
   }
 }

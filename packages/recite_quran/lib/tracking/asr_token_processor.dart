@@ -58,6 +58,20 @@ class ProcessedAudioStream {
     return result;
   }
 
+  /// Returns continuous timestamps distributed across characters for audio timeline alignment.
+  List<double> get charTimestamps {
+    final List<double> result = [];
+    for (int i = 0; i < tokens.length; i++) {
+      final tok = tokens[i];
+      final double s = starts.isNotEmpty && i < starts.length ? starts[i] : 0.0;
+      final double durPerChar = durations[i] / max(1, tok.length);
+      for (int c = 0; c < tok.length; c++) {
+        result.add(s + (c + 1) * durPerChar);
+      }
+    }
+    return result;
+  }
+
   /// Returns neural acoustics distributed across characters.
   /// Guarantees that `text.length == charNeuralAcoustics.length` for DTW trace evaluation.
   List<TokenNeuralAcoustics> get charNeuralAcoustics {
@@ -86,7 +100,6 @@ class AsrTokenProcessor {
 
   final List<String> _filteredTokens = [];
   final List<double> _filteredSpikeTimes = [];
-  final List<double> _rawDurations = [];
   final List<TokenNeuralAcoustics> _filteredAcoustics = [];
   final List<double> _tokenDurations = [];
   final List<double> _tokenStarts = [];
@@ -95,14 +108,13 @@ class AsrTokenProcessor {
   void reset() {
     _filteredTokens.clear();
     _filteredSpikeTimes.clear();
-    _rawDurations.clear();
     _filteredAcoustics.clear();
     _tokenDurations.clear();
     _tokenStarts.clear();
     _tokenEnds.clear();
   }
 
-  /// Determines if a token is a prolonged vocalic Madd sound (tj3: 'aa', 'ii', 'uu' or vowels 'a', 'i', 'u').
+  /// Determines if a token is a vocalic Madd sound (tj3: 'aa', 'ii', 'uu' or vowels 'a', 'i', 'u').
   static bool isMaddToken(String tok) {
     return tok == 'aa' ||
         tok == 'ii' ||
@@ -112,34 +124,30 @@ class AsrTokenProcessor {
         tok == 'u';
   }
 
-  /// Determines if a token represents an acoustic Ghunnah (held nasal sound):
+  /// Determines if a token represents an acoustic Ghunnah (nasal sound):
   /// tj3 encodes the nasal as dotless noon 'ں', standard noon 'ن', or meem 'م'.
   static bool isGhunnahToken(String tok) {
     return tok == 'ں' || tok == 'ن' || tok == 'م';
   }
 
-  /// Identifies sounds that can absorb acoustic prolongation (Madd vowels, Ghunnah).
-  /// Shaddah is a per-token flag in the zfx reference, not a token pattern.
-  static bool isElasticContinuant(String tok) {
-    return isMaddToken(tok) || isGhunnahToken(tok);
-  }
-
   /// Ingests a new [TranscriptionResult] from the ASR recognizer,
-  /// updates filtered tokens and recomputes continuous acoustic durations.
+  /// updates filtered tokens and retains exact acoustic frame boundaries.
   ProcessedAudioStream process(TranscriptionResult result) {
     final int maxCount = min(result.tokens.length, result.timestamps.length);
 
-    // The engine emits the whole take on every push. Rebuild from that
-    // cumulative result so a correction to an earlier token's timing or
-    // acoustics is never left stale by an incremental append.
     _filteredTokens.clear();
     _filteredSpikeTimes.clear();
-    _rawDurations.clear();
     _filteredAcoustics.clear();
+    _tokenDurations.clear();
+    _tokenStarts.clear();
+    _tokenEnds.clear();
 
     for (int i = 0; i < maxCount; i++) {
       final String tok = result.tokens[i];
-      final double rawTs = result.timestamps[i];
+      final double endTs = result.timestamps[i];
+      final double dur =
+          i < result.durations.length ? result.durations[i] : 0.040;
+      final double startTs = max(0.0, endTs - dur);
 
       // Defensively filter empty or special CTC blank / epsilon / foreign tokens, and word bar '|'.
       if (tok.isEmpty ||
@@ -153,19 +161,16 @@ class AsrTokenProcessor {
       }
 
       _filteredTokens.add(tok);
-      _filteredSpikeTimes.add(rawTs);
-      _rawDurations.add(
-        i < result.durations.length ? result.durations[i] : 0.0,
-      );
+      _filteredSpikeTimes.add(endTs);
+      _tokenEnds.add(endTs);
+      _tokenStarts.add(startTs);
+      _tokenDurations.add(dur.clamp(0.020, maxTokenDuration));
       _filteredAcoustics.add(
         i < result.neuralAcoustics.length
             ? result.neuralAcoustics[i]
             : const TokenNeuralAcoustics(),
       );
     }
-
-    // Recompute accurate acoustic durations across all filtered tokens
-    _recomputeDurations();
 
     return ProcessedAudioStream(
       tokens: _filteredTokens,
@@ -175,100 +180,5 @@ class AsrTokenProcessor {
       spikeTimes: _filteredSpikeTimes,
       neuralAcoustics: _filteredAcoustics,
     );
-  }
-
-  /// Recomputes acoustic durations from the token end times.
-  ///
-  /// **`timestamps[k]` marks the END of token k's acoustic presence.**
-  ///
-  /// Therefore:
-  ///   end[k]      = timestamp[k]
-  ///   start[k]    = timestamp[k-1]  (= end[k-1], contiguous)
-  ///   duration[k] = timestamp[k] - timestamp[k-1]
-  ///
-  /// When the engine supplies an exact frame-span duration, that duration is
-  /// used instead and the start is derived from it. After an inter-ayah pause
-  /// (silence gap), start[k] is decoupled from the previous token and
-  /// estimated from the current end.
-  void _recomputeDurations() {
-    final int count = _filteredTokens.length;
-    _tokenDurations.clear();
-    _tokenStarts.clear();
-    _tokenEnds.clear();
-    if (count == 0) return;
-
-    final List<double> starts = List.filled(count, 0.0);
-    final List<double> ends = List.filled(count, 0.0);
-    final List<double> durs = List.filled(count, 0.0);
-
-    for (int k = 0; k < count; k++) {
-      final double end = _filteredSpikeTimes[k];
-
-      // The timestamp IS the end boundary of token k.
-      ends[k] = end;
-
-      if (k == 0) {
-        // First token: no previous end. Estimate start from end minus a small window.
-        starts[k] = max(0.0, end - 0.16);
-      } else {
-        final double endPrev = _filteredSpikeTimes[k - 1];
-        final double gap = end - endPrev;
-
-        // Accurate acoustic pause detection:
-        // Prolonged vocalic sounds (Madd vowels), geminated consonants (Shaddah),
-        // and held nasals (Ghunnah) naturally span up to 3.5s without pausing.
-        // Sounds following a prolonged continuant span up to 2.0s.
-        // A true inter-ayah breath pause is a substantial silence gap (> 1.25s).
-        final double pauseThreshold;
-        if (isElasticContinuant(_filteredTokens[k])) {
-          pauseThreshold = 3.50;
-        } else if (isElasticContinuant(_filteredTokens[k - 1]) ||
-            _filteredTokens[k - 1].length >= 2) {
-          pauseThreshold = 2.00;
-        } else {
-          pauseThreshold = 1.25;
-        }
-
-        if (gap > pauseThreshold) {
-          // After a genuine breath pause: start is decoupled. Estimate onset before the end.
-          final double onsetWindow =
-              isElasticContinuant(_filteredTokens[k]) ? 0.35 : 0.16;
-          starts[k] = max(endPrev + 0.04, end - onsetWindow);
-        } else {
-          // Continuous articulation: start[k] = end[k-1]
-          starts[k] = endPrev;
-        }
-      }
-
-      // Duration from exact acoustic frame span when available, else end - start.
-      // For elastic continuants (Madd, Ghunnah), acoustic duration reflects the true
-      // held articulation time between the continuant onset and the next sound.
-      final bool isContinuant = isElasticContinuant(_filteredTokens[k]);
-      final double rawDur = (k < _rawDurations.length) ? _rawDurations[k] : 0.0;
-
-      if (isContinuant && k + 1 < count) {
-        // Holding window for Madd / Ghunnah continuants held until the next token:
-        final double nextSpike = _filteredSpikeTimes[k + 1];
-        final double elapsedHold = nextSpike - starts[k];
-        final double measuredHold = max(rawDur, elapsedHold - 0.04);
-        durs[k] = measuredHold.clamp(0.12, maxTokenDuration);
-        ends[k] = starts[k] + durs[k];
-      } else if (rawDur >= 0.12) {
-        // High-precision neural duration from timing_log_probs
-        durs[k] = rawDur.clamp(0.04, maxTokenDuration);
-        starts[k] = max(0.0, ends[k] - durs[k]);
-      } else if (isContinuant && k + 1 == count) {
-        // Terminal Waqf / End-of-take elastic continuant (preserves neural hold duration):
-        final double terminalDur = max(rawDur, ends[k] - starts[k]);
-        durs[k] = terminalDur.clamp(0.12, maxTokenDuration);
-        ends[k] = starts[k] + durs[k];
-      } else {
-        durs[k] = (ends[k] - starts[k]).clamp(0.04, maxTokenDuration);
-      }
-    }
-
-    _tokenStarts.addAll(starts);
-    _tokenEnds.addAll(ends);
-    _tokenDurations.addAll(durs);
   }
 }

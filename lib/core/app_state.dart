@@ -90,7 +90,7 @@ class AppState extends ChangeNotifier {
   late final ValueNotifier<AppLanguage> languageNotifier;
   late final ValueNotifier<AppTheme> themeNotifier;
   final ValueNotifier<AppMode> modeNotifier =
-      ValueNotifier<AppMode>(AppMode.wordChecker);
+      ValueNotifier<AppMode>(AppMode.tajweed);
   final ValueNotifier<AppBannerInfo?> bannerNotifier =
       ValueNotifier<AppBannerInfo?>(null);
 
@@ -155,16 +155,20 @@ class AppState extends ChangeNotifier {
 
   // ── Mode ───────────────────────────────────────────────────────────────────
 
-  AppMode currentMode = AppMode.wordChecker;
+  AppMode currentMode = AppMode.tajweed;
   int tajweedClickCount = 0;
   bool get hasClickedTajweedWord => tajweedClickCount >= 10;
   final ValueNotifier<bool> hasClickedTajweedNotifier = ValueNotifier(false);
 
-  void setMode(AppMode mode) {
+  void setMode(AppMode mode) async {
     if (currentMode != mode) {
       currentMode = mode;
       modeNotifier.value = mode;
       notifyListeners();
+      try {
+        final prefs = await _getPrefs();
+        await prefs.setString('app_mode', mode.name);
+      } catch (_) {}
     }
   }
 
@@ -411,11 +415,20 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  // ── Tajweed Configuration (All, None, or Custom Rules) ─────────────────────
-  TajweedConfig _tajweedConfig = const TajweedConfig.all();
+  // ── Tajweed Configuration (App Default: Tashkeel Only, Custom Rules) ────────
+  static const TajweedConfig defaultTajweedConfig = TajweedConfig(
+    checkMadd: false,
+    checkTashkeel: true,
+    checkGhunnah: false,
+    checkShaddah: false,
+    checkQalqalah: false,
+    checkLetterSwap: false,
+  );
+
+  TajweedConfig _tajweedConfig = defaultTajweedConfig;
   TajweedConfig get tajweedConfig => _tajweedConfig;
   final ValueNotifier<TajweedConfig> tajweedConfigNotifier =
-      ValueNotifier<TajweedConfig>(const TajweedConfig.all());
+      ValueNotifier<TajweedConfig>(defaultTajweedConfig);
 
   void setTajweedConfig(TajweedConfig config, [HighlightingController? controller]) async {
     if (_tajweedConfig == config) return;
@@ -426,6 +439,7 @@ class AppState extends ChangeNotifier {
 
     try {
       final prefs = await _getPrefs();
+      await prefs.setBool('tajweed_has_custom_config', true);
       await prefs.setBool('tajweed_check_madd', config.checkMadd);
       await prefs.setBool('tajweed_check_tashkeel', config.checkTashkeel);
       await prefs.setBool('tajweed_check_ghunnah', config.checkGhunnah);
@@ -862,20 +876,29 @@ class AppState extends ChangeNotifier {
         fontSizeNotifier.value = prefs.getDouble('fontSize') ?? 28.0;
       }
 
-      if (prefs.containsKey('tajweed_check_madd') ||
-          prefs.containsKey('tajweed_check_tashkeel')) {
+      if (prefs.getBool('tajweed_has_custom_config') == true) {
         _tajweedConfig = TajweedConfig(
-          checkMadd: prefs.getBool('tajweed_check_madd') ?? true,
+          checkMadd: prefs.getBool('tajweed_check_madd') ?? false,
           checkTashkeel: prefs.getBool('tajweed_check_tashkeel') ?? true,
-          checkGhunnah: prefs.getBool('tajweed_check_ghunnah') ?? true,
-          checkShaddah: prefs.getBool('tajweed_check_shaddah') ?? true,
-          checkQalqalah: prefs.getBool('tajweed_check_qalqalah') ?? true,
-          checkLetterSwap: prefs.getBool('tajweed_check_letter_swap') ?? true,
+          checkGhunnah: prefs.getBool('tajweed_check_ghunnah') ?? false,
+          checkShaddah: prefs.getBool('tajweed_check_shaddah') ?? false,
+          checkQalqalah: prefs.getBool('tajweed_check_qalqalah') ?? false,
+          checkLetterSwap: prefs.getBool('tajweed_check_letter_swap') ?? false,
         );
       } else {
-        _tajweedConfig = const TajweedConfig.all();
+        _tajweedConfig = defaultTajweedConfig;
       }
       tajweedConfigNotifier.value = _tajweedConfig;
+
+      final savedMode = prefs.getString('app_mode');
+      if (savedMode != null) {
+        currentMode = AppMode.values.firstWhere(
+          (m) => m.name == savedMode,
+          orElse: () => AppMode.tajweed,
+        );
+      } else {
+        currentMode = AppMode.tajweed;
+      }
 
       themeNotifier.value = _theme;
       languageNotifier.value = _lang;

@@ -554,7 +554,7 @@ class AppDialogActionButtons extends StatelessWidget {
       child: Text(
         secondary!.label,
         style: TextStyle(
-          color: c.muted,
+          color: secondary!.isDestructive ? c.red : c.muted,
           fontSize: 15,
           fontWeight: FontWeight.w600,
         ),
@@ -586,6 +586,8 @@ typedef AppDialogContentBuilder = Widget Function(
 class AppDialog extends StatelessWidget {
   final Widget? heroIcon;
   final String? title;
+  final double? titleFontSize;
+  final TextStyle? titleStyle;
   final String? subtitle;
   final Widget? banner;
   final Widget? content;
@@ -603,6 +605,8 @@ class AppDialog extends StatelessWidget {
     super.key,
     this.heroIcon,
     this.title,
+    this.titleFontSize,
+    this.titleStyle,
     this.subtitle,
     this.banner,
     this.content,
@@ -652,13 +656,14 @@ class AppDialog extends StatelessWidget {
                 Text(
                   title!,
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: c.text,
-                    fontSize: 18.5,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: isAr ? 0.0 : -0.3,
-                    height: isAr ? 1.3 : 1.2,
-                  ),
+                  style: titleStyle ??
+                      TextStyle(
+                        color: c.text,
+                        fontSize: titleFontSize ?? 18.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: isAr ? 0.0 : -0.3,
+                        height: isAr ? 1.3 : 1.2,
+                      ),
                 ),
                 if (subtitle != null || banner != null || effectiveContent != null)
                   const SizedBox(height: 10),
