@@ -1,4 +1,4 @@
-## 1.1.0
+## 1.0.0
 
 * **TajweedFormer V4 Engine**: Full integration with the official Quran Lab SDK 4.0 (`quranlab_tajweedformer`).
 * **Real-Time Word Recitation Tracking**: Dynamic DTW phoneme alignment across all 6,236 Ayahs.

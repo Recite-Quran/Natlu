@@ -1,7 +1,7 @@
 name: quran_tarteel_example
 description: Demonstrates real-time Quran recitation tracking, Tajweed verification and voice navigation using quran_tarteel.
 publish_to: 'none'
-version: 1.1.0
+version: 1.0.0
 
 environment:
   sdk: ^3.5.0
