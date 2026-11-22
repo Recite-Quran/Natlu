@@ -9,7 +9,7 @@ import 'voice_search_dialog.dart';
 import 'maglis_entry_dialog.dart';
 import 'settings_sheet.dart';
 import 'surah_picker_sheet.dart';
-import 'tajweed_rules_sheet.dart';
+import 'tajweed_rules_dialog.dart';
 import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
@@ -17,7 +17,7 @@ export 'app_alert_dialogs.dart' show PermissionReason;
 export 'package:quran_tajweedformer/quran_tajweedformer.dart'
     show VoiceSearchResult;
 export 'audio_download_dialog.dart' show AudioDownloadDialog;
-export 'tajweed_rules_sheet.dart' show TajweedRulesSheet;
+export 'tajweed_rules_dialog.dart' show TajweedRulesDialog;
 export 'dialog_base.dart';
 
 /// Centralized Dialog Service facade.
@@ -155,12 +155,12 @@ abstract final class DialogService {
     );
   }
 
-  /// Opens the Tajweed verification rules bottom sheet.
+  /// Opens the Tajweed verification rules modal dialog.
   static Future<void> showTajweedSettings(
     BuildContext context, {
     HighlightingController? controller,
   }) {
-    return TajweedRulesSheet.show(context, controller: controller);
+    return TajweedRulesDialog.show(context, controller: controller);
   }
 
   /// Opens the Maglis Room entry/hosting bottom sheet.
