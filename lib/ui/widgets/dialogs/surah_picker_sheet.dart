@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/app_state.dart';
 import '../../../core/highlighting_controller.dart';
-import '../../../maglis/maglis_controller.dart';
 import 'dialog_base.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════

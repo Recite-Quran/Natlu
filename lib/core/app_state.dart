@@ -184,20 +184,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ── Maglis Community Tap Tracking ──────────────────────────────────────────
-
-  int maglisCommunityTapCount = 0;
-  bool get showMaglisNewBadge => maglisCommunityTapCount < 5;
-
-  Future<void> recordMaglisTap() async {
-    if (maglisCommunityTapCount < 5) {
-      maglisCommunityTapCount++;
-      notifyListeners();
-      final prefs = await _getPrefs();
-      await prefs.setInt('maglis_community_tap_count', maglisCommunityTapCount);
-    }
-  }
-
   // ── Theme ──────────────────────────────────────────────────────────────────
 
   AppTheme _theme = AppTheme.white;
@@ -223,15 +209,10 @@ class AppState extends ChangeNotifier {
   /// Dedicated notifier for blur mode changes (allows scoped listening without global ChangeNotifier).
   final ValueNotifier<bool> blurModeNotifier = ValueNotifier<bool>(false);
 
-  /// Hook to check if a remote Maglis session is active without circular imports.
-  static bool Function()? isMaglisSessionActive;
-
   /// Whether blur (memorization concealing) should actively conceal unrecited words.
-  /// Strictly active inside an active recitation session (local recording or remote Maglis session).
+  /// Strictly active inside an active recitation session (local recording).
   bool isBlurEffective({bool isRecording = false}) {
-    final bool sessionActive =
-        isRecording || (isMaglisSessionActive?.call() ?? false);
-    return isBlurMode && sessionActive;
+    return isBlurMode && isRecording;
   }
 
   void toggleBlurMode() async {
@@ -259,25 +240,6 @@ class AppState extends ChangeNotifier {
   bool isMushafMode = true;
   final ValueNotifier<bool> mushafModeNotifier = ValueNotifier<bool>(true);
   final ValueNotifier<int> currentMushafPage = ValueNotifier<int>(1);
-  bool wasInVerseListBeforeMaglis = false;
-  bool hasSeenMaglisExplanation = false;
-
-  void enterMaglisSession([int? mappedPage]) {
-    if (!isMushafMode) {
-      wasInVerseListBeforeMaglis = true;
-      if (mappedPage != null && QuranMetadata.isValidPage(mappedPage)) {
-        saveMushafPage(mappedPage);
-      }
-      setMushafMode(true);
-    }
-  }
-
-  void exitMaglisSession() {
-    if (wasInVerseListBeforeMaglis) {
-      wasInVerseListBeforeMaglis = false;
-      setMushafMode(false);
-    }
-  }
 
   void toggleMushafMode() async {
     isMushafMode = !isMushafMode;
@@ -667,28 +629,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Dispatches the modern Maglis peer joined banner.
-  void showMaglisPeerJoinedBanner() {
-    showBanner(const AppBannerInfo(
-      id: 'maglis_peer_joined',
-      messageAr: 'انضم مشارك جديد إلى المجلس',
-      messageEn: 'A participant joined the Maglis',
-      icon: Icons.person_rounded,
-      isWarning: false,
-    ));
-  }
-
-  /// Dispatches the modern Maglis peer left banner.
-  void showMaglisPeerLeftBanner() {
-    showBanner(const AppBannerInfo(
-      id: 'maglis_peer_left',
-      messageAr: 'غادر أحد المشاركين المجلس',
-      messageEn: 'A participant left the Maglis',
-      icon: Icons.logout_rounded,
-      isWarning: false,
-    ));
-  }
-
   /// Dispatches the Mushaf Ayah audio hint banner (shows until user clicks ayah audio 10 times).
   void showMushafAudioBanner() {
     if (hasClickedMushafAudioAyah) return;
@@ -852,7 +792,6 @@ class AppState extends ChangeNotifier {
       hasClickedTajweedNotifier.value = (tajweedClickCount >= 10);
 
       mushafAudioClickCount = prefs.getInt('mushaf_audio_click_count') ?? 0;
-      maglisCommunityTapCount = prefs.getInt('maglis_community_tap_count') ?? 0;
 
       final seenBanners = prefs.getStringList('seen_banner_ids');
       if (seenBanners != null) {
@@ -870,8 +809,6 @@ class AppState extends ChangeNotifier {
       mushafModeNotifier.value = isMushafMode;
       autoScrollSpeed = prefs.getInt('autoScrollSpeed') ?? 2;
       hasChosenAutoScrollSpeed = prefs.getBool('has_chosen_speed') ?? false;
-      hasSeenMaglisExplanation =
-          prefs.getBool('has_seen_maglis_explanation') ?? false;
       if (prefs.containsKey('fontSize')) {
         fontSizeNotifier.value = prefs.getDouble('fontSize') ?? 28.0;
       }
