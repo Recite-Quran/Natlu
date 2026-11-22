@@ -77,10 +77,6 @@ lib/generated_plugin_registrant.dart
 test/*.dll
 test/logs.txt
 
-# Offline model weights & precompiled C binaries (Private to local development; never pushed to GitHub)
-assets/model/
-**/assets/model/
-*.zfw
-*.zfx
-android/src/main/jniLibs/
-ios/Frameworks/zf_tajweed.xcframework/
+# Local temporary assets
+assets/
+*.tmp

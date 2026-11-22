@@ -234,15 +234,12 @@ class _Orchestrator extends StatefulWidget {
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
   static ReciteEngine _resolveEngine() {
-    const bool forceOffline =
-        bool.fromEnvironment('OFFLINE_ENGINE', defaultValue: false);
-    const String quranLabApiKey = String.fromEnvironment(
-      'QURANLAB_KEY',
-      defaultValue: 'qlk_v1_kn2gmnitsiua_R002fODh50Laz7Epx0gvyD',
-    );
+    const bool useSdk =
+        bool.fromEnvironment('USE_QURANLAB_SDK', defaultValue: false);
+    const String quranLabApiKey = String.fromEnvironment('QURANLAB_KEY');
 
-    // Online Quran Lab SDK mode for Android/iOS mobile releases:
-    if (!forceOffline &&
+    // Online Quran Lab SDK mode (only when explicitly requested via --dart-define=USE_QURANLAB_SDK=true):
+    if (useSdk &&
         !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS) &&
@@ -250,7 +247,7 @@ class _OrchestratorState extends State<_Orchestrator>
       return QuranLabSdkEngine(apiKey: quranLabApiKey);
     }
 
-    // Offline bundled FFI mode for local PC testing & desktop builds:
+    // Default: Bundled offline FFI engine for ultra-fast, zero-network recitation:
     return TajweedFormerEngine();
   }
 

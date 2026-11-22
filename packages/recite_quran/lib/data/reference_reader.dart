@@ -1,6 +1,6 @@
 // lib/data/reference_reader_v4.dart
 // Reader for expected_tj3.zfx: the reference data (expected units of each ayah).
-// Compatible with both pure Dart and FFI zf_tajweed_reference C API.
+// Efficient binary decoder for expected_tj3.zfx Quran reference metadata.
 
 import 'dart:io';
 import 'dart:typed_data';

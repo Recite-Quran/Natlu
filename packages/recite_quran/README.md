@@ -10,9 +10,9 @@
 [![License](https://img.shields.io/badge/License-For%20The%20Sake%20Of%20Allah%20Subhanu-purple.svg)](#-sacred-covenant--license-لوجه-الله-تعالى)
 [![pub package](https://img.shields.io/badge/pub.dev-recite__quran%20v1.0.5-blue.svg)](https://pub.dev/packages/quran_tajweedformer)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Web-green.svg)](https://pub.dev/packages/quran_tajweedformer)
-[![Offline](https://img.shields.io/badge/Offline-100%25%20On--Device-orange.svg)](https://pub.dev/packages/quran_tajweedformer)
+[![SDK](https://img.shields.io/badge/Engine-QuranLab%20SDK%204.0-blue.svg)](https://pub.dev/packages/quranlab_tajweedformer)
 
-*Neural engine:* **TajweedFormer V4** — bundled on-device, 100% offline, zero network.
+*Neural engine:* Powered by **QuranLab TajweedFormer SDK 4.0** with on-device cached neural inference.
 
 </div>
 
@@ -124,8 +124,8 @@ engine.setTargetAyah(surah: 1, ayah: 1);
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│            TajweedFormerEngine V4 (Streaming ASR)           │
-│     Native zf_tajweed neural model running via FFI          │
+│             QuranLabSdkEngine (Streaming ASR)               │
+│     Official Quran Lab SDK 4.0 Neural ASR Streaming Engine  │
 │       Emits phonetic token stream: [بِ], [س], [مِ], [للَ]... │
 └──────────────────────────────┬──────────────────────────────┘
                                │
