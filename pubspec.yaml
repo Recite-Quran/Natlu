@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   quran_tarteel:
-    path: packages/recite_quran
+    path: ../quran_tarteel
   offline_engine:
     path: offline_engine
   qvp_flutter:
