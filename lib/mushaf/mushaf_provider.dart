@@ -73,7 +73,7 @@ class MushafProvider {
 
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   final Map<int, Size> _pageLayoutSizes = {};
-  static const int _maxCachedPages = 32;
+  static const int _maxCachedPages = 8;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
   Timer? _preloadTimer;
@@ -131,7 +131,7 @@ class MushafProvider {
     }
 
     _preloadTimer?.cancel();
-    _preloadTimer = Timer(const Duration(milliseconds: 60), () async {
+    _preloadTimer = Timer(const Duration(milliseconds: 16), () async {
       if (_preloadingTargetPage != pageNumber) return;
 
       final currentInkColor = AppState.instance.colors.text;
@@ -139,27 +139,23 @@ class MushafProvider {
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
 
-      // 1. Warm forward neighbor (+1) first
-      await _prepareNeighborPage(
-        pageNumber + 1,
-        pageNumber,
-        targetSize,
-        currentInkColor,
-        dpr,
-      );
-      if (_preloadingTargetPage != pageNumber) return;
-
-      // 2. Yield/stagger before warming backward neighbor (-1) so frame budgets are never saturated
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      if (_preloadingTargetPage != pageNumber) return;
-
-      await _prepareNeighborPage(
-        pageNumber - 1,
-        pageNumber,
-        targetSize,
-        currentInkColor,
-        dpr,
-      );
+      // Warm forward (+1) and backward (-1) neighbors concurrently in background
+      await Future.wait([
+        _prepareNeighborPage(
+          pageNumber + 1,
+          pageNumber,
+          targetSize,
+          currentInkColor,
+          dpr,
+        ),
+        _prepareNeighborPage(
+          pageNumber - 1,
+          pageNumber,
+          targetSize,
+          currentInkColor,
+          dpr,
+        ),
+      ]);
     });
   }
 
@@ -400,7 +396,7 @@ class MushafProvider {
           }
           if (evictKey != null &&
               evictKey != pageNumber &&
-              (evictKey - currentPage).abs() > 3) {
+              (evictKey - currentPage).abs() > 2) {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);
@@ -478,6 +474,54 @@ class MushafProvider {
       );
     }
     return null;
+  }
+
+  /// Returns all (surah, ayah) pairs present on [pageNumber] in sequential reading order.
+  List<(int surah, int ayah)> getAyahsOnPage(int pageNumber) {
+    if (!QuranMetadata.isValidPage(pageNumber)) return const [];
+
+    // 1. Prefer vector page word list if already loaded in memory
+    final page = _pageCache[pageNumber];
+    if (page != null && page.words.isNotEmpty) {
+      final List<(int surah, int ayah)> result = [];
+      final Set<int> seen = {};
+      for (final w in page.words) {
+        if (w.surah <= 0 || w.ayah <= 0) continue;
+        final key = (w.surah << 16) | w.ayah;
+        if (seen.add(key)) {
+          result.add((w.surah, w.ayah));
+        }
+      }
+      if (result.isNotEmpty) return result;
+    }
+
+    // 2. Fall back to Atlas pageRange
+    if (!_isReady || _atlas == null) return const [];
+    final r = _atlas!.pageRange(pageNumber);
+    if (r == null) return const [];
+
+    final first = r.first;
+    final last = r.last;
+    final List<(int surah, int ayah)> result = [];
+
+    if (first.$1 == last.$1) {
+      for (int a = first.$2; a <= last.$2; a++) {
+        result.add((first.$1, a));
+      }
+    } else {
+      for (int a = first.$2; a <= QuranMetadata.getAyahCount(first.$1); a++) {
+        result.add((first.$1, a));
+      }
+      for (int s = first.$1 + 1; s < last.$1; s++) {
+        for (int a = 1; a <= QuranMetadata.getAyahCount(s); a++) {
+          result.add((s, a));
+        }
+      }
+      for (int a = 1; a <= last.$2; a++) {
+        result.add((last.$1, a));
+      }
+    }
+    return result;
   }
 
   Future<void> ensureActiveAyahOnCurrentPage({

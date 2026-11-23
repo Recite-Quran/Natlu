@@ -64,6 +64,9 @@ class VerseListViewState extends State<VerseListView>
   @override
   void initState() {
     super.initState();
+    VerseRow.ensureWordsLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
     _autoScrollTicker = createTicker(_onAutoScrollTick);
     _lastSurah = widget.controller.targetSurah;
     _lastAyah =

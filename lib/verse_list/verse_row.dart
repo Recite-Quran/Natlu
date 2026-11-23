@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 import 'verse_span_builder.dart';
@@ -38,6 +40,42 @@ class VerseRow extends StatefulWidget {
     this.onAudioPlayToggle,
     this.onActiveWordPositioned,
   });
+
+  /// Authentic HafsSmart words cached directly from assets/quran_words.json.
+  static Map<int, List<String>>? _quranWords;
+  static Future<void>? _loadingFuture;
+
+  /// Loads the authentic HafsSmart words dataset from assets/quran_words.json.
+  static Future<void> ensureWordsLoaded() {
+    if (_quranWords != null) return Future.value();
+    if (_loadingFuture != null) return _loadingFuture!;
+
+    _loadingFuture = () async {
+      try {
+        final jsonStr = await rootBundle.loadString('assets/quran_words.json');
+        final Map<String, dynamic> raw = jsonDecode(jsonStr);
+        final map = <int, List<String>>{};
+        for (final entry in raw.entries) {
+          final colon = entry.key.indexOf(':');
+          if (colon != -1) {
+            final s = int.parse(entry.key.substring(0, colon));
+            final a = int.parse(entry.key.substring(colon + 1));
+            map[(s << 16) | a] = (entry.value as List).cast<String>();
+          }
+        }
+        _quranWords = map;
+      } finally {
+        _loadingFuture = null;
+      }
+    }();
+
+    return _loadingFuture!;
+  }
+
+  /// Gets the authentic HafsSmart words for [surah] and [ayah].
+  static List<String> getWordsForAyah(int surah, int ayah) {
+    return _quranWords?[(surah << 16) | ayah] ?? const [];
+  }
 
   /// Converts an integer to Eastern Arabic numeral glyphs (e.g. 1 -> '١').
   static String toArabicDigits(Object number) =>
@@ -162,6 +200,16 @@ class VerseRow extends StatefulWidget {
 }
 
 class _VerseRowState extends State<VerseRow> {
+  /// Words for this verse loaded strictly from assets/quran_words.json.
+  List<String> get _words {
+    final list = VerseRow.getWordsForAyah(
+      widget.verse.surah,
+      widget.verse.ayah,
+    );
+    if (list.isNotEmpty) return list;
+    return widget.verse.uthmaniWords;
+  }
+
   /// Cached fingerprint — only rebuilds when visual state changes.
   int _lastFingerprint = -1;
 
@@ -338,7 +386,7 @@ class _VerseRowState extends State<VerseRow> {
     return widget.controller.getLeadWordIndex(
           surah: widget.verse.surah,
           ayah: widget.verse.ayah,
-          totalWords: widget.verse.uthmaniWords.length,
+          totalWords: _words.length,
           isRecording: widget.isRecording,
         ) ??
         -1;
@@ -428,7 +476,7 @@ class _VerseRowState extends State<VerseRow> {
     }
     _wordLayout?.dispose();
     _wordLayout = _AyahWordLayout.compute(
-      words: widget.verse.uthmaniWords,
+      words: _words,
       fontSize: currentFontSize,
       width: maxWidth,
     );
@@ -437,7 +485,7 @@ class _VerseRowState extends State<VerseRow> {
 
   Rect? _calculateWordRect(int targetIndex, double maxWidth) {
     if (targetIndex < 0 ||
-        targetIndex >= widget.verse.uthmaniWords.length ||
+        targetIndex >= _words.length ||
         maxWidth <= 0) {
       return null;
     }
@@ -517,7 +565,7 @@ class _VerseRowState extends State<VerseRow> {
 
       if (needsWordScan) {
         int wHash = 17;
-        final wordCount = widget.verse.uthmaniWords.length;
+        final wordCount = _words.length;
         // In standard recitation, live green ribbons are painted directly on the GPU Canvas by _ActiveWordHighlightPainter.
         // We only scan words here if a Tajweed error (yellow) might change or if blur mode is active.
         final bool isTajweedMode = app.currentMode == AppMode.tajweed;
@@ -558,7 +606,7 @@ class _VerseRowState extends State<VerseRow> {
     }
     final AppState app = AppState.instance;
     final ThemeColors c = app.colors;
-    final words = widget.verse.uthmaniWords;
+    final words = _words;
     final surah = widget.verse.surah;
     final ayah = widget.verse.ayah;
     final bool isAudioActive = VerseRow.isAyahAudioActive(
@@ -614,7 +662,7 @@ class _VerseRowState extends State<VerseRow> {
             surah: widget.verse.surah,
             ayah: ayah,
             wordIndex: wordIdx,
-            wordText: widget.verse.uthmaniWords[wordIdx],
+            wordText: words[wordIdx],
             controller: widget.controller,
             isAutoScrolling: widget.isAutoScrolling,
             isRecording: widget.isRecording,

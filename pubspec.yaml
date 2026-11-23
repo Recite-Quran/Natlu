@@ -52,6 +52,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/quran_words.json
     - assets/model/
     - assets/model/c16_l64/
     - assets/icon/app_icon.png
