@@ -73,7 +73,7 @@ class MushafProvider {
 
   final LinkedHashMap<int, QvpPage> _pageCache = LinkedHashMap<int, QvpPage>();
   final Map<int, Size> _pageLayoutSizes = {};
-  static const int _maxCachedPages = 32;
+  static const int _maxCachedPages = 8;
   final Map<int, Future<QvpPage?>> _pendingLoads = {};
   int? _preloadingTargetPage;
   Timer? _preloadTimer;
@@ -127,7 +127,7 @@ class MushafProvider {
     }
 
     _preloadTimer?.cancel();
-    _preloadTimer = Timer(const Duration(milliseconds: 60), () async {
+    _preloadTimer = Timer(const Duration(milliseconds: 16), () async {
       if (_preloadingTargetPage != pageNumber) return;
 
       final currentInkColor = AppState.instance.colors.text;
@@ -135,27 +135,23 @@ class MushafProvider {
           ? ui.PlatformDispatcher.instance.views.first.devicePixelRatio
           : 1.0;
 
-      // 1. Warm forward neighbor (+1) first
-      await _prepareNeighborPage(
-        pageNumber + 1,
-        pageNumber,
-        targetSize,
-        currentInkColor,
-        dpr,
-      );
-      if (_preloadingTargetPage != pageNumber) return;
-
-      // 2. Yield/stagger before warming backward neighbor (-1) so frame budgets are never saturated
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      if (_preloadingTargetPage != pageNumber) return;
-
-      await _prepareNeighborPage(
-        pageNumber - 1,
-        pageNumber,
-        targetSize,
-        currentInkColor,
-        dpr,
-      );
+      // Warm forward (+1) and backward (-1) neighbors concurrently in background
+      await Future.wait([
+        _prepareNeighborPage(
+          pageNumber + 1,
+          pageNumber,
+          targetSize,
+          currentInkColor,
+          dpr,
+        ),
+        _prepareNeighborPage(
+          pageNumber - 1,
+          pageNumber,
+          targetSize,
+          currentInkColor,
+          dpr,
+        ),
+      ]);
     });
   }
 
@@ -357,23 +353,24 @@ class MushafProvider {
           }
         }
       } else {
-        var localPage = _extractedPagesPath != null
-            ? File(
-                '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
-            : null;
-        if (localPage == null ||
-            !localPage.existsSync() ||
-            localPage.lengthSync() == 0) {
+        File? localPage;
+        if (_extractedPagesPath != null) {
+          localPage = File(
+              '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}');
+        }
+        if (localPage == null || !(await localPage.exists())) {
           await _ensureExtracted(force: true);
           localPage = _extractedPagesPath != null
               ? File(
                   '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
               : null;
         }
-        if (localPage != null &&
-            localPage.existsSync() &&
-            localPage.lengthSync() > 0) {
-          pageBytes = await localPage.readAsBytes();
+        if (localPage != null) {
+          try {
+            pageBytes = await localPage.readAsBytes();
+          } catch (_) {
+            pageBytes = null;
+          }
         }
       }
 
@@ -396,10 +393,11 @@ class MushafProvider {
           }
           if (evictKey != null &&
               evictKey != pageNumber &&
-              (evictKey - currentPage).abs() > 3) {
+              (evictKey - currentPage).abs() > 2) {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);
+            QvpPageView.evictPage(evictKey);
           } else {
             break;
           }

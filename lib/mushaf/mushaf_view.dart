@@ -1009,19 +1009,34 @@ class _MushafPageItem extends StatefulWidget {
   State<_MushafPageItem> createState() => _MushafPageItemState();
 }
 
-class _MushafPageItemState extends State<_MushafPageItem> {
+class _MushafPageItemState extends State<_MushafPageItem>
+    with AutomaticKeepAliveClientMixin {
   QvpPage? _page;
   bool _isLoading = false;
   late final QvpViewController _pageViewCtrl = QvpViewController();
 
   @override
+  bool get wantKeepAlive {
+    final cur = AppState.instance.currentMushafPage.value;
+    return (widget.pageNum - cur).abs() <= 2;
+  }
+
+  @override
   void initState() {
     super.initState();
+    AppState.instance.currentMushafPage.addListener(_onPageWindowChanged);
     _resolvePage();
+  }
+
+  void _onPageWindowChanged() {
+    if (mounted) {
+      updateKeepAlive();
+    }
   }
 
   @override
   void dispose() {
+    AppState.instance.currentMushafPage.removeListener(_onPageWindowChanged);
     _pageViewCtrl.dispose();
     super.dispose();
   }
@@ -1033,6 +1048,9 @@ class _MushafPageItemState extends State<_MushafPageItem> {
       _resolvePage();
     } else if (_page != null && _page!.isDisposed) {
       _resolvePage();
+    }
+    if (oldWidget.isCurrent != widget.isCurrent) {
+      updateKeepAlive();
     }
   }
 
@@ -1059,6 +1077,7 @@ class _MushafPageItemState extends State<_MushafPageItem> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     var page = _page;
     if (page == null || page.isDisposed) {
       final cached = MushafProvider.instance.getCachedPage(widget.pageNum);
@@ -1095,21 +1114,19 @@ class _MushafPageItemState extends State<_MushafPageItem> {
             ),
           ),
         ),
-        RepaintBoundary(
-          child: QvpPageView(
-            page: page,
-            controller: _pageViewCtrl,
-            panZoomEnabled: false,
-            selectionEnabled: false,
-            layout: MushafProvider.mushafLayout,
-            hitMaxDistance: 28.0,
-            paper: null,
-            paperShadow: false,
-            defaultInk: c.text,
-            onSwipe: null, // Critical: let outer PageView drive horizontal motion
-            onWordTap: (word, _) => widget.onWordTap(context, page!, word.index),
-            onDecorationTap: (dec, _) => widget.onDecorationTap(dec),
-          ),
+        QvpPageView(
+          page: page,
+          controller: _pageViewCtrl,
+          panZoomEnabled: false,
+          selectionEnabled: false,
+          layout: MushafProvider.mushafLayout,
+          hitMaxDistance: 28.0,
+          paper: null,
+          paperShadow: false,
+          defaultInk: c.text,
+          onSwipe: null, // Critical: let outer PageView drive horizontal motion
+          onWordTap: (word, _) => widget.onWordTap(context, page!, word.index),
+          onDecorationTap: (dec, _) => widget.onDecorationTap(dec),
         ),
         Positioned.fill(
           child: IgnorePointer(
