@@ -32,18 +32,6 @@ import UIKit
           result(FlutterMethodNotImplemented)
         }
       }
-
-      let lifecycleChannel = FlutterMethodChannel(
-        name: "com.recitequran.app/audio_lifecycle",
-        binaryMessenger: controller.binaryMessenger
-      )
-      lifecycleChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
-        if call.method == "isScreenOffOrLocked" {
-          result(!UIApplication.shared.isProtectedDataAvailable)
-        } else {
-          result(FlutterMethodNotImplemented)
-        }
-      }
     }
 
     return result

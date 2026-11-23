@@ -5,15 +5,12 @@ import 'package:quran_tarteel/quran_tarteel.dart' as rq;
 export 'package:quran_tarteel/quran_tarteel.dart';
 
 import 'app_state.dart';
-import '../audio/quran_audio_service.dart';
 import '../ui/widgets/dialogs/dialog_service.dart';
 
-/// Recitation & Audio playback source.
+/// Recitation source.
 enum RecitationSource {
   none,
   localAsr,
-  maglisRemote,
-  audioPlayback,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +47,7 @@ abstract final class QuranCoordinate {
 ///
 /// High-performance flat O(1) bit-packed key store for Quran word highlight states
 /// (1: Green, 2: Yellow, 3: Red, 4: Neutral) and Tajweed recitation errors.
-/// Serves as the single source of truth for all producers (Local ASR, Remote Maglis, and Audio Playback).
+/// Serves as the single source of truth for Local ASR.
 class HighlightStore {
   // Key: QuranCoordinate.packWordKey(surah, ayah, word0) -> status (1..4)
   final Map<int, int> _states = {};
@@ -203,9 +200,9 @@ class HighlightStore {
 
 /// HighlightingController
 ///
-/// Decoupled, single-source-of-truth recitation and playback controller.
-/// Extends [rq.HighlightingController] to serve local ASR dictation, collaborative
-/// Maglis WebRTC sessions, and audio playback tracking through a unified API.
+/// Decoupled, single-source-of-truth recitation controller.
+/// Extends [rq.HighlightingController] to serve local ASR dictation
+/// tracking through a unified API.
 ///
 /// Presentation layers (Mushaf, VerseList, dialogs, overlays) observe this single
 /// controller. They never need separate branches or conditional code per mode.
@@ -229,11 +226,6 @@ class HighlightingController extends ChangeNotifier {
   rq.QuranScorer get scorer => _scorer;
 
   Stream<rq.WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
-
-  // Remote Maglis state
-  int _remoteTargetSurah = 0;
-  int? _remoteActiveWord;
-  bool _isRemoteReciting = false;
 
   // Manual selection state
   int _manualTargetSurah = 0;
@@ -261,14 +253,6 @@ class HighlightingController extends ChangeNotifier {
     // re-follows whatever coordinate is settled now.
     notifyListeners();
   }
-
-  // Audio Playback state
-  int? _audioSurah;
-  int? _audioAyah;
-  int? _audioWordIndex;
-  bool _isAudioPlaying = false;
-  bool _isAudioBuffering = false;
-  bool _isAudioPaused = false;
 
   StreamSubscription? _engineTranscriptionSub;
   StreamSubscription<rq.WordMatchedEvent>? _wordEvaluatedSub;
@@ -402,7 +386,7 @@ class HighlightingController extends ChangeNotifier {
 
   /// Reactive ingestion of automatic re-anchoring when the reciter skips ahead or jumps verses.
   void _onEngineAutoReanchored(rq.AutoReanchorEvent event) {
-    if (isAudioActive || isRemoteReciting || _isRetargeting) return;
+    if (_isRetargeting) return;
     final int surah = event.surah > 0 ? event.surah : targetSurah;
     final int ayah = event.ayah;
     if (surah == 0 || ayah == 0) return;
@@ -422,7 +406,7 @@ class HighlightingController extends ChangeNotifier {
 
   /// Pure reactive ingestion of word evaluations directly from the engine isolate.
   void _onEngineWordEvaluated(rq.WordMatchedEvent event) {
-    if (isAudioActive || isRemoteReciting || _isRetargeting) return;
+    if (_isRetargeting) return;
     final int surah = event.surah > 0 ? event.surah : targetSurah;
     final int ayah = event.ayah;
     final int w0 = event.wordInAyah;
@@ -480,59 +464,15 @@ class HighlightingController extends ChangeNotifier {
 
   /// The active source driving highlighting/progress.
   RecitationSource get activeSource {
-    if (_isRemoteReciting) return RecitationSource.maglisRemote;
-    if (isAudioActive) return RecitationSource.audioPlayback;
-    if (activeAyah.value != null && !isAudioActive && !_isRemoteReciting) {
+    if (activeAyah.value != null) {
       return RecitationSource.localAsr;
     }
     return RecitationSource.none;
   }
 
-  // ── Remote Maglis Recitation State ──
-
-  /// Whether a remote peer in a Maglis session is currently reciting.
-  bool get isRemoteReciting => _isRemoteReciting;
-
-  // ── Audio Playback State ──
-
-  /// Whether Quran verse/word audio playback or buffering is currently active.
-  bool get isAudioActive =>
-      (_isAudioPlaying || _isAudioBuffering) &&
-      _audioSurah != null &&
-      _audioAyah != null;
-
-  bool get isAudioPlaying => _isAudioPlaying;
-  bool get isAudioBuffering => _isAudioBuffering;
-  bool get isAudioPaused =>
-      _isAudioPaused && _audioSurah != null && _audioAyah != null;
-  int? get audioSurah => _audioSurah;
-  int? get audioAyah => _audioAyah;
-  int? get audioWordIndex => _audioWordIndex;
-
-  /// Checks if audio playback or buffering is currently active for [surah, ayah].
-  bool isAyahAudioActive(int surah, int ayah) =>
-      isAudioActive && _audioSurah == surah && _audioAyah == ayah;
-
-  /// Checks if audio playback is currently playing for [surah, ayah].
-  bool isAyahAudioPlaying(int surah, int ayah) =>
-      _isAudioPlaying && _audioSurah == surah && _audioAyah == ayah;
-
-  /// Checks if audio playback is currently buffering for [surah, ayah].
-  bool isAyahAudioBuffering(int surah, int ayah) =>
-      _isAudioBuffering && _audioSurah == surah && _audioAyah == ayah;
-
-  /// The active recitation or audio lead word index (0-based in active ayah).
-  int? get activeWordIndex {
-    if (_isRemoteReciting) return _remoteActiveWord;
-    if (isAudioActive) return _audioWordIndex;
-    return null;
-  }
-
-  /// The active coordinate (surah, ayah) driving playback or recitation.
+  /// The active coordinate (surah, ayah) driving recitation.
   ///
-  /// Pure controller truth: the mirrored coordinate, nothing else. Audio has
-  /// no separate branch — applyAudioProgress mirrors the playing verse into
-  /// targetSurah/activeAyah in the same event that makes isAudioActive true.
+  /// Pure controller truth: the mirrored coordinate, nothing else.
   (int surah, int ayah)? get activeAyahCoordinate {
     if (activeAyah.value != null && targetSurah != 0) {
       return (targetSurah, activeAyah.value!);
@@ -544,9 +484,8 @@ class HighlightingController extends ChangeNotifier {
   HighlightStore get highlightStore => _store;
 
   int get targetSurah {
-    // Single coordinate: every source (manual selection, ASR, audio playback,
-    // Maglis packets) mirrors into _manualTargetSurah at its merge point, so
-    // there is nothing to disambiguate here.
+    // Single coordinate: every source (manual selection, ASR)
+    // mirrors into _manualTargetSurah at its merge point, so there is nothing to disambiguate here.
     if (_manualTargetSurah != 0) {
       return _manualTargetSurah;
     }
@@ -630,7 +569,7 @@ class HighlightingController extends ChangeNotifier {
   }
 
   /// Extracts word classification lists (green, yellow, red, wordErrors) for an ayah.
-  /// Used for network sync (Maglis) and evaluation snapshots.
+  /// Used for evaluation snapshots and progress summaries.
   ({
     List<int> greenWords,
     List<int> yellowWords,
@@ -666,16 +605,9 @@ class HighlightingController extends ChangeNotifier {
 
   void setManualAyah(int surah, int ayah) {
     // Local fields are the authoritative coordinate for every reader from
-    // this moment on; a manual selection also takes the coordinate away from
-    // any running audio playback.
+    // this moment on.
     _manualTargetSurah = surah;
     activeAyah.value = ayah;
-    _audioSurah = null;
-    _audioAyah = null;
-    _audioWordIndex = null;
-    _isAudioPlaying = false;
-    _isAudioBuffering = false;
-    _isAudioPaused = false;
     onAutoSavePosition?.call(surah, ayah);
     AppState.instance.saveLastPosition(surah, ayah);
 
@@ -714,7 +646,7 @@ class HighlightingController extends ChangeNotifier {
 
   rq.VerseMatch? get currentMatchedVerse {
     // The mirrored coordinate IS the matched verse for every source (manual
-    // selection, ASR anchor, audio playback, Maglis packets). Pure coordinate
+    // selection, ASR anchor). Pure coordinate
     // read - no fallback into the package.
     if (_manualTargetSurah != 0 && activeAyah.value != null) {
       final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
@@ -728,8 +660,7 @@ class HighlightingController extends ChangeNotifier {
   // ── Word Status Queries (pure store reads) ──
   //
   // The package's verdicts arrive reactively through onWordEvaluated and live in the
-  // store from then on; audio playback and Maglis packets write the same
-  // store at their ingestion points. Every query below — the paint path
+  // store from then on. Every query below — the paint path
   // included — is a single O(1) lookup. No source is ever consulted at read
   // time: package → controller → view, one direction.
 
@@ -764,7 +695,7 @@ class HighlightingController extends ChangeNotifier {
     final s = surah ?? targetSurah;
     final list = _store.errorsFor(s, ayah, wordIndex);
     if (list == null || list.isEmpty) return null;
-    return list.map((e) => hydrateRemoteError(s, ayah, wordIndex, e)).toList();
+    return list.map((e) => _hydrateError(s, ayah, wordIndex, e)).toList();
   }
 
   Set<int> completedAyahsFor(int surah) => _store.completedAyahsFor(surah);
@@ -777,173 +708,9 @@ class HighlightingController extends ChangeNotifier {
   bool hasAyahHighlights(int surah, int ayah) =>
       _store.hasAyahHighlights(surah, ayah);
 
-  // ── Remote Maglis Recitation Ingestion ──
-
-  /// Ingests remote recitation updates received over WebRTC/relay,
-  /// seamlessly updating the highlight store and notifying UI listeners.
-  void applyRemoteRecitation({
-    required int surah,
-    required int ayah,
-    int? activeWord,
-    List<int> greenWords = const [],
-    List<int> yellowWords = const [],
-    List<int> redWords = const [],
-    Map<int, List<rq.ReciterError>>? errors,
-    Map<String, int>? cumulative,
-    bool isReciting = true,
-  }) {
-    bool changed = false;
-
-    if (!isReciting) {
-      // Explicit stop (reciter ended, floor released, session left): the
-      // remote state goes away. A stop packet never claims the coordinate.
-      final bool recitingChanged = _isRemoteReciting;
-      _isRemoteReciting = false;
-      _remoteActiveWord = null;
-      changed = recitingChanged;
-    } else if (activeWord == null) {
-      // A reciting packet that carries no lead position: the sender's recap
-      // of a verse whose verdicts are final (the host always sends these with
-      // no active word, and a live packet always carries the lead while
-      // recording). Absent data is not an explicit clear — merge the word
-      // verdicts into the store and touch nothing else: the coordinate and
-      // the lead stay exactly where the last lead-carrying packet put them.
-      // Claiming this packet's position used to flicker the peer's highlight
-      // backward for a frame on every ayah advance.
-      if (_mergeRemoteVerdicts(
-        surah: surah,
-        ayah: ayah,
-        greenWords: greenWords,
-        yellowWords: yellowWords,
-        redWords: redWords,
-        errors: errors,
-        cumulative: cumulative,
-      )) {
-        changed = true;
-      }
-      if (!_isRemoteReciting) {
-        _isRemoteReciting = true;
-        changed = true;
-      }
-    } else {
-      final bool recitingChanged = !_isRemoteReciting;
-      final bool surahChanged = _remoteTargetSurah != surah;
-      final bool wordChanged = _remoteActiveWord != activeWord;
-
-      _isRemoteReciting = true;
-      _remoteTargetSurah = surah;
-      _remoteActiveWord = activeWord;
-      changed = recitingChanged || surahChanged || wordChanged;
-
-      // Mirror the remote verse into the base coordinate: every recitation
-      // source ends up in targetSurah + activeAyah, so all readers follow
-      // one unified coordinate.
-      if (_manualTargetSurah != surah) {
-        _manualTargetSurah = surah;
-        changed = true;
-      }
-      // Merge verdicts into store BEFORE advancing activeAyah so synchronous coordinate
-      // listeners (such as _onActiveAyahChanged -> _syncVisuals) read up-to-date verdicts
-      // and immediately unmask recited words in Hide Mode.
-      if (_mergeRemoteVerdicts(
-        surah: surah,
-        ayah: ayah,
-        greenWords: greenWords,
-        yellowWords: yellowWords,
-        redWords: redWords,
-        errors: errors,
-        cumulative: cumulative,
-      )) {
-        changed = true;
-      }
-      if (activeAyah.value != ayah) {
-        activeAyah.value = ayah;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      if (_isAudioPlaying && _audioSurah != null && _audioAyah != null) {
-        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
-      }
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
-
-  /// Merges remote word verdicts (cumulative history + live words of the
-  /// current verse) into the highlight store. Pure store work — no coordinate
-  /// or state writes — shared by flush and normal remote packets.
-  bool _mergeRemoteVerdicts({
-    required int surah,
-    required int ayah,
-    required List<int> greenWords,
-    required List<int> yellowWords,
-    required List<int> redWords,
-    required Map<int, List<rq.ReciterError>>? errors,
-    required Map<String, int>? cumulative,
-  }) {
-    bool changed = false;
-
-    if (cumulative != null && cumulative.isNotEmpty) {
-      cumulative.forEach((k, v) {
-        if (v < 1 || v > 3) return;
-        final parsed = int.tryParse(k, radix: 16);
-        if (parsed != null) {
-          final (s, a, w) = QuranCoordinate.unpackWordKey(parsed);
-          if (v == 1) {
-            _store.markGreen(s, a, w);
-          } else if (v == 2) {
-            _store.markYellow(s, a, w);
-          } else if (v == 3) {
-            _store.markRed(s, a, w);
-          }
-          changed = true;
-        } else if (k.contains('_')) {
-          final parts = k.split('_');
-          if (parts.length == 3) {
-            final s = int.tryParse(parts[0]);
-            final a = int.tryParse(parts[1]);
-            final w = int.tryParse(parts[2]);
-            if (s != null && a != null && w != null) {
-              if (v == 1) {
-                _store.markGreen(s, a, w);
-              } else if (v == 2) {
-                _store.markYellow(s, a, w);
-              } else if (v == 3) {
-                _store.markRed(s, a, w);
-              }
-              changed = true;
-            }
-          }
-        }
-      });
-    }
-
-    for (final w in greenWords) {
-      _store.markGreen(surah, ayah, w);
-      changed = true;
-    }
-    for (final w in yellowWords) {
-      final errList = errors?[w];
-      final hydratedList = errList != null
-          ? errList.map((e) => hydrateRemoteError(surah, ayah, w, e)).toList()
-          : null;
-      _store.markYellow(surah, ayah, w, hydratedList);
-      changed = true;
-    }
-    for (final w in redWords) {
-      _store.markRed(surah, ayah, w);
-      changed = true;
-    }
-
-    return changed;
-  }
-
   /// Hydrates a lightweight [rq.ReciterError] into a complete model with
   /// canonical Tajweed rule metadata and guidance derived locally from [repository].
-  /// canonical Tajweed rule metadata and guidance derived locally from [repository].
-  rq.ReciterError hydrateRemoteError(
+  rq.ReciterError _hydrateError(
     int surah,
     int ayah,
     int wordIndex,
@@ -1004,114 +771,6 @@ class HighlightingController extends ChangeNotifier {
   ]) =>
       rq.TajweedRuleFactory.instantiate(wRule, config);
 
-  /// Sets whether remote recitation is active (e.g. on floor release or peer leave).
-  void setRemoteReciting(bool isReciting) {
-    if (_isRemoteReciting != isReciting) {
-      _isRemoteReciting = isReciting;
-      if (!isReciting) {
-        _remoteActiveWord = null;
-      }
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
-
-  // ── Audio Playback Ingestion ──
-
-  /// Ingests audio playback state updates from the audio player.
-  void applyAudioProgress({
-    int? surah,
-    int? ayah,
-    int? wordIndex,
-    bool? isPlaying,
-    bool? isBuffering,
-    bool? isPaused,
-  }) {
-    // If playback completely stopped or was reset to idle:
-    if (isPlaying == false &&
-        isBuffering == false &&
-        isPaused != true &&
-        surah == null &&
-        ayah == null) {
-      clearAudio();
-      return;
-    }
-
-    bool changed = false;
-
-    if (_audioSurah != surah) {
-      _audioSurah = surah;
-      changed = true;
-    }
-    if (_audioAyah != ayah) {
-      _audioAyah = ayah;
-      changed = true;
-    }
-    if (_audioWordIndex != wordIndex) {
-      _audioWordIndex = wordIndex;
-      changed = true;
-    }
-    if (isPlaying != null && _isAudioPlaying != isPlaying) {
-      _isAudioPlaying = isPlaying;
-      changed = true;
-    }
-    if (isBuffering != null && _isAudioBuffering != isBuffering) {
-      _isAudioBuffering = isBuffering;
-      changed = true;
-    }
-    if (isPaused != null && _isAudioPaused != isPaused) {
-      _isAudioPaused = isPaused;
-      changed = true;
-    }
-
-    // Align base controller targetSurah and activeAyah with audio playback verse only when actively playing/buffering
-    // AND NOT when a remote peer is reciting (so local audio playback/auditioning never hijacks the remote reciter's coordinate).
-    if (!_isRemoteReciting &&
-        (_isAudioPlaying || _isAudioBuffering) &&
-        surah != null &&
-        surah != 0) {
-      if (_manualTargetSurah != surah) {
-        _manualTargetSurah = surah;
-        changed = true;
-      }
-      if (ayah != null && ayah != 0 && activeAyah.value != ayah) {
-        activeAyah.value = ayah;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      if (!_isRemoteReciting &&
-          (_isAudioPlaying || _isAudioBuffering) &&
-          _audioSurah != null &&
-          _audioAyah != null) {
-        onAutoSavePosition?.call(_audioSurah!, _audioAyah!);
-        AppState.instance.saveLastPosition(_audioSurah!, _audioAyah!);
-      }
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
-
-  /// Clears audio playback state when audio stops.
-  void clearAudio() {
-    if (_audioSurah != null ||
-        _audioAyah != null ||
-        _audioWordIndex != null ||
-        _isAudioPlaying ||
-        _isAudioBuffering ||
-        _isAudioPaused) {
-      _audioSurah = null;
-      _audioAyah = null;
-      _audioWordIndex = null;
-      _isAudioPlaying = false;
-      _isAudioBuffering = false;
-      _isAudioPaused = false;
-      globalRevision.value++;
-      notifyListeners();
-    }
-  }
-
   // ── Clearing & Synchronization ──
 
   void clearHighlightsFromAyah(int startAyah, {int? surah}) {
@@ -1140,9 +799,6 @@ class HighlightingController extends ChangeNotifier {
 
   /// Returns the 0-based lead ("waited") word index — the one word the
   /// reciter is about to say, rendered as the anticipatory cursor:
-  /// - audio playback: the player's word cursor
-  /// - remote Maglis session: the peer's active word (plain source priority,
-  ///   not special handling — packets merge through the same store)
   /// - live local ASR while recording: the first not-yet-read word
   ///
   /// The lead word only exists inside the live coordinate; everything outside
@@ -1157,8 +813,6 @@ class HighlightingController extends ChangeNotifier {
         (targetSurah != 0 && targetSurah != surah)) {
       return null;
     }
-    if (isRemoteReciting) return activeWordIndex;
-    if (isAudioActive) return audioWordIndex;
     if (isRecording) {
       for (int i = 0; i < totalWords; i++) {
         if (!isWordRead(ayah, i, surah: surah)) {
@@ -1177,8 +831,8 @@ class HighlightingController extends ChangeNotifier {
 
   /// The single coordinate every recitation source currently drives.
   ///
-  /// Audio progress and Maglis packets are mirrored into
-  /// [targetSurah]/[activeAyah] by their merge points — the same fields live
+  /// Audio progress is mirrored into
+  /// [targetSurah]/[activeAyah] by its merge point — the same fields live
   /// local ASR writes — so any host that renders pages follows this one pair
   /// to stay in sync through ayahs, pages and surahs. Surah 0 means no
   /// coordinate exists yet (fresh app, nothing selected or recited).
@@ -1189,7 +843,6 @@ class HighlightingController extends ChangeNotifier {
 
   void clearHighlights() {
     _store.clearAll();
-    _remoteActiveWord = null;
     _manualTargetSurah = 0;
     globalRevision.value++;
     notifyListeners();
@@ -1795,8 +1448,8 @@ abstract final class QuranTypography {
 
 /// Centralized Quran User Interaction Service.
 ///
-/// Handles Ayah selection, word clicks (Tajweed error dialog vs word audio audition),
-/// and continuous Ayah audio playback across both Mushaf Vector and Verse List views.
+/// Handles Ayah selection and word clicks (Tajweed error dialog)
+/// across both Mushaf Vector and Verse List views.
 abstract final class QuranInteractionService {
   /// Handles selecting/tapping an Ayah: manual selection, and persisting last position.
   static Future<void> selectAyah({
@@ -1805,15 +1458,6 @@ abstract final class QuranInteractionService {
     required HighlightingController controller,
     VoidCallback? onTap,
   }) async {
-    // When a remote peer is actively reciting in Maglis, the client
-    // cannot change or select the active ayah coordinate.
-    if (controller.isRemoteReciting) {
-      return;
-    }
-    if (controller.isAudioActive) {
-      QuranAudioService.instance.stop();
-      controller.clearAudio();
-    }
     controller.setManualAyah(surah, ayah);
     onTap?.call();
   }
@@ -1821,8 +1465,7 @@ abstract final class QuranInteractionService {
   /// Handles tapping a Quranic word:
   /// - Yellow word: always can be pressed directly and never selects the ayah,
   ///   UNLESS the user is in idle mode (not recording), where it requires ayah selection first.
-  /// - Word play: always requires ayah selection first, UNLESS in a Maglis session
-  ///   as the listener while another user is recording.
+  /// - Word play: always requires ayah selection first.
   static void handleWordTap({
     required BuildContext context,
     required int surah,
@@ -1849,7 +1492,7 @@ abstract final class QuranInteractionService {
     // ── 1. Yellow Word ──
     // Always can be pressed and never selects the ayah, UNLESS the user is in idle mode (not recording).
     if (hasYellowError) {
-      final bool isIdle = !isRecording && !controller.isRemoteReciting;
+      final bool isIdle = !isRecording;
       if (isIdle && !isAlreadySelected) {
         selectAyah(
           surah: surah,
@@ -1873,45 +1516,14 @@ abstract final class QuranInteractionService {
       return;
     }
 
-    // ── 2. Word Play ──
-    // Always needs ayah selection first, UNLESS in a Maglis session as the listener while another user is recording.
-    final bool isRemoteListener = controller.isRemoteReciting;
-    if (!isAlreadySelected && !isRemoteListener) {
+    // ── 2. Normal Word Tap ──
+    // Selects the ayah if not already selected.
+    if (!isAlreadySelected) {
       selectAyah(
         surah: surah,
         ayah: ayah,
         controller: controller,
         onTap: onAyahTap,
-      );
-      return;
-    }
-
-    QuranAudioService.instance.playWord(
-      surah: surah,
-      ayah: ayah,
-      wordIndex: wordIndex,
-    );
-  }
-
-  /// Toggles Ayah audio playback.
-  static Future<void> toggleAyahAudio({
-    required int surah,
-    required int ayah,
-    required HighlightingController controller,
-    required bool isRecording,
-    VoidCallback? onTap,
-    VoidCallback? onExplicitToggle,
-  }) async {
-    if (onExplicitToggle != null) {
-      onTap?.call();
-      onExplicitToggle();
-    } else {
-      await QuranAudioService.instance.toggleAyah(
-        surah: surah,
-        ayah: ayah,
-        controller: controller,
-        continuous: !isRecording && !controller.isRemoteReciting,
-        onTap: onTap,
       );
     }
   }

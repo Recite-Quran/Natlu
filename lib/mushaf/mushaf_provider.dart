@@ -15,7 +15,7 @@ import 'web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'web/mushaf_web_storage_web.dart'
     as web_storage;
 
-/// Typed word reference within a Mushaf page for tracking and playback.
+/// Typed word reference within a Mushaf page for recitation tracking.
 class MushafWordRef {
   final int surah;
   final int ayah;
@@ -47,7 +47,7 @@ class MushafProvider {
     lineSpacing: 1.0,
     fillHeight: true,
     maxAspectSlack: 0.0,
-    surahFrames: false,
+    surahFrames: true,
   );
 
   QvpEngine? _engine;
@@ -100,7 +100,6 @@ class MushafProvider {
 
     final spec = mushafLayout.toSpec(targetSize.width, targetSize.height);
     if (page.currentLayout == null ||
-        page.currentLayoutSpec != spec ||
         _pageLayoutSizes[neighborPage] != targetSize) {
       page.layout(spec);
       _pageLayoutSizes[neighborPage] = targetSize;
@@ -110,8 +109,6 @@ class MushafProvider {
       inkColor: inkColor,
       surahFrames: mushafLayout.surahFrames,
       dpr: dpr,
-      width: targetSize.width,
-      height: targetSize.height,
     );
   }
 
@@ -123,7 +120,6 @@ class MushafProvider {
     }
 
     _preloadingTargetPage = pageNumber;
-    QvpPageView.setCurrentPage(pageNumber);
 
     final targetSize = lastViewportSize;
     if (targetSize == null || targetSize.width <= 0 || targetSize.height <= 0) {
@@ -357,28 +353,29 @@ class MushafProvider {
           }
         }
       } else {
-        var localPage = _extractedPagesPath != null
-            ? File(
-                '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
-            : null;
-        if (localPage == null ||
-            !localPage.existsSync() ||
-            localPage.lengthSync() == 0) {
+        File? localPage;
+        if (_extractedPagesPath != null) {
+          localPage = File(
+              '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}');
+        }
+        if (localPage == null || !(await localPage.exists())) {
           await _ensureExtracted(force: true);
           localPage = _extractedPagesPath != null
               ? File(
                   '$_extractedPagesPath/${QuranMetadata.formatPageKey(pageNumber)}')
               : null;
         }
-        if (localPage != null &&
-            localPage.existsSync() &&
-            localPage.lengthSync() > 0) {
-          pageBytes = await localPage.readAsBytes();
+        if (localPage != null) {
+          try {
+            pageBytes = await localPage.readAsBytes();
+          } catch (_) {
+            pageBytes = null;
+          }
         }
       }
 
       if (pageBytes != null && pageBytes.isNotEmpty) {
-        final page = await _engine!.loadPageAsync(pageBytes);
+        final page = _engine!.loadPage(pageBytes);
         page.hide(Sel.kind(QvpKind.ayahMarkOrnament));
         final currentInkColor = AppState.instance.colors.text;
         page.setDefaultColor(currentInkColor);
@@ -400,6 +397,7 @@ class MushafProvider {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);
+            QvpPageView.evictPage(evictKey);
           } else {
             break;
           }

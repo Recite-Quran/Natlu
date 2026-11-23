@@ -6,17 +6,14 @@ import 'app_picker_dialogs.dart';
 import 'app_guide_dialogs.dart';
 import 'error_detail_dialog.dart';
 import 'voice_search_dialog.dart';
-import 'maglis_entry_dialog.dart';
 import 'settings_sheet.dart';
 import 'surah_picker_sheet.dart';
 import 'tajweed_rules_dialog.dart';
-import 'audio_download_dialog.dart';
 import 'dialog_base.dart';
 
 export 'app_alert_dialogs.dart' show PermissionReason;
 export 'package:quran_tarteel/quran_tarteel.dart'
     show VoiceSearchResult;
-export 'audio_download_dialog.dart' show AudioDownloadDialog;
 export 'tajweed_rules_dialog.dart' show TajweedRulesDialog;
 export 'dialog_base.dart';
 
@@ -82,11 +79,6 @@ abstract final class DialogService {
     );
   }
 
-  /// Displays the Quran Audio Download & Offline Caching modal dialog.
-  static Future<void> showAudioDownload(BuildContext context) {
-    return AudioDownloadDialog.show(context);
-  }
-
   /// Displays the TajweedFormer model download modal dialog.
   static Future<bool?> showModelDownload(BuildContext context) {
     return showDialog<bool>(
@@ -120,7 +112,7 @@ abstract final class DialogService {
     showAppGuide(context);
   }
 
-  /// Opens the audio playback speed selection dialog.
+  /// Opens the auto-scroll speed selection dialog.
   static Future<void> showSpeedSelection(
     BuildContext context, {
     VoidCallback? onSpeedSelected,
@@ -161,24 +153,6 @@ abstract final class DialogService {
     HighlightingController? controller,
   }) {
     return TajweedRulesDialog.show(context, controller: controller);
-  }
-
-  /// Opens the Maglis Room entry/hosting bottom sheet.
-  static void showMaglisEntry(
-    BuildContext context, {
-    int initialTab = 1,
-    String? initialCode,
-  }) {
-    MaglisEntryDialog.show(
-      context,
-      initialTab: initialTab,
-      initialCode: initialCode,
-    );
-  }
-
-  /// Displays the Maglis informational explanation dialog.
-  static Future<void> showMaglisExplanation(BuildContext context) {
-    return MaglisExplanationDialog.show(context);
   }
 
   /// Opens the Surah Navigator bottom sheet.

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/app_state.dart';
 import '../../../core/highlighting_controller.dart';
-import '../../../maglis/maglis_controller.dart';
 import 'dialog_base.dart';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -299,29 +298,27 @@ class _SurahPickerSheetState extends State<SurahPickerSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (!MaglisController.instance.inSession) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
-              child: AppSegmentedPillSelector(
-                icons: const [
-                  Icons.format_list_bulleted_rounded,
-                  Icons.auto_stories_rounded,
-                ],
-                labels: isAr
-                    ? const ['قائمة الآيات', 'مصحف']
-                    : const ['List View', 'Mushaf Layout'],
-                selected: app.isMushafMode ? 1 : 0,
-                c: c,
-                onSelected: (i) {
-                  final enableMushaf = (i == 1);
-                  if (app.isMushafMode != enableMushaf) {
-                    app.setMushafMode(enableMushaf);
-                    setState(() {});
-                  }
-                },
-              ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+            child: AppSegmentedPillSelector(
+              icons: const [
+                Icons.format_list_bulleted_rounded,
+                Icons.auto_stories_rounded,
+              ],
+              labels: isAr
+                  ? const ['قائمة الآيات', 'مصحف']
+                  : const ['List View', 'Mushaf Layout'],
+              selected: app.isMushafMode ? 1 : 0,
+              c: c,
+              onSelected: (i) {
+                final enableMushaf = (i == 1);
+                if (app.isMushafMode != enableMushaf) {
+                  app.setMushafMode(enableMushaf);
+                  setState(() {});
+                }
+              },
             ),
-          ],
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(

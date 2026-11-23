@@ -12,9 +12,6 @@ Each word turns green when you pronounce it correctly, and red when it is skippe
 • Tajweed and Madd checking
 The app measures the length of your Madd, Ghunnah and Shaddah and marks a word yellow when the timing is off. Tap any word to see the expected duration against the one you recited, in milliseconds.
 
-• Collaborative recitation circles (Maglis)
-Join decentralized Quran study circles and teacher-student sessions for up to 4 participants. Connect via simple 5-digit room codes with real-time synchronized Mus'haf pages, word-by-word tracking, and high-quality voice audio. Zero accounts, no logins, and serverless peer-to-peer connection.
-
 • Voice ayah search
 Recite any verse aloud and the app jumps straight to it. Nothing to type.
 

@@ -6,18 +6,11 @@ import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 
 /// Ultra-lightweight, zero-allocation single-pass overlay/underlay painters
-/// for Surah headers, Ayah audio indicators, and Tajweed tutorial tooltips.
+/// for Surah headers and Tajweed tutorial tooltips.
 class MushafOverlays {
   MushafOverlays._();
 
-  static final Paint _headerFillPaint = Paint()..style = PaintingStyle.fill;
-  static final Paint _headerBorderPaint = Paint()
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 0.8;
   static final Paint _highlightFillPaint = Paint()..style = PaintingStyle.fill;
-
-  static final Paint _ringPaint = Paint()..style = PaintingStyle.stroke;
-  static final Paint _goldPaint = Paint()..style = PaintingStyle.fill;
   static final Paint _wordFillPaint = Paint()
     ..style = PaintingStyle.fill
     ..isAntiAlias = true;
@@ -84,48 +77,6 @@ class MushafOverlays {
     }
   }
 
-  /// Single-pass underlay: Paints elegant modern cards behind Surah titles.
-  static void paintSurahHeaders(
-    Canvas canvas,
-    QvpPage page,
-    QvpLayout? layout, {
-    required bool isDark,
-    required ThemeColors colors,
-  }) {
-    if (page.isDisposed) return;
-    final headers = page.surahHeadersView();
-    if (headers.isEmpty) return;
-
-    final l = layout ?? page.readLayout() ?? page.currentLayout;
-    if (l == null) return;
-
-    final double contentW = l.contentW;
-
-    _headerFillPaint.color = isDark
-        ? const Color(0xFF1E252D).withValues(alpha: 0.75)
-        : const Color(0xFFF7F4EB);
-
-    _headerBorderPaint.color = isDark
-        ? colors.gold.withValues(alpha: 0.20)
-        : colors.gold.withValues(alpha: 0.30);
-
-    for (final h in headers) {
-      final double top = h.y1 > h.y0 ? h.y0 : (h.titleY0 - 6.0);
-      final double bottom = h.y1 > h.y0 ? h.y1 : (h.titleY1 + 6.0);
-      if (bottom <= top) continue;
-
-      final double left = (h.x1 > h.x0 && h.x0 >= 0) ? h.x0 : 0.0;
-      final double right = (h.x1 > h.x0 && h.x1 <= contentW) ? h.x1 : contentW;
-
-      final rect = Rect.fromLTRB(left, top, right, bottom);
-      canvas.drawRect(rect, _headerFillPaint);
-      canvas.drawLine(
-          Offset(left, top), Offset(right, top), _headerBorderPaint);
-      canvas.drawLine(
-          Offset(left, bottom), Offset(right, bottom), _headerBorderPaint);
-    }
-  }
-
   /// Single-pass underlay: Paints continuous Ayah background highlight box
   /// and current waited word beacon band matching the official quran-engine specification.
   /// Evaluated words (green/yellow/red) do NOT have background highlight bands —
@@ -159,8 +110,7 @@ class MushafOverlays {
 
     // 2. Resolve Active / Waited Lead Word on this page with zero FFI calls.
     int? activeWordPageIdx;
-    final bool isSessionActive =
-        isRecording || controller.isAudioActive || controller.isRemoteReciting;
+    final bool isSessionActive = isRecording;
     if (isSessionActive) {
       final maxWordOnPage =
           cache.maxWordPerAyah[(activeSurah, activeAyah)] ?? 0;
@@ -381,97 +331,6 @@ class MushafOverlays {
     }
   }
 
-  /// Single-pass overlay: Paints Ayah audio indicators (loading ring, stop icon).
-  ///
-  /// The rotating buffering arc is NOT painted here: it lives on an isolated
-  /// top layer driven only by the spinner controller, so its 60–120Hz ticks
-  /// repaint just that tiny painter instead of re-recording this whole page.
-  /// This painter redraws only when audio state actually changes (ring/icon).
-  static void paintAyahMarks(
-    Canvas canvas,
-    QvpPage page,
-    QvpLayout? layout, {
-    required AppState app,
-    required Color surfaceColor,
-    required Color goldColor,
-    Color? neutralRingColor,
-    Color? ayahHighlightColor,
-    HighlightingController? controller,
-    bool paintNeutral = true,
-    bool paintActive = true,
-  }) {
-    if (page.isDisposed) return;
-    if (!paintNeutral && !paintActive) return;
-    if (!paintNeutral &&
-        (controller == null ||
-            controller.audioSurah == null ||
-            controller.audioAyah == null)) {
-      return;
-    }
-    final l = layout ?? page.currentLayout;
-    if (l == null) return;
-
-    final marks = page.ayahMarksView();
-    if (marks.isEmpty) return;
-
-    final Color greenBtnColor = app.colors.primary;
-
-    final ringColor = neutralRingColor ??
-        (app.isDarkMode
-            ? const Color(0xFF94A3B8).withValues(alpha: 0.30)
-            : const Color(0xFF64748B).withValues(alpha: 0.35));
-
-    for (final m in marks) {
-      final bool isThisBuffering = paintActive &&
-          controller != null &&
-          controller.isAyahAudioBuffering(m.surah, m.ayah);
-      final bool isThisPlaying = paintActive &&
-          controller != null &&
-          controller.isAyahAudioPlaying(m.surah, m.ayah);
-
-      if (!isThisBuffering && !isThisPlaying && !paintNeutral) continue;
-
-      final center = Offset(m.cx, m.cy);
-      final double customR = m.r * 0.80;
-
-      if (isThisBuffering) {
-        _headerFillPaint.color = surfaceColor;
-        canvas.drawCircle(center, customR - 0.5, _headerFillPaint);
-
-        _ringPaint.color = greenBtnColor;
-        _ringPaint.strokeWidth = 1.2;
-        canvas.drawCircle(center, customR, _ringPaint);
-      } else if (isThisPlaying) {
-        _headerFillPaint.color = surfaceColor;
-        canvas.drawCircle(center, customR - 0.5, _headerFillPaint);
-
-        _ringPaint.color = greenBtnColor;
-        _ringPaint.strokeWidth = 1.2;
-        canvas.drawCircle(center, customR, _ringPaint);
-
-        final double stopHalf = customR * 0.32;
-        _goldPaint.color = greenBtnColor;
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromCenter(
-              center: center,
-              width: stopHalf * 2,
-              height: stopHalf * 2,
-            ),
-            Radius.circular(stopHalf * 0.25),
-          ),
-          _goldPaint,
-        );
-      } else if (paintNeutral) {
-        // Normal state: ring color stays strictly consistent and neutral.
-        // It NEVER changes color on completion or during recitation highlighting.
-        _ringPaint.color = ringColor;
-        _ringPaint.strokeWidth = 1.0;
-        canvas.drawCircle(center, customR, _ringPaint);
-      }
-    }
-  }
-
   /// Single-pass overlay: Paints onboarding Tajweed tutorial tooltip ("اضغط هنا") beneath yellow words.
   static void paintTajweedTooltip(
     Canvas canvas,
@@ -569,7 +428,7 @@ class MushafOverlays {
       final List<_BadgePosition> lineBadges = [];
 
       for (final wordIdx in wordsOnLine) {
-        final box = page.wordBoxView(wordIdx, layout: layout);
+        final box = page.wordBoxFast(wordIdx, layout: layout);
         final double centerX = (box.x0 + box.x1) / 2.0;
         final double idealX = centerX - tooltipWidth / 2.0;
         final double tooltipY = (box.y1 + 1.0).roundToDouble();
@@ -717,7 +576,7 @@ class _PageWordLayoutCache {
 
       final boxes = List<QvpBox>.generate(
         k,
-        (i) => page.wordBoxView(lineWords[i].index, layout: layout),
+        (i) => page.wordBoxFast(lineWords[i].index, layout: layout),
       );
 
       double lineX0 = double.infinity;
@@ -769,5 +628,41 @@ class _PageWordLayoutCache {
     }
 
     return _lineGeometriesCache[ayahKey] = list;
+  }
+}
+
+/// Standalone extension providing zero-FFI layout box calculation on [QvpPage].
+/// Guarantees 100% decoupling from any vendor fork modifications to [QvpPage].
+extension QvpPageWordBoxExtension on QvpPage {
+  QvpBox wordBoxFast(int i, {double padY = 2.0, QvpLayout? layout}) {
+    final w = words[i];
+    final l = layout ?? currentLayout;
+    if (l != null && !l.reflowed) {
+      final dy = (w.lineIndex >= 0 && w.lineIndex < l.lineDy.length)
+          ? l.lineDy[w.lineIndex]
+          : 0.0;
+      final scale = l.scale;
+      return QvpBox(
+        id: i,
+        line: w.line,
+        x0: l.offsetX + w.x0 * scale,
+        y0: l.offsetY + (w.y0 + dy) * scale - padY,
+        x1: l.offsetX + w.x1 * scale,
+        y1: l.offsetY + (w.y1 + dy) * scale + padY,
+        color: 0,
+        radius: 0.0,
+      );
+    }
+    final b = wordBoundsView(i);
+    return QvpBox(
+      id: i,
+      line: w.line,
+      x0: b.x0,
+      y0: b.y0 - padY,
+      x1: b.x1,
+      y1: b.y1 + padY,
+      color: 0,
+      radius: 0.0,
+    );
   }
 }

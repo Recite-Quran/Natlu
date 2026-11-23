@@ -44,8 +44,6 @@ migrate_working_dir/
 # ASR Models (never commit to git)
 assets/model/
 **/assets/model/
-!assets/model/quran_words.json
-!**/assets/model/quran_words.json
 *.onnx
 
 # --- iOS Specific Rules ---
