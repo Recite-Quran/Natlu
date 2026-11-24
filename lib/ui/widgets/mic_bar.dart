@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/platform_utils.dart';
 import '../../core/app_state.dart';
+import '../../maglis/maglis_core.dart';
 
-enum MicBarMode { recording, normal }
+enum MicBarMode { recording, maglis, normal }
 
 class BottomActionBar extends StatelessWidget {
   final bool isRecording;
@@ -17,6 +19,12 @@ class BottomActionBar extends StatelessWidget {
   final String surahName;
   final VoidCallback onSurahTap;
   final VoidCallback onSettingsTap;
+  final bool isInMaglis;
+  final VoidCallback? onMaglisTap;
+  final VoidCallback? onMaglisExitTap;
+  final String? maglisRoomCode;
+  final int maglisPeerCount;
+  final bool isRemoteReciting;
 
   const BottomActionBar({
     super.key,
@@ -31,10 +39,17 @@ class BottomActionBar extends StatelessWidget {
     required this.surahName,
     required this.onSurahTap,
     required this.onSettingsTap,
+    this.isInMaglis = false,
+    this.onMaglisTap,
+    this.onMaglisExitTap,
+    this.maglisRoomCode,
+    this.maglisPeerCount = 0,
+    this.isRemoteReciting = false,
   });
 
-  MicBarMode get mode =>
-      isRecording ? MicBarMode.recording : MicBarMode.normal;
+  MicBarMode get mode => isInMaglis
+      ? MicBarMode.maglis
+      : (isRecording ? MicBarMode.recording : MicBarMode.normal);
 
   static Color _btnBg(bool isDark, {bool isActive = false}) => isActive
       ? const Color(0xFF10B981).withValues(alpha: isDark ? 0.22 : 0.15)
@@ -77,6 +92,7 @@ class BottomActionBar extends StatelessWidget {
 
             final double stdBtnWidth = isNarrow ? 38.0 : 42.0;
             final double gap = isNarrow ? 5.0 : 6.0;
+            final double maglisGap = isNarrow ? 4.0 : 5.0;
 
             final double normalWidth = math.min(maxW - 20.0, 480.0);
             final double recordingWidth = hPad +
@@ -88,15 +104,25 @@ class BottomActionBar extends StatelessWidget {
                 stdBtnWidth +
                 1.0;
 
+            // Ensures 3-digit page numbers on narrow screens remain visible and right next to the bar
+            final double maglisLeftClearance = isNarrow ? 64.0 : 50.0;
+            final double maglisWidth =
+                math.max(200.0, maxW - maglisLeftClearance);
+
             final double targetWidth = switch (mode) {
               MicBarMode.recording => recordingWidth,
+              MicBarMode.maglis => maglisWidth,
               MicBarMode.normal => normalWidth,
             };
 
-            final double rightMargin =
+            final double normalRightMargin =
                 math.max(10.0, (maxW - normalWidth) / 2.0);
+            final double rightMargin =
+                mode == MicBarMode.maglis ? 8.0 : normalRightMargin;
 
-            final double minNormalActionWidth = stdBtnWidth + gap + 68.0;
+            final double minNormalActionWidth =
+                (stdBtnWidth * 2.0) + (gap * 2.0) + 68.0;
+            const double minMaglisActionWidth = 145.0;
 
             final Color pillBg =
                 isDark ? const Color(0xF40F151D) : const Color(0xFAFFFFFF);
@@ -159,7 +185,8 @@ class BottomActionBar extends StatelessWidget {
                                 width: micWidth - rightTuck - borderW,
                               ),
                               SizedBox(
-                                width: gap,
+                                width:
+                                    mode == MicBarMode.maglis ? maglisGap : gap,
                               ),
                               Expanded(
                                 child: AnimatedSwitcher(
@@ -240,13 +267,125 @@ class BottomActionBar extends StatelessWidget {
                                         ),
                                       ),
 
-                                    // CASE 2: NORMAL READING
+                                    // CASE 2: MAGLIS SESSION
+                                    MicBarMode.maglis =>
+                                      _NonOverflowingActionRow(
+                                        key: const ValueKey('mode_maglis'),
+                                        minWidth: minMaglisActionWidth,
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              flex: 10,
+                                              child: _buildActionButton(
+                                                child: Icon(
+                                                  isBlur
+                                                      ? Icons
+                                                          .visibility_off_rounded
+                                                      : Icons
+                                                          .visibility_rounded,
+                                                  size: 18.0,
+                                                  color: _btnFg(
+                                                    isDark,
+                                                    isActive: isBlur,
+                                                  ),
+                                                ),
+                                                tooltip: isAr
+                                                    ? 'إخفاء الآيات'
+                                                    : 'Hide Verses',
+                                                isActive: isBlur,
+                                                isDark: isDark,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                onTap: onToggleBlur,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 10,
+                                              child: _buildActionButton(
+                                                child: Icon(
+                                                  isTajweed
+                                                      ? Icons
+                                                          .record_voice_over_rounded
+                                                      : Icons
+                                                          .record_voice_over_outlined,
+                                                  size: 18.0,
+                                                  color: _btnFg(
+                                                    isDark,
+                                                    isActive: isTajweed,
+                                                  ),
+                                                ),
+                                                tooltip: isAr
+                                                    ? 'أحكام التجويد'
+                                                    : 'Tajweed Rules',
+                                                isActive: isTajweed,
+                                                isDark: isDark,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                onTap: onToggleTajweed,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 10,
+                                              child: _buildActionButton(
+                                                child: _EmptyMushafIcon(
+                                                  size: 18.0,
+                                                  color: _btnFg(isDark),
+                                                ),
+                                                tooltip: isAr
+                                                    ? 'اختيار السورة'
+                                                    : 'Select Surah',
+                                                isActive: false,
+                                                isDark: isDark,
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                onTap: onSurahTap,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 25,
+                                              child: _buildMaglisSessionBox(
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                isDark: isDark,
+                                                isAr: isAr,
+                                                isNarrow: isNarrow,
+                                              ),
+                                            ),
+                                            SizedBox(width: maglisGap),
+                                            Expanded(
+                                              flex: 11,
+                                              child: _buildLeaveButton(
+                                                height: btnHeight,
+                                                dockHeight: dockHeight,
+                                                isAr: isAr,
+                                                onTap: onMaglisExitTap ?? () {},
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                    // CASE 3: NORMAL READING
                                     MicBarMode.normal =>
                                       _NonOverflowingActionRow(
                                         key: const ValueKey('mode_normal'),
                                         minWidth: minNormalActionWidth,
                                         child: Row(
                                           children: [
+                                            _buildMaglisEntryButton(
+                                              isDark: isDark,
+                                              isAr: isAr,
+                                              width: stdBtnWidth,
+                                              height: btnHeight,
+                                              dockHeight: dockHeight,
+                                              showNewBadge:
+                                                  app.showMaglisNewBadge,
+                                              onTap: onMaglisTap ?? () {},
+                                            ),
+                                            SizedBox(width: gap),
                                             Expanded(
                                               child: _buildSurahPill(
                                                 isDark: isDark,
@@ -453,6 +592,202 @@ class BottomActionBar extends StatelessWidget {
     );
   }
 
+  Widget _buildMaglisSessionBox({
+    required double height,
+    required double dockHeight,
+    required bool isDark,
+    required bool isAr,
+    required bool isNarrow,
+  }) {
+    final String rawCode = maglisRoomCode ?? '';
+    final String displayCode = formatMaglisCode(rawCode, isArabic: isAr);
+    final int count = maglisPeerCount > 0 ? maglisPeerCount : 1;
+    final String countDisplay =
+        formatMaglisCode(count.toString(), isArabic: isAr);
+    final Color fgColor = _btnFg(isDark);
+
+    return Tooltip(
+      message:
+          isAr ? 'رمز المجلس (اضغط لنسخ الرمز)' : 'Maglis Code (tap to copy)',
+      waitDuration: const Duration(milliseconds: 350),
+      child: _TapScale(
+        onTap: () {
+          if (rawCode.isNotEmpty) {
+            Clipboard.setData(ClipboardData(text: rawCode));
+            AppState.instance.showBanner(
+              AppBannerInfo(
+                id: 'maglis_code_copied',
+                messageAr:
+                    'تم نسخ رمز المجلس: \u202A${formatMaglisCode(rawCode, isArabic: true)}\u202C',
+                messageEn: 'Maglis code copied: $rawCode',
+                icon: Icons.copy_rounded,
+                customDuration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        },
+        child: SizedBox(
+          height: dockHeight,
+          child: Center(
+            child: Container(
+              height: height,
+              padding: EdgeInsets.symmetric(horizontal: isNarrow ? 5.0 : 8.0),
+              decoration: BoxDecoration(
+                color: _btnBg(isDark, isActive: isRemoteReciting),
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(
+                  color: _btnBorder(isDark, isActive: isRemoteReciting),
+                  width: 1.0,
+                ),
+              ),
+              alignment: Alignment.center,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        displayCode.isEmpty ? '----' : displayCode,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontFamily: 'cairo',
+                          color: fgColor,
+                          fontWeight: FontWeight.w800,
+                          fontSize: isNarrow ? 13.5 : 14.5,
+                          letterSpacing: 1.1,
+                          height: 1.05,
+                        ),
+                      ),
+                      Container(
+                        width: 1.0,
+                        height: 14.0,
+                        margin: const EdgeInsets.symmetric(horizontal: 6.0),
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.14)
+                            : Colors.black.withValues(alpha: 0.12),
+                      ),
+                      _OneMemberIcon(
+                        size: isNarrow ? 13.5 : 14.5,
+                        color: fgColor,
+                      ),
+                      const SizedBox(width: 3.0),
+                      Text(
+                        countDisplay,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontFamily: 'cairo',
+                          color: fgColor,
+                          fontWeight: FontWeight.w800,
+                          fontSize: isNarrow ? 12.5 : 13.5,
+                          height: 1.05,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeaveButton({
+    required double height,
+    required double dockHeight,
+    required bool isAr,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: isAr ? 'مغادرة المجلس' : 'Leave Maglis',
+      waitDuration: const Duration(milliseconds: 350),
+      child: _TapScale(
+        onTap: onTap,
+        child: SizedBox(
+          height: dockHeight,
+          child: Center(
+            child: Container(
+              width: double.infinity,
+              height: height,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF43F5E),
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.call_end_rounded,
+                size: 18.0,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMaglisEntryButton({
+    required bool isDark,
+    required bool isAr,
+    required double width,
+    required double height,
+    required double dockHeight,
+    required bool showNewBadge,
+    required VoidCallback onTap,
+  }) {
+    final btn = _buildActionButton(
+      child: _FivePersonsIcon(
+        size: 20.5,
+        isDark: isDark,
+      ),
+      tooltip: isAr ? 'مجلس القرآن' : 'Quran Maglis',
+      isActive: false,
+      isDark: isDark,
+      width: width,
+      height: height,
+      dockHeight: dockHeight,
+      onTap: onTap,
+    );
+
+    if (!showNewBadge) return btn;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        btn,
+        Positioned(
+          top: 3.0,
+          right: isAr ? -2.0 : null,
+          left: isAr ? null : -2.0,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 4.5,
+                vertical: 1.5,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981),
+                borderRadius: BorderRadius.circular(5.0),
+              ),
+              child: Text(
+                isAr ? 'جديد' : 'NEW',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 7.5,
+                  fontWeight: FontWeight.w800,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildSurahPill({
     required bool isDark,
     required bool isAr,
@@ -546,6 +881,200 @@ class _NonOverflowingActionRow extends StatelessWidget {
       },
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Eye-Comfort 5-Members Community Maglis Icon (All 5 Have Heads + Shoulders)
+// ─────────────────────────────────────────────────────────────────────────────
+class _FivePersonsIcon extends StatelessWidget {
+  final double size;
+  final bool isDark;
+
+  const _FivePersonsIcon({required this.size, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _FivePersonsPainter(isDark)),
+    );
+  }
+}
+
+class _FivePersonsPainter extends CustomPainter {
+  final bool isDark;
+  _FivePersonsPainter(this.isDark);
+
+  static final Paint _fillPaint = Paint()
+    ..style = PaintingStyle.fill
+    ..isAntiAlias = true;
+
+  static final Paint _strokePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..isAntiAlias = true;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double w = size.width;
+    final double h = size.height;
+
+    // Eye-comfort layered slate tones (foreground, mid-flank, back-row)
+    final Color centerColor =
+        isDark ? const Color(0xFFE2E8F0) : const Color(0xFF334155);
+    final Color midColor =
+        isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    final Color backColor =
+        isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8);
+
+    // 1. Back-Left Member (Full head + curved shoulder arc)
+    _fillPaint.color = backColor;
+    canvas.drawCircle(Offset(w * 0.33, h * 0.17), w * 0.072, _fillPaint);
+
+    _strokePaint.color = backColor;
+    _strokePaint.strokeWidth = w * 0.072;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.33, h * 0.43),
+        width: w * 0.24,
+        height: h * 0.25,
+      ),
+      math.pi * 1.12,
+      math.pi * 0.76,
+      false,
+      _strokePaint,
+    );
+
+    // 2. Back-Right Member (Full head + curved shoulder arc)
+    _fillPaint.color = backColor;
+    canvas.drawCircle(Offset(w * 0.67, h * 0.17), w * 0.072, _fillPaint);
+
+    _strokePaint.color = backColor;
+    _strokePaint.strokeWidth = w * 0.072;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.67, h * 0.43),
+        width: w * 0.24,
+        height: h * 0.25,
+      ),
+      math.pi * 1.12,
+      math.pi * 0.76,
+      false,
+      _strokePaint,
+    );
+
+    // 3. Front-Left Flanking Member (Full head + outer shoulder arc)
+    _fillPaint.color = midColor;
+    canvas.drawCircle(Offset(w * 0.16, h * 0.50), w * 0.082, _fillPaint);
+
+    _strokePaint.color = midColor;
+    _strokePaint.strokeWidth = w * 0.080;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.17, h * 0.82),
+        width: w * 0.27,
+        height: h * 0.30,
+      ),
+      math.pi * 1.06,
+      math.pi * 0.64,
+      false,
+      _strokePaint,
+    );
+
+    // 4. Front-Right Flanking Member (Full head + outer shoulder arc)
+    _fillPaint.color = midColor;
+    canvas.drawCircle(Offset(w * 0.84, h * 0.50), w * 0.082, _fillPaint);
+
+    _strokePaint.color = midColor;
+    _strokePaint.strokeWidth = w * 0.080;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.83, h * 0.82),
+        width: w * 0.27,
+        height: h * 0.30,
+      ),
+      math.pi * 1.30,
+      math.pi * 0.64,
+      false,
+      _strokePaint,
+    );
+
+    // 5. Center Foreground Member (Full head + full shoulder arc)
+    _fillPaint.color = centerColor;
+    canvas.drawCircle(Offset(w * 0.50, h * 0.47), w * 0.098, _fillPaint);
+
+    _strokePaint.color = centerColor;
+    _strokePaint.strokeWidth = w * 0.090;
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.50, h * 0.86),
+        width: w * 0.38,
+        height: h * 0.35,
+      ),
+      math.pi * 1.10,
+      math.pi * 0.80,
+      false,
+      _strokePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FivePersonsPainter old) => old.isDark != isDark;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compact 1-Member Vector Icon (Used in Maglis Label Box to save number space)
+// ─────────────────────────────────────────────────────────────────────────────
+class _OneMemberIcon extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const _OneMemberIcon({required this.size, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(painter: _OneMemberPainter(color)),
+    );
+  }
+}
+
+class _OneMemberPainter extends CustomPainter {
+  final Color color;
+  _OneMemberPainter(this.color);
+
+  static final Paint _paint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..isAntiAlias = true;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double w = size.width;
+    final double h = size.height;
+    _paint
+      ..color = color
+      ..strokeWidth = w * 0.11;
+
+    canvas.drawCircle(Offset(w * 0.50, h * 0.30), w * 0.17, _paint);
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: Offset(w * 0.50, h * 0.78),
+        width: w * 0.62,
+        height: h * 0.48,
+      ),
+      math.pi * 1.10,
+      math.pi * 0.80,
+      false,
+      _paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _OneMemberPainter old) => old.color != color;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

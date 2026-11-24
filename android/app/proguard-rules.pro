@@ -14,3 +14,9 @@
 
 # CRITICAL: Keep Sherpa-ONNX C++ JNI bindings safe from being deleted by R8
 -keep class com.k2fsa.sherpa.** { *; }
+
+# Flutter WebRTC
+-keep class com.cloudwebrtc.webrtc.** { *; }
+-keep class org.webrtc.** { *; }
+-keep class org.jni_zero.** { *; }
+-dontwarn org.jni_zero.JniZeroJni

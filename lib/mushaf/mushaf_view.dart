@@ -9,6 +9,7 @@ import 'package:qvp_flutter/qvp_flutter.dart';
 import '../core/app_state.dart';
 import '../core/highlighting_controller.dart';
 import '../core/platform_utils.dart';
+import '../maglis/maglis_controller.dart';
 import 'mushaf_overlays.dart';
 import 'mushaf_provider.dart';
 
@@ -182,8 +183,22 @@ class _MushafViewState extends State<MushafView> {
     app.themeNotifier.addListener(_onVisualSettingsChanged);
     app.blurModeNotifier.addListener(_onVisualSettingsChanged);
     app.modeNotifier.addListener(_onVisualSettingsChanged);
+    MaglisController.instance.sessionListenable
+        .addListener(_onMaglisSessionChanged);
     AppModalRouteObserver.instance.activeModalsNotifier
         .addListener(_onModalStateChanged);
+
+    MaglisController.instance.onSyncMushafUI = (page, surah, ayah) {
+      if (!mounted) return;
+      _navigationTargetAyah = (surah, ayah);
+      if (QuranMetadata.isValidPage(page)) {
+        if (page != _currentPage) {
+          _goToPage(page);
+        } else {
+          _syncPageSelection(page);
+        }
+      }
+    };
 
     if (provider.isReady) {
       _isLoading = false;
@@ -314,8 +329,20 @@ class _MushafViewState extends State<MushafView> {
     app.themeNotifier.removeListener(_onVisualSettingsChanged);
     app.blurModeNotifier.removeListener(_onVisualSettingsChanged);
     app.modeNotifier.removeListener(_onVisualSettingsChanged);
+    MaglisController.instance.sessionListenable
+        .removeListener(_onMaglisSessionChanged);
+    if (MaglisController.instance.onSyncMushafUI != null) {
+      MaglisController.instance.onSyncMushafUI = null;
+    }
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onMaglisSessionChanged() {
+    if (mounted) {
+      _syncVisuals();
+      _notifyUnderlayIfRelevant();
+    }
   }
 
   Future<void> _advanceToNextSurah(int currentSurah) async {
@@ -820,7 +847,13 @@ class _MushafViewState extends State<MushafView> {
 
   void _onDecorationTap(QvpDecorationInfo dec) {
     if (dec.surah > 0 && dec.ayah > 0) {
-      widget.controller.setManualAyah(dec.surah, dec.ayah);
+      AppState.instance.markMushafAudioAyahClicked();
+      QuranInteractionService.toggleAyahAudio(
+        surah: dec.surah,
+        ayah: dec.ayah,
+        controller: widget.controller,
+        isRecording: widget.isRecording,
+      );
       _notifyUnderlayIfRelevant(surah: dec.surah, ayah: dec.ayah);
     }
   }
@@ -1214,6 +1247,13 @@ class _MushafUnderlayPainter extends CustomPainter {
     canvas.translate(offsetX, offsetY);
     canvas.scale(scale);
     try {
+      MushafOverlays.paintSurahHeaders(
+        canvas,
+        page,
+        page.currentLayout,
+        isDark: AppState.instance.isDarkMode,
+        colors: AppState.instance.colors,
+      );
       MushafOverlays.paintAyahHighlights(
         canvas,
         page,
@@ -1276,6 +1316,16 @@ class _MushafOverlayPainter extends CustomPainter {
         controller: controller,
         app: app,
         isRecording: isRecording,
+      );
+
+      MushafOverlays.paintAyahMarks(
+        canvas,
+        page,
+        page.currentLayout,
+        app: app,
+        surfaceColor: app.colors.surfaceHigh,
+        goldColor: c.gold,
+        controller: controller,
       );
 
       if (!app.hasClickedTajweedWord &&

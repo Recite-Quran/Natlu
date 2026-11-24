@@ -10,7 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   quran_tarteel:
-    path: ../quran_tarteel
+    git:
+      url: https://github.com/Iam-Muslim/Quran-tarteel.git
   offline_engine:
     path: offline_engine
   qvp_flutter:
@@ -29,8 +30,19 @@ dependencies:
   shared_preferences: ^2.2.0
   super_sliver_list: ^0.4.1
   archive: ^4.0.0
-
-# Dependency overrides removed (Sherpa-ONNX replaced by TajweedFormer V4).
+  audio_session: ^0.2.4
+  audio_service: ^0.18.19
+  just_audio: ^0.10.6
+  just_audio_media_kit: ^2.1.0
+  media_kit_libs_windows_video: ^1.0.11
+  flutter_webrtc: ^1.6.3
+  web_socket_channel: ^3.0.1
+  crypto: ^3.0.5
+  cryptography: ^2.7.0
+  bip340: ^0.3.1
+  connectivity_plus: ^7.3.2
+  app_links: ^7.2.2
+  share_plus: ^13.3.1
 
 dev_dependencies:
   flutter_test:
@@ -47,6 +59,7 @@ flutter:
     - assets/model/c16_l64/
     - assets/icon/app_icon.png
     - assets/pages.tar.xz
+    - assets/audio_timings/husary/
 
 
   fonts:

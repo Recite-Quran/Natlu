@@ -19,6 +19,7 @@
 library;
 
 import 'dart:async';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -30,12 +31,19 @@ import 'core/app_state.dart';
 import 'core/highlighting_controller.dart';
 import 'ui/tracking_screen.dart';
 import 'mushaf/mushaf_view.dart';
+import 'maglis/maglis_controller.dart';
+import 'maglis/maglis_core.dart';
+import 'core/maglis_link_service.dart';
 import 'core/app_audio_processor.dart';
 import 'core/platform_utils.dart';
 import 'mushaf/web/mushaf_web_storage.dart'
     if (dart.library.js_interop) 'mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'audio/quran_audio_handler.dart';
+import 'audio/quran_audio_service.dart';
+import 'audio/quran_download_service.dart';
 import 'ui/widgets/dialogs/dialog_service.dart';
 import 'package:offline_engine/offline_engine.dart';
 
@@ -43,6 +51,42 @@ void main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      // Initialize Windows audio backend as in reference app (alquranalkareem / quran_library)
+      if (PlatformCapabilities.usesMediaKitAudio) {
+        try {
+          JustAudioMediaKit.bufferSize = 2 * 1024 * 1024;
+          JustAudioMediaKit.ensureInitialized(windows: true);
+        } catch (_) {}
+      }
+
+      // Initialize audio session for standard media/recitation playback (STREAM_MUSIC)
+      if (PlatformCapabilities.isMobile) {
+        try {
+          final session = await AudioSession.instance;
+          await session.configure(
+            const AudioSessionConfiguration(
+              avAudioSessionCategory: AVAudioSessionCategory.playback,
+              avAudioSessionCategoryOptions:
+                  AVAudioSessionCategoryOptions.duckOthers,
+              avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+              androidAudioAttributes: AndroidAudioAttributes(
+                contentType: AndroidAudioContentType.music,
+                usage: AndroidAudioUsage.media,
+              ),
+              androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+            ),
+          );
+        } catch (e) {
+          DebugLogger.logSimple(
+            'AudioSession',
+            'Failed to configure AudioSession: $e',
+          );
+        }
+        unawaited(QuranAudioHandler.ensureInitialized());
+      }
+
+      unawaited(QuranDownloadService.instance.init());
 
       if (kReleaseMode) {
         debugPrint = (String? message, {int? wrapWidth}) {
@@ -226,8 +270,12 @@ class _OrchestratorState extends State<_Orchestrator>
   String get _voiceSearchAsrText => _voiceSearchAsrNotifier.value;
   StreamSubscription? _transcriptionSub;
   bool _isBackgrounded = false;
+  bool _maglisPausedAutoMuted = false;
+  Timer? _maglisIdleTimer;
   Timer? _enginePrewarmTimer;
   int _prewarmEpoch = 0;
+  DateTime? _maglisSoloSince;
+  bool _hasAttachedMaglisBroadcast = false;
 
   void _cancelEnginePrewarm() {
     _prewarmEpoch++;
@@ -235,14 +283,124 @@ class _OrchestratorState extends State<_Orchestrator>
     _enginePrewarmTimer = null;
   }
 
+  void _syncMaglisBroadcastListeners() {
+    final inSession = MaglisController.instance.inSession;
+    if (inSession && !_hasAttachedMaglisBroadcast && _ctrl != null) {
+      _hasAttachedMaglisBroadcast = true;
+      _ctrl!.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.globalRevision.addListener(_throttledBroadcastMaglisProgress);
+      _ctrl!.activeAyah.addListener(_throttledBroadcastMaglisProgress);
+    } else if (!inSession && _hasAttachedMaglisBroadcast) {
+      _hasAttachedMaglisBroadcast = false;
+      _maglisBroadcastThrottle?.cancel();
+      _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
+    }
+  }
+
   // Endpointing: VAD endpoint with silence threshold
 
   @override
   void initState() {
     super.initState();
+    MaglisLinkService.instance.init();
     initModelDownloadTracker();
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
+    QuranAudioService.instance.onAudioProgress = ({
+      int? surah,
+      int? ayah,
+      int? wordIndex,
+      required bool isPlaying,
+      required bool isBuffering,
+      bool? isPaused,
+    }) {
+      _ctrl?.applyAudioProgress(
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+        isPlaying: isPlaying,
+        isBuffering: isBuffering,
+        isPaused: isPaused,
+      );
+      AppState.instance.updateAudioState(
+        surah: surah,
+        ayah: ayah,
+        wordIndex: wordIndex,
+        isPlaying: isPlaying,
+        isBuffering: isBuffering,
+      );
+    };
+    QuranAudioService.instance.onPlayingChanged = _onVerseAudioPlayingChanged;
+    MaglisController.instance.sessionListenable
+        .addListener(_onMaglisSessionChangedForIdleTimer);
+    MaglisController.instance.sessionListenable
+        .addListener(_syncMaglisBroadcastListeners);
+
+    MaglisController.instance.onGetSnapshotCumulativeMap = () {
+      return _ctrl?.highlightStore.buildSnapshotMap() ?? {};
+    };
+
+    MaglisController.instance.onRemoteRecitationProgress = ({
+      required int surah,
+      required int ayah,
+      int? activeWord,
+      List<int> greenWords = const [],
+      List<int> yellowWords = const [],
+      List<int> redWords = const [],
+      Map<int, List<ReciterError>>? errors,
+      Map<String, int>? cumulative,
+      bool isReciting = true,
+    }) {
+      if (mounted && _ctrl != null) {
+        _ctrl!.applyRemoteRecitation(
+          surah: surah,
+          ayah: ayah,
+          activeWord: activeWord,
+          greenWords: greenWords,
+          yellowWords: yellowWords,
+          redWords: redWords,
+          errors: errors,
+          cumulative: cumulative,
+          isReciting: isReciting,
+        );
+      }
+    };
+
+    MaglisController.instance.onRemoteFloorClaimed = (surah, ayah) {
+      if (mounted && _ctrl != null) {
+        _ctrl!.setManualAyah(surah, ayah);
+        _ctrl!.clearHighlightsForwardFrom(surah, ayah);
+        _ctrl!.globalRevision.value++;
+        _stopRecordingForRemoteClaim();
+      }
+    };
+
+    MaglisController.instance.onBeforeSessionDisposed = () async {
+      if (!mounted) return;
+      if (_isVoiceSearching) {
+        await _stopVoiceSearch();
+      }
+      if (_isRecording) {
+        _isRecording = false;
+        _isToggling = false;
+        _maglisBroadcastThrottle?.cancel();
+        await _audio.stop();
+        _engine.flushThenReset();
+        _ctrl?.finalize(resetEngine: false);
+        if (mounted) {
+          setState(() {});
+        }
+      }
+    };
+    MaglisController.instance.onSessionEnded = () {
+      _maglisPausedAutoMuted = false;
+      AppState.instance.exitMaglisSession();
+      if (mounted && _isRecording) {
+        _stopRecordingForRemoteClaim();
+      }
+    };
 
     // Global subscription for Voice Search text and Endpoint auto-stopping
     _transcriptionSub = _engine.transcriptionStream.listen((res) {
@@ -317,17 +475,54 @@ class _OrchestratorState extends State<_Orchestrator>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
+      QuranAudioService.instance.stop();
       _cancelEnginePrewarm();
+      _maglisIdleTimer?.cancel();
+      _maglisIdleTimer = null;
+      _maglisSoloSince = null;
+      _maglisPausedAutoMuted = false;
+      if (MaglisController.instance.inSession) {
+        unawaited(MaglisController.instance.leaveSession());
+      }
       return;
     }
 
     if (state == AppLifecycleState.resumed) {
       _isBackgrounded = false;
+      _maglisIdleTimer?.cancel();
+      _maglisIdleTimer = null;
+      bool leftSoloTimeout = false;
+      if (_maglisSoloSince != null) {
+        final elapsed = DateTime.now().difference(_maglisSoloSince!);
+        if (elapsed >= const Duration(minutes: 10) &&
+            MaglisController.instance.inSession &&
+            MaglisController.instance.participantCount <= 1) {
+          leftSoloTimeout = true;
+          _maglisPausedAutoMuted = false;
+          unawaited(MaglisController.instance.leaveSession());
+        }
+        _maglisSoloSince = null;
+      }
       if (!_engine.isInitialized) {
         _scheduleEnginePrewarm();
       }
+      if (!leftSoloTimeout && MaglisController.instance.inSession) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          // Restore communication audio, pre-background mic state, and peer links
+          // without killing the Maglis session while foreground service is disabled.
+          final shouldUnmute = _maglisPausedAutoMuted;
+          _maglisPausedAutoMuted = false;
+          unawaited(_restoreMaglisOnResume(unmuteMic: shouldUnmute));
+        } else {
+          MaglisPlatform.setSpeaker(true);
+        }
+      } else {
+        _maglisPausedAutoMuted = false;
+      }
     }
 
+    // On Desktop (Windows, macOS, Linux) and Web, alt-tab, tab switching, and loss of focus
+    // must NEVER leave the Maglis session so users can multitask while talking/listening!
     final bool isDesktopOrWeb =
         PlatformCapabilities.isWeb || PlatformCapabilities.isDesktop;
 
@@ -335,16 +530,86 @@ class _OrchestratorState extends State<_Orchestrator>
       _cancelEnginePrewarm();
       if (!isDesktopOrWeb) {
         _isBackgrounded = true;
+        if (MaglisController.instance.inSession) {
+          if (defaultTargetPlatform == TargetPlatform.android &&
+              !MaglisController.instance.isMicMuted) {
+            // Mute local mic in background without killing the Maglis session
+            // while FOREGROUND_SERVICE_MICROPHONE is temporarily disabled.
+            _maglisPausedAutoMuted = true;
+            unawaited(MaglisController.instance.setMicMuted(true));
+          }
+          _onMaglisSessionChangedForIdleTimer();
+        }
       }
+    }
+  }
+
+  Future<void> _restoreMaglisOnResume({required bool unmuteMic}) async {
+    if (!MaglisController.instance.inSession) return;
+    try {
+      await MaglisPlatform.initAudio();
+      if (unmuteMic && MaglisController.instance.inSession) {
+        await MaglisController.instance.setMicMuted(false);
+      }
+      if (MaglisController.instance.inSession) {
+        await MaglisController.instance.retryConnections();
+      }
+    } catch (_) {}
+  }
+
+  void _onMaglisSessionChangedForIdleTimer() {
+    if (!_isBackgrounded) return;
+    if (MaglisController.instance.participantCount > 1) {
+      // Someone joined while we are in background: cancel idle countdown!
+      _maglisIdleTimer?.cancel();
+      _maglisIdleTimer = null;
+      _maglisSoloSince = null;
+    } else if (MaglisController.instance.inSession &&
+        _maglisIdleTimer == null) {
+      // Alone in room while backgrounded: start fresh 10-minute countdown
+      _maglisSoloSince = DateTime.now();
+      _maglisIdleTimer = Timer(const Duration(minutes: 10), () {
+        if (_isBackgrounded &&
+            MaglisController.instance.inSession &&
+            MaglisController.instance.participantCount <= 1) {
+          unawaited(MaglisController.instance.leaveSession());
+        }
+      });
     }
   }
 
   @override
   void dispose() {
+    MaglisLinkService.instance.dispose();
+    MaglisController.instance.sessionListenable
+        .removeListener(_onMaglisSessionChangedForIdleTimer);
+    MaglisController.instance.sessionListenable
+        .removeListener(_syncMaglisBroadcastListeners);
+    _maglisIdleTimer?.cancel();
+    _maglisIdleTimer = null;
+    _maglisSoloSince = null;
     _cancelEnginePrewarm();
+    if (MaglisController.instance.inSession) {
+      unawaited(MaglisController.instance.leaveSession());
+    }
+    MaglisController.instance.onRemoteFloorClaimed = null;
+    MaglisController.instance.onRemoteRecitationProgress = null;
+    MaglisController.instance.onGetSnapshotCumulativeMap = null;
+    MaglisController.instance.onBeforeSessionDisposed = null;
+    MaglisController.instance.onSessionEnded = null;
+    if (_hasAttachedMaglisBroadcast) {
+      _hasAttachedMaglisBroadcast = false;
+      _maglisBroadcastThrottle?.cancel();
+      _ctrl?.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.globalRevision.removeListener(_throttledBroadcastMaglisProgress);
+      _ctrl?.activeAyah.removeListener(_throttledBroadcastMaglisProgress);
+    }
     if (!PlatformCapabilities.isWeb) {
       WidgetsBinding.instance.removeObserver(this);
     }
+    QuranAudioService.instance.onAudioProgress = null;
+    QuranAudioService.instance.onPlayingChanged = null;
+    QuranAudioService.instance.stop();
     _transcriptionSub?.cancel();
     _audio.dispose();
     _ctrl?.dispose();
@@ -392,10 +657,12 @@ class _OrchestratorState extends State<_Orchestrator>
           // silently discarding the final word's right-context tail every ayah.
         },
       );
+      _syncMaglisBroadcastListeners();
       await _ctrl!.setTargetSurah(initialSurah);
       _ctrl!.setManualAyah(initialSurah, initialAyah);
 
       if (mounted) setState(() => _isInit = false);
+      MaglisLinkService.instance.isAppReady = true;
 
       // Platform-aware ASR pre-warming:
       if (PlatformCapabilities.isWeb) {
@@ -413,6 +680,10 @@ class _OrchestratorState extends State<_Orchestrator>
 
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
+        if (MaglisLinkService.instance.hasPendingRoomCode) {
+          MaglisLinkService.instance.consumePendingIfAny(context);
+          return;
+        }
 
         if (PlatformCapabilities.isWeb)
           return; // Zero intro / popup interruptions on Web
@@ -545,13 +816,35 @@ class _OrchestratorState extends State<_Orchestrator>
     try {
       await _audio.start(
         onChunk: (chunk, isFinal) {
-          if (!_isRecording) return;
+          // Software mute: drop mic frames while verse audio is playing or recording is inactive
+          // so the AI model never hears the phone speaker or accepts input!
+          if (QuranAudioService.instance.isPlaying || !_isRecording) return;
           _ctrl?.feed(chunk, isFinal: isFinal);
         },
       );
     } catch (e) {
       DebugLogger.logSimple('AUDIO', '❌ ERROR: $e');
       if (mounted) setState(() => _isRecording = false);
+    }
+  }
+
+  void _onVerseAudioPlayingChanged(bool isAudio) {
+    if (_isRecording) {
+      if (isAudio) {
+        // While verse audio is playing on Android, release the hardware mic
+        // so playback doesn't conflict with capture or get invalidated by Android OS.
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+          _audio.stop().catchError((_) {});
+        }
+      } else {
+        // Verse audio has stopped:
+        _audio.clearBuffer();
+        _engine.resetBuffer();
+        // On Android, seamlessly re-open the mic stream so recitation works immediately!
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+          _startAudioRecordingStream();
+        }
+      }
     }
   }
 
@@ -562,9 +855,19 @@ class _OrchestratorState extends State<_Orchestrator>
 
     try {
       if (_isRecording) {
+        _maglisBroadcastThrottle?.cancel();
         await _audio.stop();
         _engine.flushThenReset();
         _ctrl?.finalize(resetEngine: false);
+        if (MaglisController.instance.inSession) {
+          _broadcastMaglisProgress();
+          unawaited(MaglisController.instance.releaseFloor(
+            page: AppState.instance.currentMushafPage.value,
+            surah: _ctrl?.targetSurah ?? AppState.instance.lastSurah,
+            ayah: _ctrl?.activeAyah.value ?? AppState.instance.lastAyah,
+          ));
+          MaglisPlatform.setSpeaker(true);
+        }
         // Screen remains awake continuously
         if (mounted) {
           setState(() {
@@ -583,6 +886,7 @@ class _OrchestratorState extends State<_Orchestrator>
           return;
         }
 
+        QuranAudioService.instance.stop();
         _engine.resetBuffer();
 
         if (_ctrl != null) {
@@ -599,7 +903,20 @@ class _OrchestratorState extends State<_Orchestrator>
               : AppState.instance.lastAyah;
 
           if (AppState.instance.isMushafMode) {
-            if (activeAyah == null ||
+            // In a Maglis session, if another peer was reciting or an active verse was established,
+            // maintain that exact verse instead of falling back to the first ayah on the page!
+            final maglis = MaglisController.instance;
+            if (maglis.inSession &&
+                maglis.remoteAyah > 0 &&
+                (maglis.isRemoteReciting || activeAyah == null) &&
+                MushafProvider.instance.isAyahOnPage(
+                  pageNumber: currentPage,
+                  surah: maglis.remoteSurah,
+                  ayah: maglis.remoteAyah,
+                )) {
+              selectedSurah = maglis.remoteSurah;
+              selectedAyah = maglis.remoteAyah;
+            } else if (activeAyah == null ||
                 !MushafProvider.instance.isAyahOnPage(
                   pageNumber: currentPage,
                   surah: selectedSurah,
@@ -648,11 +965,26 @@ class _OrchestratorState extends State<_Orchestrator>
           // The current verse and any verse coming after it clears its coloring/highlighting
           // so it can be recolored by the new record. Verses before are strictly preserved.
           _ctrl!.clearHighlightsForwardFrom(selectedSurah, selectedAyah);
+          MaglisController.instance
+              .clearHighlightsFrom(selectedSurah, selectedAyah);
+
+          _lastProcessedAyah = null;
+          _lastProcessedSurah = null;
 
           _ctrl!.globalRevision.value++;
 
+          _ctrl!.setRemoteReciting(false);
           _ctrl!.startRecordingSession();
+          if (MaglisController.instance.inSession) {
+            unawaited(MaglisController.instance.claimFloor(
+              page: mappedPage ?? currentPage,
+              surah: selectedSurah,
+              ayah: selectedAyah,
+              activeWord: 0,
+            ));
+          }
           if (mounted) setState(() => _isRecording = true);
+          _broadcastMaglisProgress();
           await _startAudioRecordingStream();
         }
       }
@@ -667,8 +999,129 @@ class _OrchestratorState extends State<_Orchestrator>
     }
   }
 
+  void _stopRecordingForRemoteClaim() {
+    if (!_isRecording) return;
+    _isRecording = false;
+    _isToggling = false;
+    _maglisBroadcastThrottle?.cancel();
+    _audio.stop();
+    _engine.flushThenReset();
+    _ctrl?.finalize(resetEngine: false);
+    // Screen remains awake continuously
+    if (mounted) {
+      setState(() {});
+    }
+    if (MaglisController.instance.inSession &&
+        !MaglisController.instance.isLeaving) {
+      MaglisPlatform.setSpeaker(true);
+    }
+    AppState.instance.showBanner(AppBannerInfo(
+      id: 'maglis_reciter_changed',
+      messageAr: 'انتقلت التلاوة للمشارك الآخر • استمع وتابع معه',
+      messageEn: 'Recitation passed to peer • Listen and follow along',
+      icon: Icons.record_voice_over_rounded,
+      customDuration: const Duration(seconds: 3),
+    ));
+  }
+
+  Timer? _maglisBroadcastThrottle;
+  int? _lastProcessedAyah;
+  int? _lastProcessedSurah;
+
+  void _throttledBroadcastMaglisProgress() {
+    if (!MaglisController.instance.isLocalReciting || !_isRecording) return;
+    final int? currentAyah = _ctrl?.activeAyah.value;
+    // When ayah transitions or finishes, broadcast immediately to flush completed words without throttle lag
+    if (currentAyah != null && currentAyah != _lastProcessedAyah) {
+      _maglisBroadcastThrottle?.cancel();
+      _broadcastMaglisProgress();
+      return;
+    }
+    if (_maglisBroadcastThrottle?.isActive ?? false) return;
+    _maglisBroadcastThrottle = Timer(const Duration(milliseconds: 35), () {
+      _broadcastMaglisProgress();
+    });
+  }
+
+  void _broadcastMaglisProgress() {
+    final maglis = MaglisController.instance;
+    if (!maglis.isLocalReciting || !_isRecording || _ctrl == null) return;
+
+    final int targetSurah = _ctrl!.targetSurah;
+    final int? activeAyah = _ctrl!.activeAyah.value;
+    if (activeAyah == null) return;
+
+    final int currentPage = AppState.instance.currentMushafPage.value;
+    final int page =
+        MushafProvider.instance.getPageForAyah(targetSurah, activeAyah) ??
+            currentPage;
+
+    // If activeAyah just advanced, ensure the previous ayah's final word is flushed preserving exact errors
+    if (_lastProcessedAyah != null &&
+        (_lastProcessedAyah != activeAyah ||
+            _lastProcessedSurah != targetSurah)) {
+      final prevAyah = _lastProcessedAyah!;
+      final prevSurah = _lastProcessedSurah!;
+      final prevVerse = _ctrl!.repository.getVerse(prevSurah, prevAyah);
+      final prevWordCount = prevVerse?.uthmaniWords.length ?? 0;
+      final prevClassification = _ctrl!.extractAyahWordClassification(
+        prevSurah,
+        prevAyah,
+        prevWordCount,
+      );
+
+      if (prevClassification.greenWords.isNotEmpty ||
+          prevClassification.yellowWords.isNotEmpty ||
+          prevClassification.redWords.isNotEmpty) {
+        final prevPage =
+            MushafProvider.instance.getPageForAyah(prevSurah, prevAyah) ?? page;
+        maglis.broadcastRecitation(
+          page: prevPage,
+          surah: prevSurah,
+          ayah: prevAyah,
+          activeWord: null,
+          greenWords: prevClassification.greenWords,
+          yellowWords: prevClassification.yellowWords,
+          redWords: prevClassification.redWords,
+          errors: prevClassification.wordErrors,
+        );
+      }
+    }
+    _lastProcessedAyah = activeAyah;
+    _lastProcessedSurah = targetSurah;
+
+    // Scan canonical verse words directly from loaded repository (never depends on GPU page cache)
+    final currentVerse = _ctrl!.repository.getVerse(targetSurah, activeAyah);
+    final wordCount = currentVerse?.uthmaniWords.length ?? 0;
+
+    final classification = _ctrl!.extractAyahWordClassification(
+      targetSurah,
+      activeAyah,
+      wordCount,
+    );
+
+    final activeWord = _ctrl!.getLeadWordIndex(
+      surah: targetSurah,
+      ayah: activeAyah,
+      totalWords: wordCount,
+      isRecording: true,
+    );
+
+    maglis.broadcastRecitation(
+      page: page,
+      surah: targetSurah,
+      ayah: activeAyah,
+      activeWord: activeWord,
+      greenWords: classification.greenWords,
+      yellowWords: classification.yellowWords,
+      redWords: classification.redWords,
+      errors: classification.wordErrors,
+    );
+  }
+
   /// Toggles global voice search across the Quran
   Future<void> _toggleVoiceSearch() async {
+    QuranAudioService.instance.stop();
     if (_isToggling) return;
 
     if (_isVoiceSearching) {
@@ -682,6 +1135,7 @@ class _OrchestratorState extends State<_Orchestrator>
   }
 
   Future<void> _startVoiceSearch() async {
+    QuranAudioService.instance.stop();
     if (_isVoiceSearching || _isToggling) return;
     _isToggling = true;
 

@@ -46,7 +46,6 @@ class MushafProvider {
     padSide: 4,
     lineSpacing: 1.0,
     fillHeight: true,
-    maxAspectSlack: 0.0,
     surahFrames: true,
   );
 
@@ -397,7 +396,6 @@ class MushafProvider {
             final oldestPage = _pageCache.remove(evictKey);
             oldestPage?.dispose();
             _pageLayoutSizes.remove(evictKey);
-            QvpPageView.evictPage(evictKey);
           } else {
             break;
           }

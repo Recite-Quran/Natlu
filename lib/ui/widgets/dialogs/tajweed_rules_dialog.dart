@@ -10,7 +10,7 @@ import 'dialog_base.dart';
 /// Ultra-lightweight modal dialog for toggling Tajweed verification rules.
 ///
 /// Fingerprint:
-/// - Built on [AppDialog] and [DialogTokens] for consistent modal styling.
+/// - Built on [AppDialog] and [DialogTokens] for 100% theme consistency with [AudioDownloadDialog].
 /// - Single unified rule column with instant reactive state persistence.
 class TajweedRulesDialog extends StatefulWidget {
   final HighlightingController? controller;

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:qvp_flutter/qvp_flutter.dart';
 import 'package:quran_tarteel/quran_tarteel.dart';
 import '../../../mushaf/mushaf_provider.dart';
+import '../../../audio/quran_audio_service.dart';
 import '../../../core/app_state.dart';
 import 'dialog_base.dart';
 
@@ -55,7 +56,9 @@ class ErrorDetailDialog extends StatelessWidget {
         ayah: ayah,
         wordIndex: wordIndex,
       ),
-    );
+    ).then((_) {
+      QuranAudioService.instance.stop();
+    });
   }
 
   @override
@@ -66,9 +69,19 @@ class ErrorDetailDialog extends StatelessWidget {
         textDirection: TextDirection.rtl,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18),
-          child: Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: _buildWordDisplay(c),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: _buildWordDisplay(c),
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (surah != null && ayah != null && wordIndex != null)
+                _buildWordAudioPlayerButton(c, isAr, isDark),
+            ],
           ),
         ),
       ),
@@ -119,6 +132,96 @@ class ErrorDetailDialog extends StatelessWidget {
         height: 1.25,
         fontWeight: FontWeight.bold,
       ),
+    );
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Word Audio Player Button (Theme Emerald Styling)
+  // ──────────────────────────────────────────────────────────────────────────
+  Widget _buildWordAudioPlayerButton(ThemeColors c, bool isAr, bool isDark) {
+    final app = AppState.instance;
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        app.isAudioPlaying,
+        app.activeAudioSurah,
+        app.activeAudioAyah,
+        app.activeAudioWordIndex,
+      ]),
+      builder: (context, _) {
+        final bool isPlaying = app.isAudioPlaying.value &&
+            app.activeAudioSurah.value == surah &&
+            app.activeAudioAyah.value == ayah &&
+            app.activeAudioWordIndex.value == wordIndex;
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              if (isPlaying) {
+                QuranAudioService.instance.pause();
+              } else {
+                QuranAudioService.instance.playWord(
+                  surah: surah!,
+                  ayah: ayah!,
+                  wordIndex: wordIndex!,
+                );
+              }
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+              decoration: BoxDecoration(
+                color: isPlaying
+                    ? c.primary
+                    : c.primary.withValues(alpha: isDark ? 0.16 : 0.10),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isPlaying
+                      ? c.primary
+                      : c.primary.withValues(alpha: isDark ? 0.40 : 0.35),
+                  width: 1.2,
+                ),
+                boxShadow: isPlaying
+                    ? [
+                        BoxShadow(
+                          color: c.primary.withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 3),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.volume_up_rounded,
+                    size: 18,
+                    color: isPlaying
+                        ? Colors.white
+                        : (isDark ? Colors.white : c.primary),
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    isPlaying
+                        ? (isAr ? 'إيقاف' : 'Pause')
+                        : (isAr ? 'استمع للقارئ' : 'Listen'),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isPlaying
+                          ? Colors.white
+                          : (isDark ? Colors.white : c.primary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

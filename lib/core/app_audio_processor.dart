@@ -1,14 +1,34 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:record/record.dart';
 import 'package:quran_tarteel/quran_tarteel.dart' as rq;
+import '../maglis/maglis_controller.dart';
+import '../maglis/maglis_core.dart';
 
 /// AppAudioProcessor
 ///
 /// Delivers 16kHz Float32 PCM chunks to the TajweedFormer V4 ASR engine.
-/// Directly delegates to [rq.AudioProcessor] from the quran_tarteel package
-/// with zero modifications, raw unadulterated audio, and standard recording profiles.
+/// - In Solo Recording Mode: Directly delegates to [rq.AudioProcessor] from the
+///   quran_tajweedformer package with zero modifications, raw unadulterated audio, and no telephony profiles.
+/// - In Maglis Mode: Harmonizes with active WebRTC room using [AndroidAudioSource.mic] and [AudioManagerMode.modeInCommunication]
+///   without hardware AEC ([echoCancel: false]) to prevent buffer starvation while avoiding ducking.
 class AppAudioProcessor {
+  static const int recordSampleRate = 16000;
+  static const int numChannels = 1;
+  static const int bytesPerSample = 2; // 16-bit PCM
+  static const int chunkMs =
+      320; // 320ms matches TajweedFormer c16_l64 context native chunk size (5120 samples @ 16kHz)
+  static const int recordChunkBytes =
+      (recordSampleRate * numChannels * bytesPerSample * chunkMs) ~/ 1000;
+
   final rq.AudioProcessor _soloAudio = rq.AudioProcessor();
+
+  // Maglis-specific recorder state
+  AudioRecorder? _maglisRecorder;
+  StreamSubscription<Uint8List>? _maglisSubscription;
+  int? _maglisCarryByte;
+  bool _isMaglisRecording = false;
+  Future<void>? _activeOp;
 
   Future<bool> hasPermission() async {
     return _soloAudio.hasPermission();
@@ -17,17 +37,154 @@ class AppAudioProcessor {
   Future<void> start({
     required void Function(Float32List chunk, bool isFinal) onChunk,
   }) async {
-    await _soloAudio.start(onChunk: onChunk);
+    while (_activeOp != null) {
+      await _activeOp;
+    }
+    final completer = Completer<void>();
+    _activeOp = completer.future;
+
+    try {
+      await _stopInternal();
+
+      final bool inMaglis = MaglisController.instance.inSession;
+
+      if (!inMaglis) {
+        // Pure quran_tajweedformer package audio processor in Solo Mode
+        await _soloAudio.start(onChunk: onChunk);
+        return;
+      }
+
+      // Harmonized WebRTC config in Maglis mode:
+      const config = RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: recordSampleRate,
+        numChannels: numChannels,
+        autoGain: false,
+        echoCancel: false,
+        noiseSuppress: false,
+        audioInterruption: AudioInterruptionMode.none,
+        androidConfig: AndroidRecordConfig(
+          audioSource: AndroidAudioSource.mic,
+          audioManagerMode: AudioManagerMode.modeInCommunication,
+          manageBluetooth: false,
+        ),
+        iosConfig: IosRecordConfig(
+          categoryOptions: [
+            IosAudioCategoryOption.defaultToSpeaker,
+            IosAudioCategoryOption.allowBluetooth,
+            IosAudioCategoryOption.allowBluetoothA2DP,
+            IosAudioCategoryOption.allowAirPlay,
+          ],
+        ),
+      );
+
+      _maglisRecorder = AudioRecorder();
+      final recordStream = await _maglisRecorder!.startStream(config);
+      _isMaglisRecording = true;
+
+      _maglisCarryByte = null;
+      _maglisSubscription = recordStream.listen(
+        (Uint8List rawData) {
+          if (rawData.isEmpty) return;
+
+          // Handle odd-byte carry across chunk boundaries (matching pumpPcm16)
+          final Uint8List bytes;
+          if (_maglisCarryByte != null) {
+            bytes = Uint8List(rawData.length + 1)
+              ..[0] = _maglisCarryByte!
+              ..setRange(1, rawData.length + 1, rawData);
+            _maglisCarryByte = null;
+          } else {
+            bytes = rawData;
+          }
+
+          final int evenBytes = bytes.length & ~1;
+          if (bytes.length.isOdd) {
+            _maglisCarryByte = bytes[bytes.length - 1];
+          }
+          if (evenBytes == 0) return;
+
+          final byteData = ByteData.sublistView(bytes, 0, evenBytes);
+          final int sampleCount = evenBytes ~/ bytesPerSample;
+          final float32Samples = Float32List(sampleCount);
+
+          for (int i = 0; i < sampleCount; i++) {
+            float32Samples[i] =
+                byteData.getInt16(i * 2, Endian.little) / 32768.0;
+          }
+
+          // Stream immediately to the neural ASR engine!
+          onChunk(float32Samples, false);
+        },
+        onError: (err) {
+          _isMaglisRecording = false;
+        },
+        onDone: () {
+          _isMaglisRecording = false;
+        },
+        cancelOnError: true,
+      );
+    } finally {
+      completer.complete();
+      _activeOp = null;
+    }
   }
 
   void clearBuffer() {
     _soloAudio.clearBuffer();
+    _maglisCarryByte = null;
   }
 
   Future<void> stop() async {
+    while (_activeOp != null) {
+      await _activeOp;
+    }
+    final completer = Completer<void>();
+    _activeOp = completer.future;
+
+    try {
+      await _stopInternal();
+    } finally {
+      completer.complete();
+      _activeOp = null;
+    }
+  }
+
+  Future<void> _stopInternal() async {
+    // 1. Stop solo audio processor
     try {
       await _soloAudio.stop();
     } catch (_) {}
+
+    // 2. Stop Maglis recorder if active
+    await _maglisSubscription?.cancel();
+    _maglisSubscription = null;
+
+    if (_isMaglisRecording) {
+      _isMaglisRecording = false;
+      try {
+        await _maglisRecorder?.stop();
+      } catch (_) {}
+    } else {
+      try {
+        if (_maglisRecorder != null && await _maglisRecorder!.isRecording()) {
+          await _maglisRecorder!.stop();
+        }
+      } catch (_) {}
+    }
+
+    try {
+      await _maglisRecorder?.dispose();
+    } catch (_) {}
+    _maglisRecorder = null;
+    _maglisCarryByte = null;
+
+    // If still in active Maglis session (and not tearing down), preserve WebRTC call speakerphone
+    if (MaglisController.instance.inSession &&
+        !MaglisController.instance.isLeaving) {
+      MaglisPlatform.setSpeaker(true);
+      unawaited(MaglisPlatform.startBackgroundCallService());
+    }
   }
 
   Future<void> dispose() async {

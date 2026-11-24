@@ -41,7 +41,7 @@ class VerseSpanBuilder {
     required ThemeColors colors,
     required List<TapGestureRecognizer> recognizersSink,
     required void Function(int ayah, int wordIndex, String word) onWordErrorTap,
-    void Function(int ayah, int wordIndex)? onWordTap,
+    void Function(int ayah, int wordIndex)? onWordAudioTap,
   }) {
     final List<InlineSpan> spans = [];
     final bool enableGestures = !isAutoScrolling;
@@ -49,10 +49,10 @@ class VerseSpanBuilder {
     final bool needsBlurCheck = isBlurEffective && !isAutoScrolling;
 
     // Ultra-fast path for unselected verses:
-    // If the verse is not active, blur mode is not hiding words, and no yellow errors,
+    // If the verse is not active, blur mode is not hiding words, no yellow errors, and not in remote session,
     // we do not need per-word TextSpans or word recognizers.
     // Building a single contiguous TextSpan slashes paragraph builder overhead by ~95%!
-    if (!isActive && !needsBlurCheck) {
+    if (!isActive && !needsBlurCheck && !controller.isRemoteReciting) {
       bool hasYellowWord = false;
       final bool isTajweedMode = app.currentMode == AppMode.tajweed;
       if (isTajweedMode) {
@@ -112,14 +112,15 @@ class VerseSpanBuilder {
       TapGestureRecognizer? recognizer;
       if (enableGestures) {
         final bool isYellow = controller.isWordYellow(ayah, wordIdx, surah: surah);
-        final bool canTapWord = isActive || isYellow;
+        final bool canTapWord =
+            isActive || isYellow || controller.isRemoteReciting;
         if (canTapWord) {
           recognizer = TapGestureRecognizer()
             ..onTap = () {
               if (isYellow) {
                 onWordErrorTap(ayah, wordIdx, word);
               } else {
-                onWordTap?.call(ayah, wordIdx);
+                onWordAudioTap?.call(ayah, wordIdx);
               }
             };
           recognizersSink.add(recognizer);
