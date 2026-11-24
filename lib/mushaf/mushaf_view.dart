@@ -951,12 +951,17 @@ class _MushafViewState extends State<MushafView>
   void _onDecorationTap(QvpDecorationInfo dec) {
     if (dec.surah > 0 && dec.ayah > 0) {
       AppState.instance.markMushafAudioAyahClicked();
-      final page = _currentPageObject ??
-          MushafProvider.instance.getCachedPage(_currentPage);
-      if (page != null && !page.isDisposed) {
-        _updateSpinnerMark(page, dec.surah, dec.ayah);
-        if (_spinnerMark.value != null && !_spinnerController.isAnimating) {
-          _spinnerController.repeat();
+      final isAlreadyActive =
+          widget.controller.isAyahAudioPlaying(dec.surah, dec.ayah) ||
+              widget.controller.isAyahAudioBuffering(dec.surah, dec.ayah);
+      if (!isAlreadyActive) {
+        final page = _currentPageObject ??
+            MushafProvider.instance.getCachedPage(_currentPage);
+        if (page != null && !page.isDisposed) {
+          _updateSpinnerMark(page, dec.surah, dec.ayah);
+          if (_spinnerMark.value != null && !_spinnerController.isAnimating) {
+            _spinnerController.repeat();
+          }
         }
       }
       _syncAudioOverlayState();
