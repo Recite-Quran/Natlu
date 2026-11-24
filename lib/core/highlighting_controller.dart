@@ -439,9 +439,6 @@ class HighlightingController extends ChangeNotifier {
       case rq.WordEvaluationVerdict.tajweedWarning:
         _store.markYellow(surah, ayah, w0, event.tajweedErrors);
         break;
-      case rq.WordEvaluationVerdict.mispronounced:
-        _store.markRed(surah, ayah, w0);
-        break;
       case rq.WordEvaluationVerdict.skipped:
         _store.markRed(surah, ayah, w0);
         break;

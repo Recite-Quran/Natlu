@@ -10,8 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
   quran_tarteel:
-    git:
-      url: https://github.com/Iam-Muslim/Quran-tarteel.git
+    path: ../quran_tarteel
+
+dependency_overrides:
+  quran_tarteel:
+    path: ../quran_tarteel
   offline_engine:
     path: offline_engine
   qvp_flutter: ^0.11.0
