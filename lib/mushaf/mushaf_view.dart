@@ -74,7 +74,8 @@ class MushafView extends StatefulWidget {
   State<MushafView> createState() => _MushafViewState();
 }
 
-class _MushafViewState extends State<MushafView> {
+class _MushafViewState extends State<MushafView>
+    with SingleTickerProviderStateMixin {
   int _currentPage = 1;
   QvpPage? _currentPageObject;
   bool _isLoading = true;
@@ -99,7 +100,8 @@ class _MushafViewState extends State<MushafView> {
     _settleOnPage(_currentPage);
   }
 
-  // Fine-grained layer repaint triggers
+  // Audio spinner animation & fine-grained layer repaint triggers
+  late final AnimationController _spinnerController;
   final ValueNotifier<int> _underlayRepaintTrigger = ValueNotifier<int>(0);
   final ValueNotifier<int> _overlayRepaintTrigger = ValueNotifier<int>(0);
   late final Listenable _underlayRepaintListenable;
@@ -115,6 +117,13 @@ class _MushafViewState extends State<MushafView> {
     int rev,
     bool recording,
   })? _lastUnderlayState;
+  ({bool buffering, bool playing, int? surah, int? ayah})?
+      _lastAudioOverlayState;
+
+  // Isolated buffering-spinner layer state
+  final ValueNotifier<({Offset center, double radius})?> _spinnerMark =
+      ValueNotifier(null);
+  ({int surah, int ayah, QvpPage page})? _spinnerMarkKey;
 
   List<int> _lastHiddenWords = const [];
   bool _hasMasks = false;
@@ -163,6 +172,11 @@ class _MushafViewState extends State<MushafView> {
     _currentPage = _findInitialPage();
     _pageController = PageController(initialPage: _currentPage - 1);
     _isLoading = !provider.isReady;
+
+    _spinnerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
 
     final app = AppState.instance;
     _underlayRepaintListenable = Listenable.merge([
@@ -214,6 +228,9 @@ class _MushafViewState extends State<MushafView> {
           _currentPage,
           MushafProvider.instance.lastViewportSize,
         );
+        if (!AppState.instance.hasClickedMushafAudioAyah) {
+          AppState.instance.showMushafAudioBanner();
+        }
       }
     });
   }
@@ -228,6 +245,8 @@ class _MushafViewState extends State<MushafView> {
       widget.controller.activeAyah.addListener(_onActiveAyahChanged);
       _syncVisuals();
       _notifyUnderlayIfRelevant();
+      _syncAudioOverlayState();
+      _checkSpinnerAnimation();
     }
     if (!oldWidget.isRecording && widget.isRecording) {
       final active = widget.controller.activeAyah.value;
@@ -272,6 +291,8 @@ class _MushafViewState extends State<MushafView> {
         _needsSyncAfterModal = false;
         _syncVisuals();
         _notifyUnderlayIfRelevant();
+        _syncAudioOverlayState();
+        _checkSpinnerAnimation();
       }
     }
   }
@@ -315,6 +336,8 @@ class _MushafViewState extends State<MushafView> {
   @override
   void dispose() {
     _clearPageVisuals(_currentPageObject);
+    _spinnerController.dispose();
+    _spinnerMark.dispose();
     _pageController.dispose();
     _underlayRepaintTrigger.dispose();
     _overlayRepaintTrigger.dispose();
@@ -424,6 +447,11 @@ class _MushafViewState extends State<MushafView> {
       rev: rev,
     );
 
+    // Spinner start/stop and active audio overlay badge depend on audio state
+    // transitions that don't always move the coordinate (buffering -> playing on same ayah).
+    _checkSpinnerAnimation();
+    _syncAudioOverlayState();
+
     if (!widget.isRecording) return;
 
     // 1. Hands-free recitation flow across Surahs (only when reciting the final ayah of the surah)
@@ -479,6 +507,10 @@ class _MushafViewState extends State<MushafView> {
 
     _lastHandledAyah = activeAyah;
     _lastHandledSurah = activeSurah;
+
+    // Check spinner and overlay badge only when ayah coord actually changes (not every word tick).
+    _checkSpinnerAnimation();
+    _syncAudioOverlayState();
 
     // The one page-sync rule for recitation: whenever activeAyah + targetSurah
     // changes, the mushaf follows it — through ayahs, pages and surahs.
@@ -559,6 +591,72 @@ class _MushafViewState extends State<MushafView> {
       _underlayRepaintTrigger.value++;
     } else if (!coordOnPage && !wasOnPage && !revChanged) {
       _lastUnderlayState = nextState;
+    }
+  }
+
+  void _syncAudioOverlayState() {
+    final ctrl = widget.controller;
+    final s = ctrl.audioSurah;
+    final a = ctrl.audioAyah;
+    final provider = MushafProvider.instance;
+    final bool onThisPage = s != null &&
+        a != null &&
+        provider.isReady &&
+        provider.isAyahOnPage(
+          pageNumber: _currentPage,
+          surah: s,
+          ayah: a,
+        );
+    final nextState = (
+      buffering: onThisPage && ctrl.isAudioBuffering,
+      playing: onThisPage && ctrl.isAudioPlaying,
+      surah: onThisPage ? s : null,
+      ayah: onThisPage ? a : null,
+    );
+    if (_lastAudioOverlayState != nextState) {
+      _lastAudioOverlayState = nextState;
+      _overlayRepaintTrigger.value++;
+    }
+  }
+
+  void _checkSpinnerAnimation() {
+    final isBuffering = widget.controller.isAudioBuffering;
+    final surah = widget.controller.audioSurah;
+    final ayah = widget.controller.audioAyah;
+    final page = _currentPageObject ??
+        MushafProvider.instance.getCachedPage(_currentPage);
+
+    if (isBuffering &&
+        surah != null &&
+        ayah != null &&
+        page != null &&
+        !page.isDisposed) {
+      _updateSpinnerMark(page, surah, ayah);
+      if (_spinnerMark.value != null) {
+        if (!_spinnerController.isAnimating) {
+          _spinnerController.repeat();
+        }
+        return;
+      }
+    }
+
+    if (_spinnerController.isAnimating) {
+      _spinnerController.stop();
+    }
+    _spinnerMark.value = null;
+    _spinnerMarkKey = null;
+  }
+
+  void _updateSpinnerMark(QvpPage page, int surah, int ayah) {
+    final key = (surah: surah, ayah: ayah, page: page);
+    if (_spinnerMarkKey == key && _spinnerMark.value != null) return;
+    _spinnerMarkKey = key;
+    _spinnerMark.value = null;
+    for (final m in page.ayahMarksView()) {
+      if (m.surah == surah && m.ayah == ayah) {
+        _spinnerMark.value = (center: Offset(m.cx, m.cy), radius: m.r * 0.80);
+        return;
+      }
     }
   }
 
@@ -693,8 +791,11 @@ class _MushafViewState extends State<MushafView> {
     _clearPageVisuals(oldPage ?? _currentPageObject);
     _currentPageObject = page;
     _lastUnderlayState = null;
+    _lastAudioOverlayState = null;
+    _checkSpinnerAnimation();
     _syncVisuals();
     _notifyUnderlayIfRelevant();
+    _syncAudioOverlayState();
 
     if (notify && mounted && !alreadyLoaded) {
       setState(() {});
@@ -708,6 +809,8 @@ class _MushafViewState extends State<MushafView> {
       _hasMasks = false;
     }
     _lastHiddenWords = const [];
+    _spinnerMark.value = null;
+    _spinnerMarkKey = null;
     if (_yellowWordsNotifier.value.isNotEmpty) {
       _yellowWordsNotifier.value = const [];
     }
@@ -848,6 +951,15 @@ class _MushafViewState extends State<MushafView> {
   void _onDecorationTap(QvpDecorationInfo dec) {
     if (dec.surah > 0 && dec.ayah > 0) {
       AppState.instance.markMushafAudioAyahClicked();
+      final page = _currentPageObject ??
+          MushafProvider.instance.getCachedPage(_currentPage);
+      if (page != null && !page.isDisposed) {
+        _updateSpinnerMark(page, dec.surah, dec.ayah);
+        if (_spinnerMark.value != null && !_spinnerController.isAnimating) {
+          _spinnerController.repeat();
+        }
+      }
+      _syncAudioOverlayState();
       QuranInteractionService.toggleAyahAudio(
         surah: dec.surah,
         ayah: dec.ayah,
@@ -1005,6 +1117,8 @@ class _MushafViewState extends State<MushafView> {
       overlayRepaintListenable: _overlayRepaintListenable,
       onWordTap: (ctx, page, wordIdx) => _onWordTap(ctx, page, wordIdx),
       onDecorationTap: (dec) => _onDecorationTap(dec),
+      spinnerMark: _spinnerMark,
+      spinnerController: _spinnerController,
     );
   }
 }
@@ -1024,6 +1138,8 @@ class _MushafPageItem extends StatefulWidget {
   final Listenable overlayRepaintListenable;
   final void Function(BuildContext context, QvpPage page, int wordIndex) onWordTap;
   final void Function(QvpDecorationInfo dec) onDecorationTap;
+  final ValueListenable<({Offset center, double radius})?> spinnerMark;
+  final AnimationController spinnerController;
 
   const _MushafPageItem({
     super.key,
@@ -1036,6 +1152,8 @@ class _MushafPageItem extends StatefulWidget {
     required this.overlayRepaintListenable,
     required this.onWordTap,
     required this.onDecorationTap,
+    required this.spinnerMark,
+    required this.spinnerController,
   });
 
   @override
@@ -1177,11 +1295,104 @@ class _MushafPageItemState extends State<_MushafPageItem>
             ),
           ),
         ),
+        if (widget.isCurrent)
+          ValueListenableBuilder<({Offset center, double radius})?>(
+            valueListenable: widget.spinnerMark,
+            builder: (context, spinnerMark, _) => spinnerMark == null
+                ? const SizedBox.shrink()
+                : Positioned.fill(
+                    child: IgnorePointer(
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _BufferingSpinnerPainter(
+                            spinner: widget.spinnerController,
+                            page: page!,
+                            viewCtrl: _pageViewCtrl,
+                            center: spinnerMark.center,
+                            ringRadius: spinnerMark.radius,
+                            color: c.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
         const _PageGutterShadow(isLeftEdge: true),
         const _PageGutterShadow(isLeftEdge: false),
       ],
     );
   }
+}
+
+/// Isolated buffering-spinner layer: paints ONLY the rotating arc, at the
+/// cached mark geometry, in the same layout coordinate space the page's
+/// overlay painters use. Repaint is driven by the spinner controller alone,
+/// so its ticks cost one tiny arc draw instead of a full page re-record.
+class _BufferingSpinnerPainter extends CustomPainter {
+  _BufferingSpinnerPainter({
+    required AnimationController spinner,
+    required this.page,
+    required QvpViewController viewCtrl,
+    required this.center,
+    required this.ringRadius,
+    required this.color,
+  }) : _spinner = spinner,
+       _viewCtrl = viewCtrl,
+       super(repaint: spinner);
+
+  final AnimationController _spinner;
+  final QvpPage page;
+
+  /// The page view's live fit transform (`view px = offset + scale · layout
+  /// px`). Read at paint time, never cached: a viewport resize re-fits before
+  /// the next spinner tick, so the arc stays glued to the ayah mark.
+  final QvpViewController _viewCtrl;
+  final Offset center;
+  final double ringRadius;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (ringRadius <= 0 || page.isDisposed) return;
+    final layout = page.currentLayout;
+    final double scale = _viewCtrl.scale != 1.0 || (_viewCtrl.offsetX != 0 || _viewCtrl.offsetY != 0)
+        ? _viewCtrl.scale
+        : (layout?.fitScale ?? 1.0);
+    final double offsetX = (_viewCtrl.offsetX != 0 || _viewCtrl.offsetY != 0)
+        ? _viewCtrl.offsetX
+        : (layout?.fitX.roundToDouble() ?? 0.0);
+    final double offsetY = (_viewCtrl.offsetX != 0 || _viewCtrl.offsetY != 0)
+        ? _viewCtrl.offsetY
+        : (layout?.fitY.roundToDouble() ?? 0.0);
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..color = color
+      ..strokeWidth = math.max(ringRadius * scale * 0.18, 1.4);
+    canvas.drawArc(
+      Rect.fromCircle(
+        center: Offset(
+          offsetX + center.dx * scale,
+          offsetY + center.dy * scale,
+        ),
+        radius: ringRadius * scale * 0.58,
+      ),
+      _spinner.value * 2 * math.pi,
+      2.4,
+      false,
+      paint,
+    );
+  }
+
+  // Repaint comes from the controller listenable; painter identity changes
+  // (new center/radius/color) rebuild the widget instead.
+  @override
+  bool shouldRepaint(_BufferingSpinnerPainter old) =>
+      old.page != page ||
+      old.center != center ||
+      old.ringRadius != ringRadius ||
+      old.color != color;
 }
 
 /// Subtle vertical gradient shadow along page edges mimicking physical paper depth (book gutter seam).
