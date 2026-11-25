@@ -11,10 +11,6 @@ dependencies:
     sdk: flutter
   quran_tarteel:
     path: ../quran_tarteel
-
-dependency_overrides:
-  quran_tarteel:
-    path: ../quran_tarteel
   offline_engine:
     path: offline_engine
   qvp_flutter: ^0.11.0
@@ -42,6 +38,10 @@ dependency_overrides:
   connectivity_plus: ^7.3.2
   app_links: ^7.2.2
   share_plus: ^13.3.1
+
+dependency_overrides:
+  quran_tarteel:
+    path: ../quran_tarteel
 
 dev_dependencies:
   flutter_test:

@@ -3,11 +3,20 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  app_links
+  connectivity_plus
+  flutter_webrtc
+  media_kit_libs_windows_video
+  permission_handler_windows
   record_windows
+  share_plus
+  url_launcher_windows
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
+  offline_engine
+  qvp_flutter
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)
