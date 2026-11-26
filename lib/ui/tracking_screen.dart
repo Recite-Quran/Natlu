@@ -186,10 +186,7 @@ class _TrackingScreenState extends State<TrackingScreen>
     }
     if (widget.isRecording && !oldWidget.isRecording) {
       AppState.instance.dismissBanner();
-      final int targetAyah =
-          widget.controller.currentMatchedVerse?.verse.ayah ??
-              widget.controller.activeAyah.value ??
-              1;
+      final int targetAyah = widget.controller.activeAyah.value ?? 1;
       _lastAyah = targetAyah;
     }
 

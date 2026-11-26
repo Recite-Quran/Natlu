@@ -224,7 +224,6 @@ class HighlightingController extends ChangeNotifier {
   final ValueNotifier<String> debugRecognizedText = ValueNotifier('');
 
   HighlightingController get tracker => this;
-  rq.TrackerState get state => rq.TrackerState.tracking;
   rq.ReciteEngine get engine => _engine;
   rq.QuranScorer get scorer => _scorer;
 
@@ -291,11 +290,28 @@ class HighlightingController extends ChangeNotifier {
     initFuture = _initScorerAndStreams();
   }
 
+  bool _engineTauSynced = false;
+
+  void _syncCalibratedThresholds() {
+    if (_engineTauSynced) return;
+    final double? tau = _engine.calibratedQalqalahTau;
+    if (tau != null) {
+      _engineTauSynced = true;
+      if (_scorer.tajweedConfig.qalqalahTau == null) {
+        _scorer.updateTajweedConfig(
+          _scorer.tajweedConfig.copyWith(qalqalahTau: tau),
+        );
+      }
+    }
+  }
+
   Future<void> _initScorerAndStreams() async {
     await _scorer.initialize();
+    _syncCalibratedThresholds();
     _wordEvaluatedSub = _scorer.onWordEvaluated.listen(_onEngineWordEvaluated);
     _autoReanchorSub = _scorer.onAutoReanchored.listen(_onEngineAutoReanchored);
     _engineTranscriptionSub = _engine.transcriptionStream.listen((result) {
+      _syncCalibratedThresholds();
       // A final result is the flushed tail of the take that was just reset;
       // its epoch is necessarily the one before the reset, so accept it.
       if (!result.isFinal && result.streamEpoch != _engine.currentStreamEpoch) {
@@ -381,8 +397,10 @@ class HighlightingController extends ChangeNotifier {
   }
 
   Future<void> reloadEngine() async {
+    _engineTauSynced = false;
     await _engine.initialize();
     await _scorer.initialize();
+    _syncCalibratedThresholds();
     notifyListeners();
   }
 
@@ -581,7 +599,7 @@ class HighlightingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  static final Map<int, ({int ayah, int lastUthmaniWordIndex})>
+  static final Map<int, ({int ayah, int lastWordIndex})>
       _surahLastWordCache = {};
 
   /// Checks whether all words in [surah] have been completed or read.
@@ -589,19 +607,19 @@ class HighlightingController extends ChangeNotifier {
     if (!QuranMetadata.isValidSurah(surah)) return false;
     final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
       final totalAyahs = QuranMetadata.getAyahCount(surah);
-      if (totalAyahs <= 0) return (ayah: -1, lastUthmaniWordIndex: -1);
+      if (totalAyahs <= 0) return (ayah: -1, lastWordIndex: -1);
       final lastVerse = repository.getVerse(surah, totalAyahs);
-      if (lastVerse == null || lastVerse.uthmaniWords.isEmpty) {
-        return (ayah: totalAyahs, lastUthmaniWordIndex: 0);
+      if (lastVerse == null || lastVerse.phonemeWords.isEmpty) {
+        return (ayah: totalAyahs, lastWordIndex: 0);
       }
       return (
         ayah: totalAyahs,
-        lastUthmaniWordIndex: lastVerse.uthmaniWords.length - 1,
+        lastWordIndex: lastVerse.wordCount - 1,
       );
     });
     if (lastWord.ayah < 0) return false;
     return completedAyahsFor(surah).contains(lastWord.ayah) ||
-        isWordRead(lastWord.ayah, lastWord.lastUthmaniWordIndex, surah: surah);
+        isWordRead(lastWord.ayah, lastWord.lastWordIndex, surah: surah);
   }
 
   /// Hook called when a continuous recitation boundary transitions to the next Surah.
@@ -707,19 +725,6 @@ class HighlightingController extends ChangeNotifier {
     _scorer.resetBuffer();
     debugRecognizedText.value = '';
     onAyahChanged?.call();
-  }
-
-  rq.VerseMatch? get currentMatchedVerse {
-    // The mirrored coordinate IS the matched verse for every source (manual
-    // selection, ASR anchor, audio playback, Maglis packets). Pure coordinate
-    // read - no fallback into the package.
-    if (_manualTargetSurah != 0 && activeAyah.value != null) {
-      final v = repository.getVerse(_manualTargetSurah, activeAyah.value!);
-      if (v != null) {
-        return rq.VerseMatch(verse: v, score: 1.0);
-      }
-    }
-    return null;
   }
 
   // ── Word Status Queries (pure store reads) ──
@@ -999,7 +1004,7 @@ class HighlightingController extends ChangeNotifier {
     rq.WordTajweedRule wRule, [
     rq.TrackerConfig config = const rq.TrackerConfig(),
   ]) =>
-      rq.TajweedRuleFactory.instantiate(wRule, config);
+      rq.TajweedRuleFactory.instantiate(wRule, config.recitationSpeed);
 
   /// Sets whether remote recitation is active (e.g. on floor release or peer leave).
   void setRemoteReciting(bool isReciting) {

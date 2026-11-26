@@ -207,7 +207,7 @@ class _VerseRowState extends State<VerseRow> {
       widget.verse.ayah,
     );
     if (list.isNotEmpty) return list;
-    return widget.verse.uthmaniWords;
+    return widget.verse.phonemeWords;
   }
 
   /// Cached fingerprint — only rebuilds when visual state changes.

@@ -1063,7 +1063,7 @@ class _OrchestratorState extends State<_Orchestrator>
       final prevAyah = _lastProcessedAyah!;
       final prevSurah = _lastProcessedSurah!;
       final prevVerse = _ctrl!.repository.getVerse(prevSurah, prevAyah);
-      final prevWordCount = prevVerse?.uthmaniWords.length ?? 0;
+      final prevWordCount = prevVerse?.wordCount ?? 0;
       final prevClassification = _ctrl!.extractAyahWordClassification(
         prevSurah,
         prevAyah,
@@ -1092,7 +1092,7 @@ class _OrchestratorState extends State<_Orchestrator>
 
     // Scan canonical verse words directly from loaded repository (never depends on GPU page cache)
     final currentVerse = _ctrl!.repository.getVerse(targetSurah, activeAyah);
-    final wordCount = currentVerse?.uthmaniWords.length ?? 0;
+    final wordCount = currentVerse?.wordCount ?? 0;
 
     final classification = _ctrl!.extractAyahWordClassification(
       targetSurah,

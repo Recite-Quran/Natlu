@@ -758,13 +758,13 @@ class _VoiceSearchDialogState extends State<VoiceSearchDialog>
                   ],
                 ),
               ),
-              if (match.textUthmani != null &&
-                  match.textUthmani!.isNotEmpty) ...[
+              if (match.textPhoneme != null &&
+                  match.textPhoneme!.isNotEmpty) ...[
                 const SizedBox(height: 6),
                 Builder(
                   builder: (_) {
                     final preview = VerseSpanBuilder.buildPreviewSpec(
-                      rawText: match.textUthmani!,
+                      rawText: match.textPhoneme!,
                       startWord: match.startWordIdx,
                       endWord: match.endWordIdx,
                       startAyah: match.startAyah,

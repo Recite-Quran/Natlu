@@ -332,6 +332,8 @@ class ErrorDetailDialog extends StatelessWidget {
             isAr ? 'النون أو الميم المشددة' : 'Mushaddad Noon/Meem',
           TajweedRuleType.shaddah => isAr ? 'الشدة' : 'Shaddah',
           TajweedRuleType.qalqalah => isAr ? 'قلقلة' : 'Qalqalah',
+          TajweedRuleType.plainLetter =>
+            isAr ? 'حرف بدون مد (التمطيط)' : 'Unruled Letter (Overheld)',
           TajweedRuleType.other => isAr ? 'حكم تجويد' : 'Tajweed Rule',
         };
       } else {
@@ -348,6 +350,14 @@ class ErrorDetailDialog extends StatelessWidget {
         advice = isAr
             ? 'أعطِ الغنة زمن حركتين كاملتين دون استعجال'
             : 'Give the Ghunnah a full 2-beat nasal resonance.';
+      } else if (rule?.ruleType == TajweedRuleType.qalqalah) {
+        advice = isAr
+            ? 'أظهر نبرة القلقلة باهتزاز واضح عند سكون الحرف دون زيادة مد'
+            : 'Release a crisp bouncing echo (Qalqalah) on the silent stop without adding a vowel.';
+      } else if (rule?.ruleType == TajweedRuleType.plainLetter) {
+        advice = isAr
+            ? 'لا تمطط الحرف أو الحركة لعدم وجود مد هنا'
+            : 'Do not overhold this letter or short vowel; it has no elongation rule.';
       } else if (e.durationStatus == TajweedDurationStatus.underheld) {
         final beats = rule?.goldenLen ?? 2;
         advice = isAr
