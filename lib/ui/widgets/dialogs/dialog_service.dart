@@ -87,6 +87,17 @@ abstract final class DialogService {
     return AudioDownloadDialog.show(context);
   }
 
+  /// Prompts the user before downloading the on-device recitation model.
+  static Future<bool> showModelDownload(BuildContext context) async {
+    return await showDialog<bool>(
+          context: context,
+          barrierColor: barrierColor,
+          barrierDismissible: true,
+          builder: (ctx) => const ModelDownloadDialog(),
+        ) ??
+        false;
+  }
+
   /// Opens the Microphone permission prompt dialog.
   static Future<void> showPermission(
     BuildContext context, {

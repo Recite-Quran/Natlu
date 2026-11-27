@@ -94,7 +94,8 @@ class BottomActionBar extends StatelessWidget {
             final double gap = isNarrow ? 5.0 : 6.0;
             final double maglisGap = isNarrow ? 4.0 : 5.0;
 
-            final double normalWidth = math.min(maxW - 20.0, 480.0);
+            final double normalWidth =
+                math.max(0.0, math.min(maxW - 20.0, 480.0));
             final double recordingWidth = hPad +
                 borderW +
                 micWidth +

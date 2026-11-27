@@ -53,3 +53,33 @@ class PermissionDialog extends StatelessWidget {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 2. MODEL DOWNLOAD PROMPT DIALOG
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Dialog asking the user before downloading the on-device speech model.
+class ModelDownloadDialog extends StatelessWidget {
+  const ModelDownloadDialog({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isAr = AppState.instance.isArabic;
+
+    return AppDialog(
+      heroIcon: const AppDialogHeroIcon(icon: Icons.download_rounded),
+      title: isAr ? 'تحميل نموذج التلاوة' : 'Download Recitation Model',
+      subtitle: isAr
+          ? 'يتطلب التتبع الصوتي تحميل نموذج الذكاء الاصطناعي لمرة واحدة (حوالي 56 ميجابايت). هل تريد التحميل الآن؟'
+          : 'Voice recitation tracking requires a one-time AI model download (~56 MB). Download now?',
+      primaryAction: AppDialogActionItem(
+        label: isAr ? 'تحميل' : 'Download',
+        onPressed: () => Navigator.pop(context, true),
+      ),
+      secondaryAction: AppDialogActionItem(
+        label: isAr ? 'لاحقاً' : 'Later',
+        onPressed: () => Navigator.pop(context, false),
+      ),
+    );
+  }
+}
+

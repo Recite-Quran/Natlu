@@ -390,8 +390,7 @@ class SettingsSheet extends StatelessWidget {
                       // 4. Offline Audio & Timing Download
                       QuranDownloadTile(c: c, isAr: isAr, isDark: isDark),
 
-                      if (controller?.engine case final QuranLabSdkEngine sdkEngine
-                          when sdkEngine.sharing != null) ...[
+                      if (controller?.engine.sharing case final sharing?) ...[
                         SettingDivider(c: c),
                         SettingTile(
                           icon: Icons.volunteer_activism_rounded,
@@ -404,7 +403,7 @@ class SettingsSheet extends StatelessWidget {
                           ),
                           onTap: () {
                             Navigator.of(context).pop();
-                            sdkEngine.sharing?.openSettings();
+                            sharing.openSettings();
                           },
                         ),
                       ],

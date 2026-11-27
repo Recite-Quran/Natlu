@@ -100,7 +100,6 @@ class AppState extends ChangeNotifier {
 
   void bindSdkStatus(SdkModelStatus status) {
     switch (status.phase) {
-      case SdkModelPhase.checkingCache:
       case SdkModelPhase.initializingClient:
       case SdkModelPhase.loadingModel:
       case SdkModelPhase.openingSession:
@@ -156,8 +155,14 @@ class AppState extends ChangeNotifier {
       case TajweedErrorCode.invalidKey:
       case TajweedErrorCode.serverRejected:
         icon = Icons.vpn_key_off_rounded;
-        arMsg = 'تعذر التحقق من مفتاح Quran Lab SDK لهذه النسخة';
-        enMsg = 'Quran Lab SDK key or app verification failed';
+        if (error.message.contains('bootloader') ||
+            error.message.contains('integrity')) {
+          arMsg = 'الجهاز غير مدعوم (محمل الإقلاع مفتوح أو النظام غير موثق)';
+          enMsg = 'Device security check failed (unlocked bootloader / custom ROM)';
+        } else {
+          arMsg = 'تعذر التحقق من مفتاح Quran Lab SDK لهذه النسخة';
+          enMsg = 'Quran Lab SDK key or app verification failed';
+        }
         break;
       case TajweedErrorCode.sdkTooOld:
         icon = Icons.system_update_rounded;

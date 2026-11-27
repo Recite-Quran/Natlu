@@ -231,7 +231,10 @@ class _Orchestrator extends StatefulWidget {
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
   final QuranLabSdkEngine _engine = QuranLabSdkEngine(
-    apiKey: const String.fromEnvironment('QURANLAB_KEY'),
+    apiKey: const String.fromEnvironment(
+      'QURANLAB_KEY',
+      defaultValue: 'qlk_v1_khdnzqtxbr26_GclhUdKPUqPbFKDDz_cype',
+    ),
   );
   final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
@@ -679,7 +682,7 @@ class _OrchestratorState extends State<_Orchestrator>
   }
 
   /// Silently pre-warms the encrypted Quran Lab SDK model in the background on
-  /// Android/iOS when already cached on disk so the first recitation tap is instant.
+  /// Android/iOS only when already cached on disk so the first recitation tap is instant.
   void _scheduleEnginePrewarm() {
     if (!PlatformCapabilities.isMobile || _engine.isInitialized) return;
     final int epoch = ++_prewarmEpoch;
@@ -698,7 +701,13 @@ class _OrchestratorState extends State<_Orchestrator>
         epoch != _prewarmEpoch) {
       return;
     }
-    final bool cached = await _engine.isModelCached();
+    final bool cached;
+    try {
+      cached = await _engine.isModelCached();
+    } catch (e) {
+      DebugLogger.logSimple('ASR', '⚠️ Background cache check skipped: $e');
+      return;
+    }
     if (!cached ||
         !mounted ||
         _isBackgrounded ||
@@ -719,7 +728,8 @@ class _OrchestratorState extends State<_Orchestrator>
       unawaited(
         _engine
             .initialize()
-            .then((_) => _ctrl?.syncWithReadyEngine(surah: AppState.instance.lastSurah))
+            .then((_) =>
+                _ctrl?.syncWithReadyEngine(surah: AppState.instance.lastSurah))
             .catchError((Object e) {
           DebugLogger.logSimple(
             'ASR',
@@ -733,11 +743,18 @@ class _OrchestratorState extends State<_Orchestrator>
   /// Ensures the Quran Lab SDK model and reference metadata are ready before capture.
   Future<bool> _ensureEngineReady() async {
     _cancelEnginePrewarm();
-
     if (!_engine.isInitialized) {
       if (mounted) setState(() => _isEngineLoading = true);
-      AppState.instance.startModelDownload();
       try {
+        final bool cached = await _engine.isModelCached();
+        if (!cached) {
+          if (mounted) setState(() => _isEngineLoading = false);
+          if (!mounted) return false;
+          final bool download = await DialogService.showModelDownload(context);
+          if (!download) return false;
+          if (mounted) setState(() => _isEngineLoading = true);
+        }
+        AppState.instance.startModelDownload();
         await _engine.initialize();
       } on TajweedError catch (e, stack) {
         DebugLogger.logSimple(

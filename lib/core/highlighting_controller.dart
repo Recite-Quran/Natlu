@@ -183,7 +183,7 @@ class HighlightStore {
 /// controller. They never need separate branches or conditional code per mode.
 class HighlightingController extends ChangeNotifier {
   final rq.QuranRepository repository;
-  final rq.ReciteEngine _engine;
+  final rq.QuranLabSdkEngine _engine;
   final rq.QuranScorer _scorer;
   final VoidCallback? onAyahChanged;
   bool isTajweed;
@@ -196,7 +196,7 @@ class HighlightingController extends ChangeNotifier {
   final ValueNotifier<String> debugRecognizedText = ValueNotifier('');
 
   HighlightingController get tracker => this;
-  rq.ReciteEngine get engine => _engine;
+  rq.QuranLabSdkEngine get engine => _engine;
   rq.QuranScorer get scorer => _scorer;
 
   Stream<rq.WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
@@ -249,7 +249,7 @@ class HighlightingController extends ChangeNotifier {
 
   HighlightingController({
     required this.repository,
-    required rq.ReciteEngine engine,
+    required rq.QuranLabSdkEngine engine,
     this.onAyahChanged,
     this.isTajweed = true,
     this.config = const rq.TrackerConfig(),
@@ -329,7 +329,7 @@ class HighlightingController extends ChangeNotifier {
     if (repository.isLoaded && target != 0) {
       await repository.loadSurahAsync(target);
       _scorer.setTajweedMode(isTajweed);
-      _scorer.setTargetSurah(target, forceClear: false);
+      _scorer.setTargetSurah(target);
     }
     _syncCalibratedThresholds();
     notifyListeners();
@@ -597,10 +597,7 @@ class HighlightingController extends ChangeNotifier {
     // views must not follow until the merge's final write lands.
     _beginRetarget();
     try {
-      _scorer.setTargetSurah(
-        surah,
-        forceClear: clearTargetSurah,
-      );
+      _scorer.setTargetSurah(surah);
     } finally {
       _endRetarget();
     }
