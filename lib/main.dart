@@ -613,8 +613,7 @@ class _OrchestratorState extends State<_Orchestrator>
       // so silent Mushaf reading stays instant without forcing a first-run download.
       if (mounted) setState(() => _initStatus = 'Loading Quran database…');
       MushafView.preloadData();
-      final service = QuranMetadataService();
-      _repo = QuranRepository(service);
+      _repo = QuranRepository();
       final initialSurah = AppState.instance.lastSurah;
       final initialAyah = AppState.instance.lastAyah;
       _voiceSearchCtrl.repository = _repo;

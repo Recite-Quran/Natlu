@@ -294,11 +294,11 @@ class HighlightingController extends ChangeNotifier {
     });
 
     final sdkTokens = _engine.tokens;
-    if (sdkTokens != null && repository.service.sdkTokens == null) {
-      repository.service.setSdkTokens(sdkTokens);
+    if (sdkTokens != null && repository.sdkTokens == null) {
+      repository.setSdkTokens(sdkTokens);
     }
 
-    if (repository.isLoaded || repository.service.sdkTokens != null) {
+    if (repository.isLoaded || repository.sdkTokens != null) {
       await _scorer.initialize();
       _syncCalibratedThresholds();
     }
@@ -309,11 +309,11 @@ class HighlightingController extends ChangeNotifier {
   Future<void> syncWithReadyEngine({int? surah}) async {
     await initFuture;
     final sdkTokens = _engine.tokens;
-    if (sdkTokens != null && repository.service.sdkTokens == null) {
-      repository.service.setSdkTokens(sdkTokens);
+    if (sdkTokens != null && repository.sdkTokens == null) {
+      repository.setSdkTokens(sdkTokens);
     }
     if (!_scorer.isInitialized &&
-        (repository.isLoaded || repository.service.sdkTokens != null)) {
+        (repository.isLoaded || repository.sdkTokens != null)) {
       await _scorer.initialize();
     }
     final int target =
