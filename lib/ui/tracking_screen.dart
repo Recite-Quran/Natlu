@@ -27,8 +27,8 @@ class TrackingScreen extends StatefulWidget {
   final VoidCallback onToggleRecord;
   final VoidCallback onVoiceSearchToggle;
   final bool isLoadingEngine;
-  final ValueNotifier<bool>? isVoiceSearchLoading;
-  final VoiceSearchController? voiceSearchController;
+  final ValueListenable<bool>? isVoiceSearchLoading;
+  final ValueListenable<VoiceSearchResult?>? voiceSearchResultNotifier;
   final void Function(int surah, int ayah)? onSelectVoiceCandidate;
   final ValueChanged<bool>? onVoiceSearchHoldChanged;
   final VoidCallback onClearBuffer;
@@ -40,7 +40,7 @@ class TrackingScreen extends StatefulWidget {
     required this.isVoiceSearching,
     this.voiceSearchText = '',
     this.voiceSearchTextNotifier,
-    this.voiceSearchController,
+    this.voiceSearchResultNotifier,
     this.onSelectVoiceCandidate,
     this.onVoiceSearchHoldChanged,
     required this.onToggleRecord,
@@ -199,7 +199,7 @@ class _TrackingScreenState extends State<TrackingScreen>
             isLoading: widget.isVoiceSearchLoading,
             asrTextNotifier:
                 widget.voiceSearchTextNotifier ?? _voiceSearchNotifier,
-            searchResultNotifier: widget.voiceSearchController?.currentResult,
+            searchResultNotifier: widget.voiceSearchResultNotifier,
             onSelectCandidate: widget.onSelectVoiceCandidate,
             onHoldChanged: widget.onVoiceSearchHoldChanged,
           );

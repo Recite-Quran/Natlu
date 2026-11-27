@@ -27,6 +27,7 @@ import 'package:in_app_update/in_app_update.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 
+import 'core/app_sdk_runner.dart';
 import 'core/app_state.dart';
 import 'core/highlighting_controller.dart';
 import 'ui/tracking_screen.dart';
@@ -75,10 +76,9 @@ void main() async {
             ),
           );
         } catch (e) {
-          DebugLogger.logSimple(
-            'AudioSession',
-            'Failed to configure AudioSession: $e',
-          );
+          if (kDebugMode) {
+            debugPrint('[AudioSession] Failed to configure AudioSession: $e');
+          }
         }
         unawaited(QuranAudioHandler.ensureInitialized());
       }
@@ -106,7 +106,9 @@ void main() async {
       runApp(const QuranApp());
     },
     (error, stack) {
-      DebugLogger.logSimple('Error', 'Uncaught Error: $error');
+      if (kDebugMode) {
+        debugPrint('[Error] Uncaught Error: $error');
+      }
     },
     zoneSpecification: ZoneSpecification(
       print: (Zone self, ZoneDelegate parent, Zone zone, String line) {
@@ -230,16 +232,27 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
-  final QuranLabSdkEngine _engine = QuranLabSdkEngine(
+  static void _log(String tag, String message) {
+    if (kDebugMode) {
+      debugPrint('[$tag] $message');
+    }
+  }
+
+  final AppSdkRunner _engine = AppSdkRunner(
     apiKey: const String.fromEnvironment(
       'QURANLAB_KEY',
       defaultValue: 'qlk_v1_khdnzqtxbr26_GclhUdKPUqPbFKDDz_cype',
     ),
   );
   final AppAudioProcessor _audio = AppAudioProcessor();
+  final QuranRepository _repo = QuranRepository();
   late final VoiceSearchController _voiceSearchCtrl;
+  final ValueNotifier<bool> _voiceSearchLoadingNotifier = ValueNotifier(false);
+  final ValueNotifier<VoiceSearchResult?> _voiceSearchResultNotifier =
+      ValueNotifier(null);
+  StreamSubscription<bool>? _voiceSearchLoadingSub;
+  StreamSubscription<VoiceSearchResult?>? _voiceSearchResultSub;
 
-  QuranRepository? _repo;
   HighlightingController? _ctrl;
 
   bool _isInit = true;
@@ -285,17 +298,22 @@ class _OrchestratorState extends State<_Orchestrator>
 
   // Endpointing: VAD endpoint with silence threshold
 
-  void _onSdkModelStatusChanged() {
-    AppState.instance.bindSdkStatus(_engine.modelStatus);
-  }
-
   @override
   void initState() {
     super.initState();
     MaglisLinkService.instance.init();
-    _engine.modelStatusListenable.addListener(_onSdkModelStatusChanged);
     WidgetsBinding.instance.addObserver(this);
-    _voiceSearchCtrl = VoiceSearchController(engine: _engine);
+    _voiceSearchCtrl = VoiceSearchController(
+      repository: _repo,
+      ignorePrefixes: const ['ءaعuuذuبiلaaهiمiنaشaيطaaنiرaجiiم'],
+    );
+    _voiceSearchLoadingSub =
+        _voiceSearchCtrl.onIndexLoadingChanged.listen((loading) {
+      _voiceSearchLoadingNotifier.value = loading;
+    });
+    _voiceSearchResultSub = _voiceSearchCtrl.onSearchResult.listen((res) {
+      _voiceSearchResultNotifier.value = res;
+    });
     QuranAudioService.instance.onAudioProgress = ({
       int? surah,
       int? ayah,
@@ -397,16 +415,21 @@ class _OrchestratorState extends State<_Orchestrator>
 
         // REAL-TIME SEARCH EVALUATION
         _voiceSearchCtrl.processRealtime(res.text).then((rtResult) {
-          if (rtResult != null) {
+          if (rtResult != null && rtResult.topMatch != null) {
             // Unique match found! Instantly navigate to it without waiting.
-            _stopVoiceSearch(precalculatedResult: rtResult);
+            _stopVoiceSearch(
+              precalculatedTarget: (
+                surah: rtResult.topMatch!.surah,
+                ayah: rtResult.topMatch!.ayah,
+              ),
+            );
           } else if (res.isFinal && _isVoiceSearching) {
-            final current = _voiceSearchCtrl.currentResult.value;
+            final current = _voiceSearchCtrl.currentResult;
             // Only auto-stop on silence endpoint if NO candidates were found at all.
             // When candidates exist, VoiceSearchDialog handles the user selection,
             // the dynamic countdown, and the Hold/Pause state.
             if (current == null || !current.hasCandidates) {
-              DebugLogger.log(
+              _log(
                 'VoiceSearch',
                 'Auto-stopping on VAD endpoint (no matches found)',
               );
@@ -426,10 +449,7 @@ class _OrchestratorState extends State<_Orchestrator>
         try {
           await FlutterDisplayMode.setHighRefreshRate();
         } catch (e) {
-          DebugLogger.logSimple(
-            'DisplayMode',
-            'Failed to set high refresh rate: $e',
-          );
+          _log('DisplayMode', 'Failed to set high refresh rate: $e');
         }
       });
     }
@@ -443,7 +463,7 @@ class _OrchestratorState extends State<_Orchestrator>
           await platform.invokeMethod('isPlayStoreInstalled');
 
       if (!hasPlayStore) {
-        DebugLogger.logSimple('Update',
+        _log('Update',
             'Play Store missing (LineageOS). Bypassing Play Core API.');
         return;
       }
@@ -453,8 +473,7 @@ class _OrchestratorState extends State<_Orchestrator>
         await InAppUpdate.performImmediateUpdate();
       }
     } catch (e) {
-      DebugLogger.logSimple(
-          'Update', "Play Core update check aborted safely: $e");
+      _log('Update', "Play Core update check aborted safely: $e");
     }
   }
 
@@ -596,7 +615,11 @@ class _OrchestratorState extends State<_Orchestrator>
     QuranAudioService.instance.onAudioProgress = null;
     QuranAudioService.instance.onPlayingChanged = null;
     QuranAudioService.instance.stop();
-    _engine.modelStatusListenable.removeListener(_onSdkModelStatusChanged);
+    _voiceSearchLoadingSub?.cancel();
+    _voiceSearchResultSub?.cancel();
+    _voiceSearchLoadingNotifier.dispose();
+    _voiceSearchResultNotifier.dispose();
+    _voiceSearchCtrl.dispose();
     _transcriptionSub?.cancel();
     _audio.dispose();
     _ctrl?.dispose();
@@ -613,14 +636,12 @@ class _OrchestratorState extends State<_Orchestrator>
       // so silent Mushaf reading stays instant without forcing a first-run download.
       if (mounted) setState(() => _initStatus = 'Loading Quran database…');
       MushafView.preloadData();
-      _repo = QuranRepository();
       final initialSurah = AppState.instance.lastSurah;
       final initialAyah = AppState.instance.lastAyah;
-      _voiceSearchCtrl.repository = _repo;
 
       _ctrl = HighlightingController(
         engine: _engine,
-        repository: _repo!,
+        repository: _repo,
         isTajweed: AppState.instance.currentMode == AppMode.tajweed,
         config: AppState.instance.trackerConfig,
         onAyahChanged: () {
@@ -667,7 +688,7 @@ class _OrchestratorState extends State<_Orchestrator>
         }
       });
     } catch (e) {
-      DebugLogger.logSimple('INIT', '❌ Error: $e');
+      _log('INIT', '❌ Error: $e');
       if (mounted) setState(() => _initStatus = 'Error: $e');
     }
   }
@@ -704,7 +725,7 @@ class _OrchestratorState extends State<_Orchestrator>
     try {
       cached = await _engine.isModelCached();
     } catch (e) {
-      DebugLogger.logSimple('ASR', '⚠️ Background cache check skipped: $e');
+      _log('ASR', '⚠️ Background cache check skipped: $e');
       return;
     }
     if (!cached ||
@@ -723,14 +744,14 @@ class _OrchestratorState extends State<_Orchestrator>
           epoch != _prewarmEpoch) {
         return;
       }
-      DebugLogger.logSimple('ASR', '⚡ Background pre-warming Quran Lab SDK...');
+      _log('ASR', '⚡ Background pre-warming Quran Lab SDK...');
       unawaited(
         _engine
             .initialize()
             .then((_) =>
                 _ctrl?.syncWithReadyEngine(surah: AppState.instance.lastSurah))
             .catchError((Object e) {
-          DebugLogger.logSimple(
+          _log(
             'ASR',
             '⚠️ Background SDK pre-warm safely handled error: $e',
           );
@@ -754,9 +775,19 @@ class _OrchestratorState extends State<_Orchestrator>
           if (mounted) setState(() => _isEngineLoading = true);
         }
         AppState.instance.startModelDownload();
-        await _engine.initialize();
+        await _engine.initialize(
+          onDownloadProgress: (done, total) {
+            AppState.instance.updateModelDownloadProgress(
+              isDownloading: true,
+              progress: total > 0 ? (done / total).clamp(0.0, 1.0) : null,
+              loadedBytes: done,
+              totalBytes: total,
+            );
+          },
+        );
+        AppState.instance.resetModelDownload();
       } on TajweedError catch (e, stack) {
-        DebugLogger.logSimple(
+        _log(
           'SDK',
           '❌ Quran Lab SDK initialization failed (${e.code}): ${e.message} | fix: ${e.fix}\n$stack',
         );
@@ -764,7 +795,7 @@ class _OrchestratorState extends State<_Orchestrator>
         AppState.instance.showSdkErrorBanner(e);
         return false;
       } catch (e, stack) {
-        DebugLogger.logSimple('SDK', '❌ Engine initialization failed: $e\n$stack');
+        _log('SDK', '❌ Engine initialization failed: $e\n$stack');
         AppState.instance.resetModelDownload();
         AppState.instance.showEngineSetupErrorBanner();
         return false;
@@ -807,7 +838,7 @@ class _OrchestratorState extends State<_Orchestrator>
         },
       );
     } catch (e) {
-      DebugLogger.logSimple('AUDIO', '❌ ERROR: $e');
+      _log('AUDIO', '❌ ERROR: $e');
       if (mounted) setState(() => _isRecording = false);
     }
   }
@@ -973,7 +1004,7 @@ class _OrchestratorState extends State<_Orchestrator>
         }
       }
     } catch (e) {
-      DebugLogger.logSimple('RECORD', '❌ ERROR: $e');
+      _log('RECORD', '❌ ERROR: $e');
       if (mounted)
         setState(() {
           _isRecording = false;
@@ -1043,11 +1074,12 @@ class _OrchestratorState extends State<_Orchestrator>
     // If activeAyah just advanced, ensure the previous ayah's final word is flushed preserving exact errors
     if (_lastProcessedAyah != null &&
         (_lastProcessedAyah != activeAyah ||
-            _lastProcessedSurah != targetSurah)) {
+            _lastProcessedSurah != targetSurah) &&
+        _ctrl!.repository.isLoaded) {
       final prevAyah = _lastProcessedAyah!;
       final prevSurah = _lastProcessedSurah!;
       final prevVerse = _ctrl!.repository.getVerse(prevSurah, prevAyah);
-      final prevWordCount = prevVerse?.wordCount ?? 0;
+      final prevWordCount = prevVerse.wordCount;
       final prevClassification = _ctrl!.extractAyahWordClassification(
         prevSurah,
         prevAyah,
@@ -1075,8 +1107,9 @@ class _OrchestratorState extends State<_Orchestrator>
     _lastProcessedSurah = targetSurah;
 
     // Scan canonical verse words directly from loaded repository (never depends on GPU page cache)
-    final currentVerse = _ctrl!.repository.getVerse(targetSurah, activeAyah);
-    final wordCount = currentVerse?.wordCount ?? 0;
+    final wordCount = _ctrl!.repository.isLoaded
+        ? _ctrl!.repository.getVerse(targetSurah, activeAyah).wordCount
+        : 0;
 
     final classification = _ctrl!.extractAyahWordClassification(
       targetSurah,
@@ -1146,6 +1179,7 @@ class _OrchestratorState extends State<_Orchestrator>
       _voiceSearchAsrNotifier.value = '';
 
       await _voiceSearchCtrl.startSearch();
+      _engine.resetBuffer();
 
       _isVoiceSearchPaused = false;
       _audio.start(
@@ -1155,18 +1189,20 @@ class _OrchestratorState extends State<_Orchestrator>
           }
         },
       ).catchError((e) {
-        DebugLogger.logSimple('AUDIO', '❌ ERROR in Voice Search: $e');
+        _log('AUDIO', '❌ ERROR in Voice Search: $e');
         if (mounted) setState(() => _isVoiceSearching = false);
       });
     } catch (e) {
-      DebugLogger.logSimple('VOICE_SEARCH', '❌ START ERROR: $e');
+      _log('VOICE_SEARCH', '❌ START ERROR: $e');
       if (mounted) setState(() => _isVoiceSearching = false);
     } finally {
       _isToggling = false;
     }
   }
 
-  Future<void> _stopVoiceSearch({AnchorResult? precalculatedResult}) async {
+  Future<void> _stopVoiceSearch({
+    ({int surah, int ayah})? precalculatedTarget,
+  }) async {
     if (!_isVoiceSearching || _isToggling) return;
     _isToggling = true;
     _isVoiceSearchPaused = false;
@@ -1182,21 +1218,24 @@ class _OrchestratorState extends State<_Orchestrator>
         });
       }
 
-      AnchorResult? result = precalculatedResult;
-      if (result == null) {
-        result = await _voiceSearchCtrl.stopSearch(_voiceSearchAsrText);
+      ({int surah, int ayah})? target = precalculatedTarget;
+      if (target == null) {
+        final res = await _voiceSearchCtrl.stopSearch(_voiceSearchAsrText);
+        if (res?.topMatch != null) {
+          target = (surah: res!.topMatch!.surah, ayah: res.topMatch!.ayah);
+        }
       }
       _voiceSearchCtrl.clear();
-      if (result != null && _ctrl != null) {
+      if (target != null && _ctrl != null) {
         await _ctrl!.setTargetSurah(
-          result.surah,
+          target.surah,
           preserveOtherSurahStates: true,
           clearTargetSurah: false,
         );
-        _ctrl!.setManualAyah(result.surah, result.ayah);
-        AppState.instance.saveLastPosition(result.surah, result.ayah);
+        _ctrl!.setManualAyah(target.surah, target.ayah);
+        AppState.instance.saveLastPosition(target.surah, target.ayah);
         final mappedPage =
-            MushafProvider.instance.getPageForAyah(result.surah, result.ayah);
+            MushafProvider.instance.getPageForAyah(target.surah, target.ayah);
         if (mappedPage != null) {
           AppState.instance.saveMushafPage(mappedPage);
         }
@@ -1207,7 +1246,7 @@ class _OrchestratorState extends State<_Orchestrator>
         AppState.instance.showAyahNotFoundBanner();
       }
     } catch (e) {
-      DebugLogger.logSimple('VOICE_SEARCH', '❌ STOP ERROR: $e');
+      _log('VOICE_SEARCH', '❌ STOP ERROR: $e');
     } finally {
       _isToggling = false;
     }
@@ -1326,14 +1365,14 @@ class _OrchestratorState extends State<_Orchestrator>
       isVoiceSearching: _isVoiceSearching,
       voiceSearchText: _voiceSearchAsrText,
       voiceSearchTextNotifier: _voiceSearchAsrNotifier,
-      voiceSearchController: _voiceSearchCtrl,
+      voiceSearchResultNotifier: _voiceSearchResultNotifier,
       onToggleRecord: _toggleRecord,
       onVoiceSearchToggle: _toggleVoiceSearch,
-      isVoiceSearchLoading: _voiceSearchCtrl.isIndexLoading,
+      isVoiceSearchLoading: _voiceSearchLoadingNotifier,
       onVoiceSearchHoldChanged: _onVoiceSearchHoldChanged,
       onSelectVoiceCandidate: (surah, ayah) {
         _stopVoiceSearch(
-          precalculatedResult: AnchorResult(surah: surah, ayah: ayah),
+          precalculatedTarget: (surah: surah, ayah: ayah),
         );
       },
       onClearBuffer: () {

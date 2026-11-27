@@ -8,6 +8,7 @@
 // This keeps the codebase dependency-free and startup instant.
 
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -98,30 +99,22 @@ class AppState extends ChangeNotifier {
   final ValueNotifier<ModelDownloadProgress> modelDownloadNotifier =
       ValueNotifier<ModelDownloadProgress>(const ModelDownloadProgress());
 
-  void bindSdkStatus(SdkModelStatus status) {
-    switch (status.phase) {
-      case SdkModelPhase.initializingClient:
-      case SdkModelPhase.loadingModel:
-      case SdkModelPhase.openingSession:
-        modelDownloadNotifier.value = const ModelDownloadProgress(
-          isDownloading: true,
-          progress: null,
-        );
-        break;
-      case SdkModelPhase.downloadingModel:
-        modelDownloadNotifier.value = ModelDownloadProgress(
-          isDownloading: true,
-          progress: status.progress,
-          loadedBytes: status.downloadedBytes,
-          totalBytes: status.totalBytes,
-        );
-        break;
-      case SdkModelPhase.ready:
-      case SdkModelPhase.uninitialized:
-      case SdkModelPhase.error:
-        modelDownloadNotifier.value = const ModelDownloadProgress();
-        break;
+  void updateModelDownloadProgress({
+    required bool isDownloading,
+    double? progress,
+    int loadedBytes = 0,
+    int totalBytes = 0,
+  }) {
+    if (!isDownloading) {
+      modelDownloadNotifier.value = const ModelDownloadProgress();
+      return;
     }
+    modelDownloadNotifier.value = ModelDownloadProgress(
+      isDownloading: true,
+      progress: progress,
+      loadedBytes: loadedBytes,
+      totalBytes: totalBytes,
+    );
   }
 
   void showSdkErrorBanner(TajweedError error) {
@@ -988,7 +981,9 @@ class AppState extends ChangeNotifier {
 
       notifyListeners();
     } catch (e) {
-      DebugLogger.logSimple('AppState', "Error loading settings: $e");
+      if (kDebugMode) {
+        debugPrint('[AppState] Error loading settings: $e');
+      }
     }
   }
 }

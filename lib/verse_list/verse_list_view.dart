@@ -52,6 +52,7 @@ class VerseListViewState extends State<VerseListView>
   bool get isAutoScrolling => _isAutoScrolling;
 
   List<QuranVerse> get _displayVerses {
+    if (!widget.controller.repository.isLoaded) return const [];
     if (_cachedDisplayVerses == null ||
         _cachedDisplayVerses!.isEmpty ||
         _cachedDisplayVerses!.first.surah != widget.controller.targetSurah) {

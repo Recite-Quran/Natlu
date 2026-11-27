@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:quran_tarteel/quran_tarteel.dart' as rq;
 export 'package:quran_tarteel/quran_tarteel.dart';
 
+import 'app_sdk_runner.dart';
 import 'app_state.dart';
 import '../audio/quran_audio_service.dart';
 import '../ui/widgets/dialogs/dialog_service.dart';
@@ -183,7 +185,7 @@ class HighlightStore {
 /// controller. They never need separate branches or conditional code per mode.
 class HighlightingController extends ChangeNotifier {
   final rq.QuranRepository repository;
-  final rq.QuranLabSdkEngine _engine;
+  final AppSdkRunner _engine;
   final rq.QuranScorer _scorer;
   final VoidCallback? onAyahChanged;
   bool isTajweed;
@@ -196,7 +198,7 @@ class HighlightingController extends ChangeNotifier {
   final ValueNotifier<String> debugRecognizedText = ValueNotifier('');
 
   HighlightingController get tracker => this;
-  rq.QuranLabSdkEngine get engine => _engine;
+  AppSdkRunner get engine => _engine;
   rq.QuranScorer get scorer => _scorer;
 
   Stream<rq.WordMatchedEvent> get onWordEvaluated => _scorer.onWordEvaluated;
@@ -249,7 +251,7 @@ class HighlightingController extends ChangeNotifier {
 
   HighlightingController({
     required this.repository,
-    required rq.QuranLabSdkEngine engine,
+    required AppSdkRunner engine,
     this.onAyahChanged,
     this.isTajweed = true,
     this.config = const rq.TrackerConfig(),
@@ -266,7 +268,7 @@ class HighlightingController extends ChangeNotifier {
 
   void _syncCalibratedThresholds() {
     if (_engineTauSynced) return;
-    final double? tau = _engine.calibratedQalqalahTau;
+    final double? tau = _engine.validatedQalqalahTau;
     if (tau != null) {
       _engineTauSynced = true;
       if (_scorer.tajweedConfig.qalqalahTau == null) {
@@ -290,15 +292,12 @@ class HighlightingController extends ChangeNotifier {
       if (result.text.isNotEmpty) {
         debugRecognizedText.value = result.text;
       }
-      _scorer.feedTranscript(result);
+      if (_scorer.isInitialized) {
+        _scorer.feedTranscript(result);
+      }
     });
 
-    final sdkTokens = _engine.tokens;
-    if (sdkTokens != null && repository.sdkTokens == null) {
-      repository.setSdkTokens(sdkTokens);
-    }
-
-    if (repository.isLoaded || repository.sdkTokens != null) {
+    if (repository.isLoaded) {
       await _scorer.initialize();
       _syncCalibratedThresholds();
     }
@@ -309,17 +308,17 @@ class HighlightingController extends ChangeNotifier {
   Future<void> syncWithReadyEngine({int? surah}) async {
     await initFuture;
     final sdkTokens = _engine.tokens;
-    if (sdkTokens != null && repository.sdkTokens == null) {
-      repository.setSdkTokens(sdkTokens);
+    if (!repository.isLoaded && sdkTokens != null) {
+      final data = await rootBundle.load('assets/model/expected_tj3.zfx');
+      final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      repository.loadSdkBytes(bytes, tokens: sdkTokens);
     }
-    if (!_scorer.isInitialized &&
-        (repository.isLoaded || repository.sdkTokens != null)) {
+    if (!_scorer.isInitialized && repository.isLoaded) {
       await _scorer.initialize();
     }
     final int target =
         surah != null && QuranMetadata.isValidSurah(surah) ? surah : targetSurah;
-    if (repository.isLoaded && target != 0) {
-      await repository.loadSurahAsync(target);
+    if (repository.isLoaded && _scorer.isInitialized && target != 0) {
       _scorer.setTajweedMode(isTajweed);
       _scorer.setTargetSurah(target);
     }
@@ -355,9 +354,11 @@ class HighlightingController extends ChangeNotifier {
     final int targetAyah = activeAyah.value ?? 1;
     clearHighlightsFromAyah(targetAyah);
     final int s = targetSurah != 0 ? targetSurah : 1;
-    final int startGlobalWord =
-        repository.getAyahStartGlobalIndex(s, targetAyah);
-    _scorer.jumpToWord(startGlobalWord);
+    if (repository.isLoaded && _scorer.isInitialized) {
+      final int startGlobalWord =
+          repository.getAyahStartGlobalIndex(s, targetAyah);
+      _scorer.jumpToWord(startGlobalWord);
+    }
     _engine.resetBuffer();
     _scorer.resetBuffer();
     debugRecognizedText.value = '';
@@ -463,7 +464,9 @@ class HighlightingController extends ChangeNotifier {
     }
 
     // Pure UI / App level Ayah completion evaluation
-    final int totalWordsInAyah = repository.getAyahWordCount(surah, ayah);
+    final int totalWordsInAyah = repository.isLoaded
+        ? repository.getAyahWordCount(surah, ayah)
+        : 0;
     final bool isLastWordOfAyah =
         totalWordsInAyah > 0 && w0 == totalWordsInAyah - 1;
 
@@ -584,13 +587,13 @@ class HighlightingController extends ChangeNotifier {
     if (clearTargetSurah) {
       _store.clearSurah(surah);
     }
-    // Merge window: the package writes transient coordinates mid-merge;
-    // views must not follow until the merge's final write lands.
-    _beginRetarget();
-    try {
-      _scorer.setTargetSurah(surah);
-    } finally {
-      _endRetarget();
+    if (_scorer.isInitialized) {
+      _beginRetarget();
+      try {
+        _scorer.setTargetSurah(surah);
+      } finally {
+        _endRetarget();
+      }
     }
     globalRevision.value++;
     notifyListeners();
@@ -601,12 +604,12 @@ class HighlightingController extends ChangeNotifier {
 
   /// Checks whether all words in [surah] have been completed or read.
   bool isSurahFinished(int surah) {
-    if (!QuranMetadata.isValidSurah(surah)) return false;
+    if (!QuranMetadata.isValidSurah(surah) || !repository.isLoaded) return false;
     final lastWord = _surahLastWordCache.putIfAbsent(surah, () {
       final totalAyahs = QuranMetadata.getAyahCount(surah);
       if (totalAyahs <= 0) return (ayah: -1, lastWordIndex: -1);
       final lastVerse = repository.getVerse(surah, totalAyahs);
-      if (lastVerse == null || lastVerse.phonemeWords.isEmpty) {
+      if (lastVerse.phonemeWords.isEmpty) {
         return (ayah: totalAyahs, lastWordIndex: 0);
       }
       return (
@@ -967,7 +970,6 @@ class HighlightingController extends ChangeNotifier {
       expectedPh: e.expectedPh,
       predictedPh: e.predictedPh,
       expectedRule: rule,
-      predictedRule: e.predictedRule,
       expectedDuration: e.expectedDuration,
       actualDuration: e.actualDuration,
     );
