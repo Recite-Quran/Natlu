@@ -31,23 +31,23 @@ enum AudioFailureReason {
   unknown,
 }
 
-/// Real-time ASR model download progress tracker for Web.
+/// Real-time SDK model download and preparation progress tracker.
 class ModelDownloadProgress {
   final bool isDownloading;
-  final double progress;
+  final double? progress;
   final int loadedBytes;
   final int totalBytes;
 
   const ModelDownloadProgress({
     this.isDownloading = false,
-    this.progress = 0.0,
+    this.progress,
     this.loadedBytes = 0,
-    this.totalBytes = 72705392,
+    this.totalBytes = 0,
   });
 
   double get loadedMB => loadedBytes / (1024 * 1024);
   double get totalMB => totalBytes / (1024 * 1024);
-  int get percent => (progress * 100).clamp(0, 100).toInt();
+  int get percent => progress != null ? (progress! * 100).clamp(0, 100).toInt() : 0;
 }
 
 /// Data payload for modern floating slide-up banners across the app.
@@ -94,38 +94,112 @@ class AppState extends ChangeNotifier {
   final ValueNotifier<AppBannerInfo?> bannerNotifier =
       ValueNotifier<AppBannerInfo?>(null);
 
-  /// Web AI model download progress notifier (fine-grained reactive updates).
+  /// Quran Lab SDK model download/load progress notifier.
   final ValueNotifier<ModelDownloadProgress> modelDownloadNotifier =
       ValueNotifier<ModelDownloadProgress>(const ModelDownloadProgress());
 
-  void updateModelDownloadProgress({
-    required int loaded,
-    required int total,
-    required double fraction,
-  }) {
-    modelDownloadNotifier.value = ModelDownloadProgress(
-      isDownloading: fraction < 1.0,
-      progress: fraction,
-      loadedBytes: loaded,
-      totalBytes: total > 0 ? total : 72705392,
-    );
+  void bindSdkStatus(SdkModelStatus status) {
+    switch (status.phase) {
+      case SdkModelPhase.checkingCache:
+      case SdkModelPhase.initializingClient:
+      case SdkModelPhase.loadingModel:
+      case SdkModelPhase.openingSession:
+        modelDownloadNotifier.value = const ModelDownloadProgress(
+          isDownloading: true,
+          progress: null,
+        );
+        break;
+      case SdkModelPhase.downloadingModel:
+        modelDownloadNotifier.value = ModelDownloadProgress(
+          isDownloading: true,
+          progress: status.progress,
+          loadedBytes: status.downloadedBytes,
+          totalBytes: status.totalBytes,
+        );
+        break;
+      case SdkModelPhase.ready:
+      case SdkModelPhase.uninitialized:
+      case SdkModelPhase.error:
+        modelDownloadNotifier.value = const ModelDownloadProgress();
+        break;
+    }
+  }
+
+  void showSdkErrorBanner(TajweedError error) {
+    final String arMsg;
+    final String enMsg;
+    final IconData icon;
+
+    switch (error.code) {
+      case TajweedErrorCode.needsConnection:
+        icon = Icons.wifi_off_rounded;
+        if (error.cause?.needs == TajweedErrorCause.needsLease) {
+          arMsg = 'يرجى الاتصال بالإنترنت للتحقق من رخصة المحرك الصوتي';
+          enMsg = 'Connect briefly to verify the speech engine license';
+        } else {
+          arMsg = 'يرجى الاتصال بالإنترنت لتنزيل نموذج التلاوة لأول مرة';
+          enMsg = 'Connect to the internet to download the Quran speech model';
+        }
+        break;
+      case TajweedErrorCode.downloadFailed:
+      case TajweedErrorCode.checksumMismatch:
+        icon = Icons.cloud_off_rounded;
+        arMsg = 'تعذر تنزيل نموذج التلاوة • تحقق من الشبكة وحاول ثانية';
+        enMsg = 'Could not download speech model • Check connection and retry';
+        break;
+      case TajweedErrorCode.storageFull:
+      case TajweedErrorCode.storageFailed:
+        icon = Icons.storage_rounded;
+        arMsg = 'المساحة التخزينية غير كافية لتثبيت نموذج التلاوة';
+        enMsg = 'Not enough device storage for the speech model';
+        break;
+      case TajweedErrorCode.invalidKey:
+      case TajweedErrorCode.serverRejected:
+        icon = Icons.vpn_key_off_rounded;
+        arMsg = 'تعذر التحقق من مفتاح Quran Lab SDK لهذه النسخة';
+        enMsg = 'Quran Lab SDK key or app verification failed';
+        break;
+      case TajweedErrorCode.sdkTooOld:
+        icon = Icons.system_update_rounded;
+        arMsg = 'يرجى تحديث التطبيق لاستخدام نموذج التلاوة';
+        enMsg = 'Please update the app to run the speech model';
+        break;
+      case TajweedErrorCode.runtimeUnsupported:
+        icon = Icons.devices_other_rounded;
+        arMsg = 'محرك التلاوة الذكي غير مدعوم على هذا النظام (أندرويد و iOS فقط)';
+        enMsg = 'Speech engine is supported on Android and iOS only';
+        break;
+      default:
+        icon = Icons.error_outline_rounded;
+        arMsg = 'تعذر تشغيل محرك التلاوة • يرجى المحاولة مرة أخرى';
+        enMsg = 'Could not start speech engine • Please try again';
+        break;
+    }
+
+    showBanner(AppBannerInfo(
+      id: 'sdk_error_${error.code}',
+      messageAr: arMsg,
+      messageEn: enMsg,
+      icon: icon,
+      isWarning: true,
+      customDuration: const Duration(milliseconds: 4200),
+    ));
+  }
+
+  void showEngineSetupErrorBanner() {
+    showBanner(const AppBannerInfo(
+      id: 'engine_setup_error',
+      messageAr: 'تعذر تهيئة محرك التلاوة • يرجى المحاولة مرة أخرى',
+      messageEn: 'Could not initialize speech engine • Please retry',
+      icon: Icons.error_outline_rounded,
+      isWarning: true,
+      customDuration: Duration(milliseconds: 3600),
+    ));
   }
 
   void startModelDownload() {
     modelDownloadNotifier.value = const ModelDownloadProgress(
       isDownloading: true,
-      progress: 0.0,
-      loadedBytes: 0,
-      totalBytes: 72705392,
-    );
-  }
-
-  void completeModelDownload() {
-    modelDownloadNotifier.value = const ModelDownloadProgress(
-      isDownloading: false,
-      progress: 1.0,
-      loadedBytes: 72705392,
-      totalBytes: 72705392,
     );
   }
 
@@ -423,6 +497,7 @@ class AppState extends ChangeNotifier {
     checkShaddah: false,
     checkQalqalah: false,
     checkLetterSwap: false,
+    checkPlainLetters: false,
   );
 
   TajweedConfig _tajweedConfig = defaultTajweedConfig;
@@ -446,6 +521,8 @@ class AppState extends ChangeNotifier {
       await prefs.setBool('tajweed_check_shaddah', config.checkShaddah);
       await prefs.setBool('tajweed_check_qalqalah', config.checkQalqalah);
       await prefs.setBool('tajweed_check_letter_swap', config.checkLetterSwap);
+      await prefs.setBool(
+          'tajweed_check_plain_letters', config.checkPlainLetters);
     } catch (_) {}
   }
 
@@ -882,6 +959,8 @@ class AppState extends ChangeNotifier {
           checkShaddah: prefs.getBool('tajweed_check_shaddah') ?? false,
           checkQalqalah: prefs.getBool('tajweed_check_qalqalah') ?? false,
           checkLetterSwap: prefs.getBool('tajweed_check_letter_swap') ?? false,
+          checkPlainLetters:
+              prefs.getBool('tajweed_check_plain_letters') ?? false,
         );
       } else {
         _tajweedConfig = defaultTajweedConfig;

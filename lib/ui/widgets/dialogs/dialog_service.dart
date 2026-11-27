@@ -87,16 +87,6 @@ abstract final class DialogService {
     return AudioDownloadDialog.show(context);
   }
 
-  /// Displays the TajweedFormer model download modal dialog.
-  static Future<bool?> showModelDownload(BuildContext context) {
-    return showDialog<bool>(
-      context: context,
-      barrierColor: barrierColor,
-      barrierDismissible: true,
-      builder: (ctx) => const ModelDownloadDialog(),
-    );
-  }
-
   /// Opens the Microphone permission prompt dialog.
   static Future<void> showPermission(
     BuildContext context, {

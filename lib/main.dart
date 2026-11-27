@@ -8,13 +8,13 @@
 ///
 /// The _Orchestrator initializes:
 ///   1. Microphone permissions
-///   2. TajweedFormer V4 ASR engine (in a background Isolate)
-///   3. Quran reference metadata (expected_tj3.zfx)
+///   2. Quran Lab SDK ASR engine (`QuranLabSdkEngine`)
+///   3. Quran reference metadata (`expected_tj3.zfx` + SDK `model.tokens`)
 ///   4. HighlightingController (bridges ASR → UI)
 ///
 /// Recording flow:
 ///   AudioProcessor captures mic → feeds chunks to Controller →
-///   Controller sends to TajweedFormerEngine (Isolate) → gets transcription →
+///   Controller sends to QuranLabSdkEngine → gets transcription →
 ///   matches words against expected Quran text → updates highlighting
 library;
 
@@ -36,8 +36,6 @@ import 'maglis/maglis_core.dart';
 import 'core/maglis_link_service.dart';
 import 'core/app_audio_processor.dart';
 import 'core/platform_utils.dart';
-import 'mushaf/web/mushaf_web_storage.dart'
-    if (dart.library.js_interop) 'mushaf/web/mushaf_web_storage_web.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -45,7 +43,6 @@ import 'audio/quran_audio_handler.dart';
 import 'audio/quran_audio_service.dart';
 import 'audio/quran_download_service.dart';
 import 'ui/widgets/dialogs/dialog_service.dart';
-import 'package:offline_engine/offline_engine.dart';
 
 void main() async {
   runZonedGuarded(
@@ -233,25 +230,9 @@ class _Orchestrator extends StatefulWidget {
 
 class _OrchestratorState extends State<_Orchestrator>
     with WidgetsBindingObserver {
-  static ReciteEngine _resolveEngine() {
-    const bool useSdk =
-        bool.fromEnvironment('USE_QURANLAB_SDK', defaultValue: false);
-    const String quranLabApiKey = String.fromEnvironment('QURANLAB_KEY');
-
-    // Online Quran Lab SDK mode (only when explicitly requested via --dart-define=USE_QURANLAB_SDK=true):
-    if (useSdk &&
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.android ||
-            defaultTargetPlatform == TargetPlatform.iOS) &&
-        quranLabApiKey.isNotEmpty) {
-      return QuranLabSdkEngine(apiKey: quranLabApiKey);
-    }
-
-    // Default: Bundled offline FFI engine for ultra-fast, zero-network recitation:
-    return TajweedFormerEngine();
-  }
-
-  final ReciteEngine _engine = _resolveEngine();
+  final QuranLabSdkEngine _engine = QuranLabSdkEngine(
+    apiKey: const String.fromEnvironment('QURANLAB_KEY'),
+  );
   final AppAudioProcessor _audio = AppAudioProcessor();
   late final VoiceSearchController _voiceSearchCtrl;
 
@@ -301,11 +282,15 @@ class _OrchestratorState extends State<_Orchestrator>
 
   // Endpointing: VAD endpoint with silence threshold
 
+  void _onSdkModelStatusChanged() {
+    AppState.instance.bindSdkStatus(_engine.modelStatus);
+  }
+
   @override
   void initState() {
     super.initState();
     MaglisLinkService.instance.init();
-    initModelDownloadTracker();
+    _engine.modelStatusListenable.addListener(_onSdkModelStatusChanged);
     WidgetsBinding.instance.addObserver(this);
     _voiceSearchCtrl = VoiceSearchController(engine: _engine);
     QuranAudioService.instance.onAudioProgress = ({
@@ -430,9 +415,7 @@ class _OrchestratorState extends State<_Orchestrator>
     });
 
     _init();
-    // Defer update check by 5s so Play Core native code doesn't compete
-    // with XNNPACK/ONNX initialization for memory and IPC resources
-    // during the critical startup window.
+    // Defer update check so startup UI and SDK warm-up settle cleanly.
     Future.delayed(const Duration(seconds: 15), _checkForUpdates);
 
     if (PlatformCapabilities.supportsHighRefreshRate) {
@@ -610,9 +593,11 @@ class _OrchestratorState extends State<_Orchestrator>
     QuranAudioService.instance.onAudioProgress = null;
     QuranAudioService.instance.onPlayingChanged = null;
     QuranAudioService.instance.stop();
+    _engine.modelStatusListenable.removeListener(_onSdkModelStatusChanged);
     _transcriptionSub?.cancel();
     _audio.dispose();
     _ctrl?.dispose();
+    _engine.destroy();
     _voiceSearchAsrNotifier.dispose();
     super.dispose();
   }
@@ -621,40 +606,23 @@ class _OrchestratorState extends State<_Orchestrator>
   /// Does not block the splash screen for the heavy model extraction.
   Future<void> _init() async {
     try {
-      // ASR engine initialization is lazily deferred until the user initiates recitation
-      // or voice search via _ensureEngineReady(), keeping silent reading cool, lean, and jank-free.
+      // ASR engine initialization is deferred until cached pre-warm or user action
+      // so silent Mushaf reading stays instant without forcing a first-run download.
       if (mounted) setState(() => _initStatus = 'Loading Quran database…');
-      // Start Mushaf preload before phoneme JSON loading so native extraction/atlas
-      // load does not wait behind the 12.8 MB phoneme dataset.
       MushafView.preloadData();
       final service = QuranMetadataService();
       _repo = QuranRepository(service);
       final initialSurah = AppState.instance.lastSurah;
       final initialAyah = AppState.instance.lastAyah;
-      await _repo!.loadSurahAsync(initialSurah);
       _voiceSearchCtrl.repository = _repo;
-
-      // Voice search phonetic index is lazily loaded on first voice search tap,
-      // saving ~20MB RAM and preventing background isolate CPU churn during startup and silent reading.
 
       _ctrl = HighlightingController(
         engine: _engine,
         repository: _repo!,
         isTajweed: AppState.instance.currentMode == AppMode.tajweed,
         config: AppState.instance.trackerConfig,
-        // onAyahChanged is called on explicit user actions (manual tap, session start).
-        // Automatic ayah-advance uses flushAndResetForNextAyah() inside
-        // HighlightingController itself — that handles the flush-before-reset pattern.
-        // We only clear the audio processor's frame buffer here (which is a no-op anyway).
         onAyahChanged: () {
-          // DO NOT call _audio.clearBuffer() here: in continuous recitation,
-          // clearing the frame buffer discards up to 480ms of audio, causing
-          // the model to drop the first 2 letters of the incoming ayah.
-          // DO NOT call _engine.resetBuffer() here.
-          // The correct reset path at ayah boundaries is flushAndResetForNextAyah()
-          // which is triggered from _onIsolateWordMatched in HighlightingController.
-          // Calling resetBuffer() here would wipe the live cache before the flush,
-          // silently discarding the final word's right-context tail every ayah.
+          // Preserve continuous recitation frames across ayah transitions.
         },
       );
       _syncMaglisBroadcastListeners();
@@ -664,17 +632,8 @@ class _OrchestratorState extends State<_Orchestrator>
       if (mounted) setState(() => _isInit = false);
       MaglisLinkService.instance.isAppReady = true;
 
-      // Platform-aware ASR pre-warming:
-      if (PlatformCapabilities.isWeb) {
-        // On Web, warm up silently ONLY if the ~72MB model is already cached in browser IndexedDB.
-        // If not cached, we strictly wait until the user taps Record to request bandwidth consent.
-        _engine.isModelCached().then((isCached) {
-          if (isCached && mounted && !_engine.isInitialized) {
-            unawaited(_engine.initialize().catchError((_) {}));
-          }
-        });
-      } else {
-        // On Native (Android, iOS, Windows, macOS), schedule deferred pre-warm after the UI settles.
+      // Silently pre-warm the SDK model only if it is already cached on device.
+      if (PlatformCapabilities.isMobile) {
         _scheduleEnginePrewarm();
       }
 
@@ -719,11 +678,10 @@ class _OrchestratorState extends State<_Orchestrator>
     }
   }
 
-  /// Silently pre-warms the ASR neural engine in the background on native platforms
-  /// only after Mushaf data is ready, preventing the 72.7 MB ONNX copy/init from
-  /// contending with first-run extraction.
+  /// Silently pre-warms the encrypted Quran Lab SDK model in the background on
+  /// Android/iOS when already cached on disk so the first recitation tap is instant.
   void _scheduleEnginePrewarm() {
-    if (PlatformCapabilities.isWeb || _engine.isInitialized) return;
+    if (!PlatformCapabilities.isMobile || _engine.isInitialized) return;
     final int epoch = ++_prewarmEpoch;
     _enginePrewarmTimer?.cancel();
     _enginePrewarmTimer = null;
@@ -740,6 +698,14 @@ class _OrchestratorState extends State<_Orchestrator>
         epoch != _prewarmEpoch) {
       return;
     }
+    final bool cached = await _engine.isModelCached();
+    if (!cached ||
+        !mounted ||
+        _isBackgrounded ||
+        _engine.isInitialized ||
+        epoch != _prewarmEpoch) {
+      return;
+    }
 
     _enginePrewarmTimer = Timer(const Duration(milliseconds: 1500), () {
       _enginePrewarmTimer = null;
@@ -749,50 +715,52 @@ class _OrchestratorState extends State<_Orchestrator>
           epoch != _prewarmEpoch) {
         return;
       }
-      DebugLogger.logSimple('ASR', '⚡ Background pre-warming ASR engine...');
-      unawaited(_engine.initialize().catchError((e) {
-        DebugLogger.logSimple(
-          'ASR',
-          '⚠️ Background engine pre-warm safely handled error: $e',
-        );
-      }));
+      DebugLogger.logSimple('ASR', '⚡ Background pre-warming Quran Lab SDK...');
+      unawaited(
+        _engine
+            .initialize()
+            .then((_) => _ctrl?.syncWithReadyEngine(surah: AppState.instance.lastSurah))
+            .catchError((Object e) {
+          DebugLogger.logSimple(
+            'ASR',
+            '⚠️ Background SDK pre-warm safely handled error: $e',
+          );
+        }),
+      );
     });
   }
 
-  /// Ensures the ASR engine is initialized.
-  /// On Web, prompts for user bandwidth consent if the ~72MB model is not yet downloaded.
+  /// Ensures the Quran Lab SDK model and reference metadata are ready before capture.
   Future<bool> _ensureEngineReady() async {
     _cancelEnginePrewarm();
-
-    if (_engine.isInitialized) return true;
-
-    if (PlatformCapabilities.isWeb) {
-      final bool isCached = await _engine.isModelCached();
-      if (!isCached && mounted) {
-        final bool? proceed = await DialogService.showModelDownload(context);
-        if (proceed != true) {
-          return false;
-        }
-      }
-    }
 
     if (!_engine.isInitialized) {
       if (mounted) setState(() => _isEngineLoading = true);
       AppState.instance.startModelDownload();
       try {
         await _engine.initialize();
-        if (_engine.isInitialized) {
-          AppState.instance.completeModelDownload();
-        } else {
-          AppState.instance.resetModelDownload();
-        }
-      } catch (e, stack) {
-        DebugLogger.logSimple('ASR', '❌ Engine initialization failed: $e\n$stack');
+      } on TajweedError catch (e, stack) {
+        DebugLogger.logSimple(
+          'SDK',
+          '❌ Quran Lab SDK initialization failed (${e.code}): ${e.message} | fix: ${e.fix}\n$stack',
+        );
         AppState.instance.resetModelDownload();
+        AppState.instance.showSdkErrorBanner(e);
+        return false;
+      } catch (e, stack) {
+        DebugLogger.logSimple('SDK', '❌ Engine initialization failed: $e\n$stack');
+        AppState.instance.resetModelDownload();
+        AppState.instance.showEngineSetupErrorBanner();
+        return false;
       } finally {
         if (mounted) setState(() => _isEngineLoading = false);
       }
     }
+
+    final int targetSurah = (_ctrl?.targetSurah ?? 0) > 0
+        ? _ctrl!.targetSurah
+        : AppState.instance.lastSurah;
+    await _ctrl?.syncWithReadyEngine(surah: targetSurah);
     return _engine.isInitialized;
   }
 

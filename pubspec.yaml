@@ -4,15 +4,14 @@ publish_to: 'none'
 version: 1.2.0+24
 
 environment:
-  sdk: '>=3.5.0 <4.0.0'
+  sdk: '^3.11.0'
+  flutter: ">=3.44.0"
 
 dependencies:
   flutter:
     sdk: flutter
   quran_tarteel:
     path: ../quran_tarteel
-  offline_engine:
-    path: offline_engine
   qvp_flutter: ^0.11.0
   url_launcher: ^6.3.2
 
@@ -54,8 +53,7 @@ flutter:
 
   assets:
     - assets/quran_words.json
-    - assets/model/
-    - assets/model/c16_l64/
+    - assets/model/expected_tj3.zfx
     - assets/icon/app_icon.png
     - assets/pages.tar.xz
     - assets/audio_timings/husary/

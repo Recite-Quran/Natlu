@@ -328,10 +328,18 @@ class ErrorDetailDialog extends StatelessWidget {
             isAr ? 'المد العارض للسكون' : 'Aared Madd',
           TajweedRuleType.maddLazem => isAr ? 'المد اللازم' : 'Lazem Madd',
           TajweedRuleType.maddLeen => isAr ? 'مد اللين' : 'Leen Madd',
-          TajweedRuleType.ghunnah =>
-            isAr ? 'النون أو الميم المشددة' : 'Mushaddad Noon/Meem',
+          TajweedRuleType.ghunnah => switch (
+              rule is MushaddadGhunnahRule ? rule.ghunnaExpected : 0) {
+              2 => isAr ? 'غنة النون أو الميم المشددتين' : 'Ghunnah (Mushaddad)',
+              3 => isAr ? 'غنة الإخفاء أو الإقلاب' : 'Ghunnah (Ikhfaa / Iqlab)',
+              4 => isAr ? 'غنة الإدغام بغنة' : 'Ghunnah (Idgham bi-Ghunnah)',
+              _ => isAr ? 'غنة (حركتان)' : 'Ghunnah',
+            },
           TajweedRuleType.shaddah => isAr ? 'الشدة' : 'Shaddah',
-          TajweedRuleType.qalqalah => isAr ? 'قلقلة' : 'Qalqalah',
+          TajweedRuleType.qalqalah =>
+            rule is QalqalahRule && rule.level == 2
+                ? (isAr ? 'قلقلة كبرى' : 'Major Qalqalah')
+                : (isAr ? 'قلقلة صغرى' : 'Minor Qalqalah'),
           TajweedRuleType.plainLetter =>
             isAr ? 'حرف بدون مد (التمطيط)' : 'Unruled Letter (Overheld)',
           TajweedRuleType.other => isAr ? 'حكم تجويد' : 'Tajweed Rule',
@@ -347,9 +355,19 @@ class ErrorDetailDialog extends StatelessWidget {
             ? 'اضغط على مخرج الحرف المشدد'
             : 'Hold the consonant firmly without abrupt release.';
       } else if (rule?.ruleType == TajweedRuleType.ghunnah) {
-        advice = isAr
-            ? 'أعطِ الغنة زمن حركتين كاملتين دون استعجال'
-            : 'Give the Ghunnah a full 2-beat nasal resonance.';
+        final int ghClass =
+            rule is MushaddadGhunnahRule ? rule.ghunnaExpected : 2;
+        advice = switch (ghClass) {
+          3 => isAr
+              ? 'أعطِ غنة الإخفاء أو الإقلاب زمن حركتين كاملتين مع إخفاء النون'
+              : 'Hold the nasal Ghunnah for 2 full beats without full closure.',
+          4 => isAr
+              ? 'أدغم الحرف مع الغنة بمقدار حركتين كاملتين'
+              : 'Merge with a full 2-beat nasal Ghunnah.',
+          _ => isAr
+              ? 'أعطِ الغنة زمن حركتين كاملتين دون استعجال'
+              : 'Give the Ghunnah a full 2-beat nasal resonance.',
+        };
       } else if (rule?.ruleType == TajweedRuleType.qalqalah) {
         advice = isAr
             ? 'أظهر نبرة القلقلة باهتزاز واضح عند سكون الحرف دون زيادة مد'
@@ -1027,6 +1045,12 @@ class ErrorDetailDialog extends StatelessWidget {
     }
 
     String cleaned = s
+        .replaceAll('aa', '\u0627')
+        .replaceAll('ii', '\u064A')
+        .replaceAll('uu', '\u0648')
+        .replaceAll('a', '\u064E')
+        .replaceAll('i', '\u0650')
+        .replaceAll('u', '\u064F')
         .replaceAll('\u06e5', 'و')
         .replaceAll('\u06e6', 'ي')
         .replaceAll('\u06ba', 'ن')

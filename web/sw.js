@@ -38,8 +38,6 @@ const STATIC_PRECACHE = [
   'assets/fonts/HafsSmart_08.ttf',
   'assets/fonts/MaterialIcons-Regular.otf',
   'assets/assets/icon/app_icon.png',
-  'assets/packages/quran_tajweedformer/assets/model/tokens.txt',
-  'assets/packages/quran_tajweedformer/assets/json/riwayat.json',
   'assets/packages/qvp_flutter/assets/wasm/qvp_ffi.wasm',
   'assets/packages/record_web/assets/js/record.worklet.js',
   'assets/packages/wakelock_plus/assets/no_sleep.js',
@@ -126,9 +124,6 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
-
-  // Model download endpoint is saved directly to IndexedDB
-  if (url.pathname.includes('/download-model')) return;
 
   // On-demand Mushaf QVP pages from same-origin proxy or CDN are cached directly in IndexedDB
   if (url.pathname.startsWith('/api/qvp') || url.hostname.includes('cdn.quran.ws')) return;

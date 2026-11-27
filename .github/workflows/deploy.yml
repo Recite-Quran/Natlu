@@ -38,6 +38,7 @@ jobs:
       - name: Build Web App
         env:
           SUBHAN_ALLAH: ${{ secrets.SUBHAN_ALLAH }}
+          QURANLAB_KEY: ${{ secrets.QURANLAB_KEY }}
         run: |
           chmod +x web/scripts/build.sh
           bash web/scripts/build.sh

@@ -485,10 +485,11 @@ class BottomActionBar extends StatelessWidget {
                 builder: (context, dl, _) {
                   final bool hasProgress =
                       dl.isDownloading && dl.loadedBytes > 0;
-                  final double? progressVal =
-                      hasProgress ? dl.progress.clamp(0.0, 1.0) : null;
+                  final double? progressVal = hasProgress ? dl.progress : null;
                   final String pctText = '${dl.percent}%';
-                  final String mbText = '${dl.loadedMB.toInt()}/71 MB';
+                  final String mbText = dl.totalBytes > 0
+                      ? '${dl.loadedMB.toInt()}/${dl.totalMB.toInt()} MB'
+                      : '${dl.loadedMB.toInt()} MB';
 
                   return FittedBox(
                     fit: BoxFit.scaleDown,

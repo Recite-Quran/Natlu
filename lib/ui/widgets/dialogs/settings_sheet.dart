@@ -390,7 +390,26 @@ class SettingsSheet extends StatelessWidget {
                       // 4. Offline Audio & Timing Download
                       QuranDownloadTile(c: c, isAr: isAr, isDark: isDark),
 
-                      // 4. Sliders in reading mode
+                      if (controller?.engine case final QuranLabSdkEngine sdkEngine
+                          when sdkEngine.sharing != null) ...[
+                        SettingDivider(c: c),
+                        SettingTile(
+                          icon: Icons.volunteer_activism_rounded,
+                          title: isAr ? 'مشاركة التلاوة' : 'Recitation Sharing',
+                          c: c,
+                          trailing: Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 15,
+                            color: c.muted,
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            sdkEngine.sharing?.openSettings();
+                          },
+                        ),
+                      ],
+
+                      // 5. Sliders in reading mode
                       if (!app.isMushafMode) ...[
                         SettingDivider(c: c),
                         FontSliderTile(c: c, app: app, isAr: isAr),

@@ -72,8 +72,6 @@ jobs:
 
     env:
       FLUTTER_VERSION: "3.44.8"
-      MODEL_RELEASE: models-latest
-      MODEL_REPO: Recite-Quran/Natlu
 
     steps:
       - name: Checkout
@@ -138,23 +136,15 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Enable Swift Package Manager
+        run: flutter config --enable-swift-package-manager
+
       - name: Set up Ruby and fastlane
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
           bundler-cache: true
           working-directory: ios
-
-      # The 69 MB ASR model is published as a release asset rather than
-      # committed, so every fresh checkout has to fetch it before building.
-      - name: Download ASR model
-        if: steps.cfg.outputs.action == 'testflight' || steps.cfg.outputs.action == 'unsigned'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p assets/model
-          gh release download "$MODEL_RELEASE" --repo "$MODEL_REPO" -p '*.onnx' --dir assets/model --clobber
-          ls -lh assets/model
 
       - name: Apply marketing version override
         if: steps.cfg.outputs.version != ''
@@ -217,6 +207,8 @@ jobs:
       - name: Build and upload to TestFlight
         if: steps.cfg.outputs.action == 'testflight'
         working-directory: ios
+        env:
+          QURANLAB_KEY: ${{ secrets.QURANLAB_KEY }}
         run: bundle exec fastlane ci_ship_ios
 
       - name: Distribute to internal testers
@@ -237,6 +229,8 @@ jobs:
       - name: Build unsigned (smoke test)
         if: steps.cfg.outputs.action == 'unsigned'
         working-directory: ios
+        env:
+          QURANLAB_KEY: ${{ secrets.QURANLAB_KEY }}
         run: bundle exec fastlane ci_build_unsigned
 
       # --- artefacts ---

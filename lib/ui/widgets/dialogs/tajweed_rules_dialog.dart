@@ -110,7 +110,7 @@ class _TajweedRulesDialogState extends State<TajweedRulesDialog> {
   void _toggleAll() {
     setState(() {
       final selectAll = !_allSelected;
-      _config = TajweedConfig(
+      _config = _config.copyWith(
         checkMadd: selectAll,
         checkTashkeel: selectAll,
         checkGhunnah: selectAll,

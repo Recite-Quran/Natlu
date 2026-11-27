@@ -116,14 +116,35 @@ class MaglisPacket {
       MaglisBinaryPacker.unpack(bytes);
 
   /// Ultra-compact structured error map for minimum bandwidth over WebRTC.
-  /// Sends strictly essential integer indices and phoneme strings.
+  /// Preserves exact Tajweed rule identity, subtype, and measured durations
+  /// without client-side guessing.
   static Map<String, dynamic> compactErrorMap(rq.ReciterError e) {
-    return {
+    final map = <String, dynamic>{
       'errorType': e.errorType.index,
       'speechErrorType': e.speechErrorType.index,
       'expectedPh': e.expectedPh,
       'predictedPh': e.predictedPh,
     };
+    if (e.durationStatus != null) {
+      map['durationStatus'] = e.durationStatus!.index;
+    }
+    final rule = e.expectedRule;
+    if (rule != null) {
+      map['ruleId'] = rule.ruleId;
+      map['goldenLen'] = rule.goldenLen;
+      if (rule is rq.MushaddadGhunnahRule) {
+        map['ghunnaExpected'] = rule.ghunnaExpected;
+      } else if (rule is rq.QalqalahRule) {
+        map['qalqalahLevel'] = rule.level;
+      }
+    }
+    if (e.expectedDuration != null) {
+      map['expectedDuration'] = e.expectedDuration;
+    }
+    if (e.actualDuration != null) {
+      map['actualDuration'] = e.actualDuration;
+    }
+    return map;
   }
 
   /// Deserializes a [rq.ReciterError] from the compact wire payload.
@@ -133,6 +154,23 @@ class MaglisPacket {
     final int? dIdx = (raw['durationStatus'] ?? raw['d']) as int?;
     final String expectedPh = (raw['expectedPh'] ?? raw['e'] ?? '') as String;
     final String predictedPh = (raw['predictedPh'] ?? raw['p'] ?? '') as String;
+    final int? ruleId = raw['ruleId'] as int?;
+    final num? goldenLen = raw['goldenLen'] as num?;
+    final int? ghunnaExpected = raw['ghunnaExpected'] as int?;
+    final int? qalqalahLevel = raw['qalqalahLevel'] as int?;
+    final double? expectedDuration = (raw['expectedDuration'] as num?)?.toDouble();
+    final double? actualDuration = (raw['actualDuration'] as num?)?.toDouble();
+
+    final rq.TajweedRule? expectedRule = (ruleId != null && ruleId > 0)
+        ? rq.TajweedRuleFactory.instantiateFromId(
+            ruleId,
+            goldenLen ?? 2,
+            rq.RecitationSpeed.normal,
+            ghunnaExpected ?? 0,
+            qalqalahLevel ?? 0,
+          )
+        : null;
+
     return rq.ReciterError(
       errorType: rq.ErrorCategory
           .values[tIdx.clamp(0, rq.ErrorCategory.values.length - 1)],
@@ -144,6 +182,9 @@ class MaglisPacket {
           : null,
       expectedPh: expectedPh,
       predictedPh: predictedPh,
+      expectedRule: expectedRule,
+      expectedDuration: expectedDuration,
+      actualDuration: actualDuration,
     );
   }
 

@@ -39,11 +39,9 @@ IOS_INTERNAL_GROUP = "internal"   # team members, no review, instant
 IOS_EXTERNAL_GROUP = "external"   # invited testers, needs Apple beta review
 PROFILE_NAME   = "ReciteQuran AppStore"
 
-# The ASR model is a 69 MB release asset rather than a committed file, so a
-# fresh checkout has to fetch it before any build.
-MODEL_PATH    = "#{ROOT}/assets/model/zipformer_p_arabic_v3.int8.onnx"
-MODEL_RELEASE = "models-latest"
-MODEL_REPO    = "Recite-Quran/Natlu"
+# Tajweed / verse boundary reference bundled in git; neural weights are
+# downloaded and verified at runtime by the Quran Lab SDK (`QURANLAB_KEY`).
+ZFX_PATH = "#{ROOT}/assets/model/expected_tj3.zfx"
 
 def flutter_bin
   ENV["FLUTTER_BIN"] || `which flutter`.strip.then { |p| p.empty? ? "flutter" : p }
@@ -176,14 +174,20 @@ def assert_version_unused(marketing)
   UI.success("#{marketing} is not yet on App Store Connect — proceeding.")
 end
 
-def ensure_model!
-  return if File.exist?(MODEL_PATH) && File.size(MODEL_PATH) > 1_000_000
+def ensure_reference_zfx!
+  return if File.exist?(ZFX_PATH) && File.size(ZFX_PATH) > 10_000
+  UI.user_error!("Missing Quran reference data at #{ZFX_PATH}")
+end
 
-  UI.message("ASR model missing — fetching from #{MODEL_REPO} release #{MODEL_RELEASE}")
-  FileUtils.mkdir_p(File.dirname(MODEL_PATH))
-  sh("gh release download #{MODEL_RELEASE} --repo #{MODEL_REPO} -p '*.onnx' " \
-     "--dir #{ROOT.shellescape}/assets/model --clobber")
-  UI.user_error!("Model still missing at #{MODEL_PATH}") unless File.exist?(MODEL_PATH)
+def quranlab_define_args(require_key: true)
+  key = ENV["QURANLAB_KEY"].to_s.strip
+  if require_key && key.empty?
+    UI.user_error!(
+      "QURANLAB_KEY is not set. Export QURANLAB_KEY=qlk_v1_... (or add the " \
+      "QURANLAB_KEY repository secret in GitHub Actions) before shipping."
+    )
+  end
+  key.empty? ? "" : " --dart-define=QURANLAB_KEY=#{key.shellescape}"
 end
 
 # `flutter build` shells out to `pod install`, and getting CocoaPods to work in
@@ -212,10 +216,11 @@ def flutter_sh(args)
 end
 
 def build_ios(marketing, n, export_plist: "ios/ExportOptions.plist")
-  ensure_model!
+  ensure_reference_zfx!
+  defines = quranlab_define_args(require_key: true)
 
   flutter_sh("build ipa --release --build-name=#{marketing} --build-number=#{n} " \
-             "--export-options-plist=#{export_plist}")
+             "--export-options-plist=#{export_plist}#{defines}")
 
   ipa = Dir["#{ROOT}/build/ios/ipa/*.ipa"].max_by { |f| File.mtime(f) }
   UI.user_error!("No IPA in build/ios/ipa/ — check Xcode signing") if ipa.nil?
@@ -231,7 +236,7 @@ lane :ios_status do
           api_key: asc_key, app_identifier: BUNDLE_ID, initial_build_number: 0
         ) rescue "n/a")
   UI.success("pubspec = #{marketing}+#{build}   TestFlight latest build = #{tf}")
-  UI.message("model present: #{File.exist?(MODEL_PATH)}")
+  UI.message("expected_tj3.zfx present: #{File.exist?(ZFX_PATH)}")
 end
 
 desc "iOS: bump build number, build, upload to TestFlight"
@@ -561,8 +566,9 @@ end
 
 desc "CI: build unsigned only (no secrets needed) — compile check"
 lane :ci_build_unsigned do
-  ensure_model!
-  flutter_sh("build ipa --release --no-codesign")
+  ensure_reference_zfx!
+  defines = quranlab_define_args(require_key: false)
+  flutter_sh("build ipa --release --no-codesign#{defines}")
   UI.success("✅ Unsigned archive built.")
 end
 

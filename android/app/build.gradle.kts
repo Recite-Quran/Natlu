@@ -31,7 +31,7 @@ android {
 
     defaultConfig {
         applicationId = "com.recitequran.app"
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 26)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -75,14 +75,8 @@ android {
 
     packaging {
         jniLibs {
-            pickFirsts.add("**/libonnxruntime.so")
             pickFirsts.add("**/libc++_shared.so")
-            useLegacyPackaging = true
         }
-    }
-
-    androidResources {
-        noCompress += listOf("onnx", "txt", "json", "npy")
     }
 }
 

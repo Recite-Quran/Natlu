@@ -16,46 +16,16 @@ enum RecitationSource {
   audioPlayback,
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Quran Coordinate Packing & Arithmetic
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Centralized Quran Coordinate Arithmetic & Packing.
-/// Replaces ad-hoc bit shifting and frees Mushaf and UI layers from importing networking controllers.
-abstract final class QuranCoordinate {
-  /// Packs (surah, ayah, word0) into a single compact 32-bit integer:
-  /// ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF)
-  static int packWordKey(int surah, int ayah, int word0) =>
-      ((surah & 0xFF) << 20) | ((ayah & 0xFFF) << 8) | (word0 & 0xFF);
-
-  /// Unpacks a 32-bit packed word key into (surah, ayah, word0).
-  static (int surah, int ayah, int word0) unpackWordKey(int key) => (
-        (key >> 20) & 0xFF,
-        (key >> 8) & 0xFFF,
-        key & 0xFF,
-      );
-
-  /// Packs (surah, ayah) into a 32-bit integer: (surah << 16) | (ayah & 0xFFFF)
-  static int packAyahKey(int surah, int ayah) =>
-      ((surah & 0xFFFF) << 16) | (ayah & 0xFFFF);
-
-  /// Unpacks a 32-bit packed ayah key into (surah, ayah).
-  static (int surah, int ayah) unpackAyahKey(int key) => (
-        (key >> 16) & 0xFFFF,
-        key & 0xFFFF,
-      );
-}
-
 /// HighlightStore
 ///
 /// High-performance flat O(1) bit-packed key store for Quran word highlight states
 /// (1: Green, 2: Yellow, 3: Red, 4: Neutral) and Tajweed recitation errors.
 /// Serves as the single source of truth for all producers (Local ASR, Remote Maglis, and Audio Playback).
 class HighlightStore {
-  // Key: QuranCoordinate.packWordKey(surah, ayah, word0) -> status (1..4)
+  // Key: rq.QuranCoordinate.packWordKey(surah, ayah, word0) -> status (1..4)
   final Map<int, int> _states = {};
 
-  // Key: QuranCoordinate.packWordKey(surah, ayah, word0) -> errors
+  // Key: rq.QuranCoordinate.packWordKey(surah, ayah, word0) -> errors
   final Map<int, List<rq.ReciterError>> _errors = {};
 
   // Completed ayahs per surah: surah -> Set of ayah numbers (1-based)
@@ -73,8 +43,8 @@ class HighlightStore {
     int status, [
     List<rq.ReciterError>? errors,
   ]) {
-    final key = QuranCoordinate.packWordKey(surah, ayah, wordIndex);
-    final ayahKey = QuranCoordinate.packAyahKey(surah, ayah);
+    final key = rq.QuranCoordinate.packWordKey(surah, ayah, wordIndex);
+    final ayahKey = rq.QuranCoordinate.packAyahKey(surah, ayah);
     final prev = _states[key];
     if (prev == null || prev == 0) {
       _ayahHighlightCounts[ayahKey] = (_ayahHighlightCounts[ayahKey] ?? 0) + 1;
@@ -114,7 +84,7 @@ class HighlightStore {
   // ── Reads ──
 
   int getWordStatus(int surah, int ayah, int wordIndex) =>
-      _states[QuranCoordinate.packWordKey(surah, ayah, wordIndex)] ?? 0;
+      _states[rq.QuranCoordinate.packWordKey(surah, ayah, wordIndex)] ?? 0;
 
   bool isGreen(int surah, int ayah, int wordIndex) =>
       getWordStatus(surah, ayah, wordIndex) == 1;
@@ -133,7 +103,7 @@ class HighlightStore {
 
   List<rq.ReciterError>? errorsFor(int surah, int ayah, int wordIndex) {
     if (!isYellow(surah, ayah, wordIndex)) return null;
-    return _errors[QuranCoordinate.packWordKey(surah, ayah, wordIndex)];
+    return _errors[rq.QuranCoordinate.packWordKey(surah, ayah, wordIndex)];
   }
 
   Set<int> completedAyahsFor(int surah) =>
@@ -141,7 +111,9 @@ class HighlightStore {
 
   /// High-speed O(1) check if a specific ayah has any stored highlights.
   bool hasAyahHighlights(int surah, int ayah) =>
-      (_ayahHighlightCounts[QuranCoordinate.packAyahKey(surah, ayah)] ?? 0) > 0;
+      (_ayahHighlightCounts[rq.QuranCoordinate.packAyahKey(surah, ayah)] ??
+          0) >
+      0;
 
   bool get hasHighlights => _states.isNotEmpty;
 
@@ -165,37 +137,37 @@ class HighlightStore {
 
   void clearSurah(int surah) {
     _states.removeWhere(
-        (key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
+        (key, _) => rq.QuranCoordinate.unpackWordKey(key).$1 == surah);
     _errors.removeWhere(
-        (key, _) => QuranCoordinate.unpackWordKey(key).$1 == surah);
+        (key, _) => rq.QuranCoordinate.unpackWordKey(key).$1 == surah);
     _completedAyahs.remove(surah);
     _ayahHighlightCounts.removeWhere(
-        (key, _) => QuranCoordinate.unpackAyahKey(key).$1 == surah);
+        (key, _) => rq.QuranCoordinate.unpackAyahKey(key).$1 == surah);
   }
 
   void clearAllExceptSurah(int keepSurah) {
     _states.removeWhere(
-        (key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
+        (key, _) => rq.QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
     _errors.removeWhere(
-        (key, _) => QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
+        (key, _) => rq.QuranCoordinate.unpackWordKey(key).$1 != keepSurah);
     _completedAyahs.removeWhere((s, _) => s != keepSurah);
     _ayahHighlightCounts.removeWhere(
-        (key, _) => QuranCoordinate.unpackAyahKey(key).$1 != keepSurah);
+        (key, _) => rq.QuranCoordinate.unpackAyahKey(key).$1 != keepSurah);
   }
 
   void clearSurahFromAyah(int surah, int startAyah) {
     _completedAyahs[surah]?.removeWhere((ayah) => ayah >= startAyah);
     _completedAyahs.removeWhere((s, _) => s > surah);
     _states.removeWhere((key, _) {
-      final (s, a, _) = QuranCoordinate.unpackWordKey(key);
+      final (s, a, _) = rq.QuranCoordinate.unpackWordKey(key);
       return s > surah || (s == surah && a >= startAyah);
     });
     _errors.removeWhere((key, _) {
-      final (s, a, _) = QuranCoordinate.unpackWordKey(key);
+      final (s, a, _) = rq.QuranCoordinate.unpackWordKey(key);
       return s > surah || (s == surah && a >= startAyah);
     });
     _ayahHighlightCounts.removeWhere((key, _) {
-      final (s, a) = QuranCoordinate.unpackAyahKey(key);
+      final (s, a) = rq.QuranCoordinate.unpackAyahKey(key);
       return s > surah || (s == surah && a >= startAyah);
     });
   }
@@ -306,8 +278,6 @@ class HighlightingController extends ChangeNotifier {
   }
 
   Future<void> _initScorerAndStreams() async {
-    await _scorer.initialize();
-    _syncCalibratedThresholds();
     _wordEvaluatedSub = _scorer.onWordEvaluated.listen(_onEngineWordEvaluated);
     _autoReanchorSub = _scorer.onAutoReanchored.listen(_onEngineAutoReanchored);
     _engineTranscriptionSub = _engine.transcriptionStream.listen((result) {
@@ -322,6 +292,47 @@ class HighlightingController extends ChangeNotifier {
       }
       _scorer.feedTranscript(result);
     });
+
+    final sdkVocab = _engine.vocabTokens;
+    if (sdkVocab != null &&
+        sdkVocab.isNotEmpty &&
+        (repository.service.vocabTokens == null ||
+            repository.service.vocabTokens!.isEmpty)) {
+      repository.service.setVocabTokens(sdkVocab);
+    }
+
+    if (repository.isLoaded ||
+        (repository.service.vocabTokens?.isNotEmpty ?? false)) {
+      await _scorer.initialize();
+      _syncCalibratedThresholds();
+    }
+  }
+
+  /// Synchronizes SDK model vocabulary, loads `expected_tj3.zfx`, initializes
+  /// the alignment isolate, and updates calibrated thresholds once the SDK model is open.
+  Future<void> syncWithReadyEngine({int? surah}) async {
+    await initFuture;
+    final sdkVocab = _engine.vocabTokens;
+    if (sdkVocab != null &&
+        sdkVocab.isNotEmpty &&
+        (repository.service.vocabTokens == null ||
+            repository.service.vocabTokens!.isEmpty)) {
+      repository.service.setVocabTokens(sdkVocab);
+    }
+    if (!_scorer.isInitialized &&
+        (repository.isLoaded ||
+            (repository.service.vocabTokens?.isNotEmpty ?? false))) {
+      await _scorer.initialize();
+    }
+    final int target =
+        surah != null && QuranMetadata.isValidSurah(surah) ? surah : targetSurah;
+    if (repository.isLoaded && target != 0) {
+      await repository.loadSurahAsync(target);
+      _scorer.setTajweedMode(isTajweed);
+      _scorer.setTargetSurah(target, forceClear: false);
+    }
+    _syncCalibratedThresholds();
+    notifyListeners();
   }
 
   /// Feeds raw PCM audio chunk into the engine.
@@ -399,9 +410,7 @@ class HighlightingController extends ChangeNotifier {
   Future<void> reloadEngine() async {
     _engineTauSynced = false;
     await _engine.initialize();
-    await _scorer.initialize();
-    _syncCalibratedThresholds();
-    notifyListeners();
+    await syncWithReadyEngine();
   }
 
   @override
@@ -892,7 +901,7 @@ class HighlightingController extends ChangeNotifier {
         if (v < 1 || v > 3) return;
         final parsed = int.tryParse(k, radix: 16);
         if (parsed != null) {
-          final (s, a, w) = QuranCoordinate.unpackWordKey(parsed);
+          final (s, a, w) = rq.QuranCoordinate.unpackWordKey(parsed);
           if (v == 1) {
             _store.markGreen(s, a, w);
           } else if (v == 2) {
@@ -942,9 +951,8 @@ class HighlightingController extends ChangeNotifier {
     return changed;
   }
 
-  /// Hydrates a lightweight [rq.ReciterError] into a complete model with
-  /// canonical Tajweed rule metadata and guidance derived locally from [repository].
-  /// canonical Tajweed rule metadata and guidance derived locally from [repository].
+  /// Hydrates a [rq.ReciterError] with duration status when exact acoustic
+  /// duration and canonical rule metadata are present (never guessing by string length).
   rq.ReciterError hydrateRemoteError(
     int surah,
     int ayah,
@@ -953,39 +961,15 @@ class HighlightingController extends ChangeNotifier {
   ) {
     if (e.expectedRule != null && e.durationStatus != null) return e;
 
-    rq.TajweedRule? rule = e.expectedRule;
+    final rq.TajweedRule? rule = e.expectedRule;
     rq.TajweedDurationStatus? durStatus = e.durationStatus;
 
-    if (e.errorType == rq.ErrorCategory.tajweed) {
-      if (rule == null) {
-        final verse = repository.getVerse(surah, ayah);
-        if (verse != null &&
-            wordIndex >= 0 &&
-            wordIndex < verse.wordRules.length) {
-          final rules = verse.wordRules[wordIndex];
-          if (rules.isNotEmpty) {
-            final rq.WordTajweedRule matchedRule = rules.firstWhere(
-              (r) => r.goldenLen == e.expectedPh.length,
-              orElse: () => rules.first,
-            );
-            rule = instantiateTajweedRule(matchedRule, config);
-          }
-        }
-      }
-
-      if (durStatus == null) {
-        if (rule != null && e.actualDuration != null) {
-          durStatus =
-              rule.checkDurationStatus(e.actualDuration!, config.recitationSpeed);
-        } else if (e.expectedPh.length > e.predictedPh.length ||
-            e.predictedPh.isEmpty) {
-          durStatus = rq.TajweedDurationStatus.underheld;
-        } else if (e.predictedPh.length > e.expectedPh.length) {
-          durStatus = rq.TajweedDurationStatus.overheld;
-        } else {
-          durStatus = rq.TajweedDurationStatus.underheld;
-        }
-      }
+    if (e.errorType == rq.ErrorCategory.tajweed &&
+        durStatus == null &&
+        rule != null &&
+        e.actualDuration != null) {
+      durStatus =
+          rule.checkDurationStatus(e.actualDuration!, config.recitationSpeed);
     }
 
     return rq.ReciterError(
@@ -995,6 +979,9 @@ class HighlightingController extends ChangeNotifier {
       expectedPh: e.expectedPh,
       predictedPh: e.predictedPh,
       expectedRule: rule,
+      predictedRule: e.predictedRule,
+      expectedDuration: e.expectedDuration,
+      actualDuration: e.actualDuration,
     );
   }
 

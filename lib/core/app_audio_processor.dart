@@ -21,17 +21,34 @@ class AppAudioProcessor {
   static const int recordChunkBytes =
       (recordSampleRate * numChannels * bytesPerSample * chunkMs) ~/ 1000;
 
-  final rq.AudioProcessor _soloAudio = rq.AudioProcessor();
+  static const RecordConfig _maglisRecordConfig = RecordConfig(
+    encoder: AudioEncoder.pcm16bits,
+    sampleRate: recordSampleRate,
+    numChannels: numChannels,
+    autoGain: false,
+    echoCancel: false,
+    noiseSuppress: false,
+    audioInterruption: AudioInterruptionMode.none,
+    androidConfig: AndroidRecordConfig(
+      audioSource: AndroidAudioSource.mic,
+      audioManagerMode: AudioManagerMode.modeInCommunication,
+      manageBluetooth: false,
+    ),
+    iosConfig: IosRecordConfig(
+      categoryOptions: [
+        IosAudioCategoryOption.defaultToSpeaker,
+        IosAudioCategoryOption.allowBluetooth,
+        IosAudioCategoryOption.allowBluetoothA2DP,
+        IosAudioCategoryOption.allowAirPlay,
+      ],
+    ),
+  );
 
-  // Maglis-specific recorder state
-  AudioRecorder? _maglisRecorder;
-  StreamSubscription<Uint8List>? _maglisSubscription;
-  int? _maglisCarryByte;
-  bool _isMaglisRecording = false;
+  final rq.AudioProcessor _audio = rq.AudioProcessor();
   Future<void>? _activeOp;
 
   Future<bool> hasPermission() async {
-    return _soloAudio.hasPermission();
+    return _audio.hasPermission();
   }
 
   Future<void> start({
@@ -47,82 +64,9 @@ class AppAudioProcessor {
       await _stopInternal();
 
       final bool inMaglis = MaglisController.instance.inSession;
-
-      if (!inMaglis) {
-        // Pure quran_tajweedformer package audio processor in Solo Mode
-        await _soloAudio.start(onChunk: onChunk);
-        return;
-      }
-
-      // Harmonized WebRTC config in Maglis mode:
-      const config = RecordConfig(
-        encoder: AudioEncoder.pcm16bits,
-        sampleRate: recordSampleRate,
-        numChannels: numChannels,
-        autoGain: false,
-        echoCancel: false,
-        noiseSuppress: false,
-        audioInterruption: AudioInterruptionMode.none,
-        androidConfig: AndroidRecordConfig(
-          audioSource: AndroidAudioSource.mic,
-          audioManagerMode: AudioManagerMode.modeInCommunication,
-          manageBluetooth: false,
-        ),
-        iosConfig: IosRecordConfig(
-          categoryOptions: [
-            IosAudioCategoryOption.defaultToSpeaker,
-            IosAudioCategoryOption.allowBluetooth,
-            IosAudioCategoryOption.allowBluetoothA2DP,
-            IosAudioCategoryOption.allowAirPlay,
-          ],
-        ),
-      );
-
-      _maglisRecorder = AudioRecorder();
-      final recordStream = await _maglisRecorder!.startStream(config);
-      _isMaglisRecording = true;
-
-      _maglisCarryByte = null;
-      _maglisSubscription = recordStream.listen(
-        (Uint8List rawData) {
-          if (rawData.isEmpty) return;
-
-          // Handle odd-byte carry across chunk boundaries (matching pumpPcm16)
-          final Uint8List bytes;
-          if (_maglisCarryByte != null) {
-            bytes = Uint8List(rawData.length + 1)
-              ..[0] = _maglisCarryByte!
-              ..setRange(1, rawData.length + 1, rawData);
-            _maglisCarryByte = null;
-          } else {
-            bytes = rawData;
-          }
-
-          final int evenBytes = bytes.length & ~1;
-          if (bytes.length.isOdd) {
-            _maglisCarryByte = bytes[bytes.length - 1];
-          }
-          if (evenBytes == 0) return;
-
-          final byteData = ByteData.sublistView(bytes, 0, evenBytes);
-          final int sampleCount = evenBytes ~/ bytesPerSample;
-          final float32Samples = Float32List(sampleCount);
-
-          for (int i = 0; i < sampleCount; i++) {
-            float32Samples[i] =
-                byteData.getInt16(i * 2, Endian.little) / 32768.0;
-          }
-
-          // Stream immediately to the neural ASR engine!
-          onChunk(float32Samples, false);
-        },
-        onError: (err) {
-          _isMaglisRecording = false;
-        },
-        onDone: () {
-          _isMaglisRecording = false;
-        },
-        cancelOnError: true,
+      await _audio.start(
+        onChunk: onChunk,
+        config: inMaglis ? _maglisRecordConfig : null,
       );
     } finally {
       completer.complete();
@@ -131,8 +75,7 @@ class AppAudioProcessor {
   }
 
   void clearBuffer() {
-    _soloAudio.clearBuffer();
-    _maglisCarryByte = null;
+    _audio.clearBuffer();
   }
 
   Future<void> stop() async {
@@ -151,33 +94,9 @@ class AppAudioProcessor {
   }
 
   Future<void> _stopInternal() async {
-    // 1. Stop solo audio processor
     try {
-      await _soloAudio.stop();
+      await _audio.stop();
     } catch (_) {}
-
-    // 2. Stop Maglis recorder if active
-    await _maglisSubscription?.cancel();
-    _maglisSubscription = null;
-
-    if (_isMaglisRecording) {
-      _isMaglisRecording = false;
-      try {
-        await _maglisRecorder?.stop();
-      } catch (_) {}
-    } else {
-      try {
-        if (_maglisRecorder != null && await _maglisRecorder!.isRecording()) {
-          await _maglisRecorder!.stop();
-        }
-      } catch (_) {}
-    }
-
-    try {
-      await _maglisRecorder?.dispose();
-    } catch (_) {}
-    _maglisRecorder = null;
-    _maglisCarryByte = null;
 
     // If still in active Maglis session (and not tearing down), preserve WebRTC call speakerphone
     if (MaglisController.instance.inSession &&
