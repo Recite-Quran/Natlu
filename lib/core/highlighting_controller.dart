@@ -293,16 +293,12 @@ class HighlightingController extends ChangeNotifier {
       _scorer.feedTranscript(result);
     });
 
-    final sdkVocab = _engine.vocabTokens;
-    if (sdkVocab != null &&
-        sdkVocab.isNotEmpty &&
-        (repository.service.vocabTokens == null ||
-            repository.service.vocabTokens!.isEmpty)) {
-      repository.service.setVocabTokens(sdkVocab);
+    final sdkTokens = _engine.tokens;
+    if (sdkTokens != null && repository.service.sdkTokens == null) {
+      repository.service.setSdkTokens(sdkTokens);
     }
 
-    if (repository.isLoaded ||
-        (repository.service.vocabTokens?.isNotEmpty ?? false)) {
+    if (repository.isLoaded || repository.service.sdkTokens != null) {
       await _scorer.initialize();
       _syncCalibratedThresholds();
     }
@@ -312,16 +308,12 @@ class HighlightingController extends ChangeNotifier {
   /// the alignment isolate, and updates calibrated thresholds once the SDK model is open.
   Future<void> syncWithReadyEngine({int? surah}) async {
     await initFuture;
-    final sdkVocab = _engine.vocabTokens;
-    if (sdkVocab != null &&
-        sdkVocab.isNotEmpty &&
-        (repository.service.vocabTokens == null ||
-            repository.service.vocabTokens!.isEmpty)) {
-      repository.service.setVocabTokens(sdkVocab);
+    final sdkTokens = _engine.tokens;
+    if (sdkTokens != null && repository.service.sdkTokens == null) {
+      repository.service.setSdkTokens(sdkTokens);
     }
     if (!_scorer.isInitialized &&
-        (repository.isLoaded ||
-            (repository.service.vocabTokens?.isNotEmpty ?? false))) {
+        (repository.isLoaded || repository.service.sdkTokens != null)) {
       await _scorer.initialize();
     }
     final int target =
@@ -393,10 +385,9 @@ class HighlightingController extends ChangeNotifier {
   }
 
   void setTajweedMode(bool active) {
-    final effective = repository.isTajweedSupported && active;
-    if (isTajweed == effective) return;
-    isTajweed = effective;
-    _scorer.setTajweedMode(effective);
+    if (isTajweed == active) return;
+    isTajweed = active;
+    _scorer.setTajweedMode(active);
     globalRevision.value++;
     notifyListeners();
   }
